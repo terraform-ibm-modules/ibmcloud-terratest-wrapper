@@ -1,0 +1,9 @@
+- name: us-east
+  useForTest: false
+  testPriority: 1
+- name: us-south
+  useForTest: true
+  testPriority: 99
+- name: br-sao
+  useForTest: false
+  testPriority: 2
