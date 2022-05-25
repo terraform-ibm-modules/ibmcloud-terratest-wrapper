@@ -48,8 +48,4 @@ jobs:
 
       # Run tests
       - name: Run Tests
-        env:
-          TF_VAR_ibmcloud_api_key: "UNUSED" # Not needed for this particular repo, but it's a required value
-        run: |
-          make run-tests-local GO_TEST_DIR=testhelper
-          make run-tests-local GO_TEST_DIR=cloudinfo
+        run: go test ./... -count=1 -v -timeout 5m
