@@ -34,9 +34,7 @@ jobs:
 
       # Setup tools
       - name: Setup tools
-        run: |
-          ls
-          make
+        run: make
 
       # Check for pre-commit updates if it is a renovate PR
       - name: Pre-commit sweeper
