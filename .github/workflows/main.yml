@@ -49,7 +49,5 @@ jobs:
       # Run tests
       - name: Run Tests
         run: |
-          git fetch --all
-          git pull --all
-          git branch -a
+          git fetch origin main:main
           go test ./... -count=1 -v -timeout 5m
