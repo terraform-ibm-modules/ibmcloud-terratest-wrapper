@@ -35,7 +35,7 @@ jobs:
       # Setup tools
       - name: Setup tools
         run: |
-          pip install pre-commit
+          make
           pre-commit install
 
       # Check for pre-commit updates if it is a renovate PR
