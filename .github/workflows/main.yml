@@ -40,7 +40,7 @@ jobs:
 
       # Check for pre-commit updates if it is a renovate PR
       - name: Pre-commit sweeper
-        run: module-assets/ci/pre-commit-sweeper.sh
+        run: common-dev-assets/module-assets/ci/pre-commit-sweeper.sh
 
       # run pre-commit against all files
       - name: Pre-commit
