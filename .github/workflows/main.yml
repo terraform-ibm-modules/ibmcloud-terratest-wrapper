@@ -25,8 +25,7 @@ jobs:
           submodules: true
           # Clone all branches and history. This is needed for the upgrade tests
           fetch-depth: 0
-      - run:
-          - git fetch origin main:main
+      - run: git fetch origin main:main
 
       - name: Setup Go environment
         uses: actions/setup-go@v3.0.0
