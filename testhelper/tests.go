@@ -185,6 +185,20 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		ref, _ := gitRepo.Head()
 		prBranch := ref.Name()
+
+		// fetch to ensure all branches are present
+		remote, err := gitRepo.Remote("origin")
+		if err != nil {
+			logger.Log(options.Testing, err)
+		}
+
+		opts := &git.FetchOptions{
+			RefSpecs: []config.RefSpec{"refs/*:refs/*", "HEAD:refs/heads/HEAD"},
+		}
+
+		if err := remote.Fetch(opts); err != nil {
+			logger.Log(options.Testing, err)
+		}
 		logger.Log(options.Testing, "PR Branch: ", prBranch.String())
 
 		var branches storer.ReferenceIter
