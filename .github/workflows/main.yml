@@ -27,7 +27,6 @@ jobs:
           fetch-depth: 0
       - name: Configure git for tests
         run: |
-         git fetch origin main:main
          git branch -a
 
       - name: Setup Go environment
