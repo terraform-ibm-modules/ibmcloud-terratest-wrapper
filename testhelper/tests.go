@@ -224,6 +224,13 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		}
 		var defaultBranch *config.Branch
+		cfg, _ := gitRepo.Config()
+		logger.Log(options.Testing, "---------------")
+		for key, element := range cfg.Branches {
+			logger.Log(options.Testing, "Key: "+key)
+			logger.Log(options.Testing, "Name: "+element.Name)
+		}
+		logger.Log(options.Testing, "---------------")
 		defaultBranch, resultErr = gitRepo.Branch(defaultBranchName)
 		if resultErr != nil {
 			logger.Log(options.Testing, "Could not checkout branch name: "+defaultBranchName)
