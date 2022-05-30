@@ -28,7 +28,7 @@ jobs:
       - name: Configure git for tests
         run: |
          git fetch origin main:main
-         git branches -a
+         git branch -a
 
       - name: Setup Go environment
         uses: actions/setup-go@v3.0.0
