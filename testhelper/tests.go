@@ -204,16 +204,18 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		var branches storer.ReferenceIter
 		var defaultBranchName string
+		var defaultBranchRef string
 		branches, resultErr = gitRepo.Branches()
 		if resultErr == nil {
 			logger.Log(options.Testing, "Branches: ")
 			_ = branches.ForEach(func(ref *plumbing.Reference) error {
 				logger.Log(options.Testing, ref.Name().String())
 				if defaultBranchName == "" {
-					match, _ := regexp.MatchString("[mM]ain|[mM]aster$", ref.Name().String())
+					match, _ := regexp.MatchString("/[mM]ain|[mM]aster$", ref.Name().String())
 					if match {
 						// get just default branch name without /ref/heads/ etc.
 						defaultBranchName = ref.Name().String()[strings.LastIndex(ref.Name().String(), "/")+1:]
+						defaultBranchRef = ref.Name().String()
 						fmt.Println("Default Branch: " + defaultBranchName)
 					}
 				}
@@ -224,44 +226,49 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		var defaultBranch *config.Branch
 		defaultBranch, resultErr = gitRepo.Branch(defaultBranchName)
 		if resultErr != nil {
-			assert.Nilf(options.Testing, resultErr, "Could Not Determine Default Branch")
-		} else {
-			logger.Log(options.Testing, "Default Branch: ", defaultBranch.Merge)
+			fmt.Println("Could not checkout branch name: " + defaultBranchName)
+			fmt.Println("Trying ref: " + defaultBranchRef)
+			defaultBranch, resultErr = gitRepo.Branch(defaultBranchRef)
+			if resultErr != nil {
+				assert.Nilf(options.Testing, resultErr, "Could Not Determine Default Branch")
+			}
+		}
 
-			w, _ := gitRepo.Worktree()
+		logger.Log(options.Testing, "Default Branch: ", defaultBranch.Merge)
 
+		w, _ := gitRepo.Worktree()
+
+		resultErr = w.Checkout(&git.CheckoutOptions{
+			Branch: defaultBranch.Merge,
+			Force:  true})
+		assert.Nilf(options.Testing, resultErr, "Could Not Checkout Default Branch")
+		logger.Log(options.Testing, "Git Checkout Branch: ", defaultBranch.Name)
+
+		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
+		assert.Nilf(options.Testing, resultErr, "Terraform Apply on MASTER branch has failed")
+
+		// Only proceed to upgrade Test of master branch apply passed
+		if resultErr == nil {
 			resultErr = w.Checkout(&git.CheckoutOptions{
-				Branch: defaultBranch.Merge,
+				Branch: prBranch,
 				Force:  true})
-			assert.Nilf(options.Testing, resultErr, "Could Not Checkout Default Branch")
-			logger.Log(options.Testing, "Git Checkout Branch: ", defaultBranch.Name)
+			assert.Nilf(options.Testing, resultErr, "Could Not Checkout PR Branch")
+			logger.Log(options.Testing, "Git Checkout Branch: ", prBranch)
 
-			_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
-			assert.Nilf(options.Testing, resultErr, "Terraform Apply on MASTER branch has failed")
-
-			// Only proceed to upgrade Test of master branch apply passed
 			if resultErr == nil {
-				resultErr = w.Checkout(&git.CheckoutOptions{
-					Branch: prBranch,
-					Force:  true})
-				assert.Nilf(options.Testing, resultErr, "Could Not Checkout PR Branch")
-				logger.Log(options.Testing, "Git Checkout Branch: ", prBranch)
+				// Plan needs a temp file to store plan in
+				tmpPlanFile, _ := os.CreateTemp(options.TerraformDir, "terratest-plan-file-")
+				options.TerraformOptions.PlanFilePath = tmpPlanFile.Name()
 
-				if resultErr == nil {
-					// Plan needs a temp file to store plan in
-					tmpPlanFile, _ := os.CreateTemp(options.TerraformDir, "terratest-plan-file-")
-					options.TerraformOptions.PlanFilePath = tmpPlanFile.Name()
-
-					result, resultErr = terraform.InitAndPlanAndShowWithStructE(options.Testing, options.TerraformOptions)
-					assert.Nilf(options.Testing, resultErr, "Terraform Plan on PR branch has failed")
-					if result != nil && resultErr == nil {
-						logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)..")
-						options.checkConsistency(result)
-					} else {
-						// if there were issues running InitAndPlan, an Init needs to take place after branch change in order for downstream
-						// terraform to work (like the destroy)
-						terraform.Init(options.Testing, options.TerraformOptions)
-					}
+				result, resultErr = terraform.InitAndPlanAndShowWithStructE(options.Testing, options.TerraformOptions)
+				assert.Nilf(options.Testing, resultErr, "Terraform Plan on PR branch has failed")
+				if result != nil && resultErr == nil {
+					logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)..")
+					options.checkConsistency(result)
+				} else {
+					// if there were issues running InitAndPlan, an Init needs to take place after branch change in order for downstream
+					// terraform to work (like the destroy)
+					terraform.Init(options.Testing, options.TerraformOptions)
 				}
 			}
 		}
