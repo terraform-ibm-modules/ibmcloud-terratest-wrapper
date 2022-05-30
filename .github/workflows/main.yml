@@ -33,7 +33,11 @@ jobs:
 
       # run pre-commit against all files
       - name: Pre-commit
-        run: pre-commit run --all-files
+        run: |
+          pwd
+          ls
+          lsb_release -a
+          pre-commit run --all-files
 
       # Run tests
       - name: Run Tests
