@@ -203,53 +203,53 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "PR Branch: ", prBranch.String())
 
 		var branches storer.ReferenceIter
-		var defaultBranchName string
-		var defaultBranchRef string
+		var defaultBranchName plumbing.Reference
+		//var defaultBranchRef string
 		branches, resultErr = gitRepo.Branches()
 		if resultErr == nil {
 			logger.Log(options.Testing, "Branches: ")
 			_ = branches.ForEach(func(ref *plumbing.Reference) error {
 				logger.Log(options.Testing, ref.Name().String())
-				if defaultBranchName == "" {
+				if defaultBranchName == (plumbing.Reference{}) {
 					match, _ := regexp.MatchString("/[mM]ain|[mM]aster$", ref.Name().String())
 					if match {
 						// get just default branch name without /ref/heads/ etc.
-						defaultBranchName = ref.Name().String()[strings.LastIndex(ref.Name().String(), "/")+1:]
-						defaultBranchRef = ref.Name().String()
-						logger.Log(options.Testing, "Default Branch: "+defaultBranchName)
+						defaultBranchName = *ref
+						//defaultBranchRef = ref.Name().String()
+						logger.Log(options.Testing, "Default Branch: "+defaultBranchName.String())
 					}
 				}
 				return nil
 			})
 
 		}
-		var defaultBranch *config.Branch
-		cfg, _ := gitRepo.Config()
-		logger.Log(options.Testing, "---------------")
-		for key, element := range cfg.Branches {
-			logger.Log(options.Testing, "Key: "+key)
-			logger.Log(options.Testing, "Name: "+element.Name)
-		}
-		logger.Log(options.Testing, "---------------")
-		defaultBranch, resultErr = gitRepo.Branch(defaultBranchName)
-		if resultErr != nil {
-			logger.Log(options.Testing, "Could not checkout branch name: "+defaultBranchName)
-			logger.Log(options.Testing, "Trying ref: "+defaultBranchRef)
-			defaultBranch, resultErr = gitRepo.Branch(defaultBranchRef)
-			if resultErr != nil {
-				assert.Nilf(options.Testing, resultErr, "Could Not Determine Default Branch")
-			}
-		}
+		//var defaultBranch *config.Branch
+		//cfg, _ := gitRepo.Config()
+		//logger.Log(options.Testing, "---------------")
+		//for key, element := range cfg.Branches {
+		//	logger.Log(options.Testing, "Key: "+key)
+		//	logger.Log(options.Testing, "Name: "+element.Name)
+		//}
+		//logger.Log(options.Testing, "---------------")
+		//defaultBranch, resultErr = gitRepo.Branch(defaultBranchName)
+		//if resultErr != nil {
+		//	logger.Log(options.Testing, "Could not checkout branch name: "+defaultBranchName)
+		//	logger.Log(options.Testing, "Trying ref: "+defaultBranchRef)
+		//	defaultBranch, resultErr = gitRepo.Branch(defaultBranchRef)
+		//	if resultErr != nil {
+		//		assert.Nilf(options.Testing, resultErr, "Could Not Determine Default Branch")
+		//	}
+		//}
 
-		logger.Log(options.Testing, "Default Branch: ", defaultBranch.Merge)
+		logger.Log(options.Testing, "Default Branch: ", defaultBranchName.Name())
 
 		w, _ := gitRepo.Worktree()
 
 		resultErr = w.Checkout(&git.CheckoutOptions{
-			Branch: defaultBranch.Merge,
+			Branch: defaultBranchName.Name(),
 			Force:  true})
 		assert.Nilf(options.Testing, resultErr, "Could Not Checkout Default Branch")
-		logger.Log(options.Testing, "Git Checkout Branch: ", defaultBranch.Name)
+		logger.Log(options.Testing, "Git Checkout Branch: ", defaultBranchName.Name())
 
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on MASTER branch has failed")

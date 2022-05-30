@@ -42,5 +42,4 @@ jobs:
       - name: Run Tests
         run: |
           git fetch --all
-          git branch -a
           go test ./... -count=1 -v -timeout 5m
