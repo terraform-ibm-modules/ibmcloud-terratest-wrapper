@@ -34,8 +34,8 @@ jobs:
       # run pre-commit against all files
       - name: Pre-commit
         run: |
-          source ~/.bashrc
-          source ~/.profile
+          . ~/.bashrc
+          . ~/.profile
           which checkov | true
           checkov --version | true
           ibmcloud --version
