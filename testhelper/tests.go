@@ -216,7 +216,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 						// get just default branch name without /ref/heads/ etc.
 						defaultBranchName = ref.Name().String()[strings.LastIndex(ref.Name().String(), "/")+1:]
 						defaultBranchRef = ref.Name().String()
-						fmt.Println("Default Branch: " + defaultBranchName)
+						logger.Log(options.Testing, "Default Branch: "+defaultBranchName)
 					}
 				}
 				return nil
@@ -226,8 +226,8 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		var defaultBranch *config.Branch
 		defaultBranch, resultErr = gitRepo.Branch(defaultBranchName)
 		if resultErr != nil {
-			fmt.Println("Could not checkout branch name: " + defaultBranchName)
-			fmt.Println("Trying ref: " + defaultBranchRef)
+			logger.Log(options.Testing, "Could not checkout branch name: "+defaultBranchName)
+			logger.Log(options.Testing, "Trying ref: "+defaultBranchRef)
 			defaultBranch, resultErr = gitRepo.Branch(defaultBranchRef)
 			if resultErr != nil {
 				assert.Nilf(options.Testing, resultErr, "Could Not Determine Default Branch")
