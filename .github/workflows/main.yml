@@ -37,6 +37,8 @@ jobs:
           pwd
           ls
           lsb_release -a
+          which checkov | true
+          checkov --version | true
           ibmcloud --version
           pre-commit run --all-files
 
