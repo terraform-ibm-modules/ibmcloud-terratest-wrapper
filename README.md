@@ -1,5 +1,5 @@
 # IBM Cloud Terratest Wrapper
-[![Build Status](https://img.shields.io/badge/Build-placeholder-yellow)](https://img.shields.io/badge/Build-placeholder-yellow)
+[![Build Status](https://github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/actions/workflows/main.yml/badge.svg)](https://github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/actions/workflows/main.yml)
 
 - [Overview](#overview)
 - [Contributing](#contributing)
