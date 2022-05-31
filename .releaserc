@@ -1,15 +1,3 @@
 {
-  "tagFormat": "v${version}",
-  "plugins": [
-    "@semantic-release/commit-analyzer",
-    "@semantic-release/release-notes-generator",
-    "@semantic-release/changelog",
-    [
-      "@semantic-release/github",
-      {
-        "githubUrl": "https://github.com",
-        "githubApiPathPrefix": "/api/v3"
-      }
-    ]
-  ]
+  "extends": "@terraform-ibm-modules/common-dev-assets"
 }
