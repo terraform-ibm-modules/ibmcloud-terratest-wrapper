@@ -53,4 +53,8 @@ jobs:
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: npx semantic-release
+        run: |
+          # Setup environment since GHA does not run the containers entrypoint
+          . /root/.bashrc
+          . /root/.profile
+          npx semantic-release
