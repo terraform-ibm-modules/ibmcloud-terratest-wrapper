@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -185,46 +186,65 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		ref, _ := gitRepo.Head()
 		prBranch := ref.Name()
-		logger.Log(options.Testing, "PR Branch: ", prBranch.String())
+		logger.Log(options.Testing, "Current Branch (PR): "+prBranch)
+
+		// fetch to ensure all branches are present
+		remote, err := gitRepo.Remote("origin")
+		if err != nil {
+			logger.Log(options.Testing, err)
+		}
+
+		opts := &git.FetchOptions{
+			RefSpecs: []config.RefSpec{"refs/*:refs/*", "HEAD:refs/heads/HEAD"},
+		}
+
+		if err := remote.Fetch(opts); err != nil {
+			logger.Log(options.Testing, err)
+		}
 
 		var branches storer.ReferenceIter
+		var defaultBranch plumbing.ReferenceName
 		branches, resultErr = gitRepo.Branches()
 		if resultErr == nil {
 			logger.Log(options.Testing, "Branches: ")
 			_ = branches.ForEach(func(ref *plumbing.Reference) error {
 				logger.Log(options.Testing, ref.Name().String())
+				if defaultBranch == "" {
+					match, _ := regexp.MatchString("/[mM]ain|[mM]aster$", ref.Name().String())
+					if match {
+						defaultBranch = ref.Name()
+					}
+				}
 				return nil
 			})
 
 		}
-		var defaultBranch *config.Branch
-		defaultBranch, resultErr = gitRepo.Branch("master")
-		if resultErr != nil {
-			defaultBranch, resultErr = gitRepo.Branch("main")
-			assert.Nilf(options.Testing, resultErr, "Could Not Determine Default Branch")
-		}
-		logger.Log(options.Testing, "Default Branch: ", defaultBranch.Merge)
+
+		logger.Log(options.Testing, "Default Branch: ", defaultBranch)
 
 		w, _ := gitRepo.Worktree()
-
+		logger.Log(options.Testing, "Attempting Git Checkout Default Branch: ", defaultBranch)
 		resultErr = w.Checkout(&git.CheckoutOptions{
-			Branch: defaultBranch.Merge,
+			Branch: defaultBranch,
 			Force:  true})
 		assert.Nilf(options.Testing, resultErr, "Could Not Checkout Default Branch")
-		logger.Log(options.Testing, "Git Checkout Branch: ", defaultBranch.Name)
+		cur, _ := gitRepo.Head()
+		logger.Log(options.Testing, "Current Branch (Default): "+cur.Name())
 
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on MASTER branch has failed")
 
 		// Only proceed to upgrade Test of master branch apply passed
 		if resultErr == nil {
+			logger.Log(options.Testing, "Attempting Git Checkout PR Branch: ", prBranch)
 			resultErr = w.Checkout(&git.CheckoutOptions{
 				Branch: prBranch,
 				Force:  true})
 			assert.Nilf(options.Testing, resultErr, "Could Not Checkout PR Branch")
-			logger.Log(options.Testing, "Git Checkout Branch: ", prBranch)
-
 			if resultErr == nil {
+				cur, _ = gitRepo.Head()
+				logger.Log(options.Testing, "Current Branch (PR): "+cur.Name())
+
 				// Plan needs a temp file to store plan in
 				tmpPlanFile, _ := os.CreateTemp(options.TerraformDir, "terratest-plan-file-")
 				options.TerraformOptions.PlanFilePath = tmpPlanFile.Name()
