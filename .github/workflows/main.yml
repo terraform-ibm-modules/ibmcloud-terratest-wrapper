@@ -28,19 +28,17 @@ jobs:
           # Clone all branches and history. This is needed for the upgrade tests
           fetch-depth: 0
 
-      # Setup environment since GHA does not run the containers entrypoint
-      - name: Setup
-        run: |
-          . /root/.bashrc
-          . /root/.profile
-
       # Check for pre-commit updates if it is a renovate PR
       - name: Pre-commit sweeper
         run: ci/pre-commit-sweeper.sh
 
       # run pre-commit against all files
       - name: Pre-commit
-        run: pre-commit run --all-files
+        run: |
+          # Setup environment since GHA does not run the containers entrypoint
+          . /root/.bashrc
+          . /root/.profile
+          pre-commit run --all-files
 
       # Run tests
       - name: Run Tests
