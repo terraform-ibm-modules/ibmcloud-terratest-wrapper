@@ -54,6 +54,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          cp /tmp/node_modules node_modules
+          cp -r /tmp/node_modules node_modules
           cp /tmp/package-lock.json package-lock.json
           npx semantic-release
