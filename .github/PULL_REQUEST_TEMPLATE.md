@@ -3,8 +3,6 @@
 Please include a summary of the change and which issue is fixed. Please also include relevant motivation and context.
 List any dependencies that are required for this change.
 
-**GIT issue:**
-
 **Tick the relevant boxes:**
 - [ ] Bug fix (non-breaking change which fixes an issue)
 - [ ] New feature (non-breaking change which adds functionality)
@@ -15,7 +13,6 @@ List any dependencies that are required for this change.
 
 ### Checklist:
 
-- [ ] The PR is referencing a github issue.
 - [ ] If relevant, a test for the change has been added / updated as part of this PR.
 - [ ] If relevant, documentation for the change has been added / updated as part of this PR.
 
