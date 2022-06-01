@@ -6,11 +6,7 @@
     "@semantic-release/release-notes-generator",
     "@semantic-release/changelog",
     [
-      "@semantic-release/github",
-      {
-        "githubUrl": "https://github.com",
-        "githubApiPathPrefix": "/api/v3"
-      }
+      "@semantic-release/github"
     ]
   ]
 }
