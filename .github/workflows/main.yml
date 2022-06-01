@@ -53,4 +53,7 @@ jobs:
         if: success()
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-        run: npx semantic-release  --no-ci
+        run: |
+          cp /tmp/node_modules node_modules
+          cp /tmp/package-lock.json package-lock.json
+          npx semantic-release
