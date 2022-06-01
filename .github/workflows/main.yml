@@ -52,7 +52,7 @@ jobs:
       - name: Semantic Release
         if: success()
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cp -r /tmp/node_modules node_modules
           cp /tmp/package-lock.json package-lock.json
