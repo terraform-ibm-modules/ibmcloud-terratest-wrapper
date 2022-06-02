@@ -62,13 +62,15 @@ jobs:
         run: |
           export GPG_TTY=$(tty)
           echo "Write Private Key"
-          echo "${{ secrets.RELEASE_PRIVATE_PGP }}" >> private.asc
+          echo "${{ secrets.RELEASE_PRIVATE_PGP }}" >> private.key
           echo "Print Private Key"
-          cat private.asc
-          chmod 700 private.asc
+          cat private.key
+          chmod 700 private.key
           ls -la
+          echo "Restart GPG agent"
+          gpg-connect-agent
           echo "Import Private Key"
-          gpg --import private.asc
+          gpg --import private.key
           echo "Keys:"
           gpg --list-secret-keys --keyid-format LONG
           echo "enable git config gpgsign"
