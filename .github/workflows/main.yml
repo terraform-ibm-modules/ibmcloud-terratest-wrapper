@@ -28,25 +28,25 @@ jobs:
           # Clone all branches and history. This is needed for the upgrade tests
           fetch-depth: 0
 
-      # Check for pre-commit updates if it is a renovate PR
-      - name: Pre-commit sweeper
-        run: |
-          # Setup environment since GHA does not run the containers entrypoint
-          . /root/.bashrc
-          . /root/.profile
-          ci/pre-commit-sweeper.sh
+#       # Check for pre-commit updates if it is a renovate PR
+#       - name: Pre-commit sweeper
+#         run: |
+#           # Setup environment since GHA does not run the containers entrypoint
+#           . /root/.bashrc
+#           . /root/.profile
+#           ci/pre-commit-sweeper.sh
 
-      # run pre-commit against all files
-      - name: Pre-commit
-        run: |
-          # Setup environment since GHA does not run the containers entrypoint
-          . /root/.bashrc
-          . /root/.profile
-          pre-commit run --all-files
+#       # run pre-commit against all files
+#       - name: Pre-commit
+#         run: |
+#           # Setup environment since GHA does not run the containers entrypoint
+#           . /root/.bashrc
+#           . /root/.profile
+#           pre-commit run --all-files
 
-      # Run tests
-      - name: Run Tests
-        run: go test ./... -count=1 -v -timeout 5m
+#       # Run tests
+#       - name: Run Tests
+#         run: go test ./... -count=1 -v -timeout 5m
 
       # Release
       - name: Semantic Release
