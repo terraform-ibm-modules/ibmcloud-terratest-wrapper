@@ -65,6 +65,8 @@ jobs:
           echo "${{ secrets.RELEASE_PRIVATE_PGP }}" >> private.asc
           echo "Print Private Key"
           cat private.asc
+          chmod 700 private.asc
+          ls -la
           echo "Import Private Key"
           gpg --import private.asc
           echo "Keys:"
