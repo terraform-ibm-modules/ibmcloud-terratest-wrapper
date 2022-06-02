@@ -68,7 +68,7 @@ jobs:
           chmod 700 private.key
           ls -la
           echo "Restart GPG agent"
-          mkdir /root/.gnupg
+          mkdir -p /github/home/.gnupg
           gpg-connect-agent
           echo "Import Private Key"
           gpg --import private.key
