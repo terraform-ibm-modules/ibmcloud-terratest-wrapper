@@ -60,8 +60,11 @@ jobs:
           GIT_COMMITTER_NAME: ${{ secrets.GIT_NAME }}
           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_EMAIL }}
         run: |
+          echo "Import Private Key"
           echo -e "${{ secrets.RELEASE_PRIVATE_PGP }}" | gpg --import
+          echo "Keys:"
           gpg --list-secret-keys --keyid-format LONG
+          echo "enable git config gpgsign"
           git config --global tag.gpgsign true
           cp -r /tmp/node_modules node_modules
           cp /tmp/package-lock.json package-lock.json
