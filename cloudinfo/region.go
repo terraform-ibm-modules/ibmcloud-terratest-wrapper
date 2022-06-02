@@ -7,7 +7,7 @@ import (
 	"sort"
 
 	"github.com/IBM/vpc-go-sdk/vpcv1"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 const (
