@@ -61,7 +61,15 @@ jobs:
           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_EMAIL }}
         run: |
           export GPG_TTY=$(tty)
+          echo "Write Private Key"
+          echo "${{ secrets.RELEASE_PRIVATE_PGP }}" >> private.key
+          echo "Print Private Key"
+          cat private.key
+          chmod 700 private.key
           echo "Keys:"
+          gpg --list-secret-keys --keyid-format LONG
+          gpg-connect-agent
+          gpg --import private.key
           gpg --list-secret-keys --keyid-format LONG
           echo "enable git config gpgsign"
           git config --global tag.gpgsign true
