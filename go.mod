@@ -9,7 +9,7 @@ require (
 	github.com/gruntwork-io/terratest v0.40.12
 	github.com/jinzhu/copier v0.3.5
 	github.com/stretchr/testify v1.7.1
-	gopkg.in/yaml.v2 v2.4.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -82,5 +82,4 @@ require (
 	google.golang.org/protobuf v1.26.0 // indirect
 	gopkg.in/go-playground/validator.v9 v9.31.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
