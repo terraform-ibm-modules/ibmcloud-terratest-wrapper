@@ -63,7 +63,6 @@ jobs:
           cat <(echo -e "${{ secrets.RELEASE_PRIVATE_PGP }}") | gpg --batch --import
           gpg --list-secret-keys --keyid-format LONG
           git config --global tag.gpgsign true
-          
           cp -r /tmp/node_modules node_modules
           cp /tmp/package-lock.json package-lock.json
           npx semantic-release
