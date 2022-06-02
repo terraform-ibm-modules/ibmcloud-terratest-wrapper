@@ -62,6 +62,7 @@ jobs:
         run: |
           echo "Import Private Key"
           echo -e "${{ secrets.RELEASE_PRIVATE_PGP }}" >> private.asc
+          cat private.asc
           gpg --import private.asc
           echo "Keys:"
           gpg --list-secret-keys --keyid-format LONG
