@@ -61,7 +61,8 @@ jobs:
           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_EMAIL }}
         run: |
           echo "Import Private Key"
-          gpg --import --batch <(echo -e "${{ secrets.RELEASE_PRIVATE_PGP }}")
+          echo -e "${{ secrets.RELEASE_PRIVATE_PGP }}" >> private.asc
+          gpg --import private.asc
           echo "Keys:"
           gpg --list-secret-keys --keyid-format LONG
           echo "enable git config gpgsign"
