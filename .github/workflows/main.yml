@@ -60,9 +60,11 @@ jobs:
           GIT_COMMITTER_NAME: ${{ secrets.GIT_NAME }}
           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_EMAIL }}
         run: |
-          echo "Import Private Key"
-          echo -e "${{ secrets.RELEASE_PRIVATE_PGP }}" >> private.asc
+          echo "Write Private Key"
+          echo "${{ secrets.RELEASE_PRIVATE_PGP }}" >> private.asc
+          echo "Print Private Key"
           cat private.asc
+          echo "Import Private Key"
           gpg --import private.asc
           echo "Keys:"
           gpg --list-secret-keys --keyid-format LONG
