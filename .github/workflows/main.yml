@@ -72,6 +72,8 @@ jobs:
           mkdir -p /github/home/.gnupg
           chmod 700 /github/home/.gnupg
           gpg-connect-agent
+          mkdir -p /github/home/.gnupg/private-keys-v1.d
+          chmod 700 /github/home/.gnupg/private-keys-v1.d
           echo "Import Private Key"
           gpg --import private.key
           echo "Keys:"
