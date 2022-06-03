@@ -71,7 +71,6 @@ jobs:
           GIT_COMMITTER_NAME: ${{ secrets.GIT_NAME }}
           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_EMAIL }}
         run: |
-          export EDITOR=vi
           cp -r /tmp/node_modules node_modules
           cp /tmp/package-lock.json package-lock.json
           git status
