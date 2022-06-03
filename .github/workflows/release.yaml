@@ -24,7 +24,9 @@ jobs:
           fetch-depth: 0
       - name: Setup Node.js environment
         uses: actions/setup-node@v3.2.0
-          
+      
+      - run: npm ci
+      
       - name: Import GPG key
         id: import_gpg
         uses: crazy-max/ghaction-import-gpg@v5
