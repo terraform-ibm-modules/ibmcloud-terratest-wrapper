@@ -98,4 +98,5 @@ jobs:
           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_EMAIL }}
           GIT_MERGE_AUTOEDIT: no
         run: |
+          ls -la
           npx semantic-release
