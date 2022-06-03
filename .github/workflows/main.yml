@@ -74,4 +74,5 @@ jobs:
           export EDITOR=vi
           cp -r /tmp/node_modules node_modules
           cp /tmp/package-lock.json package-lock.json
+          git status
           npx semantic-release
