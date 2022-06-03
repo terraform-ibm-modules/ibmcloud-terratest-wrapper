@@ -25,7 +25,10 @@ jobs:
       - name: Setup Node.js environment
         uses: actions/setup-node@v3.2.0
       
-      - run: npm install
+      - run: |
+          npm install
+          pwd
+          ls
       
       - name: Import GPG key
         id: import_gpg
@@ -49,4 +52,6 @@ jobs:
           GIT_COMMITTER_NAME: ${{ secrets.GIT_NAME }}
           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_EMAIL }}
         run: |
+          pwd
+          ls
           npx semantic-release
