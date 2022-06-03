@@ -26,9 +26,10 @@ jobs:
         uses: actions/setup-node@v3.2.0
       
       - run: |
-          npm install
-          pwd
-          ls
+          npm install @semantic-release/changelog
+          npm install @semantic-release/git
+          npm install @semantic-release/github
+          npm install @semantic-release/exec
       
       - name: Import GPG key
         id: import_gpg
