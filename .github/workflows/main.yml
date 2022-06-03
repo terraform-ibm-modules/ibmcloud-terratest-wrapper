@@ -16,8 +16,8 @@ jobs:
   CI_PIPELINE:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
-#     container:
-#       image: icr.io/goldeneye_images/goldeneye-ci-image:stable
+    container:
+      image: icr.io/goldeneye_images/goldeneye-ci-image:stable
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -48,6 +48,11 @@ jobs:
 #       - name: Run Tests
 #         run: go test ./... -count=1 -v -timeout 5m
 
+      - name: Copy Release config
+        run: |
+          cp -r /tmp/node_modules node_modules
+          cp /tmp/package-lock.json package-lock.json
+        
       - name: Import GPG key
         id: import_gpg
         uses: crazy-max/ghaction-import-gpg@v5
@@ -56,10 +61,12 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
           git_user_signingkey: true
           git_tag_gpgsign: true
-
+  Release:
+    needs: CI_PIPELINE
+    runs-on: ubuntu-latest
+    steps:
       # Release
       - name: Semantic Release
-        if: success()
         env:
           GH_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
           GPG_KEY_ID: ${{ steps.import_gpg.outputs.keyid }}
@@ -70,7 +77,4 @@ jobs:
           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_EMAIL }}
           GIT_MERGE_AUTOEDIT: no
         run: |
-          gpg --list-secret-keys --keyid-format LONG
-          cp -r /tmp/node_modules node_modules
-          cp /tmp/package-lock.json package-lock.json
           npx semantic-release
