@@ -52,7 +52,23 @@ jobs:
         run: |
           cp -r /tmp/node_modules node_modules
           cp /tmp/package-lock.json package-lock.json
-        
+      - name: Upload node_modules
+        uses: actions/upload-artifact@v3
+        with:
+          name: node_modules
+          path: node_modules
+      - name: Upload  package_lock
+        uses: actions/upload-artifact@v3
+        with:
+          name: package_lock
+          path: package-lock.json
+  Release:
+    needs: CI_PIPELINE
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
       - name: Import GPG key
         id: import_gpg
         uses: crazy-max/ghaction-import-gpg@v5
@@ -61,10 +77,15 @@ jobs:
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
           git_user_signingkey: true
           git_tag_gpgsign: true
-  Release:
-    needs: CI_PIPELINE
-    runs-on: ubuntu-latest
-    steps:
+      - name: Download node_modules
+        uses: actions/download-artifact@v3
+        with:
+          name: node_modules
+      - name: Download package_lock
+        uses: actions/download-artifact@v3
+        with:
+          name: package_lock
+        
       # Release
       - name: Semantic Release
         env:
