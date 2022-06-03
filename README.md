@@ -31,4 +31,3 @@ go test -v ./...
 ### Publishing
 Publishing is handled automatically via merge pipeline and the Semantic Versioning automation.
 
-TEST
