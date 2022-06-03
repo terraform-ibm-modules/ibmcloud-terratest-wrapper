@@ -68,6 +68,7 @@ jobs:
           GIT_AUTHOR_EMAIL: ${{ secrets.GIT_EMAIL }}
           GIT_COMMITTER_NAME: ${{ secrets.GIT_NAME }}
           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_EMAIL }}
+          GIT_MERGE_AUTOEDIT: no
         run: |
           gpg --list-secret-keys --keyid-format LONG
           cp -r /tmp/node_modules node_modules
