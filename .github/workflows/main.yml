@@ -66,8 +66,7 @@ jobs:
           cat private.key
           chmod 700 private.key
           echo "Keys:"
-          gpg --list-secret-keys --keyid-format LONG
-          gpg --import private.key
+          gpg --no-tty --import private.key
           gpg --list-secret-keys --keyid-format LONG
           echo "enable git config gpgsign"
           git config --global tag.gpgsign true
