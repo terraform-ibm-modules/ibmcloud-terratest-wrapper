@@ -98,5 +98,6 @@ jobs:
           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_EMAIL }}
           GIT_MERGE_AUTOEDIT: no
         run: |
-          ls -la
+          cp -r /home/runner/work/ibmcloud-terratest-wrapper/ibmcloud-terratest-wrapper/node_modules node_modules
+          cp /home/runner/work/ibmcloud-terratest-wrapper/ibmcloud-terratest-wrapper/package-lock.json package-lock.json
           npx semantic-release
