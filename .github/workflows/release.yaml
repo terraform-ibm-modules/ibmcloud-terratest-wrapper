@@ -53,4 +53,9 @@ jobs:
           GIT_COMMITTER_NAME: ${{ steps.import-gpg.outputs.name }}
           GIT_COMMITTER_EMAIL: ${{ steps.import-gpg.outputs.email }}
         run: |
+            echo '/usr/bin/gpg2 --passphrase ${{ secrets.GPG_PASSPHRASE }} --batch --no-tty "$@"' > /tmp/gpg-with-passphrase && chmod +x /tmp/gpg-with-passphrase
+            # Configure git to use the script that passes the passphrase
+            git config gpg.program "/tmp/gpg-with-passphrase"
+            # Configure git to use your GPG key
+            git config --global user.signingkey ${{ steps.import_gpg.outputs.keyid }}
             npx semantic-release
