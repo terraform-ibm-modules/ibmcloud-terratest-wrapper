@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: true
-          persist-credentials: false
+#           persist-credentials: false
           # Clone all branches and history. This is needed for the upgrade tests
           fetch-depth: 0
 
@@ -64,8 +64,8 @@ jobs:
 #           GIT_COMMITTER_EMAIL: ${{ steps.import-gpg.outputs.email }}
         run: |
             echo "Version: $SEMVER_VERSION"
-            git config --global user.name "${{ steps.import-gpg.outputs.name }}" 
-            git config --global user.email "${{ steps.import-gpg.outputs.email }}" 
+            #git config --global user.name "${{ steps.import-gpg.outputs.name }}" 
+            #git config --global user.email "${{ steps.import-gpg.outputs.email }}" 
             git tag "v${SEMVER_VERSION}" "v${SEMVER_VERSION}" -f -s -m "Sign Tag"
             set GIT_COMMITTER_DATE="$(git log -1 --format=%aD v${SEMVER_VERSION})"
             git push origin "v${SEMVER_VERSION}" -f
