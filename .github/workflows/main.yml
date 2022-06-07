@@ -47,13 +47,3 @@ jobs:
       # Run tests
       - name: Run Tests
         run: go test ./... -count=1 -v -timeout 5m
-
-      # Release
-      - name: Semantic Release
-        if: success()
-        env:
-          GH_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
-        run: |
-          cp -r /tmp/node_modules node_modules
-          cp /tmp/package-lock.json package-lock.json
-          npx semantic-release
