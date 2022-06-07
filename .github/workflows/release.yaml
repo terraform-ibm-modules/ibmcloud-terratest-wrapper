@@ -54,11 +54,11 @@ jobs:
       - id: versionNumber
         run: echo "::set-output name=version::$SEMVER_VERSION"
         
-      - id: Sign Tag
+      - name: Sign Tag
         env:
           SEMVER_VERSION: ${{ steps.versionNumber.outputs.version }}
         run: |
             echo "Version: $SEMVER_VERSION"
-            git tag $SEMVER_VERSION $SEMVER_VERSION -f -s -m "Signing tag"
+            git tag $SEMVER_VERSION $SEMVER_VERSION -f -s
             set GIT_COMMITTER_DATE="$(git log -1 --format=%aD $SEMVER_VERSION)"
             git push origin $SEMVER_VERSION -f
