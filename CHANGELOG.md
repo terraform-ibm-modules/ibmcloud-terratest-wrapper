@@ -1,3 +1,10 @@
+## [1.2.13](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/compare/v1.2.12...v1.2.13) (2022-06-07)
+
+
+### Bug Fixes
+
+* add msg ([d51f9a0](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/d51f9a0f11d2ec449317e8025c4d6c5e33047f53))
+
 ## [1.2.12](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/compare/v1.2.11...v1.2.12) (2022-06-07)
 
 
