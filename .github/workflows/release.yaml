@@ -49,6 +49,7 @@ jobs:
           GIT_COMMITTER_EMAIL: ${{ steps.import-gpg.outputs.email }}
         run: |
             npx semantic-release
+            echo "Version: $SEMVER_VERSION"
             git tag $SEMVER_VERSION $SEMVER_VERSION -f -s -m "Signing tag"
             set GIT_COMMITTER_DATE="$(git log -1 --format=%aD $SEMVER_VERSION)"
             git push origin $SEMVER_VERSION -f
