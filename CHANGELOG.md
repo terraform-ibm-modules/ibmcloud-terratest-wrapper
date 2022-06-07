@@ -3,6 +3,15 @@
 
 ### Bug Fixes
 
+* sign commits ([087c0f3](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/087c0f30cc32e9eb7595fa3c4515f3dc012e5077))
+* sign tag ([cbcf3b5](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/cbcf3b5b8897a6d634d7b2e5103897f4c165fc27))
+* sign tag ([7a517ec](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/7a517ec7b569cc59ebcd10c81d1a72b78c5c0009))
+
+## [1.2.9](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/compare/v1.2.8...v1.2.9) (2022-06-07)
+
+
+### Bug Fixes
+
 * sign tag ([cbcf3b5](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/cbcf3b5b8897a6d634d7b2e5103897f4c165fc27))
 * sign tag ([7a517ec](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/7a517ec7b569cc59ebcd10c81d1a72b78c5c0009))
 
