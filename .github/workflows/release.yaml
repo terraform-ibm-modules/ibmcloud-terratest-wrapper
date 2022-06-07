@@ -54,4 +54,5 @@ jobs:
           GIT_COMMITTER_EMAIL: ${{ steps.import-gpg.outputs.email }}
           DEBUG: semantic-release:*
         run: |
+            echo "Hi"
             npx semantic-release
