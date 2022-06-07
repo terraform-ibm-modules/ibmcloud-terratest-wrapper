@@ -32,7 +32,7 @@ jobs:
           npm install @semantic-release/git
           npm install @semantic-release/github
           npm install @semantic-release/exec
-
+# 
 #       - name: Import GPG key
 #         id: import-gpg
 #         uses: crazy-max/ghaction-import-gpg@v5
