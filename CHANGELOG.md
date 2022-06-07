@@ -1,3 +1,10 @@
+## [1.2.20](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/compare/v1.2.19...v1.2.20) (2022-06-07)
+
+
+### Bug Fixes
+
+* add required vars ([9579a87](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/9579a87629209d64f61e7f216f1a961a5ed5d820))
+
 ## [1.2.19](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/compare/v1.2.18...v1.2.19) (2022-06-07)
 
 
