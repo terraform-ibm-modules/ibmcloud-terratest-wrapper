@@ -16,6 +16,7 @@ jobs:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v3
         with:
+          token: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
           submodules: true
 
       - name: Setup Node.js environment
