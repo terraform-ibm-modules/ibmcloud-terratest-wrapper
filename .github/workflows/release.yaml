@@ -1,17 +1,12 @@
 name: Release
 
-# Controls when the workflow will run
 on:
   workflow_run:
     workflows: [CI]
     branches: [main]
     types:
       - completed
-
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+      
 jobs:
   Semantic_Release:
     # The type of runner that the job will run on
@@ -61,5 +56,5 @@ jobs:
         run: |
             echo "Version: $SEMVER_VERSION"
             git tag "v${SEMVER_VERSION}" "v${SEMVER_VERSION}" -f -s -m "Sign Tag"
-            set GIT_COMMITTER_DATE="$(git log -1 --format=%aD v${SEMVER_VERSION})"
+            export GIT_COMMITTER_DATE="$(git log -1 --format=%aD v${SEMVER_VERSION})"
             git push origin "v${SEMVER_VERSION}" -f
