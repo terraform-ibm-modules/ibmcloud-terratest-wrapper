@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/compare/v1.3.0...v1.4.0) (2022-06-07)
+
+
+### Features
+
+* run after CI ([5036959](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/5036959cf688f5a76eeac73c9a367883fdb4d985))
+
 # [1.3.0](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/compare/v1.2.22...v1.3.0) (2022-06-07)
 
 
