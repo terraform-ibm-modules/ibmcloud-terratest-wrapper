@@ -22,6 +22,7 @@ jobs:
           submodules: true
           # Clone all branches and history. This is needed for the upgrade tests
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Node.js environment
         uses: actions/setup-node@v3.2.0
