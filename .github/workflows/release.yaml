@@ -47,22 +47,9 @@ jobs:
       - name: Semantic Release
         env:
           GH_TOKEN: ${{ secrets.SEMANTIC_RELEASE_TOKEN }}
-          GPG_KEY_ID: ${{ steps.import_gpg.outputs.keyid }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-#           GIT_COMMITTER_NAME: ${{ secrets.GIT_NAME }}
-#           GIT_COMMITTER_EMAIL: ${{ secrets.GIT_EMAIL }}
-#           GIT_EMAIL: ${{ secrets.GIT_EMAIL }}
-#           GIT_USERNAME: ${{ secrets.GIT_NAME }}
           GIT_AUTHOR_NAME: ${{ steps.import-gpg.outputs.name }}
           GIT_AUTHOR_EMAIL: ${{ steps.import-gpg.outputs.email }}
           GIT_COMMITTER_NAME: ${{ steps.import-gpg.outputs.name }}
           GIT_COMMITTER_EMAIL: ${{ steps.import-gpg.outputs.email }}
         run: |
-            #echo '/usr/bin/gpg2 --passphrase ${GPG_PASSPHRASE} --batch --no-tty "$@"' > /tmp/gpg-with-passphrase && chmod +x /tmp/gpg-with-passphrase
-            # Configure git to use the script that passes the passphrase
-            #git config gpg.program "/tmp/gpg-with-passphrase"
-            # Configure git to sign the commits and tags
-            #git config commit.gpgsign true
-            # Configure git to use your GPG key
-            #git config --global user.signingkey ${GPG_KEY_ID}
             npx semantic-release
