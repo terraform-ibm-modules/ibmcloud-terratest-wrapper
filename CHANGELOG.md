@@ -1,3 +1,11 @@
+## [1.2.15](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/compare/v1.2.14...v1.2.15) (2022-06-07)
+
+
+### Bug Fixes
+
+* sign tag ([767beb5](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/767beb51325b848deb8c2fc5435ccdd8659f7e10))
+* sign tag ([cbace55](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/cbace55958817f8086dabb15c30184351602e83f))
+
 ## [1.2.14](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/compare/v1.2.13...v1.2.14) (2022-06-07)
 
 
