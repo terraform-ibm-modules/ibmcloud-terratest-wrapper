@@ -5,6 +5,16 @@
 
 * debug ([9d260ec](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/9d260ec2aa3b9a5d4348db7360c3ddfb93820288))
 * debug tag signing ([e858c61](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/e858c61e7f16689db0f17c170bcf58c7c7427c83))
+* release ([6ff597b](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/6ff597bf6432f2d2b947a261d57fbbd33cbe7388))
+* test removing release notes ([b36f814](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/b36f814b678a00a19427ad04d2d2038d2407b8d0))
+
+## [1.2.12](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/compare/v1.2.11...v1.2.12) (2022-06-07)
+
+
+### Bug Fixes
+
+* debug ([9d260ec](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/9d260ec2aa3b9a5d4348db7360c3ddfb93820288))
+* debug tag signing ([e858c61](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/commit/e858c61e7f16689db0f17c170bcf58c7c7427c83))
 
 ## [1.2.12](https://github.com/daniel-butler-irl/ibmcloud-terratest-wrapper/compare/v1.2.11...v1.2.12) (2022-06-07)
 
