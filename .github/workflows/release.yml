@@ -1,11 +1,17 @@
 name: Release
 
 on:
-  workflow_run:
-    workflows: [CI]
-    branches: [main]
-    types:
-      - completed
+  # Triggers the workflow on push or pull request events but only for the main branch
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+#on:
+#  workflow_run:
+#    workflows: [CI]
+#    branches: [main]
+#    types:
+#      - completed
 
 jobs:
   Semantic_Release:
