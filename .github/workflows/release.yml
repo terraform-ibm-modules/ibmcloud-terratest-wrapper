@@ -51,6 +51,9 @@ jobs:
 
       - name: sign
         run: |
+          # Setup environment since GHA does not run the containers entrypoint
+          . /root/.bashrc
+          . /root/.profile
           echo "signing"
           ucl --help
 
