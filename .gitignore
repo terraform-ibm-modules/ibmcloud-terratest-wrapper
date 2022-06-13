@@ -259,4 +259,3 @@ terraform.rc
 
 # Ignore .tfsec
 .tfsec/
-
