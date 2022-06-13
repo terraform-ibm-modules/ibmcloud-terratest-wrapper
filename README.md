@@ -29,5 +29,4 @@ go test -v ./...
 ```
 
 ### Publishing
-Publishing is handled automatically via merge pipeline and the Semantic Versioning automation. sd
-
+Publishing is handled automatically via merge pipeline and the Semantic Versioning automation. This creates a new Github release
