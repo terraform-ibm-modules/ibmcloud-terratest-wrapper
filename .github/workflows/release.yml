@@ -45,7 +45,7 @@ jobs:
 
       - name: package
         run: |
-          tar -czvf ${{ github.event.repository.name }}-signed.tar.gz ./
+          tar -czvf ${{ github.event.repository.name }}-signed.tar.gz . --exclude=./*.gz --exclude=node_modules --exclude=.git
 
       - name: sign
         run: |
