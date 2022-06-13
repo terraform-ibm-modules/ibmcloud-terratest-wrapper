@@ -42,7 +42,9 @@ jobs:
 
       - name: package
         run: |
-          tar -czvf ${{ github.event.repository.name }}-signed.tar.gz /
+          pwd
+          ls
+          #tar -czvf ${{ github.event.repository.name }}-signed.tar.gz /
 
       - name: sign
         run: |
