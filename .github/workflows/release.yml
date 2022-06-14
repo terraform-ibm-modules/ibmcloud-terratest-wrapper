@@ -55,7 +55,7 @@ jobs:
           . /root/.bashrc
           . /root/.profile
           echo "$${{ secrets.SIGNING_PFX }}" | base64 --decode > /etc/ekm/signing.pfx
-          ls 
+          ls build/
           echo "signing"
           uclList=$(ucl list)
           result=$(echo $uclList | sed "s/.* Private RSA key : UID=\(.*\).*/\1/")
