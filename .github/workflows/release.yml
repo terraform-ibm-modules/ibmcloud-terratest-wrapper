@@ -55,7 +55,8 @@ jobs:
           . /root/.bashrc
           . /root/.profile
           pwd
-          ls /
+          ls /etc
+          ls /mnt
           echo $${{ secrets.SIGNING_PFX }} | base64 --decode > etc/ekm/signing.pfx
           echo "signing"
           uclList=$(ucl list)
