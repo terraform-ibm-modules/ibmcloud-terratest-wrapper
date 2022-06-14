@@ -54,8 +54,15 @@ jobs:
           # Setup environment since GHA does not run the containers entrypoint
           . /root/.bashrc
           . /root/.profile
+          echo $${{ secrets.SIGNING_PFX }} | base64 --decode > /etc/ekm/signing.pfx
           echo "signing"
-          ucl --help
+          uclList=$(ucl list)
+          result=$(echo $uclList | sed "s/.* Private RSA key : UID=\(.*\).*/\1/")
+          certificateUID=`echo $result | cut -d' ' -f1`
+          ucl export -p "${args.cisoPartitionId}" -u $certificateUID -o public.pem"
+          ucl sign --hash sha256 -u $certificateUID -p "${secrets.CISO_PARTITION_ID}" -i "${{ github.event.repository.name }}-signed.tar.gz" -o "${{ github.event.repository.name }}-signed.tar.gz.sig" | tee /tmp/${baseFileName}-file-sign.log
+          ls
+          openssl dgst -sha256 -verify public.pem -signature "${{ github.event.repository.name }}-signed.tar.gz.sig" "${{ github.event.repository.name }}-signed.tar.gz"
 
       # Release
       - name: Semantic Release
