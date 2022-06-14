@@ -55,15 +55,14 @@ jobs:
           . /root/.bashrc
           . /root/.profile
           echo "$${{ secrets.SIGNING_PFX }}" | base64 --decode > /etc/ekm/signing.pfx
-          ls /etc/ekm/
-          file /etc/ekm/signing.pfx
+          ls 
           echo "signing"
           uclList=$(ucl list)
           result=$(echo $uclList | sed "s/.* Private RSA key : UID=\(.*\).*/\1/")
           certificateUID=`echo $result | cut -d' ' -f1`
           ucl export -p "${args.cisoPartitionId}" -u $certificateUID -o public.pem"
-          ucl sign --hash sha256 -u $certificateUID -p "${secrets.CISO_PARTITION_ID}" -i "${{ github.event.repository.name }}-signed.tar.gz" -o "${{ github.event.repository.name }}-signed.tar.gz.sig" | tee /tmp/${baseFileName}-file-sign.log
-          openssl dgst -sha256 -verify public.pem -signature "${{ github.event.repository.name }}-signed.tar.gz.sig" "${{ github.event.repository.name }}-signed.tar.gz"
+          ucl sign --hash sha256 -u $certificateUID -p "${secrets.CISO_PARTITION_ID}" -i "build/${{ github.event.repository.name }}-signed.tar.gz" -o "build/${{ github.event.repository.name }}-signed.tar.gz.sig"
+          openssl dgst -sha256 -verify public.pem -signature "build/${{ github.event.repository.name }}-signed.tar.gz.sig" "build/${{ github.event.repository.name }}-signed.tar.gz"
 
       # Release
       - name: Semantic Release
