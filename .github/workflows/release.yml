@@ -54,8 +54,8 @@ jobs:
           # Setup environment since GHA does not run the containers entrypoint
           . /root/.bashrc
           . /root/.profile
+          echo "$${{ secrets.SIGNING_PFX }}" | base64 --decode > /etc/ekm/signing.pfx
           ls /etc/ekm/
-          echo $${{ secrets.SIGNING_PFX }} | base64 --decode > /etc/ekm/signing.pfx
           file /etc/ekm/signing.pfx
           echo "signing"
           uclList=$(ucl list)
