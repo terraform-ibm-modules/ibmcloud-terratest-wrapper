@@ -18,7 +18,7 @@ jobs:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
     container:
-      image: icr.io/goldeneye_images/goldeneye-ci-image:20220603-122142
+      image: icr.io/goldeneye_images/goldeneye-ci-image:20220614-122855
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -54,10 +54,8 @@ jobs:
           # Setup environment since GHA does not run the containers entrypoint
           . /root/.bashrc
           . /root/.profile
-          pwd
           ls /etc
-          ls /mnt
-          echo $${{ secrets.SIGNING_PFX }} | base64 --decode > etc/ekm/signing.pfx
+          echo $${{ secrets.SIGNING_PFX }} | base64 --decode > /etc/ekm/signing.pfx
           echo "signing"
           uclList=$(ucl list)
           result=$(echo $uclList | sed "s/.* Private RSA key : UID=\(.*\).*/\1/")
