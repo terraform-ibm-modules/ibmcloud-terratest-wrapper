@@ -55,6 +55,9 @@ jobs:
           . /root/.bashrc
           . /root/.profile
           echo "$${{ secrets.SIGNING_PFX }}" | base64 --decode > /etc/ekm/signing.pfx
+          echo "9.209.3.193 pgawdcekm0101.sl.bluecloud.ibm.com" >> /etc/hosts
+          echo "9.209.241.49 pgadalekm0301.sl.bluecloud.ibm.com" >> /etc/hosts
+  
           ls build/
           echo "signing"
           ucl list
