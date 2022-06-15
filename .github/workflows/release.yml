@@ -57,6 +57,7 @@ jobs:
           echo "$${{ secrets.SIGNING_PFX }}" | base64 --decode > /etc/ekm/signing.pfx
           ls build/
           echo "signing"
+          ucl list
           uclList=$(ucl list)
           echo "UCL LIST: ${uclList}"
           result=$(echo $uclList | sed "s/.* Private RSA key : UID=\(.*\).*/\1/")
