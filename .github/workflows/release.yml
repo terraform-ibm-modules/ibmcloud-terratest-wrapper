@@ -58,11 +58,17 @@ jobs:
           ls build/
           echo "signing"
           uclList=$(ucl list)
+          echo "UCL LIST: ${uclList}"
           result=$(echo $uclList | sed "s/.* Private RSA key : UID=\(.*\).*/\1/")
+          echo "PVT: ${result}"
           certificateUID=`echo $result | cut -d' ' -f1`
+          echo "CertID: ${certificateUID}"
           ucl export -p "${args.cisoPartitionId}" -u $certificateUID -o public.pem"
+          echo "exported"
           ucl sign --hash sha256 -u $certificateUID -p "${secrets.CISO_PARTITION_ID}" -i "build/${{ github.event.repository.name }}-signed.tar.gz" -o "build/${{ github.event.repository.name }}-signed.tar.gz.sig"
+          echo "signed"
           openssl dgst -sha256 -verify public.pem -signature "build/${{ github.event.repository.name }}-signed.tar.gz.sig" "build/${{ github.event.repository.name }}-signed.tar.gz"
+          echo "checked"
 
       # Release
       - name: Semantic Release
