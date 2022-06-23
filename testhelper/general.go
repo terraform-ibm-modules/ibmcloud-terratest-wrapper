@@ -1,4 +1,4 @@
-// Package testhelper General helper functions that can be used in GoldenEye tests
+// Package testhelper General helper functions that can be used in tests
 package testhelper
 
 import (
