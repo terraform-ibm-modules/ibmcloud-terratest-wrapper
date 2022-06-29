@@ -8,7 +8,7 @@ require (
 	github.com/go-git/go-git/v5 v5.4.2
 	github.com/gruntwork-io/terratest v0.40.17
 	github.com/jinzhu/copier v0.3.5
-	github.com/stretchr/testify v1.7.5
+	github.com/stretchr/testify v1.8.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
