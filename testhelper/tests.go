@@ -23,7 +23,9 @@ import (
 
 func skipUpgradeTest(branch string) bool {
 	// Get all the commit messages from the PR branch
-	cmd := exec.Command("/bin/sh", "-c", "git log master..", branch)
+	// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
+	// clone even if the default branch has not been checked out or pulled.
+	cmd := exec.Command("/bin/sh", "-c", "git log origin/master..", branch)
 	out, _ := cmd.CombinedOutput()
 
 	// Skip upgrade Test if BREAKING CHANGE OR SKIP UPGRADE TEST string found in commit messages
@@ -32,7 +34,9 @@ func skipUpgradeTest(branch string) bool {
 		doNotRunUpgradeTest = true
 	}
 	if !doNotRunUpgradeTest {
-		cmd = exec.Command("/bin/sh", "-c", "git log main..", branch)
+		// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
+		// clone even if the default branch has not been checked out or pulled.
+		cmd = exec.Command("/bin/sh", "-c", "git log origin/main..", branch)
 		out, _ = cmd.CombinedOutput()
 
 		if strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST") {
