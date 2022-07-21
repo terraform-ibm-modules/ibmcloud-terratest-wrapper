@@ -32,3 +32,9 @@ go test -v ./...
 
 ### Publishing
 Publishing is handled automatically via merge pipeline and the Semantic Versioning automation. This creates a new Github release
+
+<!-- BEGIN EXAMPLES HOOK -->
+## Examples
+
+- [Examples](examples)
+<!-- END EXAMPLES HOOK -->
