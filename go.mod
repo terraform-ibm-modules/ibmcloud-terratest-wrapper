@@ -1,6 +1,6 @@
 module github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper
 
-go 1.18
+go 1.19
 
 require (
 	github.com/IBM/go-sdk-core/v5 v5.10.2
