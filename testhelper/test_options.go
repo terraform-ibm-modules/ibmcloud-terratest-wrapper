@@ -45,12 +45,16 @@ func TestOptionsDefaultWithVars(originalOptions *TestOptions) *TestOptions {
 	newOptions := TestOptionsDefault(originalOptions)
 
 	// Vars to pass into module
-	newOptions.TerraformVars = mergeMaps(map[string]interface{}{
-		"prefix":         newOptions.Prefix,
-		"region":         newOptions.Region,
-		"resource_group": newOptions.ResourceGroup,
-		"resource_tags":  GetTagsFromTravis(),
-	}, newOptions.TerraformVars)
+	varsMap := make(map[string]interface{})
+
+	conditionalAdd(varsMap, "prefix", newOptions.Prefix, "")
+	conditionalAdd(varsMap, "region", newOptions.Region, "")
+	conditionalAdd(varsMap, "resource_group", newOptions.ResourceGroup, "")
+
+	varsMap["resource_tags"] = GetTagsFromTravis()
+
+	// Vars to pass into module
+	newOptions.TerraformVars = mergeMaps(varsMap, newOptions.TerraformVars)
 
 	return newOptions
 
@@ -118,4 +122,11 @@ func mergeMaps(maps ...map[string]interface{}) map[string]interface{} {
 		}
 	}
 	return result
+}
+
+// Adds value to map[key] only if value != compareValue
+func conditionalAdd(amap map[string]interface{}, key string, value string, compareValue string) {
+	if value != compareValue {
+		amap[key] = value
+	}
 }
