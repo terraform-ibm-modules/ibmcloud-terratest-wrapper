@@ -6,22 +6,29 @@ import (
 	"log"
 	"os"
 
+	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 )
 
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
 // It contains references to other important services and data structures needed to perform these methods.
 type CloudInfoService struct {
-	vpcService  vpcService
-	regionsData []RegionData
+	authenticator             core.Authenticator // shared authenticator
+	cloudAccountId            string             // IBMCloud account for user
+	vpcService                vpcService
+	resourceControllerService resourceControllerService
+	regionsData               []RegionData
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
 type CloudInfoServiceOptions struct {
-	ApiKey      string
-	VpcService  vpcService
-	RegionPrefs []RegionData
+	ApiKey                    string
+	Authenticator             core.Authenticator
+	VpcService                vpcService
+	ResourceControllerService resourceControllerService
+	RegionPrefs               []RegionData
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -42,6 +49,17 @@ type vpcService interface {
 	NewGetRegionOptions(string) *vpcv1.GetRegionOptions
 	ListVpcs(*vpcv1.ListVpcsOptions) (*vpcv1.VPCCollection, *core.DetailedResponse, error)
 	SetServiceURL(string) error
+}
+
+// resourceControllerService for external Resource Controller V2 Service API. Used for mocking.
+type resourceControllerService interface {
+	NewListResourceInstancesOptions() *resourcecontrollerv2.ListResourceInstancesOptions
+	ListResourceInstances(*resourcecontrollerv2.ListResourceInstancesOptions) (*resourcecontrollerv2.ResourceInstancesList, *core.DetailedResponse, error)
+}
+
+// ibmPowerService for external IBM Powercloud Service API. Used for mocking.
+type ibmPICloudConnectionClient interface {
+	GetAll() (*ibmpimodels.CloudConnections, error)
 }
 
 // SortedRegionsDataByPriority is an array of RegionData struct that is used as a receiver to implement the
@@ -65,7 +83,16 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 	// need a valid key
 	if len(options.ApiKey) == 0 {
 		log.Println("ERROR: empty API KEY")
-		return nil, errors.New("Empty API Key supplied")
+		return nil, errors.New("empty API Key supplied")
+	}
+
+	// if authenticator is not supplied, create new IamAuthenticator with supplied api key
+	if options.Authenticator != nil {
+		infoSvc.authenticator = options.Authenticator
+	} else {
+		infoSvc.authenticator = &core.IamAuthenticator{
+			ApiKey: options.ApiKey,
+		}
 	}
 
 	// if vpcService is not supplied, use default of external service
@@ -74,9 +101,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 	} else {
 		// Instantiate the service with an API key based IAM authenticator
 		vpcService, vpcErr := vpcv1.NewVpcV1(&vpcv1.VpcV1Options{
-			Authenticator: &core.IamAuthenticator{
-				ApiKey: options.ApiKey,
-			},
+			Authenticator: infoSvc.authenticator,
 		})
 		if vpcErr != nil {
 			log.Println("ERROR: Could not create NewVpcV1 service:", vpcErr)
@@ -85,6 +110,24 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 
 		infoSvc.vpcService = vpcService
 	}
+
+	// if resourceControllerService is not supplied use new external
+	if options.ResourceControllerService != nil {
+		infoSvc.resourceControllerService = options.ResourceControllerService
+	} else {
+		controllerClient, resCtrlErr := resourcecontrollerv2.NewResourceControllerV2(&resourcecontrollerv2.ResourceControllerV2Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if resCtrlErr != nil {
+			log.Println("Error creating resourcecontrollerv2 client:", resCtrlErr)
+			return nil, resCtrlErr
+		}
+
+		infoSvc.resourceControllerService = controllerClient
+	}
+
+	// TODO: hardcode account for now until we can retrieve
+	infoSvc.cloudAccountId = "abac0df06b644a9cabc6e44f55b3880e"
 
 	return infoSvc, nil
 }
@@ -95,7 +138,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 func NewCloudInfoServiceFromEnv(apiKeyEnv string, options CloudInfoServiceOptions) (*CloudInfoService, error) {
 	apiKey := os.Getenv(apiKeyEnv)
 	if apiKey == "" {
-		return nil, errors.New("No API key Environment variable set")
+		return nil, errors.New("no API key Environment variable set")
 	}
 
 	options.ApiKey = apiKey
