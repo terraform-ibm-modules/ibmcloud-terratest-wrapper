@@ -1,8 +1,6 @@
 package cloudinfo
 
 import (
-	"log"
-
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 )
 
@@ -24,7 +22,6 @@ func (infoSvc *CloudInfoService) getApiKeyDetail() (*iamidentityv1.APIKey, error
 
 		// set for future calls AND return
 		infoSvc.apiKeyDetail = apiKey
-		log.Println("Retrieved new account_id:", *apiKey.AccountID)
 		return apiKey, nil
 	}
 }

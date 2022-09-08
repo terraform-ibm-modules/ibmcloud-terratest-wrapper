@@ -13,11 +13,17 @@ import (
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 )
 
-// ListPowervsInstances will retrieve all PowerCloud parent instances for an account.
+// extend the CloudConnection struct to add zone (region or datacenter)
+type PowerCloudConnectionDetail struct {
+	*ibmpimodels.CloudConnection
+	Zone *string
+}
+
+// ListPowerWorkspaces will retrieve all PowerCloud parent instances for an account.
 // There is no API to retrieve all Powercloud instances for an account.
 // This function will loop through ALL resources of type "service_instance" in the account
 // and then filter by looking for "power-iaas" in the CRN.
-func (infoSvc *CloudInfoService) ListPowervsInstances() ([]resourcecontrollerv2.ResourceInstance, error) {
+func (infoSvc *CloudInfoService) ListPowerWorkspaces() ([]resourcecontrollerv2.ResourceInstance, error) {
 
 	listOptions := infoSvc.resourceControllerService.NewListResourceInstancesOptions()
 	listOptions.SetType("service_instance")
@@ -62,10 +68,10 @@ func (infoSvc *CloudInfoService) ListPowervsInstances() ([]resourcecontrollerv2.
 	return listPowerInstance, nil
 }
 
-// ListPowervsInstanceConnections will return an array of CloudConnection for a given existing connection client
+// ListPowerWorkspaceConnections will return an array of CloudConnection for a given existing connection client
 // NOTE: the client passed into this method is derived from a specific PowerCloud Instance ID and Region/Zone.
 // NOTE 2: the client object parameter is a reference to an interface to allow for unit test mocking
-func (infoSvc *CloudInfoService) ListPowervsInstanceConnections(client ibmPICloudConnectionClient) ([]*ibmpimodels.CloudConnection, error) {
+func (infoSvc *CloudInfoService) ListPowerWorkspaceConnections(client ibmPICloudConnectionClient) ([]*ibmpimodels.CloudConnection, error) {
 
 	// get all connections
 	allResp, err := client.GetAll()
@@ -76,8 +82,7 @@ func (infoSvc *CloudInfoService) ListPowervsInstanceConnections(client ibmPIClou
 		if strings.Contains(err.Error(), "unable to find cloud instance id") {
 			return nil, nil
 		} else {
-			log.Println("Error retrieving Powercloud Connections: ", err)
-			return nil, err
+			return nil, fmt.Errorf("error retrieving Powercloud Connections: %w", err)
 		}
 	}
 	// allResp here is not an array, its an object which contains an array, but we really want to return an array.
@@ -88,6 +93,63 @@ func (infoSvc *CloudInfoService) ListPowervsInstanceConnections(client ibmPIClou
 
 	// allResp is an object containing an array, but we want to return the actual array (for count purposes later)
 	return allResp.CloudConnections, nil
+}
+
+// ListPowercloudConnectionsForAccount will return an array of CloudConnection that contains all unique connections
+// in the current account (current account determined by API Key used)
+func (infoSvc *CloudInfoService) ListPowercloudConnectionsForAccount() ([]*PowerCloudConnectionDetail, error) {
+
+	var uniqueConnections []*PowerCloudConnectionDetail
+
+	// first we need a list of all workspaces for the account
+	wsList, wsErr := infoSvc.ListPowerWorkspaces()
+	if wsErr != nil {
+		return nil, wsErr
+	}
+
+	// for each workspace in account, get connections
+	for _, powerWs := range wsList {
+		// the sessions are for specific zone/region, so we need new session for each iteration of this
+		sess, sessErr := infoSvc.CreatePowercloudSession(*powerWs.RegionID)
+		if sessErr != nil {
+			return nil, sessErr
+		}
+
+		// use session to get a cloud connection client, which also requires the ID of each workspace
+		ccClient := infoSvc.CreatePowercloudConnectionClient(*powerWs.GUID, sess)
+
+		// get a list of connections for the workspace
+		ccList, ccErr := infoSvc.ListPowerWorkspaceConnections(ccClient)
+		if ccErr != nil {
+			return nil, ccErr
+		}
+
+		// build a final list of connections plus extended data, unique by connection id
+		for _, cc := range ccList {
+			// only add to list if ID is not already present
+			// NOTE: this is required because connections in same zone/region are shared across workspaces!
+			if !cloudConnectionDetailExists(cc, uniqueConnections) {
+				ccDetail := &PowerCloudConnectionDetail{
+					CloudConnection: cc,
+					Zone:            powerWs.RegionID,
+				}
+				uniqueConnections = append(uniqueConnections, ccDetail)
+			}
+		}
+	}
+
+	return uniqueConnections, nil
+}
+
+// cloudConnectionDetailExists is a simple helper function to check if a given cloud connection object already exists in detail array
+func cloudConnectionDetailExists(connection *ibmpimodels.CloudConnection, connectionList []*PowerCloudConnectionDetail) bool {
+
+	for _, cc := range connectionList {
+		if strings.Compare(*cc.CloudConnectionID, *connection.CloudConnectionID) == 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // CreatePowercloudSession will return a PowerPI session object that is tailored to a specific cloud account and region/zone
@@ -108,8 +170,7 @@ func (infoSvc *CloudInfoService) CreatePowercloudSession(instanceRegion string) 
 	}
 	session, err := ibmpisession.NewIBMPISession(sessionOptions)
 	if err != nil {
-		log.Println("Error creating PI session: ", err)
-		return nil, err
+		return nil, fmt.Errorf("error creating PI session: %w", err)
 	}
 
 	return session, nil
