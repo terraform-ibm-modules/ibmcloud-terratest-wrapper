@@ -92,10 +92,18 @@ func (infoSvc *CloudInfoService) ListPowervsInstanceConnections(client ibmPIClou
 
 // CreatePowercloudSession will return a PowerPI session object that is tailored to a specific cloud account and region/zone
 func (infoSvc *CloudInfoService) CreatePowercloudSession(instanceRegion string) (*ibmpisession.IBMPISession, error) {
+	// get current auth cloud account_id needed for this API
+	apiKeyDetail, keyErr := infoSvc.getApiKeyDetail()
+	if keyErr != nil || apiKeyDetail == nil || apiKeyDetail.AccountID == nil {
+		// if we are unable to get accountId we will not be able to proceed
+		log.Println("ERROR: unable to retrieve valid ACCOUNT_ID, cannot proceed with Powercloud query")
+		return nil, fmt.Errorf("unable to retrieve valid ACCOUNT_ID")
+	}
+
 	// get powercloud client
 	sessionOptions := &ibmpisession.IBMPIOptions{
 		Authenticator: infoSvc.authenticator,
-		UserAccount:   infoSvc.cloudAccountId,
+		UserAccount:   *apiKeyDetail.AccountID,
 		Zone:          instanceRegion,
 	}
 	session, err := ibmpisession.NewIBMPISession(sessionOptions)

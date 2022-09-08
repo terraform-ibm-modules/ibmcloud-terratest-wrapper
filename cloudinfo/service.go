@@ -8,6 +8,7 @@ import (
 
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 )
@@ -15,9 +16,10 @@ import (
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
 // It contains references to other important services and data structures needed to perform these methods.
 type CloudInfoService struct {
-	authenticator             core.Authenticator // shared authenticator
-	cloudAccountId            string             // IBMCloud account for user
+	authenticator             *core.IamAuthenticator // shared authenticator
+	apiKeyDetail              *iamidentityv1.APIKey  // IBMCloud account for user
 	vpcService                vpcService
+	iamIdentityService        iamIdentityService
 	resourceControllerService resourceControllerService
 	regionsData               []RegionData
 }
@@ -25,9 +27,10 @@ type CloudInfoService struct {
 // CloudInfoServiceOptions structure used as input params for service constructor.
 type CloudInfoServiceOptions struct {
 	ApiKey                    string
-	Authenticator             core.Authenticator
+	Authenticator             *core.IamAuthenticator
 	VpcService                vpcService
 	ResourceControllerService resourceControllerService
+	IamIdentityService        iamIdentityService
 	RegionPrefs               []RegionData
 }
 
@@ -49,6 +52,11 @@ type vpcService interface {
 	NewGetRegionOptions(string) *vpcv1.GetRegionOptions
 	ListVpcs(*vpcv1.ListVpcsOptions) (*vpcv1.VPCCollection, *core.DetailedResponse, error)
 	SetServiceURL(string) error
+}
+
+// iamIdentityService interface for an external IBM IAM Identity V1 Service API. Used for mocking.
+type iamIdentityService interface {
+	GetAPIKeysDetails(*iamidentityv1.GetAPIKeysDetailsOptions) (*iamidentityv1.APIKey, *core.DetailedResponse, error)
 }
 
 // resourceControllerService for external Resource Controller V2 Service API. Used for mocking.
@@ -95,6 +103,20 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 	}
 
+	// if IamIdentity is not supplied, use default external service
+	if options.IamIdentityService != nil {
+		infoSvc.iamIdentityService = options.IamIdentityService
+	} else {
+		iamService, iamErr := iamidentityv1.NewIamIdentityV1(&iamidentityv1.IamIdentityV1Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if iamErr != nil {
+			log.Println("ERROR: Could not create NewIamIdentityV1 service:", iamErr)
+			return nil, iamErr
+		}
+		infoSvc.iamIdentityService = iamService
+	}
+
 	// if vpcService is not supplied, use default of external service
 	if options.VpcService != nil {
 		infoSvc.vpcService = options.VpcService
@@ -125,9 +147,6 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 
 		infoSvc.resourceControllerService = controllerClient
 	}
-
-	// TODO: hardcode account for now until we can retrieve
-	infoSvc.cloudAccountId = "abac0df06b644a9cabc6e44f55b3880e"
 
 	return infoSvc, nil
 }
