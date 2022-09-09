@@ -6,7 +6,7 @@ require (
 	github.com/IBM/go-sdk-core/v5 v5.10.2
 	github.com/IBM/vpc-go-sdk v1.0.2
 	github.com/go-git/go-git/v5 v5.4.2
-	github.com/gruntwork-io/terratest v0.40.21
+	github.com/gruntwork-io/terratest v0.40.22
 	github.com/jinzhu/copier v0.3.5
 	github.com/stretchr/testify v1.8.0
 	gopkg.in/yaml.v3 v3.0.1
