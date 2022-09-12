@@ -188,9 +188,9 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		gitRoot, _ := GitRootPath(options.TerraformDir)
 		gitRepo, _ := git.PlainOpen(gitRoot)
 
-		ref, _ := gitRepo.Head()
-		prBranch := ref.Name()
-		logger.Log(options.Testing, "Current Branch (PR): "+prBranch)
+		// maintain a reference of current checkout, which might be a detatched PR merge, will be used to switch back later
+		prRef, _ := gitRepo.Head()
+		logger.Log(options.Testing, "Current Branch [Name - Hash]:", prRef.Name(), "-", prRef.Hash())
 
 		// fetch to ensure all branches are present
 		remote, err := gitRepo.Remote("origin")
@@ -240,14 +240,19 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		// Only proceed to upgrade Test of master branch apply passed
 		if resultErr == nil {
-			logger.Log(options.Testing, "Attempting Git Checkout PR Branch: ", prBranch)
+			logger.Log(options.Testing, "Attempting Git Checkout PR Branch:", prRef.Name(), "-", prRef.Hash())
+			// checkout the HASH of original (PR) branch.
+			// NOTE: in automation the original checkout branch is detached and points to the pseudo merge of the PR.
+			//       These detached merge branches report their name as "HEAD" which is not a suitable checkout value.
+			//       The solution here is to do this final checkout on the HASH of the original branch which will work
+			//       with both detached and normal branches.
 			resultErr = w.Checkout(&git.CheckoutOptions{
-				Branch: prBranch,
-				Force:  true})
+				Hash:  prRef.Hash(),
+				Force: true})
 			assert.Nilf(options.Testing, resultErr, "Could Not Checkout PR Branch")
 			if resultErr == nil {
 				cur, _ = gitRepo.Head()
-				logger.Log(options.Testing, "Current Branch (PR): "+cur.Name())
+				logger.Log(options.Testing, "Current Branch (PR):", cur.Name(), "-", cur.Hash())
 
 				// Plan needs a temp file to store plan in
 				tmpPlanFile, _ := os.CreateTemp(options.TerraformDir, "terratest-plan-file-")
