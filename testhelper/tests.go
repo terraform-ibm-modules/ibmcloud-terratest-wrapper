@@ -199,7 +199,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		}
 
 		opts := &git.FetchOptions{
-			RefSpecs: []config.RefSpec{"refs/*:refs/*", "HEAD:refs/heads/HEAD"},
+			RefSpecs: []config.RefSpec{"refs/*:refs/*"},
 		}
 
 		if err := remote.Fetch(opts); err != nil {
