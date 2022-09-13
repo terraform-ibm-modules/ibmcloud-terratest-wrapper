@@ -11,7 +11,8 @@ import (
 )
 
 const (
-	regionStatusAvailable = "available"
+	regionStatusAvailable      = "available"
+	maxPowerConnectionsPerZone = 2
 )
 
 // GetAvailableVpcRegions is a method for receiver CloudInfoService that will query the caller account
@@ -69,18 +70,18 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegion() (string, error) {
 			log.Println("Failed LIST VPCs for region", region.Name, ":", err, "Full Response:", detailedResponse)
 			return "", err
 		}
-		region.VpcCount = int(*vpcCol.TotalCount)
-		log.Println("Region", region.Name, "VPC count:", region.VpcCount)
+		region.ResourceCount = int(*vpcCol.TotalCount)
+		log.Println("Region", region.Name, "VPC count:", region.ResourceCount)
 
 		// region list is sorted by priority, so if vpc count is zero then short circuit and return, it is the best region
-		if region.VpcCount == 0 {
+		if region.ResourceCount == 0 {
 			bestregion = region
 			log.Println("--- new best region is", bestregion.Name)
 			break
 		} else if i == 0 {
 			bestregion = region // always use first region in list
 			log.Println("--- new best region is", bestregion.Name)
-		} else if region.VpcCount < bestregion.VpcCount {
+		} else if region.ResourceCount < bestregion.ResourceCount {
 			bestregion = region // use if lower count
 			log.Println("--- new best region is", bestregion.Name)
 		}
@@ -186,4 +187,72 @@ func (infoSvc *CloudInfoService) LoadRegionsFromVpcAccount() error {
 	infoSvc.regionsData = regionsData
 
 	return nil
+}
+
+// GetLeastPowerConnectionZone is a method for receiver CloudInfoService that will determine a zone (data center) available
+// to the caller account that currently contains the least amount of deployed PowerCloud connections.
+// This determination requires specifying CloudInfoService.regionsData with valid data centers (regions)
+// that are supported by the PowerCloud service.
+// Returns a string representing an IBM Cloud region name, and error.
+func (infoSvc *CloudInfoService) GetLeastPowerConnectionZone() (string, error) {
+
+	var bestregion RegionData
+
+	// sort available regions/zones by priority
+	// for powercloud resources the available zone list needs to be supplied, otherwise error
+	if len(infoSvc.regionsData) == 0 {
+		return "", errors.New("no available zones were supplied for powercloud")
+	}
+
+	regions := infoSvc.regionsData
+	// sort by priority ascending
+	sort.Sort(SortedRegionsDataByPriority(regions))
+
+	// load existing powercloud connections and their datacenter for the account
+	connections, connErr := infoSvc.ListPowercloudConnectionsForAccount()
+	if connErr != nil {
+		return "", connErr
+	}
+
+	for _, region := range regions {
+
+		connCount := countPowerConnectionsInZone(region.Name, connections)
+		region.ResourceCount = connCount
+		log.Println("Region", region.Name, "Resource count:", region.ResourceCount)
+
+		// region list is sorted by priority, so if resource count is zero then short circuit and return, it is the best region
+		// NOTE: we will also make sure each region is not at total limit of connections, if it is we will move on to next
+		if region.ResourceCount == 0 {
+			bestregion = region
+			log.Println("--- new best region is", bestregion.Name)
+			break
+		} else if region.ResourceCount < maxPowerConnectionsPerZone && len(bestregion.Name) == 0 {
+			bestregion = region // always use first VALID region found in list
+			log.Println("--- new best region is", bestregion.Name)
+		} else if region.ResourceCount < maxPowerConnectionsPerZone && region.ResourceCount < bestregion.ResourceCount {
+			bestregion = region // use if valid AND lower count than previous best
+			log.Println("--- new best region is", bestregion.Name)
+		}
+	}
+
+	// if return val is still empty, then there were no regions available, send error
+	if len(bestregion.Name) == 0 {
+		return "", errors.New("no region could be determined")
+	}
+
+	return bestregion.Name, nil
+}
+
+// countPowerConnectionsInZone is a private helper function that will return a count of occurances of
+// the provided zone in a list of existing Powercloud connections.
+func countPowerConnectionsInZone(zone string, connections []*PowerCloudConnectionDetail) int {
+	count := 0
+
+	for _, conn := range connections {
+		if *conn.Zone == zone {
+			count += 1
+		}
+	}
+
+	return count
 }

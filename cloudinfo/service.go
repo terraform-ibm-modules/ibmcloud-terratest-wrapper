@@ -37,12 +37,12 @@ type CloudInfoServiceOptions struct {
 // RegionData is a data structure used for holding configurable information about a region.
 // Most of this data is configured by the caller in order to affect certain processing routines.
 type RegionData struct {
-	Name         string
-	UseForTest   bool `yaml:"useForTest"`
-	TestPriority int  `yaml:"testPriority"`
-	Endpoint     string
-	Status       string
-	VpcCount     int
+	Name          string
+	UseForTest    bool `yaml:"useForTest"`
+	TestPriority  int  `yaml:"testPriority"`
+	Endpoint      string
+	Status        string
+	ResourceCount int
 }
 
 // vpcService interface for an external VPC Service API. Used for mocking external service in tests.
