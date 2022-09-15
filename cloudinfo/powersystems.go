@@ -97,7 +97,7 @@ func (infoSvc *CloudInfoService) ListPowerWorkspaceConnections(client ibmPICloud
 
 // ListPowercloudConnectionsForAccount will return an array of CloudConnection that contains all unique connections
 // in the current account (current account determined by API Key used)
-func (infoSvc *CloudInfoService) ListPowercloudConnectionsForAccount() ([]*PowerCloudConnectionDetail, error) {
+func (infoSvc *CloudInfoService) ListPowerConnectionsForAccount() ([]*PowerCloudConnectionDetail, error) {
 
 	var uniqueConnections []*PowerCloudConnectionDetail
 
@@ -110,7 +110,7 @@ func (infoSvc *CloudInfoService) ListPowercloudConnectionsForAccount() ([]*Power
 	// for each workspace in account, get connections
 	for _, powerWs := range wsList {
 		// the sessions are for specific zone/region, so we need new session for each iteration of this
-		sess, sessErr := infoSvc.CreatePowercloudSession(*powerWs.RegionID)
+		sess, sessErr := infoSvc.CreatePowerSession(*powerWs.RegionID)
 		if sessErr != nil {
 			return nil, sessErr
 		}
@@ -128,7 +128,7 @@ func (infoSvc *CloudInfoService) ListPowercloudConnectionsForAccount() ([]*Power
 		for _, cc := range ccList {
 			// only add to list if ID is not already present
 			// NOTE: this is required because connections in same zone/region are shared across workspaces!
-			if !cloudConnectionDetailExists(cc, uniqueConnections) {
+			if !powerConnectionDetailExists(cc, uniqueConnections) {
 				ccDetail := &PowerCloudConnectionDetail{
 					CloudConnection: cc,
 					Zone:            powerWs.RegionID,
@@ -142,7 +142,7 @@ func (infoSvc *CloudInfoService) ListPowercloudConnectionsForAccount() ([]*Power
 }
 
 // cloudConnectionDetailExists is a simple helper function to check if a given cloud connection object already exists in detail array
-func cloudConnectionDetailExists(connection *ibmpimodels.CloudConnection, connectionList []*PowerCloudConnectionDetail) bool {
+func powerConnectionDetailExists(connection *ibmpimodels.CloudConnection, connectionList []*PowerCloudConnectionDetail) bool {
 
 	for _, cc := range connectionList {
 		if strings.Compare(*cc.CloudConnectionID, *connection.CloudConnectionID) == 0 {
@@ -153,7 +153,7 @@ func cloudConnectionDetailExists(connection *ibmpimodels.CloudConnection, connec
 }
 
 // CreatePowercloudSession will return a PowerPI session object that is tailored to a specific cloud account and region/zone
-func (infoSvc *CloudInfoService) CreatePowercloudSession(instanceRegion string) (*ibmpisession.IBMPISession, error) {
+func (infoSvc *CloudInfoService) CreatePowerSession(instanceRegion string) (*ibmpisession.IBMPISession, error) {
 	// get current auth cloud account_id needed for this API
 	apiKeyDetail, keyErr := infoSvc.getApiKeyDetail()
 	if keyErr != nil || apiKeyDetail == nil || apiKeyDetail.AccountID == nil {

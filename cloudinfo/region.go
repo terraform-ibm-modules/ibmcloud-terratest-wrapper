@@ -209,7 +209,7 @@ func (infoSvc *CloudInfoService) GetLeastPowerConnectionZone() (string, error) {
 	sort.Sort(SortedRegionsDataByPriority(regions))
 
 	// load existing powercloud connections and their datacenter for the account
-	connections, connErr := infoSvc.ListPowercloudConnectionsForAccount()
+	connections, connErr := infoSvc.ListPowerConnectionsForAccount()
 	if connErr != nil {
 		return "", connErr
 	}
