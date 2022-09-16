@@ -110,7 +110,7 @@ func (mock *resourceControllerServiceMock) ListResourceInstances(options *resour
 	var retList *resourcecontrollerv2.ResourceInstancesList
 	var mockCount int64 = 0
 
-	if *options.Name == "ERROR" {
+	if options.Name != nil && *options.Name == "ERROR" {
 		return nil, nil, errors.New("mock Resource is error")
 	}
 

@@ -201,7 +201,7 @@ func (infoSvc *CloudInfoService) GetLeastPowerConnectionZone() (string, error) {
 	// sort available regions/zones by priority
 	// for powercloud resources the available zone list needs to be supplied, otherwise error
 	if len(infoSvc.regionsData) == 0 {
-		return "", errors.New("no available zones were supplied for powercloud")
+		return "", errors.New("no available zones were supplied for power systems")
 	}
 
 	regions := infoSvc.regionsData
