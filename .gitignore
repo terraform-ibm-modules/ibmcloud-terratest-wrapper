@@ -256,3 +256,6 @@ terraform.rc
 
 # Ignore .tfsec
 .tfsec/
+
+# vscode
+.vscode/
