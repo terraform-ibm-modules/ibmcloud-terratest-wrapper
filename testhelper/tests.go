@@ -2,7 +2,6 @@ package testhelper
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -254,11 +253,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 				cur, _ = gitRepo.Head()
 				logger.Log(options.Testing, "Current Branch (PR):", cur.Name(), "-", cur.Hash())
 
-				// Plan needs a temp file to store plan in
-				tmpPlanFile, _ := os.CreateTemp(options.TerraformDir, "terratest-plan-file-")
-				options.TerraformOptions.PlanFilePath = tmpPlanFile.Name()
-
-				result, resultErr = terraform.InitAndPlanAndShowWithStructE(options.Testing, options.TerraformOptions)
+				result, resultErr = options.runTestPlan()
 				assert.Nilf(options.Testing, resultErr, "Terraform Plan on PR branch has failed")
 				if result != nil && resultErr == nil {
 					logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)..")
@@ -317,19 +312,20 @@ func (options *TestOptions) runTestPlan() (*terraform.PlanStruct, error) {
 
 	logger.Log(options.Testing, "START: Init / Plan / Show w/Struct")
 
-	planDir, dirErr := os.MkdirTemp("", "plan")
-	if dirErr != nil {
-		log.Fatal(dirErr)
+	// create a unique plan file name in terraform directory (which is already in temp location)
+	tmpPlanFile, tmpPlanErr := os.CreateTemp(options.TerraformDir, "terratest-plan-file-")
+	if tmpPlanErr != nil {
+		return nil, tmpPlanErr
 	}
-	defer func(path string) {
-		err := os.RemoveAll(path)
-		if err != nil {
-			logger.Log(options.Testing, "Failed to remove path: ", err)
-		}
-	}(planDir) // clean up
+	options.TerraformOptions.PlanFilePath = tmpPlanFile.Name()
 
-	options.TerraformOptions.PlanFilePath = fmt.Sprintf("%splan-%s", planDir, options.Prefix)
+	// TERRATEST uses its own internal logger.
+	// The "show" command will produce a very large JSON to stdout which is printed by the logger.
+	// We are temporarily turning the terratest logger OFF (discard) while running "show" to prevent large JSON stdout.
+	options.TerraformOptions.Logger = logger.Discard
 	outputStruct, err := terraform.InitAndPlanAndShowWithStructE(options.Testing, options.TerraformOptions)
+	options.TerraformOptions.Logger = logger.Default // turn log back on
+
 	assert.Nil(options.Testing, err, "Failed to create plan: ", err)
 	logger.Log(options.Testing, "FINISHED: Init / Plan / Show w/Struct")
 
