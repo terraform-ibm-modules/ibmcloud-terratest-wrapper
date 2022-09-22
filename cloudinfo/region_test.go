@@ -99,3 +99,15 @@ func TestLoadRegionPrefs(t *testing.T) {
 		assert.NotNil(t, err, "expected error on bad file format")
 	})
 }
+
+func TestLeastPowerConnectionZone(t *testing.T) {
+	infoSvc := CloudInfoService{}
+
+	// first test, there is no provided region preference data
+	t.Run("NoRegionData", func(t *testing.T) {
+		bestZone, bestErr := infoSvc.GetLeastPowerConnectionZone()
+		assert.NotNil(t, bestErr)
+		assert.Empty(t, bestZone)
+		assert.ErrorContains(t, bestErr, "no available zones")
+	})
+}
