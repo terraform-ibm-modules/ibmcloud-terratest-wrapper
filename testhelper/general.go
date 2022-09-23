@@ -2,12 +2,13 @@
 package testhelper
 
 import (
-	"github.com/stretchr/testify/require"
 	"log"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 )
@@ -23,6 +24,7 @@ type TesthelperTerraformOptions struct {
 // interface for the cloudinfo service (can be mocked in tests)
 type cloudInfoServiceI interface {
 	GetLeastVpcTestRegion() (string, error)
+	GetLeastPowerConnectionZone() (string, error)
 	LoadRegionPrefsFromFile(string) error
 }
 
@@ -44,7 +46,6 @@ func GetBestVpcRegion(apiKey string, prefsFilePath string, defaultRegion string)
 // Returns a string representing an IBM Cloud region name, and error.
 func GetBestVpcRegionO(apiKey string, prefsFilePath string, defaultRegion string, options TesthelperTerraformOptions) (string, error) {
 	// set up initial best region as default
-	var cloudSvc cloudInfoServiceI
 
 	// If there is an OS ENV found to force the region, simply return that value and short-circuit this routine
 	forceRegion, isForcePresent := os.LookupEnv(ForceTestRegionEnvName)
@@ -52,29 +53,10 @@ func GetBestVpcRegionO(apiKey string, prefsFilePath string, defaultRegion string
 		return forceRegion, nil
 	}
 
-	// configure new cloudinfosvc if required (not supplied in options)
-	if options.CloudInfoService != nil {
-		cloudSvc = options.CloudInfoService
-	} else {
-		// set up new service based on supplied values
-		svcOptions := cloudinfo.CloudInfoServiceOptions{
-			ApiKey: apiKey, //pragma: allowlist secret
-		}
-		cloudSvcRef, svcErr := cloudinfo.NewCloudInfoServiceWithKey(svcOptions)
-		if svcErr != nil {
-			log.Println("Error creating new CloudInfoService, using default region:", defaultRegion)
-			return defaultRegion, svcErr
-		}
-		cloudSvc = cloudSvcRef
-	}
-
-	// load a region prefs file if supplied
-	if len(prefsFilePath) > 0 {
-		loadErr := cloudSvc.LoadRegionPrefsFromFile(prefsFilePath)
-		if loadErr != nil {
-			log.Println("Error loading CloudInfoService file, using default region:", defaultRegion)
-			return defaultRegion, loadErr
-		}
+	cloudSvc, cloudSvcErr := configureCloudInfoService(apiKey, prefsFilePath, options)
+	if cloudSvcErr != nil {
+		log.Println("Error creating CloudInfoService for testhelper")
+		return defaultRegion, cloudSvcErr
 	}
 
 	// get best region
@@ -93,6 +75,87 @@ func GetBestVpcRegionO(apiKey string, prefsFilePath string, defaultRegion string
 	}
 
 	return bestregion, nil
+}
+
+// GetBestPowerSystemsRegion is a method that will determine a region available
+// to the caller account that currently contains the least amount of deployed PowerVS Cloud Connections.
+// The determination can be influenced by specifying a prefsFilePath pointed to a valid YAML file.
+// If an OS ENV is found called FORCE_TEST_REGION then it will be used without querying.
+// This function assumes that all default Options will be used.
+// Returns a string representing an IBM Cloud region name, and error.
+func GetBestPowerSystemsRegion(apiKey string, prefsFilePath string, defaultRegion string) (string, error) {
+	return GetBestPowerSystemsRegionO(apiKey, prefsFilePath, defaultRegion, TesthelperTerraformOptions{})
+}
+
+// GetBestPowerSystemsRegionO is a method that will determine a region available
+// to the caller account that currently contains the least amount of deployed PowerVS Cloud Connections.
+// The determination can be influenced by specifying a prefsFilePath pointed to a valid YAML file.
+// If an OS ENV is found called FORCE_TEST_REGION then it will be used without querying.
+// Options data can also be called to supply the service to use that implements the correct interface.
+// Returns a string representing an IBM Cloud region name, and error.
+func GetBestPowerSystemsRegionO(apiKey string, prefsFilePath string, defaultRegion string, options TesthelperTerraformOptions) (string, error) {
+	// set up initial best region as default
+
+	// If there is an OS ENV found to force the region, simply return that value and short-circuit this routine
+	forceRegion, isForcePresent := os.LookupEnv(ForceTestRegionEnvName)
+	if isForcePresent {
+		return forceRegion, nil
+	}
+
+	cloudSvc, cloudSvcErr := configureCloudInfoService(apiKey, prefsFilePath, options)
+	if cloudSvcErr != nil {
+		log.Println("Error creating CloudInfoService for testhelper")
+		return defaultRegion, cloudSvcErr
+	}
+
+	// get best region
+	bestregion, getErr := cloudSvc.GetLeastPowerConnectionZone()
+	if getErr != nil {
+		log.Println("Error getting least PowerConnection region")
+		return defaultRegion, getErr
+	}
+
+	// regardless of error, if the bestregion returned is empty use default
+	if len(bestregion) > 0 {
+		log.Println("Best region was found!:", bestregion)
+	} else {
+		log.Println("Dynamic region not found, using default region:", defaultRegion)
+		return defaultRegion, nil
+	}
+
+	return bestregion, nil
+}
+
+// configureCloudInfoService is a private function that will configure and set up a new CloudInfoService for testhelper
+func configureCloudInfoService(apiKey string, prefsFilePath string, options TesthelperTerraformOptions) (cloudInfoServiceI, error) {
+	var cloudSvc cloudInfoServiceI
+
+	// configure new cloudinfosvc if required (not supplied in options)
+	if options.CloudInfoService != nil {
+		cloudSvc = options.CloudInfoService
+	} else {
+		// set up new service based on supplied values
+		svcOptions := cloudinfo.CloudInfoServiceOptions{
+			ApiKey: apiKey, //pragma: allowlist secret
+		}
+		cloudSvcRef, svcErr := cloudinfo.NewCloudInfoServiceWithKey(svcOptions)
+		if svcErr != nil {
+			log.Println("Error creating new CloudInfoService, using default region:", defaultRegion)
+			return nil, svcErr
+		}
+		cloudSvc = cloudSvcRef
+	}
+
+	// load a region prefs file if supplied
+	if len(prefsFilePath) > 0 {
+		loadErr := cloudSvc.LoadRegionPrefsFromFile(prefsFilePath)
+		if loadErr != nil {
+			log.Println("Error loading CloudInfoService file, using default region:", defaultRegion)
+			return nil, loadErr
+		}
+	}
+
+	return cloudSvc, nil
 }
 
 // GetRequiredEnvVars returns a map containing required environment variables and their values
