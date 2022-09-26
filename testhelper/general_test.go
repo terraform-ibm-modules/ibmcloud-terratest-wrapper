@@ -12,14 +12,16 @@ import (
 /**** START MOCK CloudInfoService ****/
 type cloudInfoServiceMock struct {
 	mock.Mock
-	prefsFileName               string
-	loadFileCalled              bool
-	getLeastVpcTestRegionCalled bool
+	prefsFileName                     string
+	loadFileCalled                    bool
+	getLeastVpcTestRegionCalled       bool
+	getLeastPowerConnectionZoneCalled bool
 }
 
 func (mock *cloudInfoServiceMock) LoadRegionPrefsFromFile(prefsFile string) error {
 	mock.prefsFileName = prefsFile
 	mock.loadFileCalled = true
+
 	if prefsFile == "badfile" {
 		return errors.New("Bad File")
 	} else {
@@ -40,9 +42,27 @@ func (mock *cloudInfoServiceMock) GetLeastVpcTestRegion() (string, error) {
 	case "empty-region":
 		return "", nil
 	case "errorfile":
-		return "", errors.New("Mock Error Msg")
+		return "", errors.New("mock Error Msg")
 	}
-	return "", errors.New("Mock no matching file name")
+	return "", errors.New("mock no matching file name")
+}
+
+func (mock *cloudInfoServiceMock) GetLeastPowerConnectionZone() (string, error) {
+	mock.getLeastPowerConnectionZoneCalled = true
+
+	switch mock.prefsFileName {
+	case "goodfile":
+		return "best-region", nil
+	case "badfile":
+		return "ok-region", nil
+	case "":
+		return "all-region", nil
+	case "empty-region":
+		return "", nil
+	case "errorfile":
+		return "", errors.New("mock Error Msg")
+	}
+	return "", errors.New("mock no matching file name")
 }
 
 /**** END MOCK CloudInfoService ****/
@@ -95,13 +115,73 @@ func TestLeastVpcRegionNoFile(t *testing.T) {
 func TestLeastVpcRegionForced(t *testing.T) {
 	// set a forced region
 	os.Setenv(ForceTestRegionEnvName, "forced-region")
-
+	defer os.Unsetenv(ForceTestRegionEnvName)
 	infoSvc := cloudInfoServiceMock{loadFileCalled: false, getLeastVpcTestRegionCalled: false}
 	options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
 
 	bestregion, err := GetBestVpcRegionO("FAKEKEY", "goodfile", "default-region", options)
 
 	assert.False(t, infoSvc.getLeastVpcTestRegionCalled, "GetLeastVpcTestRegion() should NOT have been called")
+	assert.Nil(t, err, "Must not return error")
+	assert.Equal(t, "forced-region", bestregion, "Should return FORCED region")
+}
+
+func TestLeastPowerConnectionZoneFound(t *testing.T) {
+	infoSvc := cloudInfoServiceMock{loadFileCalled: false, getLeastPowerConnectionZoneCalled: false}
+	options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+
+	bestregion, err := GetBestPowerSystemsRegionO("FAKEKEY", "goodfile", "default-region", options)
+
+	assert.True(t, infoSvc.getLeastPowerConnectionZoneCalled, "GetLeastPowerConnectionZone() should have been called")
+	assert.Nil(t, err, "Must not return error")
+	assert.Equal(t, "best-region", bestregion, "Should return best region")
+}
+
+func TestLeastPowerConnectionZoneDefault(t *testing.T) {
+	infoSvc := cloudInfoServiceMock{loadFileCalled: false, getLeastPowerConnectionZoneCalled: false}
+	options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+
+	// error returned, should default
+	bestregion1, err1 := GetBestPowerSystemsRegionO("FAKEKEY", "errorfile", "default-region", options)
+	assert.NotNil(t, err1, "Error condition should have returned error")
+	assert.Equal(t, "default-region", bestregion1, "Error condition should return default region")
+
+	// empty region returned, should default
+	bestregion2, err2 := GetBestPowerSystemsRegionO("FAKEKEY", "empty-region", "default-region", options)
+	assert.Nil(t, err2, "Empty condition should NOT have returned error")
+	assert.Equal(t, "default-region", bestregion2, "Empty condition should return default region")
+}
+
+func TestLeastPowerConnectionZoneWithFile(t *testing.T) {
+	infoSvc := cloudInfoServiceMock{loadFileCalled: false, getLeastPowerConnectionZoneCalled: false}
+	options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+
+	_, err := GetBestPowerSystemsRegionO("FAKEKEY", "goodfile", "default-region", options)
+	assert.Nil(t, err, "Error should not be returned")
+	assert.Equal(t, true, infoSvc.loadFileCalled, "Load file function should be called")
+}
+
+func TestLeastPowerConnectionZoneNoFile(t *testing.T) {
+	infoSvc := cloudInfoServiceMock{loadFileCalled: false, getLeastPowerConnectionZoneCalled: false}
+	options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+
+	bestregion, err := GetBestPowerSystemsRegionO("FAKEKEY", "", "default-region", options)
+	assert.Nil(t, err, "Error should not be returned")
+	assert.Equal(t, "all-region", bestregion, "All (broadest) region should be returned if no prefs file")
+	assert.Equal(t, false, infoSvc.loadFileCalled)
+}
+
+func TestLeastPowerConnectionZoneForced(t *testing.T) {
+	// set a forced region
+	os.Setenv(ForceTestRegionEnvName, "forced-region")
+	defer os.Unsetenv(ForceTestRegionEnvName)
+
+	infoSvc := cloudInfoServiceMock{loadFileCalled: false, getLeastPowerConnectionZoneCalled: false}
+	options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+
+	bestregion, err := GetBestPowerSystemsRegionO("FAKEKEY", "goodfile", "default-region", options)
+
+	assert.False(t, infoSvc.getLeastPowerConnectionZoneCalled, "GetLeastPowerConnectionZone() should NOT have been called")
 	assert.Nil(t, err, "Must not return error")
 	assert.Equal(t, "forced-region", bestregion, "Should return FORCED region")
 }
