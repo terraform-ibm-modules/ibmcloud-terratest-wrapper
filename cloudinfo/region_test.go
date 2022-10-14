@@ -3,15 +3,18 @@ package cloudinfo
 import (
 	"testing"
 
+	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestLeastVpcAllAvailRegions(t *testing.T) {
 	vpcService := new(vpcServiceMock)
+	resourceControllerService := new(resourceControllerServiceMock)
 
 	// first test, low priority wins
 	infoSvc := CloudInfoService{
-		vpcService: vpcService,
+		vpcService:                vpcService,
+		resourceControllerService: resourceControllerService,
 		regionsData: []RegionData{
 			{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
 			{Name: "reg-2-5", UseForTest: true, TestPriority: 2},
@@ -75,6 +78,31 @@ func TestLeastVpcAllAvailRegions(t *testing.T) {
 		_, regErr := infoSvc.GetLeastVpcTestRegion()
 		assert.NotNil(t, regErr, "error expected when no region returned")
 	})
+
+	// sixth test, exclude regions with activity tracker
+	infoSvc.regionsData = []RegionData{
+		{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
+		{Name: "reg-2-1", UseForTest: true, TestPriority: 2},
+		{Name: "reg-3-3", UseForTest: true, TestPriority: 3},
+	}
+	var twoCount int64 = 2
+	resourceLogCrn := "crn:v1:bluemix:public:logdna:reg-3-3:a/accountnum:guid::"
+	resourceATCrn := "crn:v1:bluemix:public:logdnaat:reg-2-1:a/accountnum:guid::"
+	infoSvc.resourceControllerService = &resourceControllerServiceMock{
+		mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+			RowsCount: &twoCount,
+			Resources: []resourcecontrollerv2.ResourceInstance{
+				{CRN: &resourceLogCrn, RegionID: &infoSvc.regionsData[2].Name},
+				{CRN: &resourceATCrn, RegionID: &infoSvc.regionsData[1].Name},
+			},
+		},
+	}
+	t.Run("ActivityTrackerExclude", func(t *testing.T) {
+		bestregion, regErr := infoSvc.GetLeastVpcTestRegionWithoutActivityTracker()
+		if assert.Nil(t, regErr, "unexpected error returned") {
+			assert.Equal(t, "reg-3-3", bestregion, "Wrong VPC region returned")
+		}
+	})
 }
 
 func TestLoadRegionPrefs(t *testing.T) {
@@ -109,5 +137,31 @@ func TestLeastPowerConnectionZone(t *testing.T) {
 		assert.NotNil(t, bestErr)
 		assert.Empty(t, bestZone)
 		assert.ErrorContains(t, bestErr, "no available zones")
+	})
+}
+
+func TestRegionHasActivityTracker(t *testing.T) {
+	id1, id2, id3 := "1", "2", "3"
+	region1, region2, region3 := "region-1", "region-2", "region-3"
+
+	atList := []resourcecontrollerv2.ResourceInstance{
+		{ID: &id1, RegionID: &region1},
+		{ID: &id2, RegionID: &region2},
+		{ID: &id3, RegionID: &region3},
+	}
+
+	t.Run("ActivityTrackerRegionNotFound", func(t *testing.T) {
+		wasNotFound := regionHasActivityTracker("region-notfound", atList)
+		assert.False(t, wasNotFound)
+	})
+
+	t.Run("ActivityTrackerRegionFound", func(t *testing.T) {
+		wasFound := regionHasActivityTracker(region2, atList)
+		assert.True(t, wasFound)
+	})
+
+	t.Run("EmptyList", func(t *testing.T) {
+		wasEmpty := regionHasActivityTracker(region1, []resourcecontrollerv2.ResourceInstance{})
+		assert.False(t, wasEmpty)
 	})
 }

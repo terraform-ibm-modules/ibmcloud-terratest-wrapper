@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 
+	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"gopkg.in/yaml.v3"
 )
@@ -14,6 +15,11 @@ const (
 	regionStatusAvailable      = "available"
 	maxPowerConnectionsPerZone = 2
 )
+
+type GetTestRegionOptions struct {
+	// exclude a region if it contains an Activity Tracker
+	ExcludeIfActivityTracker bool
+}
 
 // GetAvailableVpcRegions is a method for receiver CloudInfoService that will query the caller account
 // for all regions that support the VPC resource type and are available in the account.
@@ -44,12 +50,34 @@ func (infoSvc *CloudInfoService) GetAvailableVpcRegions() ([]vpcv1.Region, error
 }
 
 // GetLeastVpcTestRegion is a method for receiver CloudInfoService that will determine a region available
+// to the caller account that currently contains the least amount of deployed VPCs, using default options.
+// Returns a string representing an IBM Cloud region name, and error.
+func (infoSvc *CloudInfoService) GetLeastVpcTestRegion() (string, error) {
+	// Set up default
+	options := NewGetTestRegionOptions()
+	return infoSvc.GetLeastVpcTestRegionO(*options)
+}
+
+// GetLeastVpcTestRegionWithoutActivityTracker is a method for receiver CloudInfoService that will determine a
+// region available to the caller account that currently contains the least amount of deployed VPCs and does
+// not currently contain an active Activity Tracker instance (can only have one per region).
+// Returns a string representing an IBM Cloud region name, and error.
+func (infoSvc *CloudInfoService) GetLeastVpcTestRegionWithoutActivityTracker() (string, error) {
+	// get default options
+	options := NewGetTestRegionOptions()
+	// change activity tracker setting
+	options.ExcludeIfActivityTracker = true
+
+	return infoSvc.GetLeastVpcTestRegionO(*options)
+}
+
+// GetLeastVpcTestRegionO is a method for receiver CloudInfoService that will determine a region available
 // to the caller account that currently contains the least amount of deployed VPCs.
-// The determination can be influenced by specifying CloudInfoService.regionsData.
+// The determination can be influenced by specifying CloudInfoService.regionsData and supplying appropriate options.
 // If no CloudInfoService.regionsData exists, it will simply loop through all available regions for the caller account
 // and choose a region with lowest VPC count.
 // Returns a string representing an IBM Cloud region name, and error.
-func (infoSvc *CloudInfoService) GetLeastVpcTestRegion() (string, error) {
+func (infoSvc *CloudInfoService) GetLeastVpcTestRegionO(options GetTestRegionOptions) (string, error) {
 
 	var bestregion RegionData
 
@@ -58,7 +86,27 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegion() (string, error) {
 		return "", err
 	}
 
-	for i, region := range regions {
+	// if we need to filter out regions by activity tracker existence, prepare a list of those regions
+	// NOTE: we only want to do this once at beginning and then use results below
+	var atInstanceList []resourcecontrollerv2.ResourceInstance
+	var atListErr error
+	if options.ExcludeIfActivityTracker {
+		atInstanceList, atListErr = infoSvc.ListResourcesByCrnServiceName("logdnaat")
+		if atListErr != nil {
+			log.Println("WARNING: Error retrieving Activity Tracker instances! Ignoring when selecting.")
+			atInstanceList = []resourcecontrollerv2.ResourceInstance{}
+		}
+	}
+
+	for _, region := range regions {
+		// if option is set, ignore region if there is existing activity tracker
+		if options.ExcludeIfActivityTracker {
+			if regionHasActivityTracker(region.Name, atInstanceList) {
+				log.Println("Region", region.Name, "skipped due to Activity Tracker present")
+				continue // ignore and move to next region
+			}
+		}
+
 		setErr := infoSvc.vpcService.SetServiceURL(region.Endpoint)
 		if setErr != nil {
 			log.Println("Failed to set a service url in vpc service")
@@ -78,8 +126,8 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegion() (string, error) {
 			bestregion = region
 			log.Println("--- new best region is", bestregion.Name)
 			break
-		} else if i == 0 {
-			bestregion = region // always use first region in list
+		} else if len(bestregion.Name) == 0 {
+			bestregion = region // always use first valid region in list
 			log.Println("--- new best region is", bestregion.Name)
 		} else if region.ResourceCount < bestregion.ResourceCount {
 			bestregion = region // use if lower count
@@ -98,6 +146,25 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegion() (string, error) {
 	}
 
 	return bestregion.Name, nil
+}
+
+// regionHasActivityTracker is a helper function to determine if a given region is represented in an array
+// of existing ActivityTracker resource instances.
+// Returns boolean true if region found
+func regionHasActivityTracker(region string, activityTrackerList []resourcecontrollerv2.ResourceInstance) bool {
+
+	// don't bother looping if empty
+	if len(activityTrackerList) == 0 {
+		return false
+	}
+
+	for _, at := range activityTrackerList {
+		if *at.RegionID == region {
+			return true
+		}
+	}
+
+	return false
 }
 
 // GetTestRegionsByPriority is a method for receiver CloudInfoService that will use the service regionsData
@@ -255,4 +322,11 @@ func countPowerConnectionsInZone(zone string, connections []*PowerCloudConnectio
 	}
 
 	return count
+}
+
+// NewGetTestRegionOptions will return the option struct with defaults
+func NewGetTestRegionOptions() *GetTestRegionOptions {
+	return &GetTestRegionOptions{
+		ExcludeIfActivityTracker: false,
+	}
 }
