@@ -18,12 +18,14 @@ const ForceTestRegionEnvName = "FORCE_TEST_REGION"
 // TesthelperTerraformOptions options object for optional variables to set
 // primarily used for mocking external services in test cases
 type TesthelperTerraformOptions struct {
-	CloudInfoService cloudInfoServiceI
+	CloudInfoService              cloudInfoServiceI
+	ExcludeActivityTrackerRegions bool
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
 type cloudInfoServiceI interface {
 	GetLeastVpcTestRegion() (string, error)
+	GetLeastVpcTestRegionWithoutActivityTracker() (string, error)
 	GetLeastPowerConnectionZone() (string, error)
 	LoadRegionPrefsFromFile(string) error
 }
@@ -60,7 +62,13 @@ func GetBestVpcRegionO(apiKey string, prefsFilePath string, defaultRegion string
 	}
 
 	// get best region
-	bestregion, getErr := cloudSvc.GetLeastVpcTestRegion()
+	var bestregion string
+	var getErr error
+	if options.ExcludeActivityTrackerRegions {
+		bestregion, getErr = cloudSvc.GetLeastVpcTestRegionWithoutActivityTracker()
+	} else {
+		bestregion, getErr = cloudSvc.GetLeastVpcTestRegion()
+	}
 	if getErr != nil {
 		log.Println("Error getting least vpc region")
 		return defaultRegion, getErr
