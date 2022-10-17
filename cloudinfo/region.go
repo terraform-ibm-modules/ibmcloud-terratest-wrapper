@@ -18,7 +18,7 @@ const (
 
 type GetTestRegionOptions struct {
 	// exclude a region if it contains an Activity Tracker
-	ExcludeIfActivityTracker bool
+	ExcludeActivityTrackerRegions bool
 }
 
 // GetAvailableVpcRegions is a method for receiver CloudInfoService that will query the caller account
@@ -66,7 +66,7 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegionWithoutActivityTracker() (
 	// get default options
 	options := NewGetTestRegionOptions()
 	// change activity tracker setting
-	options.ExcludeIfActivityTracker = true
+	options.ExcludeActivityTrackerRegions = true
 
 	return infoSvc.GetLeastVpcTestRegionO(*options)
 }
@@ -90,7 +90,7 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegionO(options GetTestRegionOpt
 	// NOTE: we only want to do this once at beginning and then use results below
 	var atInstanceList []resourcecontrollerv2.ResourceInstance
 	var atListErr error
-	if options.ExcludeIfActivityTracker {
+	if options.ExcludeActivityTrackerRegions {
 		atInstanceList, atListErr = infoSvc.ListResourcesByCrnServiceName("logdnaat")
 		if atListErr != nil {
 			log.Println("WARNING: Error retrieving Activity Tracker instances! Ignoring when selecting.")
@@ -100,7 +100,7 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegionO(options GetTestRegionOpt
 
 	for _, region := range regions {
 		// if option is set, ignore region if there is existing activity tracker
-		if options.ExcludeIfActivityTracker {
+		if options.ExcludeActivityTrackerRegions {
 			if regionHasActivityTracker(region.Name, atInstanceList) {
 				log.Println("Region", region.Name, "skipped due to Activity Tracker present")
 				continue // ignore and move to next region
@@ -327,6 +327,6 @@ func countPowerConnectionsInZone(zone string, connections []*PowerCloudConnectio
 // NewGetTestRegionOptions will return the option struct with defaults
 func NewGetTestRegionOptions() *GetTestRegionOptions {
 	return &GetTestRegionOptions{
-		ExcludeIfActivityTracker: false,
+		ExcludeActivityTrackerRegions: false,
 	}
 }
