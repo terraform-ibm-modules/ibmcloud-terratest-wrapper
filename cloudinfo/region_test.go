@@ -165,3 +165,34 @@ func TestRegionHasActivityTracker(t *testing.T) {
 		assert.False(t, wasEmpty)
 	})
 }
+
+func TestRemoveRegionForTest(t *testing.T) {
+	infoSvc := CloudInfoService{}
+
+	t.Run("EmptyRegionList", func(t *testing.T) {
+		infoSvc.RemoveRegionForTest("test-region")
+		assert.Empty(t, infoSvc.regionsData)
+	})
+
+	infoSvc.regionsData = []RegionData{
+		{Name: "test-region-1", UseForTest: true},
+		{Name: "test-region-2", UseForTest: true},
+		{Name: "test-region-3", UseForTest: true},
+	}
+
+	t.Run("RegionNotFound", func(t *testing.T) {
+		infoSvc.RemoveRegionForTest("not-found-region")
+		// all should be true still
+		assert.True(t, infoSvc.regionsData[0].UseForTest)
+		assert.True(t, infoSvc.regionsData[1].UseForTest)
+		assert.True(t, infoSvc.regionsData[2].UseForTest)
+	})
+
+	t.Run("RegionFound", func(t *testing.T) {
+		infoSvc.RemoveRegionForTest("test-region-2")
+		// only one should be false
+		assert.True(t, infoSvc.regionsData[0].UseForTest)
+		assert.False(t, infoSvc.regionsData[1].UseForTest)
+		assert.True(t, infoSvc.regionsData[2].UseForTest)
+	})
+}

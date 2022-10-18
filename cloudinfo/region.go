@@ -310,6 +310,28 @@ func (infoSvc *CloudInfoService) GetLeastPowerConnectionZone() (string, error) {
 	return bestregion.Name, nil
 }
 
+// HasRegionData is a method for receiver CloudInfoService that will respond with a boolean to verify that the service instance
+// has region data loaded. You can use this method to determine if you need to load preference data.
+func (infoSvc *CloudInfoService) HasRegionData() bool {
+	if len(infoSvc.regionsData) > 0 {
+		return true
+	} else {
+		return false
+	}
+}
+
+// RemoveRegionForTest is a method for receiver CloudInfoService  that will remove a given region for use in test considerations
+// by setting the UseForTest property for the region to false
+func (infoSvc *CloudInfoService) RemoveRegionForTest(regionID string) {
+	// loop through region data looking for given region
+	for i, regionData := range infoSvc.regionsData {
+		if regionData.Name == regionID {
+			infoSvc.regionsData[i].UseForTest = false
+			break
+		}
+	}
+}
+
 // countPowerConnectionsInZone is a private helper function that will return a count of occurances of
 // the provided zone in a list of existing Powercloud connections.
 func countPowerConnectionsInZone(zone string, connections []*PowerCloudConnectionDetail) int {

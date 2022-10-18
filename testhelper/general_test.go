@@ -84,6 +84,14 @@ func (mock *cloudInfoServiceMock) GetLeastPowerConnectionZone() (string, error) 
 	return "", errors.New("mock no matching file name")
 }
 
+func (mock *cloudInfoServiceMock) HasRegionData() bool {
+	return false
+}
+
+func (mock *cloudInfoServiceMock) RemoveRegionForTest(regionID string) {
+	// nothing to really do here
+}
+
 /**** END MOCK CloudInfoService ****/
 
 func TestLeastVpcRegionFound(t *testing.T) {

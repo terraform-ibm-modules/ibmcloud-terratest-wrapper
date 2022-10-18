@@ -28,6 +28,8 @@ type cloudInfoServiceI interface {
 	GetLeastVpcTestRegionWithoutActivityTracker() (string, error)
 	GetLeastPowerConnectionZone() (string, error)
 	LoadRegionPrefsFromFile(string) error
+	HasRegionData() bool
+	RemoveRegionForTest(string)
 }
 
 // GetBestVpcRegion is a method that will determine a region available
@@ -81,6 +83,11 @@ func GetBestVpcRegionO(apiKey string, prefsFilePath string, defaultRegion string
 		log.Println("Dynamic region not found, using default region:", defaultRegion)
 		return defaultRegion, nil
 	}
+
+	// no matter how it was chosen, remove the region from further tests within this test run.
+	// If multiple parallel tests are sharing the cloudinfo service, this will ensure that another
+	// test will NOT select this region.
+	cloudSvc.RemoveRegionForTest(bestregion)
 
 	return bestregion, nil
 }
@@ -154,8 +161,8 @@ func configureCloudInfoService(apiKey string, prefsFilePath string, options Test
 		cloudSvc = cloudSvcRef
 	}
 
-	// load a region prefs file if supplied
-	if len(prefsFilePath) > 0 {
+	// load a region prefs file if supplied and data does not already exist
+	if len(prefsFilePath) > 0 && !cloudSvc.HasRegionData() {
 		loadErr := cloudSvc.LoadRegionPrefsFromFile(prefsFilePath)
 		if loadErr != nil {
 			log.Println("Error loading CloudInfoService file, using default region:", defaultRegion)
