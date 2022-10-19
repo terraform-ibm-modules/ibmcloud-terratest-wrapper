@@ -283,22 +283,24 @@ func (infoSvc *CloudInfoService) GetLeastPowerConnectionZone() (string, error) {
 
 	for _, region := range regions {
 
-		connCount := countPowerConnectionsInZone(region.Name, connections)
-		region.ResourceCount = connCount
-		log.Println("Region", region.Name, "Resource count:", region.ResourceCount)
+		if region.UseForTest {
+			connCount := countPowerConnectionsInZone(region.Name, connections)
+			region.ResourceCount = connCount
+			log.Println("Region", region.Name, "Resource count:", region.ResourceCount)
 
-		// region list is sorted by priority, so if resource count is zero then short circuit and return, it is the best region
-		// NOTE: we will also make sure each region is not at total limit of connections, if it is we will move on to next
-		if region.ResourceCount == 0 {
-			bestregion = region
-			log.Println("--- new best region is", bestregion.Name)
-			break
-		} else if region.ResourceCount < maxPowerConnectionsPerZone && len(bestregion.Name) == 0 {
-			bestregion = region // always use first VALID region found in list
-			log.Println("--- new best region is", bestregion.Name)
-		} else if region.ResourceCount < maxPowerConnectionsPerZone && region.ResourceCount < bestregion.ResourceCount {
-			bestregion = region // use if valid AND lower count than previous best
-			log.Println("--- new best region is", bestregion.Name)
+			// region list is sorted by priority, so if resource count is zero then short circuit and return, it is the best region
+			// NOTE: we will also make sure each region is not at total limit of connections, if it is we will move on to next
+			if region.ResourceCount == 0 {
+				bestregion = region
+				log.Println("--- new best region is", bestregion.Name)
+				break
+			} else if region.ResourceCount < maxPowerConnectionsPerZone && len(bestregion.Name) == 0 {
+				bestregion = region // always use first VALID region found in list
+				log.Println("--- new best region is", bestregion.Name)
+			} else if region.ResourceCount < maxPowerConnectionsPerZone && region.ResourceCount < bestregion.ResourceCount {
+				bestregion = region // use if valid AND lower count than previous best
+				log.Println("--- new best region is", bestregion.Name)
+			}
 		}
 	}
 
