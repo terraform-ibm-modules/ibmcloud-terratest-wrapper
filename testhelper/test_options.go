@@ -39,6 +39,7 @@ type TestOptions struct {
 	UpgradeTestSkipped            bool                   // Informs the calling test that conditions were met to skip the upgrade test
 	baseTempWorkingDir            string                 // INTERNAL variable to store the base level of temporary working directory
 	ExcludeActivityTrackerRegions bool                   // Will exclude any VPC regions that already contain an Activity Tracker
+	CloudInfoService              cloudInfoServiceI      // Supply if you need multiple tests to share info service and data
 }
 
 func TestOptionsDefaultWithVars(originalOptions *TestOptions) *TestOptions {
@@ -81,7 +82,10 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 		// Get the best region
 		// Programmatically determine region to use based on availability
 		// Set OS environment variable FORCE_TEST_REGION to force a specific region
-		regionOptions := &TesthelperTerraformOptions{ExcludeActivityTrackerRegions: newOptions.ExcludeActivityTrackerRegions}
+		regionOptions := &TesthelperTerraformOptions{
+			CloudInfoService:              newOptions.CloudInfoService,
+			ExcludeActivityTrackerRegions: newOptions.ExcludeActivityTrackerRegions,
+		}
 		if newOptions.BestRegionYAMLPath != "" {
 			newOptions.Region, _ = GetBestVpcRegionO(newOptions.RequiredEnvironmentVars[ibmcloudApiKeyVar], newOptions.BestRegionYAMLPath, newOptions.DefaultRegion, *regionOptions)
 		} else {

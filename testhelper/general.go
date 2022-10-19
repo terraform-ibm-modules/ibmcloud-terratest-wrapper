@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -14,6 +15,8 @@ import (
 )
 
 const ForceTestRegionEnvName = "FORCE_TEST_REGION"
+
+// var lock sync.Mutex // use for thread-safe operations
 
 // TesthelperTerraformOptions options object for optional variables to set
 // primarily used for mocking external services in test cases
@@ -30,6 +33,7 @@ type cloudInfoServiceI interface {
 	LoadRegionPrefsFromFile(string) error
 	HasRegionData() bool
 	RemoveRegionForTest(string)
+	GetThreadLock() *sync.Mutex
 }
 
 // GetBestVpcRegion is a method that will determine a region available
@@ -49,8 +53,6 @@ func GetBestVpcRegion(apiKey string, prefsFilePath string, defaultRegion string)
 // Options data can also be called to supply the service to use that implements the correct interface.
 // Returns a string representing an IBM Cloud region name, and error.
 func GetBestVpcRegionO(apiKey string, prefsFilePath string, defaultRegion string, options TesthelperTerraformOptions) (string, error) {
-	// set up initial best region as default
-
 	// If there is an OS ENV found to force the region, simply return that value and short-circuit this routine
 	forceRegion, isForcePresent := os.LookupEnv(ForceTestRegionEnvName)
 	if isForcePresent {
@@ -62,6 +64,14 @@ func GetBestVpcRegionO(apiKey string, prefsFilePath string, defaultRegion string
 		log.Println("Error creating CloudInfoService for testhelper")
 		return defaultRegion, cloudSvcErr
 	}
+
+	// THREAD SAFE OPERATION
+	// Make this section thread safe with a mutex
+	// If multiple parallel tests are using a shared cloudinfo instance, we want this function to only serve them one-at-a-time
+	// so that they will not choose same region
+	lock := cloudSvc.GetThreadLock()
+	lock.Lock()
+	defer lock.Unlock()
 
 	// get best region
 	var bestregion string
@@ -123,6 +133,14 @@ func GetBestPowerSystemsRegionO(apiKey string, prefsFilePath string, defaultRegi
 		return defaultRegion, cloudSvcErr
 	}
 
+	// THREAD SAFE OPERATION
+	// Make this section thread safe with a mutex
+	// If multiple parallel tests are using a shared cloudinfo instance, we want this function to only serve them one-at-a-time
+	// so that they will not choose same region
+	lock := cloudSvc.GetThreadLock()
+	lock.Lock()
+	defer lock.Unlock()
+
 	// get best region
 	bestregion, getErr := cloudSvc.GetLeastPowerConnectionZone()
 	if getErr != nil {
@@ -137,6 +155,11 @@ func GetBestPowerSystemsRegionO(apiKey string, prefsFilePath string, defaultRegi
 		log.Println("Dynamic region not found, using default region:", defaultRegion)
 		return defaultRegion, nil
 	}
+
+	// no matter how it was chosen, remove the region from further tests within this test run.
+	// If multiple parallel tests are sharing the cloudinfo service, this will ensure that another
+	// test will NOT select this region.
+	cloudSvc.RemoveRegionForTest(bestregion)
 
 	return bestregion, nil
 }
@@ -160,6 +183,14 @@ func configureCloudInfoService(apiKey string, prefsFilePath string, options Test
 		}
 		cloudSvc = cloudSvcRef
 	}
+
+	// THREAD SAFE OPERATION
+	// Make this section thread safe with a mutex
+	// If multiple parallel tests are using a shared cloudinfo instance, we want this function to only serve them one-at-a-time
+	// so that they will not overwrite a previously loaded region list
+	lock := cloudSvc.GetThreadLock()
+	lock.Lock()
+	defer lock.Unlock()
 
 	// load a region prefs file if supplied and data does not already exist
 	if len(prefsFilePath) > 0 && !cloudSvc.HasRegionData() {

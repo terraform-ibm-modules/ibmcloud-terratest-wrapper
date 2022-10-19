@@ -3,6 +3,7 @@ package testhelper
 import (
 	"errors"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,6 +18,7 @@ type cloudInfoServiceMock struct {
 	getLeastVpcTestRegionCalled       bool
 	getLeastVpcNoATTestRegionCalled   bool
 	getLeastPowerConnectionZoneCalled bool
+	lock                              sync.Mutex
 }
 
 func (mock *cloudInfoServiceMock) LoadRegionPrefsFromFile(prefsFile string) error {
@@ -90,6 +92,10 @@ func (mock *cloudInfoServiceMock) HasRegionData() bool {
 
 func (mock *cloudInfoServiceMock) RemoveRegionForTest(regionID string) {
 	// nothing to really do here
+}
+
+func (mock *cloudInfoServiceMock) GetThreadLock() *sync.Mutex {
+	return &mock.lock
 }
 
 /**** END MOCK CloudInfoService ****/

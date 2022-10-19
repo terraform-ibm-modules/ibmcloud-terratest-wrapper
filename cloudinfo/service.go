@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"sync"
 
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
@@ -22,6 +23,7 @@ type CloudInfoService struct {
 	iamIdentityService        iamIdentityService
 	resourceControllerService resourceControllerService
 	regionsData               []RegionData
+	lock                      sync.Mutex
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -163,4 +165,8 @@ func NewCloudInfoServiceFromEnv(apiKeyEnv string, options CloudInfoServiceOption
 	options.ApiKey = apiKey
 
 	return NewCloudInfoServiceWithKey(options)
+}
+
+func (infoSvc *CloudInfoService) GetThreadLock() *sync.Mutex {
+	return &infoSvc.lock
 }
