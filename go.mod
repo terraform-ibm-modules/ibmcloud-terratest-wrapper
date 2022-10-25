@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/IBM-Cloud/power-go-client v1.2.1
 	github.com/IBM/go-sdk-core/v5 v5.10.2
-	github.com/IBM/platform-services-go-sdk v0.28.6
+	github.com/IBM/platform-services-go-sdk v0.28.7
 	github.com/IBM/vpc-go-sdk v1.0.2
 	github.com/go-git/go-git/v5 v5.4.2
 	github.com/gruntwork-io/terratest v0.40.24
