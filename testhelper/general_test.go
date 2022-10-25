@@ -3,6 +3,7 @@ package testhelper
 import (
 	"errors"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +16,9 @@ type cloudInfoServiceMock struct {
 	prefsFileName                     string
 	loadFileCalled                    bool
 	getLeastVpcTestRegionCalled       bool
+	getLeastVpcNoATTestRegionCalled   bool
 	getLeastPowerConnectionZoneCalled bool
+	lock                              sync.Mutex
 }
 
 func (mock *cloudInfoServiceMock) LoadRegionPrefsFromFile(prefsFile string) error {
@@ -47,6 +50,24 @@ func (mock *cloudInfoServiceMock) GetLeastVpcTestRegion() (string, error) {
 	return "", errors.New("mock no matching file name")
 }
 
+func (mock *cloudInfoServiceMock) GetLeastVpcTestRegionWithoutActivityTracker() (string, error) {
+	mock.getLeastVpcNoATTestRegionCalled = true
+
+	switch mock.prefsFileName {
+	case "goodfile":
+		return "best-region-no-at", nil
+	case "badfile":
+		return "ok-region", nil
+	case "":
+		return "all-region", nil
+	case "empty-region":
+		return "", nil
+	case "errorfile":
+		return "", errors.New("mock Error Msg")
+	}
+	return "", errors.New("mock no matching file name")
+}
+
 func (mock *cloudInfoServiceMock) GetLeastPowerConnectionZone() (string, error) {
 	mock.getLeastPowerConnectionZoneCalled = true
 
@@ -65,6 +86,18 @@ func (mock *cloudInfoServiceMock) GetLeastPowerConnectionZone() (string, error) 
 	return "", errors.New("mock no matching file name")
 }
 
+func (mock *cloudInfoServiceMock) HasRegionData() bool {
+	return false
+}
+
+func (mock *cloudInfoServiceMock) RemoveRegionForTest(regionID string) {
+	// nothing to really do here
+}
+
+func (mock *cloudInfoServiceMock) GetThreadLock() *sync.Mutex {
+	return &mock.lock
+}
+
 /**** END MOCK CloudInfoService ****/
 
 func TestLeastVpcRegionFound(t *testing.T) {
@@ -76,6 +109,20 @@ func TestLeastVpcRegionFound(t *testing.T) {
 	assert.True(t, infoSvc.getLeastVpcTestRegionCalled, "GetLeastVpcTestRegion() should have been called")
 	assert.Nil(t, err, "Must not return error")
 	assert.Equal(t, "best-region", bestregion, "Should return best region")
+}
+
+func TestLeastVpcRegionNoActivityTrackerFound(t *testing.T) {
+	infoSvc := cloudInfoServiceMock{loadFileCalled: false, getLeastVpcTestRegionCalled: false}
+	options := TesthelperTerraformOptions{
+		CloudInfoService:              &infoSvc,
+		ExcludeActivityTrackerRegions: true,
+	}
+
+	bestregion, err := GetBestVpcRegionO("FAKEKEY", "goodfile", "default-region", options)
+
+	assert.True(t, infoSvc.getLeastVpcNoATTestRegionCalled, "GetLeastVpcTestRegionWithoutActivityTracker() should have been called")
+	assert.Nil(t, err, "Must not return error")
+	assert.Equal(t, "best-region-no-at", bestregion, "Should return best region")
 }
 
 func TestLeastVpcRegionDefault(t *testing.T) {

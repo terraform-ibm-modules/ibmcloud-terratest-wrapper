@@ -9,7 +9,6 @@ import (
 	ibmpiinstance "github.com/IBM-Cloud/power-go-client/clients/instance"
 	"github.com/IBM-Cloud/power-go-client/ibmpisession"
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
-	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 )
 
@@ -24,48 +23,7 @@ type PowerCloudConnectionDetail struct {
 // This function will loop through ALL resources of type "service_instance" in the account
 // and then filter by looking for "power-iaas" in the CRN.
 func (infoSvc *CloudInfoService) ListPowerWorkspaces() ([]resourcecontrollerv2.ResourceInstance, error) {
-
-	listOptions := infoSvc.resourceControllerService.NewListResourceInstancesOptions()
-	listOptions.SetType("service_instance")
-	listOptions.SetLimit(int64(100))
-
-	// this API is paginated, but there is no pager support in the library at this time.
-	// we are compensating by inspecting the NextURL and Start values supplied by the API
-	// to keep looping through pages
-	maxPages := 100
-	countPages := 0
-	listPowerInstance := []resourcecontrollerv2.ResourceInstance{}
-	moreData := true
-
-	for moreData {
-		listPage, _, err := infoSvc.resourceControllerService.ListResourceInstances(listOptions)
-		if err != nil {
-			return nil, fmt.Errorf("error listing PowerVS instances: %w", err)
-		}
-		countPages += 1
-
-		// search through instances on current page looking for only power-iaas
-		for _, svcInstance := range listPage.Resources {
-			if strings.Contains(*svcInstance.CRN, "power-iaas") {
-				listPowerInstance = append(listPowerInstance, svcInstance)
-			}
-		}
-
-		// get next page of results if necessary
-		// see: https://cloud.ibm.com/apidocs/resource-controller/resource-controller?code=go#list-resource-instances
-		if (countPages < maxPages) && listPage.NextURL != nil && *listPage.NextURL != "" {
-			moreData = true
-			newStart, errNext := core.GetQueryParam(listPage.NextURL, "start")
-			if errNext != nil || newStart == nil {
-				return nil, fmt.Errorf("error in fetching start value from next_url: %w", errNext)
-			}
-			listOptions.SetStart(*newStart)
-		} else {
-			moreData = false
-		}
-	}
-
-	return listPowerInstance, nil
+	return infoSvc.ListResourcesByCrnServiceName("power-iaas")
 }
 
 // ListPowerWorkspaceConnections will return an array of CloudConnection for a given existing connection client
