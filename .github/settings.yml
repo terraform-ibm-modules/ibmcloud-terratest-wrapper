@@ -8,6 +8,16 @@
 _extends: repo-settings
 
 # unique to this repo
+repository:
+  # See https://terraform-ibm-modules.github.io/documentation/#/implementation-guidelines?id=module-names-and-descriptions
+
+  # By changing this field, you rename the repository.
+  name: "ibmcloud-terratest-wrapper"
+
+  # The description is displayed under the repository name on the
+  # organization page and in the 'About' section of the repository.
+  description: "Provides a wrapper around Terratest to support writing tests in this GitHub organization"
+
 required_status_checks:
   strict: true
   contexts:
