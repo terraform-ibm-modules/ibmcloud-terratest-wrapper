@@ -1,6 +1,7 @@
 package testhelper
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -49,7 +50,16 @@ func skipUpgradeTest(branch string) bool {
 // If any addresses are provided in IgnoreUpdates.List then fail on updates too unless the resource is exempt
 func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 	for _, resource := range plan.ResourceChangesMap {
-		resourceDetails := fmt.Sprintf("Name: %s Address: %s Actions: %s", resource.Name, resource.Address, resource.Change.Actions)
+		// get JSON string of full changes for the logs
+		changesBytes, changesErr := json.MarshalIndent(resource.Change, "", "  ")
+		// if it errors in the marshall step, just put a placeholder and move on, not important
+		changesJson := "--UNAVAILABLE--"
+		if changesErr == nil {
+			changesJson = string(changesBytes)
+		}
+
+		resourceDetails := fmt.Sprintf("Name: %s Address: %s Actions: %s \nChange Detail:\n%s", resource.Name, resource.Address, resource.Change.Actions, changesJson)
+
 		var errorMessage string
 		if !options.IgnoreDestroys.IsExemptedResource(resource.Address) {
 			errorMessage = fmt.Sprintf("Resource(s) identified to be destroyed %s", resourceDetails)
