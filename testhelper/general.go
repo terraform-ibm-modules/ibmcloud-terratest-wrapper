@@ -21,12 +21,12 @@ const ForceTestRegionEnvName = "FORCE_TEST_REGION"
 // TesthelperTerraformOptions options object for optional variables to set
 // primarily used for mocking external services in test cases
 type TesthelperTerraformOptions struct {
-	CloudInfoService              cloudInfoServiceI
+	CloudInfoService              CloudInfoServiceI
 	ExcludeActivityTrackerRegions bool
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
-type cloudInfoServiceI interface {
+type CloudInfoServiceI interface {
 	GetLeastVpcTestRegion() (string, error)
 	GetLeastVpcTestRegionWithoutActivityTracker() (string, error)
 	GetLeastPowerConnectionZone() (string, error)
@@ -165,8 +165,8 @@ func GetBestPowerSystemsRegionO(apiKey string, prefsFilePath string, defaultRegi
 }
 
 // configureCloudInfoService is a private function that will configure and set up a new CloudInfoService for testhelper
-func configureCloudInfoService(apiKey string, prefsFilePath string, options TesthelperTerraformOptions) (cloudInfoServiceI, error) {
-	var cloudSvc cloudInfoServiceI
+func configureCloudInfoService(apiKey string, prefsFilePath string, options TesthelperTerraformOptions) (CloudInfoServiceI, error) {
+	var cloudSvc CloudInfoServiceI
 
 	// configure new cloudinfosvc if required (not supplied in options)
 	if options.CloudInfoService != nil {
