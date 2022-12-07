@@ -2,15 +2,26 @@ package testschematic
 
 import (
 	"archive/tar"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
+	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/gruntwork-io/terratest/modules/random"
 )
+
+// interface for the external schematics service api. Can be mocked for tests
+type SchematicsSvcI interface {
+	CreateWorkspace(createWorkspaceOptions *schematicsv1.CreateWorkspaceOptions) (result *schematicsv1.WorkspaceResponse, response *core.DetailedResponse, err error)
+	TemplateRepoUpload(templateRepoUploadOptions *schematicsv1.TemplateRepoUploadOptions) (result *schematicsv1.TemplateRepoTarUploadResponse, response *core.DetailedResponse, err error)
+	ReplaceWorkspaceInputs(replaceWorkspaceInputsOptions *schematicsv1.ReplaceWorkspaceInputsOptions) (result *schematicsv1.UserValues, response *core.DetailedResponse, err error)
+}
 
 func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, error) {
 
@@ -100,4 +111,28 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 	}
 
 	return target, nil
+}
+
+func ConvertArrayToJsonString(arr interface{}) (string, error) {
+	// first marshal array into json compatible
+	json, jsonErr := json.Marshal(arr)
+	if jsonErr != nil {
+		return "", jsonErr
+	}
+
+	// take json array, wrap as one string, and escape any double quotes inside
+	s := string(json)
+
+	return s, nil
+}
+
+func IsArray(v interface{}) bool {
+
+	theType := reflect.TypeOf(v).Kind()
+
+	if (theType == reflect.Slice) || (theType == reflect.Array) {
+		return true
+	}
+
+	return false
 }

@@ -14,42 +14,33 @@ import (
 const defaultRegion = "us-south"
 const defaultRegionYaml = "../common-dev-assets/common-go-assets/cloudinfo-region-vpc-gen2-prefs.yaml"
 const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
+const gitUser = "GIT_TOKEN_USER"
+const gitToken = "GIT_TOKEN"
 
 type TestSchematicOptions struct {
 	TarIncludePatterns      []string
-	BestRegionYAMLPath      string                       // BestRegionYAMLPath Path to the yaml containing regions and weights
-	DefaultRegion           string                       // DefaultRegion default region if automatic detection fails
-	ResourceGroup           string                       // ResourceGroup IBM Cloud resource group to use
-	Region                  string                       // Region to use
-	RequiredEnvironmentVars map[string]string            // RequiredEnvironmentVars
-	TerraformVars           map[string]interface{}       // TerraformVars variables to pass to terraform
-	Tags                    []string                     // Tags optional tags to add
-	Prefix                  string                       // Prefix to use when creating resources
-	Testing                 *testing.T                   `copier:"-"` // Testing The current test object
-	CloudInfoService        testhelper.CloudInfoServiceI // Supply if you need multiple tests to share info service and data
+	BestRegionYAMLPath      string                      // BestRegionYAMLPath Path to the yaml containing regions and weights
+	DefaultRegion           string                      // DefaultRegion default region if automatic detection fails
+	ResourceGroup           string                      // ResourceGroup IBM Cloud resource group to use
+	Region                  string                      // Region to use
+	RequiredEnvironmentVars map[string]string           // RequiredEnvironmentVars
+	TerraformVars           []TestSchematicTerraformVar // TerraformVars variables to pass to terraform
+	//TerraformVars    map[string]interface{}
+	Tags             []string                     // Tags optional tags to add
+	Prefix           string                       // Prefix to use when creating resources
+	Testing          *testing.T                   `copier:"-"` // Testing The current test object
+	CloudInfoService testhelper.CloudInfoServiceI // Supply if you need multiple tests to share info service and data
+	SchematicsSvc    SchematicsSvcI               // service pointer for interacting with external schematics api
 }
 
-func TestOptionsDefaultWithVars(originalOptions *TestSchematicOptions) *TestSchematicOptions {
-
-	newOptions := TestOptionsDefault(originalOptions)
-
-	// Vars to pass into module
-	varsMap := make(map[string]interface{})
-
-	testhelper.ConditionalAdd(varsMap, "prefix", newOptions.Prefix, "")
-	testhelper.ConditionalAdd(varsMap, "region", newOptions.Region, "")
-	testhelper.ConditionalAdd(varsMap, "resource_group", newOptions.ResourceGroup, "")
-
-	varsMap["resource_tags"] = testhelper.GetTagsFromTravis()
-
-	// Vars to pass into module
-	newOptions.TerraformVars = testhelper.MergeMaps(varsMap, newOptions.TerraformVars)
-
-	return newOptions
-
+type TestSchematicTerraformVar struct {
+	Name     string      // name of variable
+	Value    interface{} // value of variable
+	DataType string      // the TERRAFORM DATA TYPE of the varialbe (not golang type)
+	Secure   bool        // true if value should be hidden
 }
 
-func TestOptionsDefault(originalOptions *TestSchematicOptions) *TestSchematicOptions {
+func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSchematicOptions {
 
 	newOptions, err := originalOptions.Clone()
 	require.NoError(originalOptions.Testing, err)
@@ -60,7 +51,7 @@ func TestOptionsDefault(originalOptions *TestSchematicOptions) *TestSchematicOpt
 		newOptions.DefaultRegion = defaultRegion
 	}
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt
-	checkVariables := []string{ibmcloudApiKeyVar}
+	checkVariables := []string{ibmcloudApiKeyVar, gitToken, gitUser}
 	newOptions.RequiredEnvironmentVars = testhelper.GetRequiredEnvVars(newOptions.Testing, checkVariables)
 
 	if newOptions.Region == "" {
