@@ -16,11 +16,25 @@ import (
 	"github.com/gruntwork-io/terratest/modules/random"
 )
 
+// IBM schematics job types
+const SchematicsJobTypeUpload = "TAR_WORKSPACE_UPLOAD"
+const SchematicsJobTypePlan = "PLAN"
+const SchematicsJobTypeApply = "APPLY"
+const SchematicsJobTypeDestroy = "DESTROY"
+
+// IBM schematics job status
+const SchematicsJobStatusCompleted = "COMPLETED"
+const SchematicsJobStatusFailed = "FAILED"
+const SchematicsJobStatusCreated = "CREATED"
+const SchematicsJobStatusInProgress = "INPROGRESS"
+
 // interface for the external schematics service api. Can be mocked for tests
 type SchematicsSvcI interface {
 	CreateWorkspace(createWorkspaceOptions *schematicsv1.CreateWorkspaceOptions) (result *schematicsv1.WorkspaceResponse, response *core.DetailedResponse, err error)
 	TemplateRepoUpload(templateRepoUploadOptions *schematicsv1.TemplateRepoUploadOptions) (result *schematicsv1.TemplateRepoTarUploadResponse, response *core.DetailedResponse, err error)
 	ReplaceWorkspaceInputs(replaceWorkspaceInputsOptions *schematicsv1.ReplaceWorkspaceInputsOptions) (result *schematicsv1.UserValues, response *core.DetailedResponse, err error)
+	ListWorkspaceActivities(listWorkspaceActivitiesOptions *schematicsv1.ListWorkspaceActivitiesOptions) (result *schematicsv1.WorkspaceActivities, response *core.DetailedResponse, err error)
+	GetWorkspaceActivity(getWorkspaceActivityOptions *schematicsv1.GetWorkspaceActivityOptions) (result *schematicsv1.WorkspaceActivity, response *core.DetailedResponse, err error)
 }
 
 func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, error) {

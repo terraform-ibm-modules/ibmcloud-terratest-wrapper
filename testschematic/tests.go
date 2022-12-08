@@ -3,11 +3,13 @@ package testschematic
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/schematics-go-sdk/schematicsv1"
+	"github.com/go-openapi/errors"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper"
 )
 
@@ -17,26 +19,26 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	var svcErr error
 	options.SchematicsSvc, svcErr = CreateSchematicsService(options.RequiredEnvironmentVars[ibmcloudApiKeyVar])
 	if svcErr != nil {
-		return svcErr
+		return fmt.Errorf("error creating schematics sdk service: %w", svcErr)
 	}
 
 	// get the root path of this project
 	projectPath, pathErr := testhelper.GitRootPath(".")
 	if pathErr != nil {
-		return pathErr
+		return fmt.Errorf("error getting root path of git project: %w", pathErr)
 	}
 
 	// create a new tar file for the project
 	tarballName, tarballErr := CreateSchematicTar(projectPath, &options.TarIncludePatterns)
 	if tarballErr != nil {
-		return tarballErr
+		return fmt.Errorf("error creating tar file: %w", tarballErr)
 	}
 	defer os.Remove(tarballName) // just to cleanup
 
 	// create a new empty workspace, resulting in "draft" status
 	workspace, wsErr := CreateTestWorkspace(options.SchematicsSvc, options.Prefix, options.ResourceGroup, options.Tags, options)
 	if wsErr != nil {
-		return wsErr
+		return fmt.Errorf("error creating new schematic workspace: %w", wsErr)
 	}
 
 	workspaceID := *workspace.ID
@@ -45,18 +47,31 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	// upload the terraform code
 	uploadErr := UploadTarToWorkspace(options.SchematicsSvc, workspaceID, templateID, tarballName)
 	if uploadErr != nil {
-		return uploadErr
+		return fmt.Errorf("error uploading tar file to workspace: %w", uploadErr)
 	}
 
-	// wait for the upload terraform action to complete
-	time.Sleep(1 * time.Minute)
+	// -------- UPLOAD TAR FILE ----------
+	// find the tar upload job
+	uploadJob, uploadJobErr := FindLatestWorkspaceJobByName(options.SchematicsSvc, workspaceID, SchematicsJobTypeUpload)
+	if uploadJobErr != nil {
+		return fmt.Errorf("error finding the upload tar action: %w", uploadJobErr)
+	}
+	// wait for it to finish
+	uploadJobStatus, uploadJobStatusErr := WaitForFinalJobStatus(options.SchematicsSvc, workspaceID, templateID, *uploadJob.ActionID, options)
+	if uploadJobStatusErr != nil {
+		return fmt.Errorf("error waiting for upload of tar to finish: %w", uploadJobStatusErr)
+	}
+	// check if complete
+	if uploadJobStatus != SchematicsJobStatusCompleted {
+		return fmt.Errorf("tar upload has failed with status %s", uploadJobStatus)
+	}
 
 	// update the default template with variables
 	// NOTE: doing this AFTER terraform is loaded so that sensitive variables in Variablestore are already created in template,
 	// to prevent things like api keys being exposed
 	updateErr := UpdateTestTemplateVars(options.SchematicsSvc, workspaceID, templateID, options.TerraformVars)
 	if updateErr != nil {
-		return updateErr
+		return fmt.Errorf("error updating template with Variablestore: %w", updateErr)
 	}
 
 	return nil
@@ -171,4 +186,95 @@ func UploadTarToWorkspace(svc SchematicsSvcI, workspaceID string, templateID str
 	}
 
 	return nil
+}
+
+func FindLatestWorkspaceJobByName(svc SchematicsSvcI, workspaceID string, jobName string) (*schematicsv1.WorkspaceActivity, error) {
+
+	// get array of jobs using workspace id
+	listResult, _, listErr := svc.ListWorkspaceActivities(&schematicsv1.ListWorkspaceActivitiesOptions{
+		WID: core.StringPtr(workspaceID),
+	})
+	if listErr != nil {
+		return nil, listErr
+	}
+
+	// loop through jobs and get latest one that matches name
+	var jobResult *schematicsv1.WorkspaceActivity
+	for _, job := range listResult.Actions {
+		// only match name
+		if *job.Name == jobName {
+			// keep latest job of this name
+			if jobResult != nil {
+				if time.Time(*job.PerformedAt).After(time.Time(*jobResult.PerformedAt)) {
+					jobResult = &job
+				}
+			} else {
+				jobResult = &job
+			}
+		}
+	}
+
+	// if jobResult is nil then none were found, throw error
+	if jobResult == nil {
+		return nil, errors.NotFound("job <%s> not found in workspace", jobName)
+	}
+
+	return jobResult, nil
+}
+
+func GetWorkspaceJobDetail(svc SchematicsSvcI, workspaceID string, jobID string) (*schematicsv1.WorkspaceActivity, error) {
+
+	// look up job by ID
+	activityResponse, _, err := svc.GetWorkspaceActivity(&schematicsv1.GetWorkspaceActivityOptions{
+		WID:        core.StringPtr(workspaceID),
+		ActivityID: core.StringPtr(jobID),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return activityResponse, nil
+}
+
+func WaitForFinalJobStatus(svc SchematicsSvcI, workspaceID string, templateID string, jobID string, options *TestSchematicOptions) (string, error) {
+	var status string
+	var job *schematicsv1.WorkspaceActivity
+	var jobErr error
+
+	// Wait for the job to be complete
+	start := time.Now()
+	if options.WaitJobCompleteMinutes <= 0 {
+		options.WaitJobCompleteMinutes = DefaultWaitJobCompleteMinutes
+	}
+
+	for {
+		// check for timeout and throw error
+		if time.Since(start).Minutes() > float64(options.WaitJobCompleteMinutes) {
+			return "", errors.New(99, "time exceeded waiting for schematic job to finish")
+		}
+
+		// get details of job
+		job, jobErr = GetWorkspaceJobDetail(svc, workspaceID, jobID)
+		if jobErr != nil {
+			return "", jobErr
+		}
+		log.Println("... still waiting for job", *job.Name, "to complete")
+
+		// check if it is finished
+		if job.Status != nil &&
+			len(*job.Status) > 0 &&
+			*job.Status != SchematicsJobStatusCreated &&
+			*job.Status != SchematicsJobStatusInProgress {
+			log.Printf("... the status of job %s is: %s", *job.Name, *job.Status)
+			break
+		}
+
+		// wait 10 seconds
+		time.Sleep(10 * time.Second)
+	}
+
+	// if we reach this point the job has finished, return status
+	status = *job.Status
+
+	return status, nil
 }

@@ -16,21 +16,22 @@ const defaultRegionYaml = "../common-dev-assets/common-go-assets/cloudinfo-regio
 const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 const gitUser = "GIT_TOKEN_USER"
 const gitToken = "GIT_TOKEN"
+const DefaultWaitJobCompleteMinutes = int16(120) // default 2 hrs wait time
 
 type TestSchematicOptions struct {
 	TarIncludePatterns      []string
-	BestRegionYAMLPath      string                      // BestRegionYAMLPath Path to the yaml containing regions and weights
-	DefaultRegion           string                      // DefaultRegion default region if automatic detection fails
-	ResourceGroup           string                      // ResourceGroup IBM Cloud resource group to use
-	Region                  string                      // Region to use
-	RequiredEnvironmentVars map[string]string           // RequiredEnvironmentVars
-	TerraformVars           []TestSchematicTerraformVar // TerraformVars variables to pass to terraform
-	//TerraformVars    map[string]interface{}
-	Tags             []string                     // Tags optional tags to add
-	Prefix           string                       // Prefix to use when creating resources
-	Testing          *testing.T                   `copier:"-"` // Testing The current test object
-	CloudInfoService testhelper.CloudInfoServiceI // Supply if you need multiple tests to share info service and data
-	SchematicsSvc    SchematicsSvcI               // service pointer for interacting with external schematics api
+	BestRegionYAMLPath      string                       // BestRegionYAMLPath Path to the yaml containing regions and weights
+	DefaultRegion           string                       // DefaultRegion default region if automatic detection fails
+	ResourceGroup           string                       // ResourceGroup IBM Cloud resource group to use
+	Region                  string                       // Region to use
+	RequiredEnvironmentVars map[string]string            // RequiredEnvironmentVars
+	TerraformVars           []TestSchematicTerraformVar  // TerraformVars variables to pass to terraform
+	Tags                    []string                     // Tags optional tags to add
+	Prefix                  string                       // Prefix to use when creating resources
+	Testing                 *testing.T                   `copier:"-"` // Testing The current test object
+	CloudInfoService        testhelper.CloudInfoServiceI // Supply if you need multiple tests to share info service and data
+	SchematicsSvc           SchematicsSvcI               // service pointer for interacting with external schematics api
+	WaitJobCompleteMinutes  int16                        // number of minutes to wait for schematic job completions
 }
 
 type TestSchematicTerraformVar struct {
@@ -67,6 +68,10 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 		} else {
 			newOptions.Region, _ = testhelper.GetBestVpcRegionO(newOptions.RequiredEnvironmentVars[ibmcloudApiKeyVar], defaultRegionYaml, newOptions.DefaultRegion, *regionOptions)
 		}
+	}
+
+	if newOptions.WaitJobCompleteMinutes <= 0 {
+		newOptions.WaitJobCompleteMinutes = DefaultWaitJobCompleteMinutes
 	}
 
 	return newOptions

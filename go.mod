@@ -10,6 +10,7 @@ require (
 	github.com/IBM/schematics-go-sdk v0.2.1
 	github.com/IBM/vpc-go-sdk v1.0.2
 	github.com/go-git/go-git/v5 v5.4.2
+	github.com/go-openapi/errors v0.20.2
 	github.com/gruntwork-io/terratest v0.41.3
 	github.com/jinzhu/copier v0.3.5
 	github.com/stretchr/testify v1.8.1
@@ -34,7 +35,6 @@ require (
 	github.com/go-git/gcfg v1.5.0 // indirect
 	github.com/go-git/go-billy/v5 v5.3.1 // indirect
 	github.com/go-openapi/analysis v0.21.2 // indirect
-	github.com/go-openapi/errors v0.20.2 // indirect
 	github.com/go-openapi/jsonpointer v0.19.5 // indirect
 	github.com/go-openapi/jsonreference v0.19.6 // indirect
 	github.com/go-openapi/loads v0.21.1 // indirect
