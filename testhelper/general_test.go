@@ -249,3 +249,48 @@ func TestGetRequiredEnvVarsEmptyInput(t *testing.T) {
 	expected := make(map[string]string)
 	assert.Equal(t, expected, GetRequiredEnvVars(t, []string{}))
 }
+
+func TestGetBeforeAfterDiffValidInput(t *testing.T) {
+	jsonString := `{"before": {"a": 1, "b": 2}, "after": {"a": 2, "b": 3}}`
+	expected := "Before: {\"a\":1,\"b\":2}\nAfter: {\"a\":2,\"b\":3}"
+	result := GetBeforeAfterDiff(jsonString)
+	if result != expected {
+		t.Errorf("TestGetBeforeAfterDiffValidInput(%q) returned %q, expected %q", jsonString, result, expected)
+	}
+}
+
+func TestGetBeforeAfterDiffMissingBeforeKey(t *testing.T) {
+	jsonString := `{"after": {"a": 1, "b": 2}}`
+	expected := "Error: missing 'before' or 'after' key in JSON"
+	result := GetBeforeAfterDiff(jsonString)
+	if result != expected {
+		t.Errorf("TestGetBeforeAfterDiffMissingBeforeKey(%q) returned %q, expected %q", jsonString, result, expected)
+	}
+}
+
+func TestGetBeforeAfterDiffNonObjectBeforeValue(t *testing.T) {
+	jsonString := `{"before": ["a", "b"], "after": {"a": 1, "b": 2}}`
+	expected := "Error: 'before' value is not an object"
+	result := GetBeforeAfterDiff(jsonString)
+	if result != expected {
+		t.Errorf("TestGetBeforeAfterDiffNonObjectBeforeValue(%q) returned %q, expected %q", jsonString, result, expected)
+	}
+}
+
+func TestGetBeforeAfterDiffNonObjectAfterValue(t *testing.T) {
+	jsonString := `{"before": {"a": 1, "b": 2}, "after": ["a", "b"]}`
+	expected := "Error: 'after' value is not an object"
+	result := GetBeforeAfterDiff(jsonString)
+	if result != expected {
+		t.Errorf("TestGetBeforeAfterDiffNonObjectAfterValue(%q) returned %q, expected %q", jsonString, result, expected)
+	}
+}
+
+func TestGetBeforeAfterDiffInvalidJSON(t *testing.T) {
+	jsonString := `{"before": {"a": 1, "b": 2}, "after": {"a": 1, "b": 2}`
+	expected := "Error: unable to parse JSON string"
+	result := GetBeforeAfterDiff(jsonString)
+	if result != expected {
+		t.Errorf("TestGetBeforeAfterDiffInvalidJSON(%q) returned %q, expected %q", jsonString, result, expected)
+	}
+}
