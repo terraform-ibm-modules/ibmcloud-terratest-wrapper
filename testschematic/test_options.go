@@ -17,6 +17,7 @@ const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 const gitUser = "GIT_TOKEN_USER"
 const gitToken = "GIT_TOKEN"
 const DefaultWaitJobCompleteMinutes = int16(120) // default 2 hrs wait time
+const DefaultSchematicsApiURL = "https://schematics.cloud.ibm.com"
 
 type TestSchematicOptions struct {
 	TarIncludePatterns      []string
@@ -30,8 +31,9 @@ type TestSchematicOptions struct {
 	Prefix                  string                       // Prefix to use when creating resources
 	Testing                 *testing.T                   `copier:"-"` // Testing The current test object
 	CloudInfoService        testhelper.CloudInfoServiceI // Supply if you need multiple tests to share info service and data
-	SchematicsSvc           SchematicsSvcI               // service pointer for interacting with external schematics api
+	SchematicsApiSvc        SchematicsApiSvcI            // service pointer for interacting with external schematics api
 	WaitJobCompleteMinutes  int16                        // number of minutes to wait for schematic job completions
+	SchematicsApiURL        string                       // base URL for schematics API
 }
 
 type TestSchematicTerraformVar struct {
@@ -74,6 +76,9 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 		newOptions.WaitJobCompleteMinutes = DefaultWaitJobCompleteMinutes
 	}
 
+	if len(newOptions.SchematicsApiURL) == 0 {
+		newOptions.SchematicsApiURL = DefaultSchematicsApiURL
+	}
 	return newOptions
 
 }

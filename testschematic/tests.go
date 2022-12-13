@@ -10,10 +10,17 @@ import (
 func (options *TestSchematicOptions) RunSchematicTest() error {
 
 	// create new schematic service with authenticator, set pointer of service in options for use later
-	var svcErr error
-	options.SchematicsSvc, svcErr = CreateSchematicsService(options.RequiredEnvironmentVars[ibmcloudApiKeyVar])
-	if svcErr != nil {
-		return fmt.Errorf("error creating schematics sdk service: %w", svcErr)
+	svc := &SchematicsTestService{
+		TestOptions: options,
+	}
+	svc.CreateAuthenticator(options.RequiredEnvironmentVars[ibmcloudApiKeyVar])
+	if options.SchematicsApiSvc != nil {
+		svc.SchematicsApiSvc = options.SchematicsApiSvc
+	} else {
+		svcErr := svc.InitializeSchematicsService()
+		if svcErr != nil {
+			return fmt.Errorf("error creating schematics sdk service: %w", svcErr)
+		}
 	}
 
 	// get the root path of this project
@@ -30,28 +37,25 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	defer os.Remove(tarballName) // just to cleanup
 
 	// create a new empty workspace, resulting in "draft" status
-	workspace, wsErr := CreateTestWorkspace(options.SchematicsSvc, options.Prefix, options.ResourceGroup, options.Tags, options)
+	_, wsErr := svc.CreateTestWorkspace(options.Prefix, options.ResourceGroup, options.Tags)
 	if wsErr != nil {
 		return fmt.Errorf("error creating new schematic workspace: %w", wsErr)
 	}
 
-	workspaceID := *workspace.ID
-	templateID := *workspace.TemplateData[0].ID
-
 	// upload the terraform code
-	uploadErr := UploadTarToWorkspace(options.SchematicsSvc, workspaceID, templateID, tarballName)
+	uploadErr := svc.UploadTarToWorkspace(tarballName)
 	if uploadErr != nil {
 		return fmt.Errorf("error uploading tar file to workspace: %w", uploadErr)
 	}
 
 	// -------- UPLOAD TAR FILE ----------
 	// find the tar upload job
-	uploadJob, uploadJobErr := FindLatestWorkspaceJobByName(options.SchematicsSvc, workspaceID, SchematicsJobTypeUpload)
+	uploadJob, uploadJobErr := svc.FindLatestWorkspaceJobByName(SchematicsJobTypeUpload)
 	if uploadJobErr != nil {
 		return fmt.Errorf("error finding the upload tar action: %w", uploadJobErr)
 	}
 	// wait for it to finish
-	uploadJobStatus, uploadJobStatusErr := WaitForFinalJobStatus(options.SchematicsSvc, workspaceID, templateID, *uploadJob.ActionID, options)
+	uploadJobStatus, uploadJobStatusErr := svc.WaitForFinalJobStatus(*uploadJob.ActionID)
 	if uploadJobStatusErr != nil {
 		return fmt.Errorf("error waiting for upload of tar to finish: %w", uploadJobStatusErr)
 	}
@@ -60,12 +64,26 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 		return fmt.Errorf("tar upload has failed with status %s", uploadJobStatus)
 	}
 
+	// ------ FINAL WORKSPACE CONFIG ------
 	// update the default template with variables
 	// NOTE: doing this AFTER terraform is loaded so that sensitive variables in Variablestore are already created in template,
 	// to prevent things like api keys being exposed
-	updateErr := UpdateTestTemplateVars(options.SchematicsSvc, workspaceID, templateID, options.TerraformVars)
+	updateErr := svc.UpdateTestTemplateVars(options.TerraformVars)
 	if updateErr != nil {
 		return fmt.Errorf("error updating template with Variablestore: %w", updateErr)
+	}
+
+	// ------ PLAN ------
+	planResponse, planErr := svc.CreatePlanJob()
+	if planErr != nil {
+		return fmt.Errorf("error creating PLAN: %w", planErr)
+	}
+	planJobStatus, planStatusErr := svc.WaitForFinalJobStatus(*planResponse.Activityid)
+	if planStatusErr != nil {
+		return fmt.Errorf("error waiting for PLAN to finish: %w", planStatusErr)
+	}
+	if planJobStatus != SchematicsJobStatusCompleted {
+		return fmt.Errorf("PLAN has failed with status %s", planJobStatus)
 	}
 
 	return nil
