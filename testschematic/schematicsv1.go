@@ -217,7 +217,7 @@ func (svc *SchematicsTestService) CreateApplyJob() (*schematicsv1.WorkspaceActiv
 	return applyResult, nil
 }
 
-func (svc *SchematicsTestService) DestroyPlanJob() (*schematicsv1.WorkspaceActivityDestroyResult, error) {
+func (svc *SchematicsTestService) CreateDestroyJob() (*schematicsv1.WorkspaceActivityDestroyResult, error) {
 	refreshToken, tokenErr := svc.GetRefreshToken()
 	if tokenErr != nil {
 		return nil, tokenErr

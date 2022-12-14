@@ -8,6 +8,8 @@ import (
 )
 
 func (options *TestSchematicOptions) RunSchematicTest() error {
+	// used to keep true error message for test reporting
+	var errorReturn error
 
 	// create new schematic service with authenticator, set pointer of service in options for use later
 	svc := &SchematicsTestService{
@@ -84,6 +86,42 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	}
 	if planJobStatus != SchematicsJobStatusCompleted {
 		return fmt.Errorf("PLAN has failed with status %s", planJobStatus)
+	}
+
+	// ------ APPLY ------
+	applyResponse, applyErr := svc.CreateApplyJob()
+	if applyErr != nil {
+		errorReturn = fmt.Errorf("error creating APPLY: %w", applyErr)
+	} else {
+		applyJobStatus, applyStatusErr := svc.WaitForFinalJobStatus(*applyResponse.Activityid)
+		if applyStatusErr != nil {
+			errorReturn = fmt.Errorf("error waiting for APPLY to finish: %w", applyStatusErr)
+		} else {
+			if applyJobStatus != SchematicsJobStatusCompleted {
+				errorReturn = fmt.Errorf("APPLY has failed with status %s", applyJobStatus)
+			}
+		}
+	}
+
+	// ------ DESTROY ------
+	// NOTE: we want to perform this even if APPLY has failed, to delete resources
+	destroyResponse, destroyErr := svc.CreateDestroyJob()
+	if destroyErr != nil {
+		errorReturn = fmt.Errorf("error creating DESTROY: %w %w", destroyErr, errorReturn)
+	} else {
+		destroyJobStatus, destroyStatusErr := svc.WaitForFinalJobStatus(*destroyResponse.Activityid)
+		if destroyStatusErr != nil {
+			errorReturn = fmt.Errorf("error waiting for DESTROY to finish: %w %w", destroyStatusErr, errorReturn)
+		} else {
+			if destroyJobStatus != SchematicsJobStatusCompleted {
+				errorReturn = fmt.Errorf("DESTROY has failed with status %s %w", destroyJobStatus, errorReturn)
+			}
+		}
+	}
+
+	// if error return message is not empty, return error to test case
+	if errorReturn != nil {
+		return errorReturn
 	}
 
 	return nil
