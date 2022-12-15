@@ -19,6 +19,7 @@ const gitToken = "GIT_TOKEN"
 const DefaultWaitJobCompleteMinutes = int16(120) // default 2 hrs wait time
 const DefaultSchematicsApiURL = "https://schematics.cloud.ibm.com"
 
+// TestSchematicOptions is the main data struct containing all options related to running a Terraform unit test wihtin IBM Schematics Workspaces
 type TestSchematicOptions struct {
 	TarIncludePatterns      []string
 	BestRegionYAMLPath      string                       // BestRegionYAMLPath Path to the yaml containing regions and weights
@@ -44,6 +45,9 @@ type TestSchematicTerraformVar struct {
 	Secure   bool        // true if value should be hidden
 }
 
+// TestSchematicOptionsDefault is a constructor for struct TestSchematicOptions. This function will accept an existing instance of
+// TestSchematicOptions values, and return a new instance of TestSchematicOptions with the original values set along with appropriate
+// default values for any properties that were not set in the original options.
 func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSchematicOptions {
 
 	newOptions, err := originalOptions.Clone()

@@ -41,6 +41,7 @@ type SchematicsApiSvcI interface {
 	DestroyWorkspaceCommand(destroyWorkspaceCommandOptions *schematicsv1.DestroyWorkspaceCommandOptions) (result *schematicsv1.WorkspaceActivityDestroyResult, response *core.DetailedResponse, err error)
 }
 
+// main data struct for all schematic test methods
 type SchematicsTestService struct {
 	SchematicsApiSvc          SchematicsApiSvcI            // the main schematics service interface
 	ApiAuthenticator          *core.IamAuthenticator       // the authenticator used for schematics api calls
@@ -52,6 +53,8 @@ type SchematicsTestService struct {
 	TerraformResourcesCreated bool                         // keeps track of when we start deploying resources, used for proper test teardown logic
 }
 
+// CreateAuthenticator will accept a valid IBM cloud API key, and
+// set a valid Authenticator object that will be used in the external provider service for schematics.
 func (svc *SchematicsTestService) CreateAuthenticator(ibmcloudApiKey string) {
 	svc.ApiAuthenticator = &core.IamAuthenticator{
 		ApiKey: ibmcloudApiKey, // pragma: allowlist secret
@@ -61,6 +64,8 @@ func (svc *SchematicsTestService) CreateAuthenticator(ibmcloudApiKey string) {
 	}
 }
 
+// GetRefreshToken will use a previously established Authenticator to create a new IAM Token object,
+// if existing is not valid, and return the refresh token propery from the token object.
 func (svc *SchematicsTestService) GetRefreshToken() (string, error) {
 	if svc.SchematicsIamToken == nil || len(svc.SchematicsIamToken.RefreshToken) == 0 {
 		var err error
@@ -73,6 +78,8 @@ func (svc *SchematicsTestService) GetRefreshToken() (string, error) {
 	return svc.SchematicsIamToken.RefreshToken, nil
 }
 
+// InitializeSchematicsService will initialize the external service object
+// for schematicsv1 and assign it to a property of the receiver for later use.
 func (svc *SchematicsTestService) InitializeSchematicsService() error {
 	var err error
 	svc.SchematicsApiSvc, err = schematicsv1.NewSchematicsV1(&schematicsv1.SchematicsV1Options{
@@ -86,6 +93,7 @@ func (svc *SchematicsTestService) InitializeSchematicsService() error {
 	return nil
 }
 
+// CreateTestWorkspace will create a new IBM Schematics Workspace that will be used for testing.
 func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup string, tags []string) (*schematicsv1.WorkspaceResponse, error) {
 
 	// create env and input vars template
@@ -128,6 +136,8 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 	return workspace, nil
 }
 
+// UpdateTestTemplateVars will update an existing Schematics Workspace terraform template with a
+// Variablestore, which will set terraform input variables for test runs.
 func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTerraformVar) error {
 
 	// set up an array of workspace variables based on TerraformVars supplied.
@@ -167,6 +177,8 @@ func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTer
 	return nil
 }
 
+// UploadTarToWorkspace will accept a file path for an existing TAR file, containing files for a
+// Terraform test case, and upload it to an existing Schematics Workspace.
 func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
 	fileReader, _ := os.Open(tarPath)
 	fileReaderWrapper := io.NopCloser(fileReader)
@@ -186,6 +198,8 @@ func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
 	return nil
 }
 
+// CreatePlanJob will initiate a new PLAN action on an existing terraform Schematics Workspace.
+// Will return a result object containing details about the new action.
 func (svc *SchematicsTestService) CreatePlanJob() (*schematicsv1.WorkspaceActivityPlanResult, error) {
 	refreshToken, tokenErr := svc.GetRefreshToken()
 	if tokenErr != nil {
@@ -203,6 +217,8 @@ func (svc *SchematicsTestService) CreatePlanJob() (*schematicsv1.WorkspaceActivi
 	return planResult, nil
 }
 
+// CreateApplyJob will initiate a new APPLY action on an existing terraform Schematics Workspace.
+// Will return a result object containing details about the new action.
 func (svc *SchematicsTestService) CreateApplyJob() (*schematicsv1.WorkspaceActivityApplyResult, error) {
 	refreshToken, tokenErr := svc.GetRefreshToken()
 	if tokenErr != nil {
@@ -220,6 +236,8 @@ func (svc *SchematicsTestService) CreateApplyJob() (*schematicsv1.WorkspaceActiv
 	return applyResult, nil
 }
 
+// CreateDestroyJob will initiate a new DESTROY action on an existing terraform Schematics Workspace.
+// Will return a result object containing details about the new action.
 func (svc *SchematicsTestService) CreateDestroyJob() (*schematicsv1.WorkspaceActivityDestroyResult, error) {
 	refreshToken, tokenErr := svc.GetRefreshToken()
 	if tokenErr != nil {
@@ -237,6 +255,9 @@ func (svc *SchematicsTestService) CreateDestroyJob() (*schematicsv1.WorkspaceAct
 	return destroyResult, nil
 }
 
+// FindLatestWorkspaceJobByName will find the latest executed job of the type supplied and return data about that job.
+// This can be used to find a job by its type when the jobID is not known.
+// A "NotFound" error will be thrown if there are no existing jobs of the provided type.
 func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (*schematicsv1.WorkspaceActivity, error) {
 
 	// get array of jobs using workspace id
@@ -271,6 +292,8 @@ func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (
 	return jobResult, nil
 }
 
+// GetWorkspaceJobDetail will return a data structure with full details about an existing Schematics Workspace activity for the
+// given Job ID.
 func (svc *SchematicsTestService) GetWorkspaceJobDetail(jobID string) (*schematicsv1.WorkspaceActivity, error) {
 
 	// look up job by ID
@@ -285,6 +308,11 @@ func (svc *SchematicsTestService) GetWorkspaceJobDetail(jobID string) (*schemati
 	return activityResponse, nil
 }
 
+// WaitForFinalJobStatus will look up details about the given activity and check the status value. If the status implies that the activity
+// has not completed yet, this function will keep checking the status value until either the activity has finished, or a configured time threshold has
+// been reached.
+// Returns the final status value of the activity when it has finished.
+// Returns an error if the activity does not finish before the configured time threshold.
 func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, error) {
 	var status string
 	var job *schematicsv1.WorkspaceActivity
@@ -335,6 +363,7 @@ func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, e
 	return status, nil
 }
 
+// DeleteWorkspace will delete the existing workspace created for the test service.
 func (svc *SchematicsTestService) DeleteWorkspace() (string, error) {
 
 	refreshToken, tokenErr := svc.GetRefreshToken()
@@ -354,6 +383,11 @@ func (svc *SchematicsTestService) DeleteWorkspace() (string, error) {
 	return *result, nil
 }
 
+// CreateSchematicTar will accept a path to a Terraform project and an array of file patterns to include,
+// and will create a TAR file in a temporary location that contains all of the project's files that match the
+// supplied file patterns. This TAR file can then be uploaded to a Schematics Workspace template.
+// Returns a string of the complete TAR file path and file name.
+// Error is returned if any issues happen while creating TAR file.
 func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, error) {
 
 	// create unique tar filename

@@ -10,6 +10,14 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper"
 )
 
+// RunSchematicTest will use the supplied options to run an end-to-end Terraform test of a project in an
+// IBM Cloud Schematics Workspace.
+// This test will include the following steps:
+// 1. create test workspace
+// 2. create and upload tar file of terraform project to workspace
+// 3. configure supplied test variables in workspace
+// 4. run PLAN/APPLY/DESTROY steps on workspace to provision and destroy resources
+// 5. delete the test workspace
 func (options *TestSchematicOptions) RunSchematicTest() error {
 
 	// WORKSPACE SETUP
@@ -145,6 +153,9 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	return nil
 }
 
+// testTearDown is a helper function, typically called via golang "defer", that will clean up and remove any existing resources that were
+// created for the test.
+// The removal of some resources may be influenced by certain conditions or optional settings.
 func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 	// ------ DELETE WORKSPACE ------
 	// only delete workspace if one of these is true:
