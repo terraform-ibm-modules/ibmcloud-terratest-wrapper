@@ -31,21 +31,21 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	} else {
 		svcErr := svc.InitializeSchematicsService()
 		if svcErr != nil {
-			return fmt.Errorf("[SCHEMATICS] error creating schematics sdk service: %w", svcErr)
+			return fmt.Errorf("error creating schematics sdk service: %w", svcErr)
 		}
 	}
 
 	// get the root path of this project
 	projectPath, pathErr := testhelper.GitRootPath(".")
 	if pathErr != nil {
-		return fmt.Errorf("[SCHEMATICS] error getting root path of git project: %w", pathErr)
+		return fmt.Errorf("error getting root path of git project: %w", pathErr)
 	}
 
 	// create a new tar file for the project
 	log.Println("[SCHEMATICS] Creating TAR file")
 	tarballName, tarballErr := CreateSchematicTar(projectPath, &options.TarIncludePatterns)
 	if tarballErr != nil {
-		return fmt.Errorf("[SCHEMATICS] error creating tar file: %w", tarballErr)
+		return fmt.Errorf("error creating tar file: %w", tarballErr)
 	}
 	defer os.Remove(tarballName) // just to cleanup
 
@@ -53,7 +53,7 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	log.Println("[SCHEMATICS] Creating Test Workspace")
 	_, wsErr := svc.CreateTestWorkspace(options.Prefix, options.ResourceGroup, options.Tags)
 	if wsErr != nil {
-		return fmt.Errorf("[SCHEMATICS] error creating new schematic workspace: %w", wsErr)
+		return fmt.Errorf("error creating new schematic workspace: %w", wsErr)
 	}
 
 	// since workspace is now created, always call the teardown to remove
