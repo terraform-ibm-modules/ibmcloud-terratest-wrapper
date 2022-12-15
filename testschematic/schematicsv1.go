@@ -31,6 +31,7 @@ const SchematicsJobStatusInProgress = "INPROGRESS"
 // interface for the external schematics service api. Can be mocked for tests
 type SchematicsApiSvcI interface {
 	CreateWorkspace(createWorkspaceOptions *schematicsv1.CreateWorkspaceOptions) (result *schematicsv1.WorkspaceResponse, response *core.DetailedResponse, err error)
+	DeleteWorkspace(deleteWorkspaceOptions *schematicsv1.DeleteWorkspaceOptions) (result *string, response *core.DetailedResponse, err error)
 	TemplateRepoUpload(templateRepoUploadOptions *schematicsv1.TemplateRepoUploadOptions) (result *schematicsv1.TemplateRepoTarUploadResponse, response *core.DetailedResponse, err error)
 	ReplaceWorkspaceInputs(replaceWorkspaceInputsOptions *schematicsv1.ReplaceWorkspaceInputsOptions) (result *schematicsv1.UserValues, response *core.DetailedResponse, err error)
 	ListWorkspaceActivities(listWorkspaceActivitiesOptions *schematicsv1.ListWorkspaceActivitiesOptions) (result *schematicsv1.WorkspaceActivities, response *core.DetailedResponse, err error)
@@ -41,12 +42,14 @@ type SchematicsApiSvcI interface {
 }
 
 type SchematicsTestService struct {
-	SchematicsApiSvc   SchematicsApiSvcI            // the main schematics service interface
-	ApiAuthenticator   *core.IamAuthenticator       // the authenticator used for schematics api calls
-	SchematicsIamToken *core.IamTokenServerResponse // needed for refresh_token, for schematic plan/apply/destroy API calls
-	WorkspaceID        string                       // workspace ID used for tests
-	TemplateID         string                       // workspace template ID used for tests
-	TestOptions        *TestSchematicOptions        // additional testing options
+	SchematicsApiSvc          SchematicsApiSvcI            // the main schematics service interface
+	ApiAuthenticator          *core.IamAuthenticator       // the authenticator used for schematics api calls
+	SchematicsIamToken        *core.IamTokenServerResponse // needed for refresh_token, for schematic plan/apply/destroy API calls
+	WorkspaceID               string                       // workspace ID used for tests
+	TemplateID                string                       // workspace template ID used for tests
+	TestOptions               *TestSchematicOptions        // additional testing options
+	TerraformTestStarted      bool                         // keeps track of when actual Terraform resource testing has begin, used for proper test teardown logic
+	TerraformResourcesCreated bool                         // keeps track of when we start deploying resources, used for proper test teardown logic
 }
 
 func (svc *SchematicsTestService) CreateAuthenticator(ibmcloudApiKey string) {
@@ -309,7 +312,7 @@ func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, e
 		}
 		// only log svc once a minute or so
 		if runMinutes > lastLog {
-			log.Printf("... still waiting for job %s to complete: %d minutes", *job.Name, runMinutes)
+			log.Printf("[SCHEMATICS] ... still waiting for job %s to complete: %d minutes", *job.Name, runMinutes)
 			lastLog = runMinutes
 		}
 
@@ -318,7 +321,7 @@ func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, e
 			len(*job.Status) > 0 &&
 			*job.Status != SchematicsJobStatusCreated &&
 			*job.Status != SchematicsJobStatusInProgress {
-			log.Printf("The status of job %s is: %s", *job.Name, *job.Status)
+			log.Printf("[SCHEMATICS] The status of job %s is: %s", *job.Name, *job.Status)
 			break
 		}
 
@@ -330,6 +333,25 @@ func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, e
 	status = *job.Status
 
 	return status, nil
+}
+
+func (svc *SchematicsTestService) DeleteWorkspace() (string, error) {
+
+	refreshToken, tokenErr := svc.GetRefreshToken()
+	if tokenErr != nil {
+		return "", tokenErr
+	}
+
+	result, _, err := svc.SchematicsApiSvc.DeleteWorkspace(&schematicsv1.DeleteWorkspaceOptions{
+		WID:              core.StringPtr(svc.WorkspaceID),
+		RefreshToken:     core.StringPtr(refreshToken),
+		DestroyResources: core.StringPtr("false"),
+	})
+	if err != nil {
+		return "", fmt.Errorf("delete of schematic job failed: %w", err)
+	}
+
+	return *result, nil
 }
 
 func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, error) {

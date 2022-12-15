@@ -34,6 +34,7 @@ type TestSchematicOptions struct {
 	SchematicsApiSvc        SchematicsApiSvcI            // service pointer for interacting with external schematics api
 	WaitJobCompleteMinutes  int16                        // number of minutes to wait for schematic job completions
 	SchematicsApiURL        string                       // base URL for schematics API
+	DeleteWorkspaceOnFail   bool                         // if there is a failure, should test delete the workspace and logs, default of false
 }
 
 type TestSchematicTerraformVar struct {
