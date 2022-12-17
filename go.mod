@@ -4,7 +4,7 @@ go 1.19
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20221026143540-4d6050d2dbc5
-	github.com/IBM-Cloud/power-go-client v1.2.1
+	github.com/IBM-Cloud/power-go-client v1.2.2
 	github.com/IBM/go-sdk-core/v5 v5.10.2
 	github.com/IBM/platform-services-go-sdk v0.31.1
 	github.com/IBM/vpc-go-sdk v1.0.2
