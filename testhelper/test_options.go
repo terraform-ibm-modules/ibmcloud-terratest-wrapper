@@ -40,7 +40,7 @@ type TestOptions struct {
 	baseTempWorkingDir            string                 // INTERNAL variable to store the base level of temporary working directory
 	ExcludeActivityTrackerRegions bool                   // Will exclude any VPC regions that already contain an Activity Tracker
 	CloudInfoService              cloudInfoServiceI      // Supply if you need multiple tests to share info service and data
-	ApplyUpgradePR                bool                   // Optional variable to perform apply on PR branch code.
+	CheckApplyResultForUpgrade    bool                   // Optional variable to perform apply on PR branch code.
 }
 
 func TestOptionsDefaultWithVars(originalOptions *TestOptions) *TestOptions {

@@ -269,7 +269,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 					logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)..")
 					options.checkConsistency(result)
 					// Adding optional upgrade support on PR Branch
-					if options.ApplyUpgradePR {
+					if options.CheckApplyResultForUpgrade {
 						logger.Log(options.Testing, "Validating Optional upgrade on Current Branch (PR):", cur.Name())
 						_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 						assert.Nilf(options.Testing, resultErr, "Terraform Apply on PR branch has failed")
