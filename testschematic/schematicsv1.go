@@ -30,15 +30,15 @@ const SchematicsJobStatusInProgress = "INPROGRESS"
 
 // interface for the external schematics service api. Can be mocked for tests
 type SchematicsApiSvcI interface {
-	CreateWorkspace(createWorkspaceOptions *schematicsv1.CreateWorkspaceOptions) (result *schematicsv1.WorkspaceResponse, response *core.DetailedResponse, err error)
-	DeleteWorkspace(deleteWorkspaceOptions *schematicsv1.DeleteWorkspaceOptions) (result *string, response *core.DetailedResponse, err error)
-	TemplateRepoUpload(templateRepoUploadOptions *schematicsv1.TemplateRepoUploadOptions) (result *schematicsv1.TemplateRepoTarUploadResponse, response *core.DetailedResponse, err error)
-	ReplaceWorkspaceInputs(replaceWorkspaceInputsOptions *schematicsv1.ReplaceWorkspaceInputsOptions) (result *schematicsv1.UserValues, response *core.DetailedResponse, err error)
-	ListWorkspaceActivities(listWorkspaceActivitiesOptions *schematicsv1.ListWorkspaceActivitiesOptions) (result *schematicsv1.WorkspaceActivities, response *core.DetailedResponse, err error)
-	GetWorkspaceActivity(getWorkspaceActivityOptions *schematicsv1.GetWorkspaceActivityOptions) (result *schematicsv1.WorkspaceActivity, response *core.DetailedResponse, err error)
-	PlanWorkspaceCommand(planWorkspaceCommandOptions *schematicsv1.PlanWorkspaceCommandOptions) (result *schematicsv1.WorkspaceActivityPlanResult, response *core.DetailedResponse, err error)
-	ApplyWorkspaceCommand(applyWorkspaceCommandOptions *schematicsv1.ApplyWorkspaceCommandOptions) (result *schematicsv1.WorkspaceActivityApplyResult, response *core.DetailedResponse, err error)
-	DestroyWorkspaceCommand(destroyWorkspaceCommandOptions *schematicsv1.DestroyWorkspaceCommandOptions) (result *schematicsv1.WorkspaceActivityDestroyResult, response *core.DetailedResponse, err error)
+	CreateWorkspace(createWorkspaceOptions *schematicsv1.CreateWorkspaceOptions) (*schematicsv1.WorkspaceResponse, *core.DetailedResponse, error)
+	DeleteWorkspace(deleteWorkspaceOptions *schematicsv1.DeleteWorkspaceOptions) (*string, *core.DetailedResponse, error)
+	TemplateRepoUpload(templateRepoUploadOptions *schematicsv1.TemplateRepoUploadOptions) (*schematicsv1.TemplateRepoTarUploadResponse, *core.DetailedResponse, error)
+	ReplaceWorkspaceInputs(replaceWorkspaceInputsOptions *schematicsv1.ReplaceWorkspaceInputsOptions) (*schematicsv1.UserValues, *core.DetailedResponse, error)
+	ListWorkspaceActivities(listWorkspaceActivitiesOptions *schematicsv1.ListWorkspaceActivitiesOptions) (*schematicsv1.WorkspaceActivities, *core.DetailedResponse, error)
+	GetWorkspaceActivity(getWorkspaceActivityOptions *schematicsv1.GetWorkspaceActivityOptions) (*schematicsv1.WorkspaceActivity, *core.DetailedResponse, error)
+	PlanWorkspaceCommand(planWorkspaceCommandOptions *schematicsv1.PlanWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityPlanResult, *core.DetailedResponse, error)
+	ApplyWorkspaceCommand(applyWorkspaceCommandOptions *schematicsv1.ApplyWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityApplyResult, *core.DetailedResponse, error)
+	DestroyWorkspaceCommand(destroyWorkspaceCommandOptions *schematicsv1.DestroyWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityDestroyResult, *core.DetailedResponse, error)
 }
 
 // main data struct for all schematic test methods
@@ -180,7 +180,10 @@ func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTer
 // UploadTarToWorkspace will accept a file path for an existing TAR file, containing files for a
 // Terraform test case, and upload it to an existing Schematics Workspace.
 func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
-	fileReader, _ := os.Open(tarPath)
+	fileReader, fileErr := os.Open(tarPath)
+	if fileErr != nil {
+		return fmt.Errorf("error opening reader for tar path: %w", fileErr)
+	}
 	fileReaderWrapper := io.NopCloser(fileReader)
 
 	uploadTarOptions := &schematicsv1.TemplateRepoUploadOptions{
@@ -270,16 +273,16 @@ func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (
 
 	// loop through jobs and get latest one that matches name
 	var jobResult *schematicsv1.WorkspaceActivity
-	for _, job := range listResult.Actions {
+	for i, job := range listResult.Actions {
 		// only match name
 		if *job.Name == jobName {
 			// keep latest job of svc name
 			if jobResult != nil {
 				if time.Time(*job.PerformedAt).After(time.Time(*jobResult.PerformedAt)) {
-					jobResult = &job
+					jobResult = &listResult.Actions[i]
 				}
 			} else {
-				jobResult = &job
+				jobResult = &listResult.Actions[i]
 			}
 		}
 	}
@@ -322,14 +325,15 @@ func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, e
 	start := time.Now()
 	lastLog := int16(0)
 	runMinutes := int16(0)
-	if svc.TestOptions.WaitJobCompleteMinutes <= 0 {
-		svc.TestOptions.WaitJobCompleteMinutes = DefaultWaitJobCompleteMinutes
+	waitMinutes := DefaultWaitJobCompleteMinutes
+	if svc.TestOptions != nil && svc.TestOptions.WaitJobCompleteMinutes > 0 {
+		waitMinutes = svc.TestOptions.WaitJobCompleteMinutes
 	}
 
 	for {
 		// check for timeout and throw error
 		runMinutes = int16(time.Since(start).Minutes())
-		if runMinutes > svc.TestOptions.WaitJobCompleteMinutes {
+		if runMinutes > waitMinutes {
 			return "", fmt.Errorf("time exceeded waiting for schematic job to finish")
 		}
 
