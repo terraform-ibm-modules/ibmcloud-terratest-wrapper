@@ -27,11 +27,15 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	// The official start of the unit test, with assertions, will begin AFTER workspace is properly created.
 
 	// create new schematic service with authenticator, set pointer of service in options for use later
-	svc := &SchematicsTestService{
-		TestOptions:               options,
-		TerraformTestStarted:      false,
-		TerraformResourcesCreated: false,
+	var svc *SchematicsTestService
+	if options.schematicsTestSvc == nil {
+		svc = &SchematicsTestService{}
+	} else {
+		svc = options.schematicsTestSvc
 	}
+	svc.TestOptions = options
+	svc.TerraformTestStarted = false
+	svc.TerraformResourcesCreated = false
 
 	svc.CreateAuthenticator(options.RequiredEnvironmentVars[ibmcloudApiKeyVar])
 	if options.SchematicsApiSvc != nil {

@@ -21,6 +21,7 @@ const DefaultSchematicsApiURL = "https://schematics.cloud.ibm.com"
 
 // TestSchematicOptions is the main data struct containing all options related to running a Terraform unit test wihtin IBM Schematics Workspaces
 type TestSchematicOptions struct {
+	Testing                 *testing.T `copier:"-"` // Testing The current test object
 	TarIncludePatterns      []string
 	BestRegionYAMLPath      string                       // BestRegionYAMLPath Path to the yaml containing regions and weights
 	DefaultRegion           string                       // DefaultRegion default region if automatic detection fails
@@ -30,12 +31,12 @@ type TestSchematicOptions struct {
 	TerraformVars           []TestSchematicTerraformVar  // TerraformVars variables to pass to terraform
 	Tags                    []string                     // Tags optional tags to add
 	Prefix                  string                       // Prefix to use when creating resources
-	Testing                 *testing.T                   `copier:"-"` // Testing The current test object
-	CloudInfoService        testhelper.CloudInfoServiceI // Supply if you need multiple tests to share info service and data
-	SchematicsApiSvc        SchematicsApiSvcI            // service pointer for interacting with external schematics api
 	WaitJobCompleteMinutes  int16                        // number of minutes to wait for schematic job completions
-	SchematicsApiURL        string                       // base URL for schematics API
+	SchematicsApiURL        string                       // OPTIONAL: base URL for schematics API
 	DeleteWorkspaceOnFail   bool                         // if there is a failure, should test delete the workspace and logs, default of false
+	CloudInfoService        testhelper.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
+	SchematicsApiSvc        SchematicsApiSvcI            // OPTIONAL: service pointer for interacting with external schematics api
+	schematicsTestSvc       *SchematicsTestService       // OPTIONAL: internal property to specify pointer to test service, used for test mocking
 }
 
 type TestSchematicTerraformVar struct {
