@@ -94,12 +94,26 @@ func (svc *SchematicsTestService) InitializeSchematicsService() error {
 }
 
 // CreateTestWorkspace will create a new IBM Schematics Workspace that will be used for testing.
-func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup string, tags []string) (*schematicsv1.WorkspaceResponse, error) {
+func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup string, templateFolder string, terraformVersion string, tags []string) (*schematicsv1.WorkspaceResponse, error) {
+
+	var folder *string
+	var version *string
+	// choose nil default for version if not supplied, so that they omit from template setup
+	// (schematics should then determine defaults)
+	if len(templateFolder) == 0 {
+		folder = core.StringPtr(".")
+	} else {
+		folder = core.StringPtr(templateFolder)
+	}
+
+	if len(terraformVersion) > 0 {
+		version = core.StringPtr(terraformVersion)
+	}
 
 	// create env and input vars template
 	templateModel := &schematicsv1.TemplateSourceDataRequest{
-		Folder: core.StringPtr("."),
-		Type:   core.StringPtr("terraform_v1.2"),
+		Folder: folder,
+		Type:   version,
 		EnvValues: []interface{}{
 			map[string]string{
 				"__netrc__": fmt.Sprintf("[['github.ibm.com','%s','%s']]", svc.TestOptions.RequiredEnvironmentVars[gitUser], svc.TestOptions.RequiredEnvironmentVars[gitToken]),
@@ -114,11 +128,15 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 		},
 	}
 
+	wsType := []string{}
+	if version != nil {
+		wsType = []string{*version}
+	}
 	createWorkspaceOptions := &schematicsv1.CreateWorkspaceOptions{
 		Description:   core.StringPtr("Goldeneye CI Test for " + name),
 		Name:          core.StringPtr(name),
 		TemplateData:  []schematicsv1.TemplateSourceDataRequest{*templateModel},
-		Type:          []string{"terraform_v1.2"},
+		Type:          wsType,
 		Location:      core.StringPtr(defaultRegion),
 		ResourceGroup: core.StringPtr(resourceGroup),
 		Tags:          tags,

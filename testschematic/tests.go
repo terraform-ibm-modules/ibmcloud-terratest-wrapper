@@ -63,7 +63,7 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 
 	// create a new empty workspace, resulting in "draft" status
 	log.Println("[SCHEMATICS] Creating Test Workspace")
-	_, wsErr := svc.CreateTestWorkspace(options.Prefix, options.ResourceGroup, options.Tags)
+	_, wsErr := svc.CreateTestWorkspace(options.Prefix, options.ResourceGroup, options.TemplateFolder, options.TerraformVersion, options.Tags)
 	if wsErr != nil {
 		return fmt.Errorf("error creating new schematic workspace: %w", wsErr)
 	}
