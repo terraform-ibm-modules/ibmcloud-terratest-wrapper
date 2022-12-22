@@ -34,7 +34,6 @@ type TestSchematicOptions struct {
 	WaitJobCompleteMinutes  int16                        // number of minutes to wait for schematic job completions
 	SchematicsApiURL        string                       // OPTIONAL: base URL for schematics API
 	DeleteWorkspaceOnFail   bool                         // if there is a failure, should test delete the workspace and logs, default of false
-	TemplateFolder          string                       // OPTIONAL: the folder inside the project for schematics to execute, e.g. "examples/default", will default to "." if not supplied
 	TerraformVersion        string                       // OPTIONAL: Schematics terraform version to use for template. If not supplied will be determined from required version in project
 	CloudInfoService        testhelper.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 	SchematicsApiSvc        SchematicsApiSvcI            // OPTIONAL: service pointer for interacting with external schematics api
@@ -86,10 +85,6 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 
 	if len(newOptions.SchematicsApiURL) == 0 {
 		newOptions.SchematicsApiURL = DefaultSchematicsApiURL
-	}
-
-	if len(originalOptions.TemplateFolder) == 0 {
-		newOptions.TemplateFolder = "."
 	}
 
 	return newOptions
