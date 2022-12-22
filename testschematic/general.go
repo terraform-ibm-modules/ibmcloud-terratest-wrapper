@@ -32,3 +32,14 @@ func IsArray(v interface{}) bool {
 
 	return false
 }
+
+// strArrayContains is a helper function that will check an array and see if a value is already present
+func strArrayContains(arr []string, val string) bool {
+	for _, arrVal := range arr {
+		if arrVal == val {
+			return true
+		}
+	}
+
+	return false
+}

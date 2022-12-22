@@ -98,6 +98,7 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 
 	var folder *string
 	var version *string
+	var wsVersion []string
 	// choose nil default for version if not supplied, so that they omit from template setup
 	// (schematics should then determine defaults)
 	if len(templateFolder) == 0 {
@@ -108,6 +109,7 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 
 	if len(terraformVersion) > 0 {
 		version = core.StringPtr(terraformVersion)
+		wsVersion = []string{terraformVersion}
 	}
 
 	// create env and input vars template
@@ -128,15 +130,11 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 		},
 	}
 
-	wsType := []string{}
-	if version != nil {
-		wsType = []string{*version}
-	}
 	createWorkspaceOptions := &schematicsv1.CreateWorkspaceOptions{
 		Description:   core.StringPtr("Goldeneye CI Test for " + name),
 		Name:          core.StringPtr(name),
 		TemplateData:  []schematicsv1.TemplateSourceDataRequest{*templateModel},
-		Type:          wsType,
+		Type:          wsVersion,
 		Location:      core.StringPtr(defaultRegion),
 		ResourceGroup: core.StringPtr(resourceGroup),
 		Tags:          tags,
@@ -434,6 +432,8 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 
 	// track files added
 	totalFiles := 0
+	// track directories added, we only want to add them once
+	dirsAdded := []string{}
 
 	// start loop through provided list of patterns
 	// if none provided, assume just terraform files
@@ -445,7 +445,6 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 
 		// loop through files
 		for _, fileName := range files {
-
 			// get file info
 			info, infoErr := os.Stat(fileName)
 			if infoErr != nil {
@@ -467,6 +466,23 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 			// we will alter the name
 			if fileDir != "." {
 				hdr.Name = filepath.Join(fileDir, hdr.Name)
+
+				// if the file resides in subdirectory, add that directory to tar file so that extraction works correctly
+				if !strArrayContains(dirsAdded, fileDir) {
+					dirInfo, dirInfoErr := os.Stat(fileDir)
+					if dirInfoErr != nil {
+						return "", dirInfoErr
+					}
+					dirHdr, dirHdrErr := tar.FileInfoHeader(dirInfo, dirInfo.Name())
+					if dirHdrErr != nil {
+						return "", dirHdrErr
+					}
+					dirHdr.Name = fileDir // use full path
+					if tarWriteDirErr := tw.WriteHeader(dirHdr); tarWriteDirErr != nil {
+						return "", tarWriteDirErr
+					}
+					dirsAdded = append(dirsAdded, fileDir)
+				}
 			}
 
 			// start writing to tarball
