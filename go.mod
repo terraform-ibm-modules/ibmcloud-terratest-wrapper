@@ -11,6 +11,7 @@ require (
 	github.com/IBM/vpc-go-sdk v1.0.2
 	github.com/go-git/go-git/v5 v5.4.2
 	github.com/go-openapi/errors v0.20.2
+	github.com/go-openapi/strfmt v0.21.3
 	github.com/gruntwork-io/terratest v0.41.3
 	github.com/jinzhu/copier v0.3.5
 	github.com/stretchr/testify v1.8.1
@@ -40,7 +41,6 @@ require (
 	github.com/go-openapi/loads v0.21.1 // indirect
 	github.com/go-openapi/runtime v0.23.0 // indirect
 	github.com/go-openapi/spec v0.20.4 // indirect
-	github.com/go-openapi/strfmt v0.21.3 // indirect
 	github.com/go-openapi/swag v0.21.1 // indirect
 	github.com/go-openapi/validate v0.20.3 // indirect
 	github.com/go-playground/locales v0.14.0 // indirect
