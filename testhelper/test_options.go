@@ -39,7 +39,8 @@ type TestOptions struct {
 	UpgradeTestSkipped            bool                   // Informs the calling test that conditions were met to skip the upgrade test
 	baseTempWorkingDir            string                 // INTERNAL variable to store the base level of temporary working directory
 	ExcludeActivityTrackerRegions bool                   // Will exclude any VPC regions that already contain an Activity Tracker
-	CloudInfoService              CloudInfoServiceI      // Supply if you need multiple tests to share info service and data
+	CloudInfoService              cloudInfoServiceI      // Supply if you need multiple tests to share info service and data
+	CheckApplyResultForUpgrade    bool                   // Optional variable to perform apply on PR branch code.
 }
 
 func TestOptionsDefaultWithVars(originalOptions *TestOptions) *TestOptions {
@@ -49,14 +50,14 @@ func TestOptionsDefaultWithVars(originalOptions *TestOptions) *TestOptions {
 	// Vars to pass into module
 	varsMap := make(map[string]interface{})
 
-	ConditionalAdd(varsMap, "prefix", newOptions.Prefix, "")
-	ConditionalAdd(varsMap, "region", newOptions.Region, "")
-	ConditionalAdd(varsMap, "resource_group", newOptions.ResourceGroup, "")
+	conditionalAdd(varsMap, "prefix", newOptions.Prefix, "")
+	conditionalAdd(varsMap, "region", newOptions.Region, "")
+	conditionalAdd(varsMap, "resource_group", newOptions.ResourceGroup, "")
 
 	varsMap["resource_tags"] = GetTagsFromTravis()
 
 	// Vars to pass into module
-	newOptions.TerraformVars = MergeMaps(varsMap, newOptions.TerraformVars)
+	newOptions.TerraformVars = mergeMaps(varsMap, newOptions.TerraformVars)
 
 	return newOptions
 
@@ -120,7 +121,7 @@ func (options *TestOptions) Clone() (*TestOptions, error) {
 }
 
 // overwriting duplicate keys
-func MergeMaps(maps ...map[string]interface{}) map[string]interface{} {
+func mergeMaps(maps ...map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
 	for _, m := range maps {
 		for k, v := range m {
@@ -131,7 +132,7 @@ func MergeMaps(maps ...map[string]interface{}) map[string]interface{} {
 }
 
 // Adds value to map[key] only if value != compareValue
-func ConditionalAdd(amap map[string]interface{}, key string, value string, compareValue string) {
+func conditionalAdd(amap map[string]interface{}, key string, value string, compareValue string) {
 	if value != compareValue {
 		amap[key] = value
 	}

@@ -268,6 +268,12 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 				if result != nil && resultErr == nil {
 					logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)..")
 					options.checkConsistency(result)
+					// Adding optional upgrade support on PR Branch
+					if options.CheckApplyResultForUpgrade && !options.Testing.Failed() {
+						logger.Log(options.Testing, "Validating Optional upgrade on Current Branch (PR):", cur.Name())
+						_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
+						assert.Nilf(options.Testing, resultErr, "Terraform Apply on PR branch has failed")
+					}
 				} else {
 					// if there were issues running InitAndPlan, an Init needs to take place after branch change in order for downstream
 					// terraform to work (like the destroy)
