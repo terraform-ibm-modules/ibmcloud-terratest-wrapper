@@ -29,7 +29,7 @@ func TestSchematicFullTest(t *testing.T) {
 		Prefix:                  "unit-test",
 		DefaultRegion:           "test",
 		Region:                  "test",
-		RequiredEnvironmentVars: map[string]string{ibmcloudApiKeyVar: "XXX-XXXXXXX", gitUser: "some_git_user", gitToken: "fake_git_token"},
+		RequiredEnvironmentVars: map[string]string{ibmcloudApiKeyVar: "XXX-XXXXXXX"},
 		TerraformVars: []TestSchematicTerraformVar{
 			{Name: "var1", Value: "val1", DataType: "string", Secure: false},
 			{Name: "var2", Value: "val2", DataType: "string", Secure: false},

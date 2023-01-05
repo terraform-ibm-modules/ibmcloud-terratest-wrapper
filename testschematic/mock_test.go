@@ -80,6 +80,21 @@ func (mock *schematicv1ServiceMock) CreateWorkspace(createWorkspaceOptions *sche
 	return result, response, nil
 }
 
+func (mock *schematicv1ServiceMock) UpdateWorkspace(updateWorkspaceOptions *schematicsv1.UpdateWorkspaceOptions) (*schematicsv1.WorkspaceResponse, *core.DetailedResponse, error) {
+	if mock.failCreateWorkspace {
+		return nil, nil, &schematicv1ErrorMock{}
+	}
+
+	result := &schematicsv1.WorkspaceResponse{
+		ID: core.StringPtr(mockWorkspaceID),
+		TemplateData: []schematicsv1.TemplateSourceDataResponse{
+			{ID: core.StringPtr(mockTemplateID)},
+		},
+	}
+	response := &core.DetailedResponse{StatusCode: 200}
+	return result, response, nil
+}
+
 func (mock *schematicv1ServiceMock) DeleteWorkspace(deleteWorkspaceOptions *schematicsv1.DeleteWorkspaceOptions) (*string, *core.DetailedResponse, error) {
 	if mock.failDeleteWorkspace {
 		return nil, nil, &schematicv1ErrorMock{}

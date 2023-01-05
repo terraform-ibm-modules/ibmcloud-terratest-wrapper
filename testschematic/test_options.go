@@ -2,6 +2,7 @@ package testschematic
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -14,8 +15,8 @@ import (
 const defaultRegion = "us-south"
 const defaultRegionYaml = "../common-dev-assets/common-go-assets/cloudinfo-region-vpc-gen2-prefs.yaml"
 const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
-const gitUser = "GIT_TOKEN_USER"
-const gitToken = "GIT_TOKEN"
+const defaultGitUserEnvKey = "GIT_TOKEN_USER"
+const defaultGitTokenEnvKey = "GIT_TOKEN"
 const DefaultWaitJobCompleteMinutes = int16(120) // default 2 hrs wait time
 const DefaultSchematicsApiURL = "https://schematics.cloud.ibm.com"
 
@@ -23,21 +24,24 @@ const DefaultSchematicsApiURL = "https://schematics.cloud.ibm.com"
 type TestSchematicOptions struct {
 	Testing                 *testing.T `copier:"-"` // Testing The current test object
 	TarIncludePatterns      []string
-	BestRegionYAMLPath      string                       // BestRegionYAMLPath Path to the yaml containing regions and weights
-	DefaultRegion           string                       // DefaultRegion default region if automatic detection fails
-	ResourceGroup           string                       // ResourceGroup IBM Cloud resource group to use
-	Region                  string                       // Region to use
-	RequiredEnvironmentVars map[string]string            // RequiredEnvironmentVars
-	TerraformVars           []TestSchematicTerraformVar  // TerraformVars variables to pass to terraform
-	Tags                    []string                     // Tags optional tags to add
-	Prefix                  string                       // Prefix to use when creating resources
-	WaitJobCompleteMinutes  int16                        // number of minutes to wait for schematic job completions
-	SchematicsApiURL        string                       // OPTIONAL: base URL for schematics API
-	DeleteWorkspaceOnFail   bool                         // if there is a failure, should test delete the workspace and logs, default of false
-	TerraformVersion        string                       // OPTIONAL: Schematics terraform version to use for template. If not supplied will be determined from required version in project
-	CloudInfoService        testhelper.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
-	SchematicsApiSvc        SchematicsApiSvcI            // OPTIONAL: service pointer for interacting with external schematics api
-	schematicsTestSvc       *SchematicsTestService       // OPTIONAL: internal property to specify pointer to test service, used for test mocking
+	BestRegionYAMLPath      string                         // BestRegionYAMLPath Path to the yaml containing regions and weights
+	DefaultRegion           string                         // DefaultRegion default region if automatic detection fails
+	ResourceGroup           string                         // ResourceGroup IBM Cloud resource group to use
+	Region                  string                         // Region to use
+	RequiredEnvironmentVars map[string]string              // RequiredEnvironmentVars
+	TerraformVars           []TestSchematicTerraformVar    // TerraformVars variables to pass to terraform
+	TemplateFolder          string                         // folder that contains terraform template, defaults to "."
+	Tags                    []string                       // Tags optional tags to add
+	Prefix                  string                         // Prefix to use when creating resources
+	WaitJobCompleteMinutes  int16                          // number of minutes to wait for schematic job completions
+	SchematicsApiURL        string                         // OPTIONAL: base URL for schematics API
+	DeleteWorkspaceOnFail   bool                           // if there is a failure, should test delete the workspace and logs, default of false
+	TerraformVersion        string                         // OPTIONAL: Schematics terraform version to use for template. If not supplied will be determined from required version in project
+	NetrcSettings           []NetrcCredential              // array of .netrc credentials that will be set for schematics workspace
+	WorkspaceEnvVars        []WorkspaceEnvironmentVariable // array of ENV variables to set inside workspace
+	CloudInfoService        testhelper.CloudInfoServiceI   // OPTIONAL: Supply if you need multiple tests to share info service and data
+	SchematicsApiSvc        SchematicsApiSvcI              // OPTIONAL: service pointer for interacting with external schematics api
+	schematicsTestSvc       *SchematicsTestService         // OPTIONAL: internal property to specify pointer to test service, used for test mocking
 }
 
 type TestSchematicTerraformVar struct {
@@ -45,6 +49,19 @@ type TestSchematicTerraformVar struct {
 	Value    interface{} // value of variable
 	DataType string      // the TERRAFORM DATA TYPE of the varialbe (not golang type)
 	Secure   bool        // true if value should be hidden
+}
+
+type NetrcCredential struct {
+	Host     string // hostname or machine name of the entry
+	Username string // user name
+	Password string // password or token
+}
+
+type WorkspaceEnvironmentVariable struct {
+	Key    string // key name to set in workspace
+	Value  string // value of env var
+	Hidden bool   // metadata to hide this env var
+	Secure bool   // metadata to mark value as sensitive
 }
 
 // TestSchematicOptionsDefault is a constructor for struct TestSchematicOptions. This function will accept an existing instance of
@@ -61,7 +78,7 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 		newOptions.DefaultRegion = defaultRegion
 	}
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt
-	checkVariables := []string{ibmcloudApiKeyVar, gitToken, gitUser}
+	checkVariables := []string{ibmcloudApiKeyVar}
 	newOptions.RequiredEnvironmentVars = testhelper.GetRequiredEnvVars(newOptions.Testing, checkVariables)
 
 	if newOptions.Region == "" {
@@ -106,4 +123,65 @@ func (options *TestSchematicOptions) Clone() (*TestSchematicOptions, error) {
 	newOptions.Testing = options.Testing
 
 	return newOptions, nil
+}
+
+// AddNetrcCredential is a helper function for TestSchematicOptions that will append a new netrc credential struct to the appropriate array
+// in the options struct
+func (options *TestSchematicOptions) AddNetrcCredential(hostname string, username string, password string) {
+	options.NetrcSettings = append(options.NetrcSettings, NetrcCredential{
+		Host:     hostname,
+		Username: username,
+		Password: password,
+	})
+}
+
+// AddNetrcCredential is a helper function for TestSchematicOptions that will append a new netrc credential struct to the appropriate options array,
+// by retrieving the username and password by lookup up supplied environment variable keys.
+// error returned if any keys are missing in local environment
+func (options *TestSchematicOptions) AddNetrcCredentialByEnv(hostname string, usernameEnvKey string, passwordEnvKey string) error {
+	user, userSet := os.LookupEnv(usernameEnvKey)
+	pass, passSet := os.LookupEnv(passwordEnvKey)
+
+	if !userSet {
+		return fmt.Errorf("netrc username environment variable [%s] has not been set", usernameEnvKey)
+	}
+
+	if !passSet {
+		return fmt.Errorf("netrc password environment variable [%s] has not been set", passwordEnvKey)
+	}
+
+	options.AddNetrcCredential(hostname, user, pass)
+
+	return nil
+}
+
+// AddNetrcCredentialByEnvDefault is a helper function for TestSchematicOptions that will append a new netrc credential struct to the appropriate options array,
+// by retrieving the username and password by looking up the default environment variable keys
+// error returned if any keys are missing in local environment
+func (options *TestSchematicOptions) AddNetrcCredentialByEnvDefault(hostname string) error {
+	return options.AddNetrcCredentialByEnv(hostname, defaultGitUserEnvKey, defaultGitTokenEnvKey)
+}
+
+// AddWorkspaceEnvVar is a helper function for TestSchematicOptions that will append a new ENV entry to options that will be added to the workspace during the test
+func (options *TestSchematicOptions) AddWorkspaceEnvVar(key string, value string, hidden bool, secure bool) {
+	options.WorkspaceEnvVars = append(options.WorkspaceEnvVars, WorkspaceEnvironmentVariable{
+		Key:    key,
+		Value:  value,
+		Hidden: hidden,
+		Secure: secure,
+	})
+}
+
+// AddWorkspaceEnvVarFromLocalEnv is a helper function for TestSchematicOptions that will append a new ENV entry to options that will be added to the workspace during the test.
+// The value for the environment variable will be queried from the local OS under the same env var key.
+// error returned if the key is not set in local environment.
+func (options *TestSchematicOptions) AddWorkspaceEnvVarFromLocalEnv(key string, hidden bool, secure bool) error {
+	val, valSet := os.LookupEnv(key)
+	if !valSet {
+		return fmt.Errorf("local environment variable [%s] is not set", key)
+	}
+
+	options.AddWorkspaceEnvVar(key, val, hidden, secure)
+
+	return nil
 }

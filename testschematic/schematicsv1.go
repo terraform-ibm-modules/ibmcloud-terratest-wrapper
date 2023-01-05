@@ -31,6 +31,7 @@ const SchematicsJobStatusInProgress = "INPROGRESS"
 // interface for the external schematics service api. Can be mocked for tests
 type SchematicsApiSvcI interface {
 	CreateWorkspace(createWorkspaceOptions *schematicsv1.CreateWorkspaceOptions) (*schematicsv1.WorkspaceResponse, *core.DetailedResponse, error)
+	UpdateWorkspace(updateWorkspaceOptions *schematicsv1.UpdateWorkspaceOptions) (*schematicsv1.WorkspaceResponse, *core.DetailedResponse, error)
 	DeleteWorkspace(deleteWorkspaceOptions *schematicsv1.DeleteWorkspaceOptions) (*string, *core.DetailedResponse, error)
 	TemplateRepoUpload(templateRepoUploadOptions *schematicsv1.TemplateRepoUploadOptions) (*schematicsv1.TemplateRepoTarUploadResponse, *core.DetailedResponse, error)
 	ReplaceWorkspaceInputs(replaceWorkspaceInputsOptions *schematicsv1.ReplaceWorkspaceInputsOptions) (*schematicsv1.UserValues, *core.DetailedResponse, error)
@@ -112,22 +113,29 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 		wsVersion = []string{terraformVersion}
 	}
 
+	// initialize empty environment structures
+	envValues := []interface{}{}
+	envMetadata := []schematicsv1.EnvironmentValuesMetadata{}
+
+	// add env needed for restapi provider by default
+	addWorkspaceEnv(&envValues, &envMetadata, "API_DATA_IS_SENSITIVE", "true", false, false)
+
+	// add additional env values that were set in test options
+	for _, envEntry := range svc.TestOptions.WorkspaceEnvVars {
+		addWorkspaceEnv(&envValues, &envMetadata, envEntry.Key, envEntry.Value, envEntry.Hidden, envEntry.Secure)
+	}
+
+	// add netrc credientials if required
+	if len(svc.TestOptions.NetrcSettings) > 0 {
+		addNetrcToWorkspaceEnv(&envValues, &envMetadata, svc.TestOptions.NetrcSettings)
+	}
+
 	// create env and input vars template
 	templateModel := &schematicsv1.TemplateSourceDataRequest{
-		Folder: folder,
-		Type:   version,
-		EnvValues: []interface{}{
-			map[string]string{
-				"__netrc__": fmt.Sprintf("[['github.ibm.com','%s','%s']]", svc.TestOptions.RequiredEnvironmentVars[gitUser], svc.TestOptions.RequiredEnvironmentVars[gitToken]),
-			},
-			map[string]string{
-				"API_DATA_IS_SENSITIVE": "true", // for RestAPI provider
-			},
-		},
-		EnvValuesMetadata: []schematicsv1.EnvironmentValuesMetadata{
-			{Name: core.StringPtr("__netrc__"), Hidden: core.BoolPtr(false), Secure: core.BoolPtr(true)},
-			{Name: core.StringPtr("API_DATA_IS_SENSITIVE"), Hidden: core.BoolPtr(false), Secure: core.BoolPtr(false)},
-		},
+		Folder:            folder,
+		Type:              version,
+		EnvValues:         envValues,
+		EnvValuesMetadata: envMetadata,
 	}
 
 	createWorkspaceOptions := &schematicsv1.CreateWorkspaceOptions{
@@ -514,4 +522,30 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 	}
 
 	return target, nil
+}
+
+func addWorkspaceEnv(values *[]interface{}, metadata *[]schematicsv1.EnvironmentValuesMetadata, key string, value string, hidden bool, secure bool) {
+	// add the value to env
+	*values = append(*values, map[string]string{key: value})
+	// add a metadata entry for sensitive value
+	*metadata = append(*metadata, schematicsv1.EnvironmentValuesMetadata{Name: core.StringPtr(key), Hidden: core.BoolPtr(hidden), Secure: core.BoolPtr(secure)})
+}
+
+func addNetrcToWorkspaceEnv(values *[]interface{}, metadata *[]schematicsv1.EnvironmentValuesMetadata, netrcEntries []NetrcCredential) {
+	// loop through provided entries and add to one netrc string
+	netrcValue := ""
+	for _, netrc := range netrcEntries {
+		if len(netrcValue) > 0 {
+			netrcValue += ","
+		}
+		netrcValue += fmt.Sprintf("['%s','%s','%s']", netrc.Host, netrc.Username, netrc.Password)
+	}
+
+	// wrap all entries in array brackets (to make array of arrays)
+	netrcValue = fmt.Sprintf("[%s]", netrcValue)
+
+	// add the value to env
+	*values = append(*values, map[string]string{"__netrc__": netrcValue})
+	// add a metadata entry for sensitive value
+	*metadata = append(*metadata, schematicsv1.EnvironmentValuesMetadata{Name: core.StringPtr("__netrc__"), Hidden: core.BoolPtr(false), Secure: core.BoolPtr(true)})
 }
