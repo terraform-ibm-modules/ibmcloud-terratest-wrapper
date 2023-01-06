@@ -74,6 +74,10 @@ func (svc *SchematicsTestService) GetRefreshToken() (string, error) {
 		if err != nil {
 			return "", err
 		}
+		if len(svc.SchematicsIamToken.RefreshToken) == 0 {
+			// this shouldn't happen
+			return "", fmt.Errorf("request token is empty (invalid)")
+		}
 	}
 
 	return svc.SchematicsIamToken.RefreshToken, nil
@@ -448,6 +452,21 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 	if len(*includePatterns) == 0 {
 		includePatterns = &[]string{"*.tf"}
 	}
+
+	// schematics needs an outer folder in the tar file to contain everything, create that here and add this to everything later
+	// use current head of project path directory for dir info
+	parentDirInfo, parentDirInfoErr := os.Stat(projectPath)
+	if parentDirInfoErr != nil {
+		return "", parentDirInfoErr
+	}
+	parentDirHdr, parentDirHdrErr := tar.FileInfoHeader(parentDirInfo, parentDirInfo.Name())
+	if parentDirHdrErr != nil {
+		return "", parentDirHdrErr
+	}
+	if tarWriteOuterDirErr := tw.WriteHeader(parentDirHdr); tarWriteOuterDirErr != nil {
+		return "", tarWriteOuterDirErr
+	}
+
 	for _, pattern := range *includePatterns {
 		files, _ := filepath.Glob(pattern)
 
@@ -460,7 +479,7 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 			}
 			fileDir := filepath.Dir(fileName)
 
-			// skip directories, just in case
+			// skip directories that were directly found by the Glob, we will add those another way (see below)
 			if info.IsDir() {
 				continue
 			}
@@ -473,7 +492,8 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 			// the FI header sets the name as base name only, so to preserve the leading directories (if needed)
 			// we will alter the name
 			if fileDir != "." {
-				hdr.Name = filepath.Join(fileDir, hdr.Name)
+				hdr.Name = filepath.Join(parentDirInfo.Name(), fileDir, hdr.Name)
+				hdr.Linkname = hdr.Name
 
 				// if the file resides in subdirectory, add that directory to tar file so that extraction works correctly
 				if !strArrayContains(dirsAdded, fileDir) {
@@ -481,17 +501,24 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 					if dirInfoErr != nil {
 						return "", dirInfoErr
 					}
-					dirHdr, dirHdrErr := tar.FileInfoHeader(dirInfo, dirInfo.Name())
+					dirHdr, dirHdrErr := tar.FileInfoHeader(dirInfo, filepath.Join(parentDirInfo.Name(), fileDir))
 					if dirHdrErr != nil {
 						return "", dirHdrErr
 					}
-					dirHdr.Name = fileDir // use full path
+					dirHdr.Name = filepath.Join(parentDirInfo.Name(), fileDir) // use full path
 					if tarWriteDirErr := tw.WriteHeader(dirHdr); tarWriteDirErr != nil {
 						return "", tarWriteDirErr
 					}
 					dirsAdded = append(dirsAdded, fileDir)
 				}
+			} else {
+				// file is at root level, put it right below parent dir
+				hdr.Name = filepath.Join(parentDirInfo.Name(), hdr.Name)
+				hdr.Linkname = hdr.Name
 			}
+
+			// prefer GNU format
+			hdr.Format = tar.FormatGNU
 
 			// start writing to tarball
 			if tarWriteErr := tw.WriteHeader(hdr); tarWriteErr != nil {
