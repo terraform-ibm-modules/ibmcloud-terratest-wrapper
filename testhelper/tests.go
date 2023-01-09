@@ -85,7 +85,7 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 
 // testSetup Setup test
 func (options *TestOptions) testSetup() {
-
+	os.Setenv("API_DATA_IS_SENSITIVE", "true")
 	// If calling test had not provided its own TerraformOptions, use the default settings
 	if options.TerraformOptions == nil {
 		// Construct the terraform options with default retryable errors to handle the most common
