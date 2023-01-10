@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,28 +31,35 @@ const SchematicsJobStatusInProgress = "INPROGRESS"
 
 // interface for the external schematics service api. Can be mocked for tests
 type SchematicsApiSvcI interface {
-	CreateWorkspace(createWorkspaceOptions *schematicsv1.CreateWorkspaceOptions) (*schematicsv1.WorkspaceResponse, *core.DetailedResponse, error)
-	UpdateWorkspace(updateWorkspaceOptions *schematicsv1.UpdateWorkspaceOptions) (*schematicsv1.WorkspaceResponse, *core.DetailedResponse, error)
-	DeleteWorkspace(deleteWorkspaceOptions *schematicsv1.DeleteWorkspaceOptions) (*string, *core.DetailedResponse, error)
-	TemplateRepoUpload(templateRepoUploadOptions *schematicsv1.TemplateRepoUploadOptions) (*schematicsv1.TemplateRepoTarUploadResponse, *core.DetailedResponse, error)
-	ReplaceWorkspaceInputs(replaceWorkspaceInputsOptions *schematicsv1.ReplaceWorkspaceInputsOptions) (*schematicsv1.UserValues, *core.DetailedResponse, error)
-	ListWorkspaceActivities(listWorkspaceActivitiesOptions *schematicsv1.ListWorkspaceActivitiesOptions) (*schematicsv1.WorkspaceActivities, *core.DetailedResponse, error)
-	GetWorkspaceActivity(getWorkspaceActivityOptions *schematicsv1.GetWorkspaceActivityOptions) (*schematicsv1.WorkspaceActivity, *core.DetailedResponse, error)
-	PlanWorkspaceCommand(planWorkspaceCommandOptions *schematicsv1.PlanWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityPlanResult, *core.DetailedResponse, error)
-	ApplyWorkspaceCommand(applyWorkspaceCommandOptions *schematicsv1.ApplyWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityApplyResult, *core.DetailedResponse, error)
-	DestroyWorkspaceCommand(destroyWorkspaceCommandOptions *schematicsv1.DestroyWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityDestroyResult, *core.DetailedResponse, error)
+	CreateWorkspace(*schematicsv1.CreateWorkspaceOptions) (*schematicsv1.WorkspaceResponse, *core.DetailedResponse, error)
+	UpdateWorkspace(*schematicsv1.UpdateWorkspaceOptions) (*schematicsv1.WorkspaceResponse, *core.DetailedResponse, error)
+	DeleteWorkspace(*schematicsv1.DeleteWorkspaceOptions) (*string, *core.DetailedResponse, error)
+	TemplateRepoUpload(*schematicsv1.TemplateRepoUploadOptions) (*schematicsv1.TemplateRepoTarUploadResponse, *core.DetailedResponse, error)
+	ReplaceWorkspaceInputs(*schematicsv1.ReplaceWorkspaceInputsOptions) (*schematicsv1.UserValues, *core.DetailedResponse, error)
+	ListWorkspaceActivities(*schematicsv1.ListWorkspaceActivitiesOptions) (*schematicsv1.WorkspaceActivities, *core.DetailedResponse, error)
+	GetWorkspaceActivity(*schematicsv1.GetWorkspaceActivityOptions) (*schematicsv1.WorkspaceActivity, *core.DetailedResponse, error)
+	PlanWorkspaceCommand(*schematicsv1.PlanWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityPlanResult, *core.DetailedResponse, error)
+	ApplyWorkspaceCommand(*schematicsv1.ApplyWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityApplyResult, *core.DetailedResponse, error)
+	DestroyWorkspaceCommand(*schematicsv1.DestroyWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityDestroyResult, *core.DetailedResponse, error)
+}
+
+// interface for external IBMCloud IAM Authenticator api. Can be mocked for tests
+type IamAuthenticatorSvcI interface {
+	Authenticate(*http.Request) error
+	AuthenticationType() string
+	RequestToken() (*core.IamTokenServerResponse, error)
+	Validate() error
 }
 
 // main data struct for all schematic test methods
 type SchematicsTestService struct {
-	SchematicsApiSvc          SchematicsApiSvcI            // the main schematics service interface
-	ApiAuthenticator          *core.IamAuthenticator       // the authenticator used for schematics api calls
-	SchematicsIamToken        *core.IamTokenServerResponse // needed for refresh_token, for schematic plan/apply/destroy API calls
-	WorkspaceID               string                       // workspace ID used for tests
-	TemplateID                string                       // workspace template ID used for tests
-	TestOptions               *TestSchematicOptions        // additional testing options
-	TerraformTestStarted      bool                         // keeps track of when actual Terraform resource testing has begin, used for proper test teardown logic
-	TerraformResourcesCreated bool                         // keeps track of when we start deploying resources, used for proper test teardown logic
+	SchematicsApiSvc          SchematicsApiSvcI     // the main schematics service interface
+	ApiAuthenticator          IamAuthenticatorSvcI  // the authenticator used for schematics api calls
+	WorkspaceID               string                // workspace ID used for tests
+	TemplateID                string                // workspace template ID used for tests
+	TestOptions               *TestSchematicOptions // additional testing options
+	TerraformTestStarted      bool                  // keeps track of when actual Terraform resource testing has begin, used for proper test teardown logic
+	TerraformResourcesCreated bool                  // keeps track of when we start deploying resources, used for proper test teardown logic
 }
 
 // CreateAuthenticator will accept a valid IBM cloud API key, and
@@ -68,19 +76,16 @@ func (svc *SchematicsTestService) CreateAuthenticator(ibmcloudApiKey string) {
 // GetRefreshToken will use a previously established Authenticator to create a new IAM Token object,
 // if existing is not valid, and return the refresh token propery from the token object.
 func (svc *SchematicsTestService) GetRefreshToken() (string, error) {
-	if svc.SchematicsIamToken == nil || len(svc.SchematicsIamToken.RefreshToken) == 0 {
-		var err error
-		svc.SchematicsIamToken, err = svc.ApiAuthenticator.RequestToken()
-		if err != nil {
-			return "", err
-		}
-		if len(svc.SchematicsIamToken.RefreshToken) == 0 {
-			// this shouldn't happen
-			return "", fmt.Errorf("request token is empty (invalid)")
-		}
+	response, err := svc.ApiAuthenticator.RequestToken()
+	if err != nil {
+		return "", err
+	}
+	if len(response.RefreshToken) == 0 {
+		// this shouldn't happen
+		return "", fmt.Errorf("refresh token is empty (invalid)")
 	}
 
-	return svc.SchematicsIamToken.RefreshToken, nil
+	return response.RefreshToken, nil
 }
 
 // InitializeSchematicsService will initialize the external service object

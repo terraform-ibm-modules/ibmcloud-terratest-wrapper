@@ -158,14 +158,12 @@ func TestUploadSchematicTarFile(t *testing.T) {
 
 func TestSchematicCreatePlanJob(t *testing.T) {
 	schematicSvc := new(schematicv1ServiceMock)
+	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
+		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
-		SchematicsIamToken: &core.IamTokenServerResponse{
-			AccessToken:  "fake-token",
-			RefreshToken: "fake-refresh-token",
-		},
 	}
 	mockErrorType := new(schematicv1ErrorMock)
 
@@ -185,14 +183,12 @@ func TestSchematicCreatePlanJob(t *testing.T) {
 
 func TestSchematicCreateApplyJob(t *testing.T) {
 	schematicSvc := new(schematicv1ServiceMock)
+	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
+		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
-		SchematicsIamToken: &core.IamTokenServerResponse{
-			AccessToken:  "fake-token",
-			RefreshToken: "fake-refresh-token",
-		},
 	}
 	mockErrorType := new(schematicv1ErrorMock)
 
@@ -213,14 +209,12 @@ func TestSchematicCreateApplyJob(t *testing.T) {
 
 func TestSchematicCreateDestroyJob(t *testing.T) {
 	schematicSvc := new(schematicv1ServiceMock)
+	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
+		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
-		SchematicsIamToken: &core.IamTokenServerResponse{
-			AccessToken:  "fake-token",
-			RefreshToken: "fake-refresh-token",
-		},
 	}
 	mockErrorType := new(schematicv1ErrorMock)
 
@@ -241,14 +235,12 @@ func TestSchematicCreateDestroyJob(t *testing.T) {
 
 func TestSchematicFindJob(t *testing.T) {
 	schematicSvc := new(schematicv1ServiceMock)
+	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
+		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
-		SchematicsIamToken: &core.IamTokenServerResponse{
-			AccessToken:  "fake-token",
-			RefreshToken: "fake-refresh-token",
-		},
 	}
 	mockErrorType := new(schematicv1ErrorMock)
 	notFoundErrorType := errors.NotFound("mock")
@@ -298,14 +290,12 @@ func TestSchematicFindJob(t *testing.T) {
 
 func TestSchematicGetJobDetail(t *testing.T) {
 	schematicSvc := new(schematicv1ServiceMock)
+	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
+		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
-		SchematicsIamToken: &core.IamTokenServerResponse{
-			AccessToken:  "fake-token",
-			RefreshToken: "fake-refresh-token",
-		},
 	}
 	mockErrorType := new(schematicv1ErrorMock)
 
@@ -330,14 +320,12 @@ func TestSchematicGetJobDetail(t *testing.T) {
 
 func TestSchematicDeleteWorkspace(t *testing.T) {
 	schematicSvc := new(schematicv1ServiceMock)
+	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
+		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
-		SchematicsIamToken: &core.IamTokenServerResponse{
-			AccessToken:  "fake-token",
-			RefreshToken: "fake-refresh-token",
-		},
 	}
 	mockErrorType := new(schematicv1ErrorMock)
 
@@ -358,14 +346,12 @@ func TestSchematicDeleteWorkspace(t *testing.T) {
 
 func TestSchematicWaitForJobFinish(t *testing.T) {
 	schematicSvc := new(schematicv1ServiceMock)
+	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
+		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
-		SchematicsIamToken: &core.IamTokenServerResponse{
-			AccessToken:  "fake-token",
-			RefreshToken: "fake-refresh-token",
-		},
 	}
 	mockErrorType := new(schematicv1ErrorMock)
 

@@ -1,6 +1,7 @@
 package testschematic
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ func (e *schematicv1ErrorMock) Error() string {
 	return mockServiceErrorText
 }
 
-// VPC SERVICE INTERFACE MOCK
+// SCHEMATIC SERVICE INTERFACE MOCK
 type schematicv1ServiceMock struct {
 	mock.Mock
 	activities                   []schematicsv1.WorkspaceActivity
@@ -44,6 +45,11 @@ type schematicv1ServiceMock struct {
 	applyComplete                bool
 	destroyComplete              bool
 	workspaceDeleteComplete      bool
+}
+
+// IAM AUTHENTICATOR INTERFACE MOCK
+type iamAuthenticatorMock struct {
+	mock.Mock
 }
 
 // helper function to reset mock values
@@ -65,6 +71,7 @@ func mockSchematicv1ServiceReset(mock *schematicv1ServiceMock, options *TestSche
 	options.Testing = new(testing.T)
 }
 
+// SCHEMATIC SERVICE MOCK FUNCTIONS
 func (mock *schematicv1ServiceMock) CreateWorkspace(createWorkspaceOptions *schematicsv1.CreateWorkspaceOptions) (*schematicsv1.WorkspaceResponse, *core.DetailedResponse, error) {
 	if mock.failCreateWorkspace {
 		return nil, nil, &schematicv1ErrorMock{}
@@ -222,4 +229,26 @@ func (mock *schematicv1ServiceMock) DestroyWorkspaceCommand(destroyWorkspaceComm
 	response := &core.DetailedResponse{StatusCode: 200}
 	mock.destroyComplete = true
 	return result, response, nil
+}
+
+// IAM AUTHENTIATOR INTERFACE MOCK FUNCTIONS
+func (mock *iamAuthenticatorMock) Authenticate(request *http.Request) error {
+	return nil
+}
+
+func (mock *iamAuthenticatorMock) AuthenticationType() string {
+	return core.AUTHTYPE_IAM
+}
+
+func (mock *iamAuthenticatorMock) Validate() error {
+	return nil
+}
+
+func (mock *iamAuthenticatorMock) RequestToken() (*core.IamTokenServerResponse, error) {
+	retval := &core.IamTokenServerResponse{
+		AccessToken:  "fake-token",
+		RefreshToken: "fake-refresh-token",
+	}
+
+	return retval, nil
 }

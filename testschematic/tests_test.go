@@ -13,14 +13,12 @@ import (
 
 func TestSchematicFullTest(t *testing.T) {
 	schematicSvc := new(schematicv1ServiceMock)
+	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
+		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
-		SchematicsIamToken: &core.IamTokenServerResponse{
-			AccessToken:  "fake-token",
-			RefreshToken: "fake-refresh-token",
-		},
 	}
 	//mockErrorType := new(schematicv1ErrorMock)
 

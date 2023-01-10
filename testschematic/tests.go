@@ -37,7 +37,12 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	svc.TerraformTestStarted = false
 	svc.TerraformResourcesCreated = false
 
-	svc.CreateAuthenticator(options.RequiredEnvironmentVars[ibmcloudApiKeyVar])
+	// create IAM authenticator if needed
+	if svc.ApiAuthenticator == nil {
+		svc.CreateAuthenticator(options.RequiredEnvironmentVars[ibmcloudApiKeyVar])
+	}
+
+	// create external API service if needed
 	if options.SchematicsApiSvc != nil {
 		svc.SchematicsApiSvc = options.SchematicsApiSvc
 	} else {
