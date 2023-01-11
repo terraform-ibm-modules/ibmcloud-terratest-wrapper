@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
-	"github.com/IBM/schematics-go-sdk/schematicsv1"
+	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/strfmt/conv"
@@ -46,7 +46,7 @@ func TestSchematicTarCreation(t *testing.T) {
 }
 
 func TestSchematicCreateWorkspace(t *testing.T) {
-	schematicSvc := new(schematicv1ServiceMock)
+	schematicSvc := new(schematicServiceMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
 		TestOptions: &TestSchematicOptions{
@@ -56,7 +56,7 @@ func TestSchematicCreateWorkspace(t *testing.T) {
 			},
 		},
 	}
-	mockErrorType := new(schematicv1ErrorMock)
+	mockErrorType := new(schematicErrorMock)
 
 	t.Run("WorkspaceCreated", func(t *testing.T) {
 		result, err := svc.CreateTestWorkspace("good", "any-rg", ".", "terraform_v1.2", []string{"tag1", "tag2"})
@@ -80,13 +80,13 @@ func TestSchematicCreateWorkspace(t *testing.T) {
 }
 
 func TestSchematicUpdateWorkspace(t *testing.T) {
-	schematicSvc := new(schematicv1ServiceMock)
+	schematicSvc := new(schematicServiceMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
 	}
-	mockErrorType := new(schematicv1ErrorMock)
+	mockErrorType := new(schematicErrorMock)
 	vars := []TestSchematicTerraformVar{
 		{Name: "string1", Value: "hello", DataType: "string", Secure: false},
 	}
@@ -121,14 +121,14 @@ func TestSchematicUpdateWorkspace(t *testing.T) {
 }
 
 func TestUploadSchematicTarFile(t *testing.T) {
-	schematicSvc := new(schematicv1ServiceMock)
+	schematicSvc := new(schematicServiceMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
 	}
 	pathError := new(os.PathError)
-	mockErrorType := new(schematicv1ErrorMock)
+	mockErrorType := new(schematicErrorMock)
 
 	t.Run("GoodFile", func(t *testing.T) {
 		err := svc.UploadTarToWorkspace("./mock_test.go")
@@ -157,7 +157,7 @@ func TestUploadSchematicTarFile(t *testing.T) {
 }
 
 func TestSchematicCreatePlanJob(t *testing.T) {
-	schematicSvc := new(schematicv1ServiceMock)
+	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
@@ -165,7 +165,7 @@ func TestSchematicCreatePlanJob(t *testing.T) {
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
 	}
-	mockErrorType := new(schematicv1ErrorMock)
+	mockErrorType := new(schematicErrorMock)
 
 	t.Run("CreateSuccess", func(t *testing.T) {
 		result, err := svc.CreatePlanJob()
@@ -182,7 +182,7 @@ func TestSchematicCreatePlanJob(t *testing.T) {
 }
 
 func TestSchematicCreateApplyJob(t *testing.T) {
-	schematicSvc := new(schematicv1ServiceMock)
+	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
@@ -190,7 +190,7 @@ func TestSchematicCreateApplyJob(t *testing.T) {
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
 	}
-	mockErrorType := new(schematicv1ErrorMock)
+	mockErrorType := new(schematicErrorMock)
 
 	t.Run("CreateSuccess", func(t *testing.T) {
 		result, err := svc.CreateApplyJob()
@@ -208,7 +208,7 @@ func TestSchematicCreateApplyJob(t *testing.T) {
 }
 
 func TestSchematicCreateDestroyJob(t *testing.T) {
-	schematicSvc := new(schematicv1ServiceMock)
+	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
@@ -216,7 +216,7 @@ func TestSchematicCreateDestroyJob(t *testing.T) {
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
 	}
-	mockErrorType := new(schematicv1ErrorMock)
+	mockErrorType := new(schematicErrorMock)
 
 	t.Run("CreateSuccess", func(t *testing.T) {
 		result, err := svc.CreateDestroyJob()
@@ -234,7 +234,7 @@ func TestSchematicCreateDestroyJob(t *testing.T) {
 }
 
 func TestSchematicFindJob(t *testing.T) {
-	schematicSvc := new(schematicv1ServiceMock)
+	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
@@ -242,11 +242,11 @@ func TestSchematicFindJob(t *testing.T) {
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
 	}
-	mockErrorType := new(schematicv1ErrorMock)
+	mockErrorType := new(schematicErrorMock)
 	notFoundErrorType := errors.NotFound("mock")
 
 	t.Run("SingleResultFound", func(t *testing.T) {
-		schematicSvc.activities = []schematicsv1.WorkspaceActivity{
+		schematicSvc.activities = []schematics.WorkspaceActivity{
 			{ActionID: core.StringPtr(mockActivityID), Name: core.StringPtr("TEST_ACTION"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 1)))},
 			{ActionID: core.StringPtr("not-the-answer"), Name: core.StringPtr("NOT_TEST_ACTION"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 2)))},
 		}
@@ -257,7 +257,7 @@ func TestSchematicFindJob(t *testing.T) {
 	})
 
 	t.Run("LatestJobReturned", func(t *testing.T) {
-		schematicSvc.activities = []schematicsv1.WorkspaceActivity{
+		schematicSvc.activities = []schematics.WorkspaceActivity{
 			{ActionID: core.StringPtr("also-not-answer"), Name: core.StringPtr("TEST_ACTION"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 3)))},
 			{ActionID: core.StringPtr(mockActivityID), Name: core.StringPtr("TEST_ACTION"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 1)))},
 			{ActionID: core.StringPtr("not-the-answer"), Name: core.StringPtr("TEST_ACTION"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 2)))},
@@ -289,7 +289,7 @@ func TestSchematicFindJob(t *testing.T) {
 }
 
 func TestSchematicGetJobDetail(t *testing.T) {
-	schematicSvc := new(schematicv1ServiceMock)
+	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
@@ -297,10 +297,10 @@ func TestSchematicGetJobDetail(t *testing.T) {
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
 	}
-	mockErrorType := new(schematicv1ErrorMock)
+	mockErrorType := new(schematicErrorMock)
 
 	t.Run("JobFound", func(t *testing.T) {
-		schematicSvc.activities = []schematicsv1.WorkspaceActivity{
+		schematicSvc.activities = []schematics.WorkspaceActivity{
 			{ActionID: core.StringPtr("also-not-answer"), Name: core.StringPtr("TEST_ACTION"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 3)))},
 			{ActionID: core.StringPtr(mockActivityID), Name: core.StringPtr("TEST_ACTION"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 1)))},
 			{ActionID: core.StringPtr("not-the-answer"), Name: core.StringPtr("TEST_ACTION"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 2)))},
@@ -319,7 +319,7 @@ func TestSchematicGetJobDetail(t *testing.T) {
 }
 
 func TestSchematicDeleteWorkspace(t *testing.T) {
-	schematicSvc := new(schematicv1ServiceMock)
+	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
@@ -327,7 +327,7 @@ func TestSchematicDeleteWorkspace(t *testing.T) {
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
 	}
-	mockErrorType := new(schematicv1ErrorMock)
+	mockErrorType := new(schematicErrorMock)
 
 	t.Run("DeleteComplete", func(t *testing.T) {
 		result, err := svc.DeleteWorkspace()
@@ -345,7 +345,7 @@ func TestSchematicDeleteWorkspace(t *testing.T) {
 }
 
 func TestSchematicWaitForJobFinish(t *testing.T) {
-	schematicSvc := new(schematicv1ServiceMock)
+	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
@@ -353,10 +353,10 @@ func TestSchematicWaitForJobFinish(t *testing.T) {
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
 	}
-	mockErrorType := new(schematicv1ErrorMock)
+	mockErrorType := new(schematicErrorMock)
 
 	t.Run("JobReadyNoWait", func(t *testing.T) {
-		schematicSvc.activities = []schematicsv1.WorkspaceActivity{
+		schematicSvc.activities = []schematics.WorkspaceActivity{
 			{ActionID: core.StringPtr(mockActivityID), Name: core.StringPtr("TEST_ACTION"), Status: core.StringPtr(SchematicsJobStatusCompleted), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 1)))},
 		}
 		result, err := svc.WaitForFinalJobStatus(mockActivityID)

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
-	"github.com/IBM/schematics-go-sdk/schematicsv1"
+	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/go-openapi/errors"
 	"github.com/gruntwork-io/terratest/modules/random"
 )
@@ -31,16 +31,16 @@ const SchematicsJobStatusInProgress = "INPROGRESS"
 
 // interface for the external schematics service api. Can be mocked for tests
 type SchematicsApiSvcI interface {
-	CreateWorkspace(*schematicsv1.CreateWorkspaceOptions) (*schematicsv1.WorkspaceResponse, *core.DetailedResponse, error)
-	UpdateWorkspace(*schematicsv1.UpdateWorkspaceOptions) (*schematicsv1.WorkspaceResponse, *core.DetailedResponse, error)
-	DeleteWorkspace(*schematicsv1.DeleteWorkspaceOptions) (*string, *core.DetailedResponse, error)
-	TemplateRepoUpload(*schematicsv1.TemplateRepoUploadOptions) (*schematicsv1.TemplateRepoTarUploadResponse, *core.DetailedResponse, error)
-	ReplaceWorkspaceInputs(*schematicsv1.ReplaceWorkspaceInputsOptions) (*schematicsv1.UserValues, *core.DetailedResponse, error)
-	ListWorkspaceActivities(*schematicsv1.ListWorkspaceActivitiesOptions) (*schematicsv1.WorkspaceActivities, *core.DetailedResponse, error)
-	GetWorkspaceActivity(*schematicsv1.GetWorkspaceActivityOptions) (*schematicsv1.WorkspaceActivity, *core.DetailedResponse, error)
-	PlanWorkspaceCommand(*schematicsv1.PlanWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityPlanResult, *core.DetailedResponse, error)
-	ApplyWorkspaceCommand(*schematicsv1.ApplyWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityApplyResult, *core.DetailedResponse, error)
-	DestroyWorkspaceCommand(*schematicsv1.DestroyWorkspaceCommandOptions) (*schematicsv1.WorkspaceActivityDestroyResult, *core.DetailedResponse, error)
+	CreateWorkspace(*schematics.CreateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
+	UpdateWorkspace(*schematics.UpdateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
+	DeleteWorkspace(*schematics.DeleteWorkspaceOptions) (*string, *core.DetailedResponse, error)
+	TemplateRepoUpload(*schematics.TemplateRepoUploadOptions) (*schematics.TemplateRepoTarUploadResponse, *core.DetailedResponse, error)
+	ReplaceWorkspaceInputs(*schematics.ReplaceWorkspaceInputsOptions) (*schematics.UserValues, *core.DetailedResponse, error)
+	ListWorkspaceActivities(*schematics.ListWorkspaceActivitiesOptions) (*schematics.WorkspaceActivities, *core.DetailedResponse, error)
+	GetWorkspaceActivity(*schematics.GetWorkspaceActivityOptions) (*schematics.WorkspaceActivity, *core.DetailedResponse, error)
+	PlanWorkspaceCommand(*schematics.PlanWorkspaceCommandOptions) (*schematics.WorkspaceActivityPlanResult, *core.DetailedResponse, error)
+	ApplyWorkspaceCommand(*schematics.ApplyWorkspaceCommandOptions) (*schematics.WorkspaceActivityApplyResult, *core.DetailedResponse, error)
+	DestroyWorkspaceCommand(*schematics.DestroyWorkspaceCommandOptions) (*schematics.WorkspaceActivityDestroyResult, *core.DetailedResponse, error)
 }
 
 // interface for external IBMCloud IAM Authenticator api. Can be mocked for tests
@@ -92,7 +92,7 @@ func (svc *SchematicsTestService) GetRefreshToken() (string, error) {
 // for schematicsv1 and assign it to a property of the receiver for later use.
 func (svc *SchematicsTestService) InitializeSchematicsService() error {
 	var err error
-	svc.SchematicsApiSvc, err = schematicsv1.NewSchematicsV1(&schematicsv1.SchematicsV1Options{
+	svc.SchematicsApiSvc, err = schematics.NewSchematicsV1(&schematics.SchematicsV1Options{
 		URL:           svc.TestOptions.SchematicsApiURL,
 		Authenticator: svc.ApiAuthenticator,
 	})
@@ -104,7 +104,7 @@ func (svc *SchematicsTestService) InitializeSchematicsService() error {
 }
 
 // CreateTestWorkspace will create a new IBM Schematics Workspace that will be used for testing.
-func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup string, templateFolder string, terraformVersion string, tags []string) (*schematicsv1.WorkspaceResponse, error) {
+func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup string, templateFolder string, terraformVersion string, tags []string) (*schematics.WorkspaceResponse, error) {
 
 	var folder *string
 	var version *string
@@ -124,7 +124,7 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 
 	// initialize empty environment structures
 	envValues := []interface{}{}
-	envMetadata := []schematicsv1.EnvironmentValuesMetadata{}
+	envMetadata := []schematics.EnvironmentValuesMetadata{}
 
 	// add env needed for restapi provider by default
 	addWorkspaceEnv(&envValues, &envMetadata, "API_DATA_IS_SENSITIVE", "true", false, false)
@@ -140,17 +140,17 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 	}
 
 	// create env and input vars template
-	templateModel := &schematicsv1.TemplateSourceDataRequest{
+	templateModel := &schematics.TemplateSourceDataRequest{
 		Folder:            folder,
 		Type:              version,
 		EnvValues:         envValues,
 		EnvValuesMetadata: envMetadata,
 	}
 
-	createWorkspaceOptions := &schematicsv1.CreateWorkspaceOptions{
+	createWorkspaceOptions := &schematics.CreateWorkspaceOptions{
 		Description:   core.StringPtr("Goldeneye CI Test for " + name),
 		Name:          core.StringPtr(name),
-		TemplateData:  []schematicsv1.TemplateSourceDataRequest{*templateModel},
+		TemplateData:  []schematics.TemplateSourceDataRequest{*templateModel},
 		Type:          wsVersion,
 		Location:      core.StringPtr(defaultRegion),
 		ResourceGroup: core.StringPtr(resourceGroup),
@@ -176,7 +176,7 @@ func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTer
 	// set up an array of workspace variables based on TerraformVars supplied.
 	var strVal string
 	var strErr error
-	variables := []schematicsv1.WorkspaceVariableRequest{}
+	variables := []schematics.WorkspaceVariableRequest{}
 	for _, tfVar := range vars {
 		// if tfVal is an array, convert to json array string
 		if IsArray(tfVar.Value) {
@@ -187,7 +187,7 @@ func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTer
 		} else {
 			strVal = fmt.Sprintf("%v", tfVar.Value)
 		}
-		variables = append(variables, schematicsv1.WorkspaceVariableRequest{
+		variables = append(variables, schematics.WorkspaceVariableRequest{
 			Name:   core.StringPtr(tfVar.Name),
 			Value:  core.StringPtr(strVal),
 			Type:   core.StringPtr(tfVar.DataType),
@@ -195,7 +195,7 @@ func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTer
 		})
 	}
 
-	templateModel := &schematicsv1.ReplaceWorkspaceInputsOptions{
+	templateModel := &schematics.ReplaceWorkspaceInputsOptions{
 		WID:           core.StringPtr(svc.WorkspaceID),
 		TID:           core.StringPtr(svc.TemplateID),
 		Variablestore: variables,
@@ -219,7 +219,7 @@ func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
 	}
 	fileReaderWrapper := io.NopCloser(fileReader)
 
-	uploadTarOptions := &schematicsv1.TemplateRepoUploadOptions{
+	uploadTarOptions := &schematics.TemplateRepoUploadOptions{
 		WID:             core.StringPtr(svc.WorkspaceID),
 		TID:             core.StringPtr(svc.TemplateID),
 		File:            fileReaderWrapper,
@@ -236,13 +236,13 @@ func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
 
 // CreatePlanJob will initiate a new PLAN action on an existing terraform Schematics Workspace.
 // Will return a result object containing details about the new action.
-func (svc *SchematicsTestService) CreatePlanJob() (*schematicsv1.WorkspaceActivityPlanResult, error) {
+func (svc *SchematicsTestService) CreatePlanJob() (*schematics.WorkspaceActivityPlanResult, error) {
 	refreshToken, tokenErr := svc.GetRefreshToken()
 	if tokenErr != nil {
 		return nil, tokenErr
 	}
 
-	planResult, _, err := svc.SchematicsApiSvc.PlanWorkspaceCommand(&schematicsv1.PlanWorkspaceCommandOptions{
+	planResult, _, err := svc.SchematicsApiSvc.PlanWorkspaceCommand(&schematics.PlanWorkspaceCommandOptions{
 		WID:          core.StringPtr(svc.WorkspaceID),
 		RefreshToken: core.StringPtr(refreshToken),
 	})
@@ -255,13 +255,13 @@ func (svc *SchematicsTestService) CreatePlanJob() (*schematicsv1.WorkspaceActivi
 
 // CreateApplyJob will initiate a new APPLY action on an existing terraform Schematics Workspace.
 // Will return a result object containing details about the new action.
-func (svc *SchematicsTestService) CreateApplyJob() (*schematicsv1.WorkspaceActivityApplyResult, error) {
+func (svc *SchematicsTestService) CreateApplyJob() (*schematics.WorkspaceActivityApplyResult, error) {
 	refreshToken, tokenErr := svc.GetRefreshToken()
 	if tokenErr != nil {
 		return nil, tokenErr
 	}
 
-	applyResult, _, err := svc.SchematicsApiSvc.ApplyWorkspaceCommand(&schematicsv1.ApplyWorkspaceCommandOptions{
+	applyResult, _, err := svc.SchematicsApiSvc.ApplyWorkspaceCommand(&schematics.ApplyWorkspaceCommandOptions{
 		WID:          core.StringPtr(svc.WorkspaceID),
 		RefreshToken: core.StringPtr(refreshToken),
 	})
@@ -274,13 +274,13 @@ func (svc *SchematicsTestService) CreateApplyJob() (*schematicsv1.WorkspaceActiv
 
 // CreateDestroyJob will initiate a new DESTROY action on an existing terraform Schematics Workspace.
 // Will return a result object containing details about the new action.
-func (svc *SchematicsTestService) CreateDestroyJob() (*schematicsv1.WorkspaceActivityDestroyResult, error) {
+func (svc *SchematicsTestService) CreateDestroyJob() (*schematics.WorkspaceActivityDestroyResult, error) {
 	refreshToken, tokenErr := svc.GetRefreshToken()
 	if tokenErr != nil {
 		return nil, tokenErr
 	}
 
-	destroyResult, _, err := svc.SchematicsApiSvc.DestroyWorkspaceCommand(&schematicsv1.DestroyWorkspaceCommandOptions{
+	destroyResult, _, err := svc.SchematicsApiSvc.DestroyWorkspaceCommand(&schematics.DestroyWorkspaceCommandOptions{
 		WID:          core.StringPtr(svc.WorkspaceID),
 		RefreshToken: core.StringPtr(refreshToken),
 	})
@@ -294,10 +294,10 @@ func (svc *SchematicsTestService) CreateDestroyJob() (*schematicsv1.WorkspaceAct
 // FindLatestWorkspaceJobByName will find the latest executed job of the type supplied and return data about that job.
 // This can be used to find a job by its type when the jobID is not known.
 // A "NotFound" error will be thrown if there are no existing jobs of the provided type.
-func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (*schematicsv1.WorkspaceActivity, error) {
+func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (*schematics.WorkspaceActivity, error) {
 
 	// get array of jobs using workspace id
-	listResult, _, listErr := svc.SchematicsApiSvc.ListWorkspaceActivities(&schematicsv1.ListWorkspaceActivitiesOptions{
+	listResult, _, listErr := svc.SchematicsApiSvc.ListWorkspaceActivities(&schematics.ListWorkspaceActivitiesOptions{
 		WID: core.StringPtr(svc.WorkspaceID),
 	})
 	if listErr != nil {
@@ -305,7 +305,7 @@ func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (
 	}
 
 	// loop through jobs and get latest one that matches name
-	var jobResult *schematicsv1.WorkspaceActivity
+	var jobResult *schematics.WorkspaceActivity
 	for i, job := range listResult.Actions {
 		// only match name
 		if *job.Name == jobName {
@@ -330,10 +330,10 @@ func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (
 
 // GetWorkspaceJobDetail will return a data structure with full details about an existing Schematics Workspace activity for the
 // given Job ID.
-func (svc *SchematicsTestService) GetWorkspaceJobDetail(jobID string) (*schematicsv1.WorkspaceActivity, error) {
+func (svc *SchematicsTestService) GetWorkspaceJobDetail(jobID string) (*schematics.WorkspaceActivity, error) {
 
 	// look up job by ID
-	activityResponse, _, err := svc.SchematicsApiSvc.GetWorkspaceActivity(&schematicsv1.GetWorkspaceActivityOptions{
+	activityResponse, _, err := svc.SchematicsApiSvc.GetWorkspaceActivity(&schematics.GetWorkspaceActivityOptions{
 		WID:        core.StringPtr(svc.WorkspaceID),
 		ActivityID: core.StringPtr(jobID),
 	})
@@ -351,7 +351,7 @@ func (svc *SchematicsTestService) GetWorkspaceJobDetail(jobID string) (*schemati
 // Returns an error if the activity does not finish before the configured time threshold.
 func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, error) {
 	var status string
-	var job *schematicsv1.WorkspaceActivity
+	var job *schematics.WorkspaceActivity
 	var jobErr error
 
 	// Wait for the job to be complete
@@ -408,7 +408,7 @@ func (svc *SchematicsTestService) DeleteWorkspace() (string, error) {
 		return "", tokenErr
 	}
 
-	result, _, err := svc.SchematicsApiSvc.DeleteWorkspace(&schematicsv1.DeleteWorkspaceOptions{
+	result, _, err := svc.SchematicsApiSvc.DeleteWorkspace(&schematics.DeleteWorkspaceOptions{
 		WID:              core.StringPtr(svc.WorkspaceID),
 		RefreshToken:     core.StringPtr(refreshToken),
 		DestroyResources: core.StringPtr("false"),
@@ -556,14 +556,14 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 	return target, nil
 }
 
-func addWorkspaceEnv(values *[]interface{}, metadata *[]schematicsv1.EnvironmentValuesMetadata, key string, value string, hidden bool, secure bool) {
+func addWorkspaceEnv(values *[]interface{}, metadata *[]schematics.EnvironmentValuesMetadata, key string, value string, hidden bool, secure bool) {
 	// add the value to env
 	*values = append(*values, map[string]string{key: value})
 	// add a metadata entry for sensitive value
-	*metadata = append(*metadata, schematicsv1.EnvironmentValuesMetadata{Name: core.StringPtr(key), Hidden: core.BoolPtr(hidden), Secure: core.BoolPtr(secure)})
+	*metadata = append(*metadata, schematics.EnvironmentValuesMetadata{Name: core.StringPtr(key), Hidden: core.BoolPtr(hidden), Secure: core.BoolPtr(secure)})
 }
 
-func addNetrcToWorkspaceEnv(values *[]interface{}, metadata *[]schematicsv1.EnvironmentValuesMetadata, netrcEntries []NetrcCredential) {
+func addNetrcToWorkspaceEnv(values *[]interface{}, metadata *[]schematics.EnvironmentValuesMetadata, netrcEntries []NetrcCredential) {
 	// loop through provided entries and add to one netrc string
 	netrcValue := ""
 	for _, netrc := range netrcEntries {
@@ -579,5 +579,5 @@ func addNetrcToWorkspaceEnv(values *[]interface{}, metadata *[]schematicsv1.Envi
 	// add the value to env
 	*values = append(*values, map[string]string{"__netrc__": netrcValue})
 	// add a metadata entry for sensitive value
-	*metadata = append(*metadata, schematicsv1.EnvironmentValuesMetadata{Name: core.StringPtr("__netrc__"), Hidden: core.BoolPtr(false), Secure: core.BoolPtr(true)})
+	*metadata = append(*metadata, schematics.EnvironmentValuesMetadata{Name: core.StringPtr("__netrc__"), Hidden: core.BoolPtr(false), Secure: core.BoolPtr(true)})
 }

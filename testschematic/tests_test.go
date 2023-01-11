@@ -5,14 +5,14 @@ import (
 	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
-	"github.com/IBM/schematics-go-sdk/schematicsv1"
+	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/strfmt/conv"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestSchematicFullTest(t *testing.T) {
-	schematicSvc := new(schematicv1ServiceMock)
+	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
@@ -41,7 +41,7 @@ func TestSchematicFullTest(t *testing.T) {
 	}
 
 	// mock at least one good tar upload and one other completed activity
-	schematicSvc.activities = []schematicsv1.WorkspaceActivity{
+	schematicSvc.activities = []schematics.WorkspaceActivity{
 		{ActionID: core.StringPtr(mockActivityID), Name: core.StringPtr(SchematicsJobTypeUpload), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 5))), Status: core.StringPtr(SchematicsJobStatusCompleted)},
 		{ActionID: core.StringPtr(mockPlanID), Name: core.StringPtr("TEST-PLAN-JOB"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 4))), Status: core.StringPtr(SchematicsJobStatusCompleted)},
 		{ActionID: core.StringPtr(mockApplyID), Name: core.StringPtr("TEST-APPLY-JOB"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 3))), Status: core.StringPtr(SchematicsJobStatusCompleted)},
@@ -57,7 +57,7 @@ func TestSchematicFullTest(t *testing.T) {
 	})
 
 	t.Run("WorkspaceCreateFail", func(t *testing.T) {
-		mockSchematicv1ServiceReset(schematicSvc, options)
+		mockSchematicServiceReset(schematicSvc, options)
 		options.DeleteWorkspaceOnFail = false // shouldn't matter
 		schematicSvc.failCreateWorkspace = true
 		options.RunSchematicTest()
@@ -67,7 +67,7 @@ func TestSchematicFullTest(t *testing.T) {
 	})
 
 	t.Run("WorkspaceSetupFail", func(t *testing.T) {
-		mockSchematicv1ServiceReset(schematicSvc, options)
+		mockSchematicServiceReset(schematicSvc, options)
 		schematicSvc.failReplaceWorkspaceInputs = true // after workspace create but before terraform
 		options.DeleteWorkspaceOnFail = false          // shouldn't matter
 		options.RunSchematicTest()
@@ -77,7 +77,7 @@ func TestSchematicFullTest(t *testing.T) {
 	})
 
 	t.Run("PlanFailedLeaveWorkspace", func(t *testing.T) {
-		mockSchematicv1ServiceReset(schematicSvc, options)
+		mockSchematicServiceReset(schematicSvc, options)
 		schematicSvc.failPlanWorkspaceCommand = true
 		options.DeleteWorkspaceOnFail = false // should leave workspace
 		options.RunSchematicTest()
@@ -87,7 +87,7 @@ func TestSchematicFullTest(t *testing.T) {
 	})
 
 	t.Run("PlanFailedRemoveWorkspace", func(t *testing.T) {
-		mockSchematicv1ServiceReset(schematicSvc, options)
+		mockSchematicServiceReset(schematicSvc, options)
 		schematicSvc.failPlanWorkspaceCommand = true
 		options.DeleteWorkspaceOnFail = true // should remove workspace
 		options.RunSchematicTest()
@@ -97,7 +97,7 @@ func TestSchematicFullTest(t *testing.T) {
 	})
 
 	t.Run("ApplyCreateFailedRemoveWorkspace", func(t *testing.T) {
-		mockSchematicv1ServiceReset(schematicSvc, options)
+		mockSchematicServiceReset(schematicSvc, options)
 		schematicSvc.failApplyWorkspaceCommand = true
 		options.DeleteWorkspaceOnFail = true // should remove workspace
 		options.RunSchematicTest()
@@ -107,7 +107,7 @@ func TestSchematicFullTest(t *testing.T) {
 	})
 
 	t.Run("ApplyCreateFailedLeaveWorkspace", func(t *testing.T) {
-		mockSchematicv1ServiceReset(schematicSvc, options)
+		mockSchematicServiceReset(schematicSvc, options)
 		schematicSvc.failApplyWorkspaceCommand = true
 		options.DeleteWorkspaceOnFail = false // should leave workspace
 		options.RunSchematicTest()
@@ -117,7 +117,7 @@ func TestSchematicFullTest(t *testing.T) {
 	})
 
 	t.Run("DestroyCreateFailedLeaveWorkspace", func(t *testing.T) {
-		mockSchematicv1ServiceReset(schematicSvc, options)
+		mockSchematicServiceReset(schematicSvc, options)
 		schematicSvc.failDestroyWorkspaceCommand = true
 		options.DeleteWorkspaceOnFail = false // should leave workspace
 		options.RunSchematicTest()
@@ -127,7 +127,7 @@ func TestSchematicFullTest(t *testing.T) {
 	})
 
 	// set apply to failed
-	schematicSvc.activities = []schematicsv1.WorkspaceActivity{
+	schematicSvc.activities = []schematics.WorkspaceActivity{
 		{ActionID: core.StringPtr(mockActivityID), Name: core.StringPtr(SchematicsJobTypeUpload), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 5))), Status: core.StringPtr(SchematicsJobStatusCompleted)},
 		{ActionID: core.StringPtr(mockPlanID), Name: core.StringPtr("TEST-PLAN-JOB"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 4))), Status: core.StringPtr(SchematicsJobStatusCompleted)},
 		{ActionID: core.StringPtr(mockApplyID), Name: core.StringPtr("TEST-APPLY-JOB"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 3))), Status: core.StringPtr(SchematicsJobStatusFailed)},
@@ -135,7 +135,7 @@ func TestSchematicFullTest(t *testing.T) {
 	}
 
 	t.Run("ApplyTerraformFailedLeaveWorkspace", func(t *testing.T) {
-		mockSchematicv1ServiceReset(schematicSvc, options)
+		mockSchematicServiceReset(schematicSvc, options)
 		options.DeleteWorkspaceOnFail = false
 		options.RunSchematicTest()
 		assert.True(t, schematicSvc.applyComplete)
@@ -144,7 +144,7 @@ func TestSchematicFullTest(t *testing.T) {
 	})
 
 	t.Run("ApplyTerraformFailedRemoveWorkspace", func(t *testing.T) {
-		mockSchematicv1ServiceReset(schematicSvc, options)
+		mockSchematicServiceReset(schematicSvc, options)
 		options.DeleteWorkspaceOnFail = true
 		options.RunSchematicTest()
 		assert.True(t, schematicSvc.applyComplete)
@@ -153,7 +153,7 @@ func TestSchematicFullTest(t *testing.T) {
 	})
 
 	// set destroy to failed
-	schematicSvc.activities = []schematicsv1.WorkspaceActivity{
+	schematicSvc.activities = []schematics.WorkspaceActivity{
 		{ActionID: core.StringPtr(mockActivityID), Name: core.StringPtr(SchematicsJobTypeUpload), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 5))), Status: core.StringPtr(SchematicsJobStatusCompleted)},
 		{ActionID: core.StringPtr(mockPlanID), Name: core.StringPtr("TEST-PLAN-JOB"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 4))), Status: core.StringPtr(SchematicsJobStatusCompleted)},
 		{ActionID: core.StringPtr(mockApplyID), Name: core.StringPtr("TEST-APPLY-JOB"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now().Add(-time.Second * 3))), Status: core.StringPtr(SchematicsJobStatusCompleted)},
@@ -161,7 +161,7 @@ func TestSchematicFullTest(t *testing.T) {
 	}
 
 	t.Run("DestroyTerraformFailedLeaveWorkspace", func(t *testing.T) {
-		mockSchematicv1ServiceReset(schematicSvc, options)
+		mockSchematicServiceReset(schematicSvc, options)
 		options.DeleteWorkspaceOnFail = false
 		options.RunSchematicTest()
 		assert.True(t, schematicSvc.applyComplete)
@@ -170,7 +170,7 @@ func TestSchematicFullTest(t *testing.T) {
 	})
 
 	t.Run("DestroyTerraformFailedRemoveWorkspace", func(t *testing.T) {
-		mockSchematicv1ServiceReset(schematicSvc, options)
+		mockSchematicServiceReset(schematicSvc, options)
 		options.DeleteWorkspaceOnFail = true
 		options.RunSchematicTest()
 		assert.True(t, schematicSvc.applyComplete)
