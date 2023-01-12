@@ -9,6 +9,8 @@ import (
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/jinzhu/copier"
 	"github.com/stretchr/testify/require"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
 const defaultRegion = "eu-gb"
@@ -16,31 +18,31 @@ const defaultRegionYaml = "../common-dev-assets/common-go-assets/cloudinfo-regio
 const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 
 type TestOptions struct {
-	BestRegionYAMLPath            string                 // BestRegionYAMLPath Path to the yaml containing regions and weights
-	DefaultRegion                 string                 // DefaultRegion default region if automatic detection fails
-	ResourceGroup                 string                 // ResourceGroup IBM Cloud resource group to use
-	Region                        string                 // Region to use
-	TerraformVars                 map[string]interface{} // TerraformVars variables to pass to terraform
-	TerraformDir                  string                 // TerraformDir Directory Terraform files are in
-	TerraformOptions              *terraform.Options     `copier:"-"` // TerraformOptions Terraform options to use
-	UseTerraformWorkspace         bool                   // UseTerraformWorkspace Use a Terraform workspace
-	WorkspaceName                 string                 // WorkspaceName name of the workspace
-	WorkspacePath                 string                 // WorkspacePath path to workspace
-	RequiredEnvironmentVars       map[string]string      // RequiredEnvironmentVars
-	Tags                          []string               // Tags optional tags to add
-	Prefix                        string                 // Prefix to use when creating resources
-	IgnoreAdds                    Exemptions             // IgnoreAdds ignore adds (creates) to these resources in Consistency and Upgrade tests
-	IgnoreDestroys                Exemptions             // IgnoreDestroys ignore destroys to these resources in Consistency and Upgrade tests
-	IgnoreUpdates                 Exemptions             // IgnoreUpdates ignore updates to these resources in Consistency and Upgrade tests
-	ImplicitDestroy               []string               // ImplicitDestroy Remove these resources from the State file to allow implicit destroy
-	ImplicitRequired              bool                   // ImplicitRequired If true the test will fail if the resource fails to be removed from the state file
-	Testing                       *testing.T             `copier:"-"` // Testing The current test object
-	IsUpgradeTest                 bool                   // Identifies if current test is an UPGRADE test, used for special processing
-	UpgradeTestSkipped            bool                   // Informs the calling test that conditions were met to skip the upgrade test
-	baseTempWorkingDir            string                 // INTERNAL variable to store the base level of temporary working directory
-	ExcludeActivityTrackerRegions bool                   // Will exclude any VPC regions that already contain an Activity Tracker
-	CloudInfoService              CloudInfoServiceI      // Supply if you need multiple tests to share info service and data
-	CheckApplyResultForUpgrade    bool                   // Optional variable to perform apply on PR branch code.
+	BestRegionYAMLPath            string                      // BestRegionYAMLPath Path to the yaml containing regions and weights
+	DefaultRegion                 string                      // DefaultRegion default region if automatic detection fails
+	ResourceGroup                 string                      // ResourceGroup IBM Cloud resource group to use
+	Region                        string                      // Region to use
+	TerraformVars                 map[string]interface{}      // TerraformVars variables to pass to terraform
+	TerraformDir                  string                      // TerraformDir Directory Terraform files are in
+	TerraformOptions              *terraform.Options          `copier:"-"` // TerraformOptions Terraform options to use
+	UseTerraformWorkspace         bool                        // UseTerraformWorkspace Use a Terraform workspace
+	WorkspaceName                 string                      // WorkspaceName name of the workspace
+	WorkspacePath                 string                      // WorkspacePath path to workspace
+	RequiredEnvironmentVars       map[string]string           // RequiredEnvironmentVars
+	Tags                          []string                    // Tags optional tags to add
+	Prefix                        string                      // Prefix to use when creating resources
+	IgnoreAdds                    Exemptions                  // IgnoreAdds ignore adds (creates) to these resources in Consistency and Upgrade tests
+	IgnoreDestroys                Exemptions                  // IgnoreDestroys ignore destroys to these resources in Consistency and Upgrade tests
+	IgnoreUpdates                 Exemptions                  // IgnoreUpdates ignore updates to these resources in Consistency and Upgrade tests
+	ImplicitDestroy               []string                    // ImplicitDestroy Remove these resources from the State file to allow implicit destroy
+	ImplicitRequired              bool                        // ImplicitRequired If true the test will fail if the resource fails to be removed from the state file
+	Testing                       *testing.T                  `copier:"-"` // Testing The current test object
+	IsUpgradeTest                 bool                        // Identifies if current test is an UPGRADE test, used for special processing
+	UpgradeTestSkipped            bool                        // Informs the calling test that conditions were met to skip the upgrade test
+	baseTempWorkingDir            string                      // INTERNAL variable to store the base level of temporary working directory
+	ExcludeActivityTrackerRegions bool                        // Will exclude any VPC regions that already contain an Activity Tracker
+	CloudInfoService              cloudinfo.CloudInfoServiceI // Supply if you need multiple tests to share info service and data
+	CheckApplyResultForUpgrade    bool                        // Optional variable to perform apply on PR branch code.
 }
 
 func TestOptionsDefaultWithVars(originalOptions *TestOptions) *TestOptions {
@@ -50,14 +52,14 @@ func TestOptionsDefaultWithVars(originalOptions *TestOptions) *TestOptions {
 	// Vars to pass into module
 	varsMap := make(map[string]interface{})
 
-	conditionalAdd(varsMap, "prefix", newOptions.Prefix, "")
-	conditionalAdd(varsMap, "region", newOptions.Region, "")
-	conditionalAdd(varsMap, "resource_group", newOptions.ResourceGroup, "")
+	common.ConditionalAdd(varsMap, "prefix", newOptions.Prefix, "")
+	common.ConditionalAdd(varsMap, "region", newOptions.Region, "")
+	common.ConditionalAdd(varsMap, "resource_group", newOptions.ResourceGroup, "")
 
-	varsMap["resource_tags"] = GetTagsFromTravis()
+	varsMap["resource_tags"] = common.GetTagsFromTravis()
 
 	// Vars to pass into module
-	newOptions.TerraformVars = mergeMaps(varsMap, newOptions.TerraformVars)
+	newOptions.TerraformVars = common.MergeMaps(varsMap, newOptions.TerraformVars)
 
 	return newOptions
 
@@ -75,7 +77,7 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 	}
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt
 	checkVariables := []string{ibmcloudApiKeyVar}
-	newOptions.RequiredEnvironmentVars = GetRequiredEnvVars(newOptions.Testing, checkVariables)
+	newOptions.RequiredEnvironmentVars = common.GetRequiredEnvVars(newOptions.Testing, checkVariables)
 
 	newOptions.UseTerraformWorkspace = false
 
@@ -118,22 +120,4 @@ func (options *TestOptions) Clone() (*TestOptions, error) {
 	newOptions.TerraformOptions = options.TerraformOptions
 
 	return newOptions, nil
-}
-
-// overwriting duplicate keys
-func mergeMaps(maps ...map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
-	for _, m := range maps {
-		for k, v := range m {
-			result[k] = v
-		}
-	}
-	return result
-}
-
-// Adds value to map[key] only if value != compareValue
-func conditionalAdd(amap map[string]interface{}, key string, value string, compareValue string) {
-	if value != compareValue {
-		amap[key] = value
-	}
 }

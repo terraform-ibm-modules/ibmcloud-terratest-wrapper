@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
 // RunSchematicTest will use the supplied options to run an end-to-end Terraform test of a project in an
@@ -53,7 +53,7 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	}
 
 	// get the root path of this project
-	projectPath, pathErr := testhelper.GitRootPath(".")
+	projectPath, pathErr := common.GitRootPath(".")
 	if pathErr != nil {
 		return fmt.Errorf("error getting root path of git project: %w", pathErr)
 	}

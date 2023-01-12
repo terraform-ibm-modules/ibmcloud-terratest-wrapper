@@ -9,6 +9,8 @@ import (
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/jinzhu/copier"
 	"github.com/stretchr/testify/require"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper"
 )
 
@@ -39,7 +41,7 @@ type TestSchematicOptions struct {
 	TerraformVersion        string                         // OPTIONAL: Schematics terraform version to use for template. If not supplied will be determined from required version in project
 	NetrcSettings           []NetrcCredential              // array of .netrc credentials that will be set for schematics workspace
 	WorkspaceEnvVars        []WorkspaceEnvironmentVariable // array of ENV variables to set inside workspace
-	CloudInfoService        testhelper.CloudInfoServiceI   // OPTIONAL: Supply if you need multiple tests to share info service and data
+	CloudInfoService        cloudinfo.CloudInfoServiceI    // OPTIONAL: Supply if you need multiple tests to share info service and data
 	SchematicsApiSvc        SchematicsApiSvcI              // OPTIONAL: service pointer for interacting with external schematics api
 	schematicsTestSvc       *SchematicsTestService         // OPTIONAL: internal property to specify pointer to test service, used for test mocking
 }
@@ -79,7 +81,7 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 	}
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt
 	checkVariables := []string{ibmcloudApiKeyVar}
-	newOptions.RequiredEnvironmentVars = testhelper.GetRequiredEnvVars(newOptions.Testing, checkVariables)
+	newOptions.RequiredEnvironmentVars = common.GetRequiredEnvVars(newOptions.Testing, checkVariables)
 
 	if newOptions.Region == "" {
 		// Get the best region

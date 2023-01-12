@@ -26,6 +26,17 @@ type CloudInfoService struct {
 	lock                      sync.Mutex
 }
 
+// interface for the cloudinfo service (can be mocked in tests)
+type CloudInfoServiceI interface {
+	GetLeastVpcTestRegion() (string, error)
+	GetLeastVpcTestRegionWithoutActivityTracker() (string, error)
+	GetLeastPowerConnectionZone() (string, error)
+	LoadRegionPrefsFromFile(string) error
+	HasRegionData() bool
+	RemoveRegionForTest(string)
+	GetThreadLock() *sync.Mutex
+}
+
 // CloudInfoServiceOptions structure used as input params for service constructor.
 type CloudInfoServiceOptions struct {
 	ApiKey                    string

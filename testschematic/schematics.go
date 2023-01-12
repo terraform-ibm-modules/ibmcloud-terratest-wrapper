@@ -15,6 +15,7 @@ import (
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/go-openapi/errors"
 	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
 // IBM schematics job types
@@ -179,8 +180,8 @@ func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTer
 	variables := []schematics.WorkspaceVariableRequest{}
 	for _, tfVar := range vars {
 		// if tfVal is an array, convert to json array string
-		if IsArray(tfVar.Value) {
-			strVal, strErr = ConvertArrayToJsonString(tfVar.Value)
+		if common.IsArray(tfVar.Value) {
+			strVal, strErr = common.ConvertArrayToJsonString(tfVar.Value)
 			if strErr != nil {
 				return strErr
 			}
@@ -501,7 +502,7 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 				hdr.Linkname = hdr.Name
 
 				// if the file resides in subdirectory, add that directory to tar file so that extraction works correctly
-				if !strArrayContains(dirsAdded, fileDir) {
+				if !common.StrArrayContains(dirsAdded, fileDir) {
 					dirInfo, dirInfoErr := os.Stat(fileDir)
 					if dirInfoErr != nil {
 						return "", dirInfoErr
