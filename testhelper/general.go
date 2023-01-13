@@ -3,6 +3,8 @@ package testhelper
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/stretchr/objx"
 	"log"
 	"os"
 	"os/exec"
@@ -301,4 +303,44 @@ func GetBeforeAfterDiff(jsonString string) string {
 	}
 
 	return "Before: " + string(diffsJson) + "\nAfter: " + string(diffsJson2)
+}
+
+// Input two json objects the input is to be sanitized and returned as output
+// sensitive_fields is a json object that contains sensitive fields with boolean
+// values. If true redact the value for the field in the input json
+func sanitizeJson(input string, sensitiveFields string) string {
+	jsonInput, err := objx.FromJSON(input)
+	if err != nil {
+		return "Error: unable to parse input JSON string"
+	}
+
+	jsonSanitizeFields, err := objx.FromJSON(sensitiveFields)
+	if err != nil {
+		return "Error: unable to parse sensitiveFields JSON string"
+	}
+	// TODO: This needs a recursive function to dig down through the nested maps and sanitize
+	for key, sanitize := range jsonSanitizeFields {
+		fmt.Printf("Key: %s Sanitize? %t\n", key, sanitize)
+
+		if jsonSanitizeFields.Get(key).IsObjxMap() {
+			fmt.Printf("key %s is map ", key)
+			for k, s := range jsonSanitizeFields.Get(key).ObjxMap() {
+				fmt.Printf("Key: %s Sanitize? %t\n", k, s)
+				if jsonSanitizeFields.Get(k).Bool() {
+					fmt.Printf("Source Value at key: ****\n")
+					jsonInput.Set(key, "****")
+				} else {
+					fmt.Printf("Source Value at key: %s\n", jsonInput.Get(key))
+				}
+			}
+		} else {
+			if jsonSanitizeFields.Get(key).Bool() {
+				fmt.Printf("Source Value at key: ****\n")
+				jsonInput.Set(key, "****")
+			} else {
+				fmt.Printf("Source Value at key: %s\n", jsonInput.Get(key))
+			}
+		}
+	}
+	return jsonInput.MustJSON()
 }

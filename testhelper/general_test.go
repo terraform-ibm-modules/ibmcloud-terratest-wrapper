@@ -2,6 +2,7 @@ package testhelper
 
 import (
 	"errors"
+	"github.com/stretchr/objx"
 	"os"
 	"sync"
 	"testing"
@@ -293,4 +294,78 @@ func TestGetBeforeAfterDiffInvalidJSON(t *testing.T) {
 	if result != expected {
 		t.Errorf("TestGetBeforeAfterDiffInvalidJSON(%q) returned %q, expected %q", jsonString, result, expected)
 	}
+}
+
+// Sample JSON
+//
+//		{
+//			"name": "test",
+//			"email": "test@ibm.com",
+//			"password": "12345",
+//			"secret": {
+//				"name": "test",
+//				"password": "12345"
+//			},
+//			"complex": {
+//				"name": "test",
+//				"password": "12345"
+//	         "nest": {
+//	           "secret": 12345
+//	         }
+//			}
+//		}
+var sampleJson = `{"name": "test","email": "test@ibm.com","password": "12345","secret": {"name": "test","password": "12345"},"complex": {"name": "test","password": "12345", "nest": {"secret": "12345"}}}`
+
+func TestSanitizeJsonFullSample(t *testing.T) {
+	valuesToSanitize := `{"name": false,"email": false,"password": true,"secret": true,"complex": {"name": false,"password": true}}`
+
+	expectedOutput := `{"name": "test","email": "test@ibm.com","password": "****","secret": {"name": "****","password": "****"},"complex": {"name": "test","password": "****", "nest": {"secret": "12345"}}}`
+	expectedOutputObj, _ := objx.FromJSON(expectedOutput)
+	output := sanitizeJson(sampleJson, valuesToSanitize)
+
+	assert.Equal(t, expectedOutputObj.MustJSON(), output)
+}
+
+func TestSanitizeJsonSingleSample(t *testing.T) {
+	valuesToSanitize := `{"password": true}`
+	expectedOutput := `{"name": "test","email": "test@ibm.com","password": "****","secret": {"name": "test","password": "12345"},"complex": {"name": "test","password": "12345", "nest": {"secret": "12345"}}}`
+	expectedOutputObj, _ := objx.FromJSON(expectedOutput)
+	output := sanitizeJson(sampleJson, valuesToSanitize)
+
+	assert.Equal(t, expectedOutputObj.MustJSON(), output)
+}
+
+func TestSanitizeJsonNestedSingleSample(t *testing.T) {
+	valuesToSanitize := `{"password": true,"complex": {"name"": false,"password"": true}}`
+	expectedOutput := `{"name": "test","email": "test@ibm.com","password": "****","secret": {"name": "test","password": "12345"},"complex": {"name": "test","password": "****", "nest": {"secret": "12345"}}}`
+	expectedOutputObj, _ := objx.FromJSON(expectedOutput)
+	output := sanitizeJson(sampleJson, valuesToSanitize)
+
+	assert.Equal(t, expectedOutputObj.MustJSON(), output)
+}
+
+func TestSanitizeJsonNestedSample(t *testing.T) {
+	valuesToSanitize := `{"password": true,"secret": true}`
+	expectedOutput := `{"name": "test","email": "test@ibm.com","password": "****","secret": {"name": "****","password": "****"},"complex": {"name": "test","password": "12345", "nest": {"secret": "12345"}}}`
+	expectedOutputObj, _ := objx.FromJSON(expectedOutput)
+	output := sanitizeJson(sampleJson, valuesToSanitize)
+
+	assert.Equal(t, expectedOutputObj.MustJSON(), output)
+}
+
+func TestSanitizeJsonMultiNestedSample(t *testing.T) {
+	valuesToSanitize := `{"password": true,"secret": true, "complex": true}`
+	expectedOutput := `{"name": "test","email": "test@ibm.com","password": "****","secret": {"name": "****","password": "****"},"complex": {"name": "****","password": "****", "nest": {"secret": "****"}}}`
+	expectedOutputObj, _ := objx.FromJSON(expectedOutput)
+	output := sanitizeJson(sampleJson, valuesToSanitize)
+
+	assert.Equal(t, expectedOutputObj.MustJSON(), output)
+}
+func TestSanitizeJsonMultiNestedSingleSample(t *testing.T) {
+	valuesToSanitize := `{"password": true,"secret": true, "complex": {"nest": {"secret": true}}}`
+	expectedOutput := `{"name": "test","email": "test@ibm.com","password": "****","secret": {"name": "****","password": "****"},"complex": {"name": "test","password": "12345", "nest": {"secret": "****"}}}`
+	expectedOutputObj, _ := objx.FromJSON(expectedOutput)
+	output := sanitizeJson(sampleJson, valuesToSanitize)
+
+	assert.Equal(t, expectedOutputObj.MustJSON(), output)
 }

@@ -58,8 +58,13 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 			changesJson = string(changesBytes)
 		}
 
-		resourceDetails := fmt.Sprintf("Name: %s Address: %s Actions: %s\nDIFF:\n%s\n\nChange Detail:\n%s", resource.Name, resource.Address, resource.Change.Actions, GetBeforeAfterDiff(changesJson), changesJson)
+		var resourceDetails string
 
+		if resource.Change.Actions.Update() {
+			resourceDetails = fmt.Sprintf("Name: %s Address: %s Actions: %s\nDIFF:\n%s\n\nChange Detail:\n%s", resource.Name, resource.Address, resource.Change.Actions, GetBeforeAfterDiff(changesJson), changesJson)
+		} else {
+			resourceDetails = fmt.Sprintf("Name: %s Address: %s Actions: %s\nChange Detail:\n%s", resource.Name, resource.Address, resource.Change.Actions, changesJson)
+		}
 		var errorMessage string
 		if !options.IgnoreDestroys.IsExemptedResource(resource.Address) {
 			errorMessage = fmt.Sprintf("Resource(s) identified to be destroyed %s", resourceDetails)
