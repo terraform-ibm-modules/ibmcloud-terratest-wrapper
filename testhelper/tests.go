@@ -19,6 +19,7 @@ import (
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
 func skipUpgradeTest(branch string) bool {
@@ -61,7 +62,7 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 		var resourceDetails string
 
 		if resource.Change.Actions.Update() {
-			resourceDetails = fmt.Sprintf("Name: %s Address: %s Actions: %s\nDIFF:\n%s\n\nChange Detail:\n%s", resource.Name, resource.Address, resource.Change.Actions, GetBeforeAfterDiff(changesJson), changesJson)
+			resourceDetails = fmt.Sprintf("Name: %s Address: %s Actions: %s\nDIFF:\n%s\n\nChange Detail:\n%s", resource.Name, resource.Address, resource.Change.Actions, common.GetBeforeAfterDiff(changesJson), changesJson)
 		} else {
 			// Do not print changesJson because might expose secrets
 			resourceDetails = fmt.Sprintf("Name: %s Address: %s Actions: %s\n", resource.Name, resource.Address, resource.Change.Actions)
@@ -107,7 +108,7 @@ func (options *TestOptions) testSetup() {
 	}
 
 	// Ensure always running from git root
-	gitRoot, _ := GitRootPath(".")
+	gitRoot, _ := common.GitRootPath(".")
 
 	// To avoid workspace collisions when running in parallel, ignoring any temp terraform files
 	// NOTE: if it is upgrade test we need hidden .git files
@@ -200,7 +201,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		options.testSetup()
 
 		// from here on we will operate in the temp directory
-		gitRoot, _ := GitRootPath(options.TerraformDir)
+		gitRoot, _ := common.GitRootPath(options.TerraformDir)
 		gitRepo, _ := git.PlainOpen(gitRoot)
 
 		// maintain a reference of current checkout, which might be a detatched PR merge, will be used to switch back later
