@@ -1,4 +1,4 @@
-// Package cloudinfo contains functions and methods for search and detailing various resources located in the IBM Cloud
+// Package cloudinfo contains functions and methods for searching and detailing various resources located in the IBM Cloud
 package cloudinfo
 
 import (
