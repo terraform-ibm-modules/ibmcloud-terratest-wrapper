@@ -24,26 +24,91 @@ const DefaultSchematicsApiURL = "https://schematics.cloud.ibm.com"
 
 // TestSchematicOptions is the main data struct containing all options related to running a Terraform unit test wihtin IBM Schematics Workspaces
 type TestSchematicOptions struct {
-	Testing                 *testing.T `copier:"-"` // Testing The current test object
-	TarIncludePatterns      []string
-	BestRegionYAMLPath      string                         // BestRegionYAMLPath Path to the yaml containing regions and weights
-	DefaultRegion           string                         // DefaultRegion default region if automatic detection fails
-	ResourceGroup           string                         // ResourceGroup IBM Cloud resource group to use
-	Region                  string                         // Region to use
-	RequiredEnvironmentVars map[string]string              // RequiredEnvironmentVars
-	TerraformVars           []TestSchematicTerraformVar    // TerraformVars variables to pass to terraform
-	TemplateFolder          string                         // folder that contains terraform template, defaults to "."
-	Tags                    []string                       // Tags optional tags to add
-	Prefix                  string                         // Prefix to use when creating resources
-	WaitJobCompleteMinutes  int16                          // number of minutes to wait for schematic job completions
-	SchematicsApiURL        string                         // OPTIONAL: base URL for schematics API
-	DeleteWorkspaceOnFail   bool                           // if there is a failure, should test delete the workspace and logs, default of false
-	TerraformVersion        string                         // OPTIONAL: Schematics terraform version to use for template. If not supplied will be determined from required version in project
-	NetrcSettings           []NetrcCredential              // array of .netrc credentials that will be set for schematics workspace
-	WorkspaceEnvVars        []WorkspaceEnvironmentVariable // array of ENV variables to set inside workspace
-	CloudInfoService        cloudinfo.CloudInfoServiceI    // OPTIONAL: Supply if you need multiple tests to share info service and data
-	SchematicsApiSvc        SchematicsApiSvcI              // OPTIONAL: service pointer for interacting with external schematics api
-	schematicsTestSvc       *SchematicsTestService         // OPTIONAL: internal property to specify pointer to test service, used for test mocking
+	// REQUIRED: a pointer to an initialized testing object.
+	// Typically you would assign the test object used in the unit test.
+	Testing *testing.T `copier:"-"`
+
+	// Assign the list of file patterns, including directories, that you want included in the TAR file that will get uploaded
+	// to the schematics workspace. Wildcards are valid.
+	// Only files that match these patterns will be used as source for the Schematic Workspace in this test.
+	// NOTE: all file paths are relative to the root of the current Git project.
+	//
+	// Examples:
+	// "*.tf", "scripts/*.sh", "examples/basic/*", "data/my-data.yml"
+	//
+	// Default if not provided:
+	// "*.tf" (all terraform files in project root only)
+	TarIncludePatterns []string
+
+	// The default constructors will use this map to check that all required environment variables are set properly.
+	// If any are missing, the test will fail.
+	RequiredEnvironmentVars map[string]string
+
+	// Path to YAML file contaning preferences for how dynamic regions should be chosen.
+	// See examples in cloudinfo/testdata for proper format.
+	BestRegionYAMLPath string
+
+	// Used with dynamic region selection, if any errors occur this will be the region used (fail-open)
+	DefaultRegion string
+
+	// If set during creation, this region will be used for test and dynamic region selection will be skipped.
+	// If left empty, this will be populated by dynamic region selection by default constructor and can be referenced later.
+	Region string
+
+	// Only required if using the WithVars constructor, as this value will then populate the `resource_group` input variable.
+	ResourceGroup string
+
+	// REQUIRED: the string prefix that will be prepended to all resource names, typically sent in as terraform input variable.
+	// Set this value in the default constructors and a unique 6-digit random string will be appended.
+	// Can then be referenced after construction and used as unique variable.
+	//
+	// Example:
+	// Supplied to constructor = `my-test`
+	// After constructor = `my-test-xu5oby`
+	Prefix string
+
+	// This array will be used to construct a valid `Variablestore` configuration for the Schematics Workspace Template
+	TerraformVars []TestSchematicTerraformVar
+
+	// This value will set the `folder` attribute in the Schematics template, and will be used as the execution folder for terraform.
+	// Defaults to root directory of source, "." if not supplied.
+	//
+	// Example: if you are testing a module source, and the execution is located in the subdirectory `examples/basic`, then set this
+	// to that value.
+	TemplateFolder string
+
+	// Optional list of tags that will be applied to the Schematics Workspace instance
+	Tags []string
+
+	// Amount of time, in minutes, to wait for any schematics job to finish. Set to override the default.
+	// Default: 120 (two hours)
+	WaitJobCompleteMinutes int16
+
+	// Base URL of the schematics REST API. Set to override default.
+	// Default: https://schematics.cloud.ibm.com
+	SchematicsApiURL string
+
+	// Set this to true if you would like to delete the test Schematic Workspace if the test fails.
+	// By default this will be false, and if a failure happens the workspace and logs will be preserved for analysis.
+	DeleteWorkspaceOnFail bool
+
+	// This value is used to set the terraform version attribute for the workspace and template.
+	// If left empty, an empty value will be set in the template which will cause the Schematic jobs to use the highest available version.
+	TerraformVersion string
+
+	// Use this optional list to provide .netrc credentials that will be used by schematics to access any private git repos accessed by
+	// the project.
+	//
+	// This data will be used to construct a special `__netrc__` environment variable in the template.
+	NetrcSettings []NetrcCredential
+
+	// Use this optional list to provide any additional ENV values for the template.
+	// NOTE: these values are only used to configure the template, they are not set as environment variables outside of schematics.
+	WorkspaceEnvVars []WorkspaceEnvironmentVariable // array of ENV variables to set inside workspace
+
+	CloudInfoService  cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
+	SchematicsApiSvc  SchematicsApiSvcI           // OPTIONAL: service pointer for interacting with external schematics api
+	schematicsTestSvc *SchematicsTestService      // internal property to specify pointer to test service, used for test mocking
 }
 
 type TestSchematicTerraformVar struct {
@@ -69,6 +134,12 @@ type WorkspaceEnvironmentVariable struct {
 // TestSchematicOptionsDefault is a constructor for struct TestSchematicOptions. This function will accept an existing instance of
 // TestSchematicOptions values, and return a new instance of TestSchematicOptions with the original values set along with appropriate
 // default values for any properties that were not set in the original options.
+//
+// Summary of properties changed:
+// * appends unique 6-char string to end of original prefix
+// * checks that certain required environment variables are set
+// * computes best dynamic region for test, if Region is not supplied
+// * sets various other properties to sensible defaults if not supplied
 func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSchematicOptions {
 
 	newOptions, err := originalOptions.Clone()
