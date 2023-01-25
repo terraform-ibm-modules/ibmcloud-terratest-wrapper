@@ -321,6 +321,53 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 	return result, err
 }
 
+func (options *TestOptions) RunTestOverride() (string, error) {
+	options.testSetup()
+	logger.Log(options.Testing, "START: Init / Apply / Override Check")
+
+	_, err := options.runTest()
+	if err != nil {
+		logger.Log(options.Testing, err)
+		options.testTearDown()
+		return "", err
+	}
+
+	// we need to get all outputs to have access for a config output
+	all_outputs, err := terraform.OutputAllE(options.Testing, options.TerraformOptions)
+	if err != nil {
+		logger.Log(options.Testing, err)
+		options.testTearDown()
+		return "", err
+	}
+
+	// convert config to JSON string
+	jsonStr, err := json.Marshal(all_outputs["config"])
+	if err != nil {
+		logger.Log(options.Testing, err)
+		options.testTearDown()
+		return "", err
+	}
+
+	// set env variable with config value
+	options.TerraformOptions.Vars["override_json_string"] = string(jsonStr)
+
+	output, err := terraform.ApplyE(options.Testing, options.TerraformOptions)
+
+	if err != nil {
+		// we need to unset override_json_string terraform variable otherwise destroy fails
+		options.TerraformOptions.Vars["override_json_string"] = ""
+		options.testTearDown()
+		return "", err
+	}
+
+	// we need to unset override_json_string terraform variable otherwise destroy fails
+	options.TerraformOptions.Vars["override_json_string"] = ""
+	options.testTearDown()
+
+	logger.Log(options.Testing, "FINISHED: Init / Apply / Override Check")
+	return output, err
+}
+
 // RunTestPlan Runs Test plan and returns the plan as a struct for assertions
 func (options *TestOptions) RunTestPlan() (*terraform.PlanStruct, error) {
 	options.testSetup()
