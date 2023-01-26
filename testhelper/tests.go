@@ -278,7 +278,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 					// Adding optional upgrade support on PR Branch
 					if options.CheckApplyResultForUpgrade && !options.Testing.Failed() {
 						logger.Log(options.Testing, "Validating Optional upgrade on Current Branch (PR):", cur.Name())
-						_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
+						_, resultErr = terraform.ApplyE(options.Testing, options.TerraformOptions)
 						assert.Nilf(options.Testing, resultErr, "Terraform Apply on PR branch has failed")
 					}
 				} else {
