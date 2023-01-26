@@ -94,6 +94,8 @@ type TestSchematicOptions struct {
 
 	// This value is used to set the terraform version attribute for the workspace and template.
 	// If left empty, an empty value will be set in the template which will cause the Schematic jobs to use the highest available version.
+	//
+	// Format: "terraform_v1.x"
 	TerraformVersion string
 
 	// Use this optional list to provide .netrc credentials that will be used by schematics to access any private git repos accessed by

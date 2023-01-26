@@ -175,3 +175,78 @@ func Example_upgrade_test() {
 		}
 	})
 }
+
+func Example_advanced_settings() {
+	// (here for compile only)
+	// this is the test object supplied in a unit test call
+	t := &testing.T{}
+
+	t.Run("advanced unit test", func(t *testing.T) {
+		// create TestOptions using Default contructor. This will do several things for you:
+		// * Prefix will have random string added to end
+		// * Validate required OS Environment variables are set
+		// * Dynamically choose best region for test, if region not supplied
+		// * Set other option fields to their sensible defaults
+		//
+		// You call this constructor by passing it an existing TestOptions with minimal data and it will return
+		// a new altered object.
+		options := testhelper.TestOptionsDefault(&testhelper.TestOptions{
+			Testing:            t,                      // the test object for unit test
+			TerraformDir:       "examples/basic",       // location of example to test, relative to root of project
+			Prefix:             "my-test",              // will have 6 char random string appended, can be used as variable to prefix test resources
+			BestRegionYAMLPath: "location/of/yaml.yml", // YAML file to configure dynamic region selection (see cloudinfo/RegionData type)
+			// Region: "us-south", // if you set Region, dynamic selection will be skipped
+
+			// can specify vars in-line
+			TerraformVars: map[string]interface{}{
+				"variable_1": "foo",
+				"variable_2": "bar",
+			},
+
+			// Advanced settings for ignoring resources for consistency checks.
+			// If you have resources that you know will break idempotent (such as ones with lifecycle hooks) you can ignore them from test.
+			IgnoreDestroys: testhelper.Exemptions{
+				List: []string{
+					"module.my_mod.null_resource.foo",
+					"module.another_mod.some_resource.bar",
+				},
+			},
+			IgnoreAdds: testhelper.Exemptions{
+				List: []string{
+					"module.my_mod.null_resource.foo",
+					"module.another_mod.some_resource.bar",
+				},
+			},
+			IgnoreUpdates: testhelper.Exemptions{
+				List: []string{
+					"module.my_mod.null_resource.foo",
+					"module.another_mod.some_resource.bar",
+				},
+			},
+
+			// You can also specify resources that can be removed from the terraform state file immediately before destroy of the test,
+			// which can speed up the test run.
+			// For example, helm releases inside a cluster might not need to be destroyed, as destroying the cluster will delete all anyway.
+			// NOTE: each item in the list will be removed via `terraform state rm` command.
+			ImplicitDestroy: []string{
+				"some_resource.some_name",
+				"module.first_module.a_resource_type.first_name",
+				"module.whole_module",
+			},
+			ImplicitRequired: false, // you can set this true if you want test to fail because an implicit destroy was not found
+		})
+
+		// RunTestConsistency will init/apply, then plan again to verify idempotent
+		terratestPlanStruct, err := options.RunTestConsistency()
+
+		// these same advanced settings also work with upgrade test
+		// terratestPlanStruct, err := options.RunTestUpgrade()
+
+		if err != nil {
+			t.Fail()
+		}
+		if terratestPlanStruct == nil {
+			t.Fail()
+		}
+	})
+}
