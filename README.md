@@ -67,7 +67,7 @@ func TestRunBasic(t *testing.T) {
         Testing:            t,                      // the test object for unit test
         TerraformDir:       "examples/basic",       // location of example to test
         Prefix:             "my-test",              // will have 6 char random string appended
-        BestRegionYAMLPath: "location/of/yaml.yml", // YAML file to configure dynamic region selection 
+        BestRegionYAMLPath: "location/of/yaml.yml", // YAML file to configure dynamic region selection
         // Region: "us-south", // if you set Region, dynamic selection will be skipped
     })
 
