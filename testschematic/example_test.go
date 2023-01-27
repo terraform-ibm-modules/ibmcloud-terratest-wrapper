@@ -29,6 +29,7 @@ func Example_default() {
 			TarIncludePatterns: []string{"*.tf", "scripts/*.sh", "examples/basic/*.tf"},
 			// If test fails, determine if schematic workspace is also deleted
 			DeleteWorkspaceOnFail: false,
+			TemplateFolder:        "examples/basic",
 		})
 
 		// Set up the schematic workspace Variablestore, including values to use
