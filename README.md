@@ -43,10 +43,10 @@ This golang project can be used in IBM Cloud Terraform projects to simplify unit
 ### Dynamic IBM Cloud Region Support
 This test framework has support for selecting an IBM Region for your test dynamically, at run time. Currently this is done by selecting a VPC supported region available to your account that contains the least amount of currently active VPCs. You can access this feature in two ways:
 1. Use the [testhelper/GetBestVpcRegion()](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#GetBestVpcRegion)
-1. Use a [default constructor](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/) which will call `GetBestVpcRegion()` and assign result to the `Region` field, if it had not been set previously.
+1. Use a [default constructor](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#TestOptionsDefault) which will call `GetBestVpcRegion()` and assign result to the `Region` field, if it had not been set previously.
 
 #### Dynamic IBM Cloud Region Selection Configuration
-If the parameter `prefsFilePath` is not passed (empty) to the `GetBestVpcRegion()` function, all possible VPC regions available to the account will be queried in a non-sequenced order. In order to restrict the initial region list to query, and to assign a priority for selection, you can supply a YAML file to the function using `prefsFilePath`. The format of this YAML file is:
+If the parameter `prefsFilePath` is not passed (empty) to the `GetBestVpcRegion()` function, or the field `TestOptions.BestRegionYAMLPath` is not set when using the default constructor, all possible VPC regions available to the account will be queried in a non-sequenced order. In order to restrict the region list to query, and to assign a priority for selection, you can supply a YAML file to the function using `prefsFilePath`. The format of this YAML file is:
 ```yaml
 ---
 - name: us-east
@@ -58,7 +58,7 @@ If the parameter `prefsFilePath` is not passed (empty) to the `GetBestVpcRegion(
 ```
 
 ### Basic Consistency Example
-Terraform unit test to check consistency of an example located in project under example/basic directory:
+Terraform unit test to check consistency of an example located in project under examples/basic directory:
 ```go
 func TestRunBasic(t *testing.T) {
 	t.Parallel()
@@ -78,14 +78,14 @@ func TestRunBasic(t *testing.T) {
     }
 
     // idempotent test
-	output, err := options.RunTestConsistency()
-	assert.Nil(t, err, "This should not have errored")
-	assert.NotNil(t, output, "Expected some output")
+    output, err := options.RunTestConsistency()
+    assert.Nil(t, err, "This should not have errored")
+    assert.NotNil(t, output, "Expected some output")
 }
 ```
 
 ### IBM Cloud Schematic Support
-If you would like to run a Terraform unit test inside of the IBM Schematic Terraform service, this can be done in a similar manner using the `testschematic` package. The setup is similar to a Terraform test, but with some different options related to schematics, and input variables are handled differently.
+If you would like to run a Terraform unit test inside of the IBM Schematic Terraform service, this can be done in a similar manner using the `testschematic` package. The setup is similar to a basic Terraform test, but with some different options related to schematics, such as input variables being handled differently.
 
 To set up a test in schematics, follow the basic steps above to set up a unit test, then:
 1. Initialize a [testschematic/TestSchematicOptions](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic#TestSchematicOptions) object with appropriate values
@@ -118,17 +118,17 @@ func TestRunBasicInSchematic(t *testing.T) {
 }
 ```
 
-### Running Module Version Upgrade Test
+### Running a Module Version Upgrade Test
 You can run a special upgrade test that will verify that the current code being tested (usually your pull request branch) will not destroy infrastructure when applied to resources created by a previous version (usually master branch). You can call this type of test by using the `RunTestUpgrade()` method.
 
 This kind of test can be important to run for Terraform Module projects, as you want to find out what the experience for consumers of that module will be when they upgrade from the previous version to the pending version. If key resources are destroyed during an upgrade, even if they are replaced, this could negatively impact consumer environments.
 
 The `RunTestUpgrade()` will perform the following steps:
-1. Copy current project directory, including ".git" checkout repository, into temporary location, used in rest of steps
-1. Note the git ref of currently checked out branch (usually a PR merge branch)
+1. Copy current project directory, including ".git" checkout repository, into temporary location to be used by the test
+1. Store the git ref of currently checked out branch (usually a PR merge branch)
 1. Checkout main or master branch
 1. Run Terraform Apply with idempotent check
-1. Checkout original branch from start (PR branch)
+1. Checkout original branch from original stored git ref (PR branch)
 1. Run Terraform Plan
 1. Analyze Plan file for consistency check
 
