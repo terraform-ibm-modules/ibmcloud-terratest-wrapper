@@ -90,6 +90,16 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 	}
 }
 
+// Function to setup testing environment.
+//
+// Summary of settings:
+// * API_DATA_IS_SENSITIVE environment variable is set to true
+// * If calling test had not provided its own TerraformOptions, then default settings are used
+// * Temp directory is created
+func (options *TestOptions) TestSetup() {
+	options.testSetup()
+}
+
 // testSetup Setup test
 func (options *TestOptions) testSetup() {
 	os.Setenv("API_DATA_IS_SENSITIVE", "true")
@@ -137,6 +147,12 @@ func (options *TestOptions) testSetup() {
 		options.WorkspaceName = terraform.WorkspaceSelectOrNew(options.Testing, options.TerraformOptions, options.Prefix)
 		options.WorkspacePath = fmt.Sprintf("%s/terraform.tfstate.d/%s", options.WorkspacePath, options.Prefix)
 	}
+}
+
+// Function to destroy all resources. Resources are not destroyed if tests failed and "DO_NOT_DESTROY_ON_FAILURE" environment variable is true.
+// If options.ImplicitDestroy is set then these resources from the State file are removed to allow implicit destroy.
+func (options *TestOptions) TestTearDown() {
+	options.testTearDown()
 }
 
 // testTearDown Tear down test
