@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -378,7 +377,7 @@ func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, e
 		}
 		// only log svc once a minute or so
 		if runMinutes > lastLog {
-			log.Printf("[SCHEMATICS] ... still waiting for job %s to complete: %d minutes", *job.Name, runMinutes)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] ... still waiting for job %s to complete: %d minutes", *job.Name, runMinutes)
 			lastLog = runMinutes
 		}
 
@@ -387,7 +386,7 @@ func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, e
 			len(*job.Status) > 0 &&
 			*job.Status != SchematicsJobStatusCreated &&
 			*job.Status != SchematicsJobStatusInProgress {
-			log.Printf("[SCHEMATICS] The status of job %s is: %s", *job.Name, *job.Status)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] The status of job %s is: %s", *job.Name, *job.Status)
 			break
 		}
 
