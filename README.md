@@ -1,21 +1,28 @@
 # IBM Cloud Terratest wrapper
 
-[![Incubating (Not yet consumable)](https://img.shields.io/badge/status-Incubating%20(Not%20yet%20consumable)-red)](https://terraform-ibm-modules.github.io/documentation/#/badge-status)
-[![Build Status](https://github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/actions/workflows/ci.yml)
+[![Build status](https://github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/actions/workflows/ci.yml/badge.svg)](https://github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/actions/workflows/ci.yml)
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
-[![latest release](https://img.shields.io/github/v/release/terraform-ibm-modules/terraform-ibm-module-template?logo=GitHub&sort=semver)](https://github.com/terraform-ibm-modules/terraform-ibm-module-template/releases/latest)
+[![latest release](https://img.shields.io/github/v/release/terraform-ibm-modules/ibmcloud-terratest-wrapper?logo=GitHub&sort=semver)](https://github.com/terraform-ibm-modules/terraform-ibm-module-template/releases/latest)
 [![Renovate enabled](https://img.shields.io/badge/renovate-enabled-brightgreen.svg)](https://renovatebot.com/)
 [![semantic-release](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg)](https://github.com/semantic-release/semantic-release)
+[![Go reference](https://pkg.go.dev/badge/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/.svg)](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper#section-directories)
 
-This Go module provides helper functions as a wrapper around the [Terratest](https://terratest.gruntwork.io/) library so that tests can be created quickly and consistently. 
+This Go module provides helper functions as a wrapper around the [Terratest](https://terratest.gruntwork.io/).
 
-For more information about the code, see the pkg.go.dev repository and the GitHub repo for `ibmcloud-terratest-wrapper` at https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/.
+The project helps to simplify and standardize your Terratest unit tests. It is used by default by Terraform modules in this GitHub organization. For more information about how the tests are used in the IBM Cloud Terraform modules project, see [validation tests](https://terraform-ibm-modules.github.io/documentation/#/tests) in the project docs.
 
-## Setup
+## Test your own projects
 
-Use this Go project with IBM Cloud Terraform projects to simplify testing with the [Terratest](https://terratest.gruntwork.io/) library. Follow these steps to set up the tests:
+You can also use this Go project with your own Terraform projects for IBM Cloud.
 
-1 . [Create a Go module](https://go.dev/doc/tutorial/create-module) in your Terraform project.
+<a name="setup"></a>
+
+### Adding this wrapper to your project
+
+
+The following procedure is a typical way to add this wrapper to your Terraform module for IBM Cloud.
+
+1.  [Create a Go module](https://go.dev/doc/tutorial/create-module) in your Terraform project.
 1.  [Import](https://go.dev/doc/tutorial/call-module-code) this ibmcloud-terratest-wrapper module into your new module.
 1.  [Add a unit test](https://go.dev/doc/tutorial/add-a-test) in your Terraform Go module.
 1.  Initialize a [testhelper/TestOptions](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#TestOptions) object with appropriate values.
@@ -23,33 +30,20 @@ Use this Go project with IBM Cloud Terraform projects to simplify testing with t
     You can then configure the `TestOptions` object by using the [default constructor](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#TestOptionsDefault).
 1.  Call one of the `RunTest...()` methods of the `TestOptions` object and check the results.
 
-
-## Running tests
-
-To run unit tests for all the packages in this module, use the `go test` command, either for a single package or all packages.
-
-```bash
-# run single package tests
-go test -v ./cloudinfo
-```
-
-```bash
-# run all packages tests, skipping template tests that exist in common-dev-assets
-go test -v $(go list ./... | grep -v /common-dev-assets/)
-```
-
 ## Region selection at run time
 
-This test framework supports selecting an IBM region for your test at run time. Select a VPC-supported region that is available to your account and that contains the least number of active VPCs. You can access this feature in two ways:
+This test framework supports runtime selection of an IBM region for your test. Select a VPC-supported region that is available to your account and that contains the least number of active VPCs.
+
+You can access this feature in two ways:
 
 - Use the [testhelper/GetBestVpcRegion()](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#GetBestVpcRegion).
 - Use a [default constructor](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#TestOptionsDefault), which calls `GetBestVpcRegion()` and assigns a result to the `Region` field, if not already set.
 
-### Dynamic region selection
+### Configuring runtime region selection
 
 All VPC regions that are available to your account are queried in a nonsequential order if the parameter `prefsFilePath` is not passed to the `GetBestVpcRegion()` function (in other words, is empty), or if the field `TestOptions.BestRegionYAMLPath` is not set when you use the default constructor.
 
-To restrict the query and assign a priority to the regions, supply a YAML file to the function by using the `prefsFilePath` parameter. Use the following YAML format:
+To restrict the query and assign a priority to the regions, supply a YAML file to the function by using the `prefsFilePath` parameter. Use the following format:
 
 ```yaml
 ---
@@ -62,6 +56,9 @@ To restrict the query and assign a priority to the regions, supply a YAML file t
 ```
 
 ## Examples
+
+<a name="testrunbasic"></a>
+
 ### Example to check basic consistency
 
 The following example checks the consistency of an example in the `examples/basic` directory:
@@ -91,13 +88,11 @@ func TestRunBasic(t *testing.T) {
 }
 ```
 
-### Run a test inside IBM Cloud Schematics
+### Run in IBM Cloud Schematics
 
-To run a test inside IBM Schematics, use the `testschematic` package. The setup is similar to a basic Terraform test, but with some differences that are related to schematics, such as how input variables are handled.
+The code to run a test inside IBM Schematics is similar to the [basic example](#testrunbasic), but uses the `testschematic` package.
 
-To set up a test in schematics, follow these steps:
-
-1.  [Set up a unit test](#setup) as shown earlier.
+1.  Complete the steps shown earlier to [add this wrapper](#setup) to your project.
 1.  Initialize a [testschematic/TestSchematicOptions](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic#TestSchematicOptions) object with appropriate values.
 
     You can configure TestSchematicOptions by using the [default constructor](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic#TestSchematicOptionsDefault).
@@ -130,11 +125,11 @@ func TestRunBasicInSchematic(t *testing.T) {
 }
 ```
 
-### Test for version upgrade
+### Test a module upgrade
 
-You can run a special upgrade test that verifies that the tested code (usually your pull request branch) will not destroy infrastructure when applied to resources that were created by a previous version (for example, the `main` branch). Call this test by using the `RunTestUpgrade()` method.
+When a new version of your Terraform module is released, you can test whether the upgrade destroys resources. Consumers of your module might not want key resources deleted in an upgrade, even if the resources are replaced.
 
-This test is important for Terraform module projects because you generally don't want to destroy key resources in an upgrade, even if the resources are replaced.
+The following test verifies that the tested code (usually your pull request branch) will not destroy infrastructure when applied to existing resources (for example, in the `main` branch). Call this test by using the `RunTestUpgrade()` method.
 
 The `RunTestUpgrade()` method completes the following steps:
 
@@ -158,16 +153,31 @@ if !options.UpgradeTestSkipped {
 
 ### More examples
 
-For more customization examples, see the pkg.go.dev repository and the GitHub repo for `ibmcloud-terratest-wrapper`.
+For more customization, see the `ibmcloud-terratest-wrapper` reference at pkg.go.dev, including the following examples:
 
 - [Terratest examples](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#pkg-overview)
-- [Schematics Workspace examples](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic#pkg-overview)
+- [IBM Schematics Workspace examples](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic#pkg-overview)
 
-<!-- Leave this section as is so that your module has a link to local development environment set up steps for contributors to follow -->
 ## Contributing
 
-You can report issues and request features for this module in GitHub issues in the module repo. See [Report an issue or request a feature](https://github.com/terraform-ibm-modules/.github/blob/main/.github/SUPPORT.md).
+You can report issues and request features for this module in [issues](/issues/new/choose) in this repo. Changes that are accepted and merged are published to the pkg.go.dev reference by the merge pipeline and semantic versioning automation, which creates a new GitHub release.
 
-To set up your local development environment, see [Local development setup](https://terraform-ibm-modules.github.io/documentation/#/local-dev-setup) in the project documentation.
-<!-- Source for this readme file: https://github.com/terraform-ibm-modules/common-dev-assets/tree/main/module-assets/ci/module-template-automation -->
-<!-- END CONTRIBUTING HOOK -->
+If you work at IBM, you can talk with us in the #project-goldeneye Slack channel in the IBM Cloud Platform workspace.
+
+### Setting up your local development environment
+
+This Go project uses submodules, pre-commit hooks, and other tools that are common across all projects in this GitHub org. Follow the steps in [Local development setup](https://terraform-ibm-modules.github.io/documentation/#/local-dev-setup) to set up your local development environment.
+
+### Running tests
+
+To run unit tests for all the packages in this module, use the `go test` command, either for a single package or all packages.
+
+```bash
+# run single package tests
+go test -v ./cloudinfo
+```
+
+```bash
+# run all packages tests, skipping template tests that exist in common-dev-assets
+go test -v $(go list ./... | grep -v /common-dev-assets/)
+```
