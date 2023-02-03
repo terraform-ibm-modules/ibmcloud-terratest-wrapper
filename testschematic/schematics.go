@@ -56,6 +56,7 @@ type SchematicsTestService struct {
 	SchematicsApiSvc          SchematicsApiSvcI     // the main schematics service interface
 	ApiAuthenticator          IamAuthenticatorSvcI  // the authenticator used for schematics api calls
 	WorkspaceID               string                // workspace ID used for tests
+	WorkspaceName             string                // name of workspace that was created for test
 	TemplateID                string                // workspace template ID used for tests
 	TestOptions               *TestSchematicOptions // additional testing options
 	TerraformTestStarted      bool                  // keeps track of when actual Terraform resource testing has begin, used for proper test teardown logic
@@ -165,6 +166,7 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 	// set workspace and template IDs created for later use
 	svc.WorkspaceID = *workspace.ID
 	svc.TemplateID = *workspace.TemplateData[0].ID
+	svc.WorkspaceName = *workspace.Name
 
 	return workspace, nil
 }
@@ -430,12 +432,6 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 	// create unique tar filename
 	target := fmt.Sprintf("%sschematic-test-%s.tar", os.TempDir(), strings.ToLower(random.UniqueId()))
 
-	// files are relative to the root of the project
-	chdirErr := os.Chdir(projectPath)
-	if chdirErr != nil {
-		return "", chdirErr
-	}
-
 	// set up tarfile on filesystem
 	tarfile, fileErr := os.Create(target)
 	if fileErr != nil {
@@ -473,7 +469,9 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 	}
 
 	for _, pattern := range *includePatterns {
-		files, _ := filepath.Glob(pattern)
+		// for glob search, use full path plus pattern
+		patternPath := filepath.Join(projectPath, pattern)
+		files, _ := filepath.Glob(patternPath)
 
 		// loop through files
 		for _, fileName := range files {
@@ -482,7 +480,13 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 			if infoErr != nil {
 				return "", infoErr
 			}
-			fileDir := filepath.Dir(fileName)
+			// keep the full path to file, and a relative path based on project path
+			// full path used for info lookups, relative is used for inside TAR file
+			fullFileDir := filepath.Dir(fileName)
+			relFileDir, relFileDirErr := filepath.Rel(projectPath, fullFileDir)
+			if relFileDirErr != nil {
+				return "", relFileDirErr
+			}
 
 			// skip directories that were directly found by the Glob, we will add those another way (see below)
 			if info.IsDir() {
@@ -494,27 +498,27 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 				return "", hdrErr
 			}
 
-			// the FI header sets the name as base name only, so to preserve the leading directories (if needed)
+			// the FI header sets the name as base name only, so to preserve the leading relative directories (if needed)
 			// we will alter the name
-			if fileDir != "." {
-				hdr.Name = filepath.Join(parentDirInfo.Name(), fileDir, hdr.Name)
+			if relFileDir != "." {
+				hdr.Name = filepath.Join(parentDirInfo.Name(), relFileDir, hdr.Name)
 				hdr.Linkname = hdr.Name
 
 				// if the file resides in subdirectory, add that directory to tar file so that extraction works correctly
-				if !common.StrArrayContains(dirsAdded, fileDir) {
-					dirInfo, dirInfoErr := os.Stat(fileDir)
+				if !common.StrArrayContains(dirsAdded, relFileDir) {
+					dirInfo, dirInfoErr := os.Stat(fullFileDir)
 					if dirInfoErr != nil {
 						return "", dirInfoErr
 					}
-					dirHdr, dirHdrErr := tar.FileInfoHeader(dirInfo, filepath.Join(parentDirInfo.Name(), fileDir))
+					dirHdr, dirHdrErr := tar.FileInfoHeader(dirInfo, filepath.Join(parentDirInfo.Name(), relFileDir))
 					if dirHdrErr != nil {
 						return "", dirHdrErr
 					}
-					dirHdr.Name = filepath.Join(parentDirInfo.Name(), fileDir) // use full path
+					dirHdr.Name = filepath.Join(parentDirInfo.Name(), relFileDir) // use full realative path
 					if tarWriteDirErr := tw.WriteHeader(dirHdr); tarWriteDirErr != nil {
 						return "", tarWriteDirErr
 					}
-					dirsAdded = append(dirsAdded, fileDir)
+					dirsAdded = append(dirsAdded, relFileDir)
 				}
 			} else {
 				// file is at root level, put it right below parent dir
