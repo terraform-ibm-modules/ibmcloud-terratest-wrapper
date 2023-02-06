@@ -72,6 +72,10 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 		return fmt.Errorf("error creating new schematic workspace: %w", wsErr)
 	}
 
+	options.Testing.Logf("[SCHEMATICS] Workspace Created: %s (%s)", svc.WorkspaceName, svc.WorkspaceID)
+	// can be used in error messages to repeat workspace name
+	workspaceNameString := fmt.Sprintf("[ %s (%s) ]", svc.WorkspaceName, svc.WorkspaceID)
+
 	// since workspace is now created, always call the teardown to remove
 	defer testTearDown(svc, options)
 
@@ -79,23 +83,23 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	options.Testing.Log("[SCHEMATICS] Uploading TAR file")
 	uploadErr := svc.UploadTarToWorkspace(tarballName)
 	if uploadErr != nil {
-		return fmt.Errorf("error uploading tar file to workspace: %w", uploadErr)
+		return fmt.Errorf("error uploading tar file to workspace: %w - %s", uploadErr, workspaceNameString)
 	}
 
 	// -------- UPLOAD TAR FILE ----------
 	// find the tar upload job
 	uploadJob, uploadJobErr := svc.FindLatestWorkspaceJobByName(SchematicsJobTypeUpload)
 	if uploadJobErr != nil {
-		return fmt.Errorf("error finding the upload tar action: %w", uploadJobErr)
+		return fmt.Errorf("error finding the upload tar action: %w - %s", uploadJobErr, workspaceNameString)
 	}
 	// wait for it to finish
 	uploadJobStatus, uploadJobStatusErr := svc.WaitForFinalJobStatus(*uploadJob.ActionID)
 	if uploadJobStatusErr != nil {
-		return fmt.Errorf("error waiting for upload of tar to finish: %w", uploadJobStatusErr)
+		return fmt.Errorf("error waiting for upload of tar to finish: %w - %s", uploadJobStatusErr, workspaceNameString)
 	}
 	// check if complete
 	if uploadJobStatus != SchematicsJobStatusCompleted {
-		return fmt.Errorf("tar upload has failed with status %s", uploadJobStatus)
+		return fmt.Errorf("tar upload has failed with status %s - %s", uploadJobStatus, workspaceNameString)
 	}
 
 	// ------ FINAL WORKSPACE CONFIG ------
@@ -105,7 +109,7 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	options.Testing.Log("[SCHEMATICS] Updating Workspace Variablestore")
 	updateErr := svc.UpdateTestTemplateVars(options.TerraformVars)
 	if updateErr != nil {
-		return fmt.Errorf("error updating template with Variablestore: %w", updateErr)
+		return fmt.Errorf("error updating template with Variablestore: %w - %s", updateErr, workspaceNameString)
 	}
 
 	// TERRAFORM TESTING BEGINS
@@ -116,25 +120,25 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 
 	// ------ PLAN ------
 	planResponse, planErr := svc.CreatePlanJob()
-	if assert.NoError(options.Testing, planErr, "error creating PLAN") {
+	if assert.NoErrorf(options.Testing, planErr, "error creating PLAN - %s", workspaceNameString) {
 		options.Testing.Log("[SCHEMATICS] Starting PLAN job ...")
 		planJobStatus, planStatusErr := svc.WaitForFinalJobStatus(*planResponse.Activityid)
-		if assert.NoError(options.Testing, planStatusErr, "error waiting for PLAN to finish") {
-			assert.Equalf(options.Testing, SchematicsJobStatusCompleted, planJobStatus, "PLAN has failed with status %s", planJobStatus)
+		if assert.NoErrorf(options.Testing, planStatusErr, "error waiting for PLAN to finish - %s", workspaceNameString) {
+			assert.Equalf(options.Testing, SchematicsJobStatusCompleted, planJobStatus, "PLAN has failed with status %s - %s", planJobStatus, workspaceNameString)
 		}
 	}
 
 	// ------ APPLY ------
 	if !options.Testing.Failed() {
 		applyResponse, applyErr := svc.CreateApplyJob()
-		if assert.NoError(options.Testing, applyErr, "error creating APPLY") {
+		if assert.NoErrorf(options.Testing, applyErr, "error creating APPLY - %s", workspaceNameString) {
 
 			options.Testing.Log("[SCHEMATICS] Starting APPLY job ...")
 			svc.TerraformResourcesCreated = true // at this point we might have resources deployed
 
 			applyJobStatus, applyStatusErr := svc.WaitForFinalJobStatus(*applyResponse.Activityid)
-			if assert.NoError(options.Testing, applyStatusErr, "error waiting for APPLY to finish") {
-				assert.Equalf(options.Testing, SchematicsJobStatusCompleted, applyJobStatus, "APPLY has failed with status %s", applyJobStatus)
+			if assert.NoErrorf(options.Testing, applyStatusErr, "error waiting for APPLY to finish - %s", workspaceNameString) {
+				assert.Equalf(options.Testing, SchematicsJobStatusCompleted, applyJobStatus, "APPLY has failed with status %s - %s", applyJobStatus, workspaceNameString)
 			}
 		}
 	}
@@ -148,11 +152,11 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 			options.Testing.Log("[SCHEMATICS] Schematics APPLY failed. Debug the Test and delete resources manually.")
 		} else {
 			destroyResponse, destroyErr := svc.CreateDestroyJob()
-			if assert.NoError(options.Testing, destroyErr, "error creating DESTROY") {
+			if assert.NoErrorf(options.Testing, destroyErr, "error creating DESTROY - %s", workspaceNameString) {
 				options.Testing.Log("[SCHEMATICS] Starting DESTROY job ...")
 				destroyJobStatus, destroyStatusErr := svc.WaitForFinalJobStatus(*destroyResponse.Activityid)
-				if assert.NoError(options.Testing, destroyStatusErr, "error waiting for DESTROY to finish") {
-					assert.Equalf(options.Testing, SchematicsJobStatusCompleted, destroyJobStatus, "DESTROY has failed with status %s", destroyJobStatus)
+				if assert.NoErrorf(options.Testing, destroyStatusErr, "error waiting for DESTROY to finish - %s", workspaceNameString) {
+					assert.Equalf(options.Testing, SchematicsJobStatusCompleted, destroyJobStatus, "DESTROY has failed with status %s - %s", destroyJobStatus, workspaceNameString)
 				}
 			}
 		}
@@ -177,7 +181,7 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 		options.Testing.Log("[SCHEMATICS] Deleting Workspace")
 		_, deleteWsErr := svc.DeleteWorkspace()
 		if deleteWsErr != nil {
-			options.Testing.Log("[SCHEMATICS] WARNING: Schematics WORKSPACE DELETE failed! Remove manually if required.")
+			options.Testing.Logf("[SCHEMATICS] WARNING: Schematics WORKSPACE DELETE failed! Remove manually if required. Name: %s (%s)", svc.WorkspaceName, svc.WorkspaceID)
 		}
 	}
 }
