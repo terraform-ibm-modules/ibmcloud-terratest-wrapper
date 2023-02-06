@@ -716,7 +716,7 @@ func (svc *SchematicsTestService) retryApiCall(apiError error, apiStatusCode int
 		maxRetries = *svc.TestOptions.SchematicSvcRetryCount
 	}
 	if svc.TestOptions.SchematicSvcRetryWaitSeconds != nil {
-		maxRetries = *svc.TestOptions.SchematicSvcRetryWaitSeconds
+		maxWait = *svc.TestOptions.SchematicSvcRetryWaitSeconds
 	}
 
 	// if we are at our max retry count, do not retry
