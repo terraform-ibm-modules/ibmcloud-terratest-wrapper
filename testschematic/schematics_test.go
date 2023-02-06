@@ -46,14 +46,18 @@ func TestSchematicTarCreation(t *testing.T) {
 }
 
 func TestSchematicCreateWorkspace(t *testing.T) {
+	zero := 0
 	schematicSvc := new(schematicServiceMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
 		TestOptions: &TestSchematicOptions{
+			Testing: new(testing.T),
 			RequiredEnvironmentVars: map[string]string{
 				"GIT_TOKEN_USER": "tester",   // pragma: allowlist secret
 				"GIT_TOKEN":      "99999999", // pragma: allowlist secret
 			},
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
 		},
 	}
 	mockErrorType := new(schematicErrorMock)
@@ -80,11 +84,17 @@ func TestSchematicCreateWorkspace(t *testing.T) {
 }
 
 func TestSchematicUpdateWorkspace(t *testing.T) {
+	zero := 0
 	schematicSvc := new(schematicServiceMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
+		TestOptions: &TestSchematicOptions{
+			Testing:                      new(testing.T),
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
 	}
 	mockErrorType := new(schematicErrorMock)
 	vars := []TestSchematicTerraformVar{
@@ -121,11 +131,17 @@ func TestSchematicUpdateWorkspace(t *testing.T) {
 }
 
 func TestUploadSchematicTarFile(t *testing.T) {
+	zero := 0
 	schematicSvc := new(schematicServiceMock)
 	svc := &SchematicsTestService{
 		SchematicsApiSvc: schematicSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
+		TestOptions: &TestSchematicOptions{
+			Testing:                      new(testing.T),
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
 	}
 	pathError := new(os.PathError)
 	mockErrorType := new(schematicErrorMock)
@@ -157,6 +173,7 @@ func TestUploadSchematicTarFile(t *testing.T) {
 }
 
 func TestSchematicCreatePlanJob(t *testing.T) {
+	zero := 0
 	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
@@ -164,6 +181,11 @@ func TestSchematicCreatePlanJob(t *testing.T) {
 		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
+		TestOptions: &TestSchematicOptions{
+			Testing:                      new(testing.T),
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
 	}
 	mockErrorType := new(schematicErrorMock)
 
@@ -182,6 +204,7 @@ func TestSchematicCreatePlanJob(t *testing.T) {
 }
 
 func TestSchematicCreateApplyJob(t *testing.T) {
+	zero := 0
 	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
@@ -189,6 +212,11 @@ func TestSchematicCreateApplyJob(t *testing.T) {
 		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
+		TestOptions: &TestSchematicOptions{
+			Testing:                      new(testing.T),
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
 	}
 	mockErrorType := new(schematicErrorMock)
 
@@ -208,6 +236,7 @@ func TestSchematicCreateApplyJob(t *testing.T) {
 }
 
 func TestSchematicCreateDestroyJob(t *testing.T) {
+	zero := 0
 	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
@@ -215,6 +244,11 @@ func TestSchematicCreateDestroyJob(t *testing.T) {
 		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
+		TestOptions: &TestSchematicOptions{
+			Testing:                      new(testing.T),
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
 	}
 	mockErrorType := new(schematicErrorMock)
 
@@ -234,6 +268,7 @@ func TestSchematicCreateDestroyJob(t *testing.T) {
 }
 
 func TestSchematicFindJob(t *testing.T) {
+	zero := 0
 	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
@@ -241,6 +276,11 @@ func TestSchematicFindJob(t *testing.T) {
 		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
+		TestOptions: &TestSchematicOptions{
+			Testing:                      new(testing.T),
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
 	}
 	mockErrorType := new(schematicErrorMock)
 	notFoundErrorType := errors.NotFound("mock")
@@ -289,6 +329,7 @@ func TestSchematicFindJob(t *testing.T) {
 }
 
 func TestSchematicGetJobDetail(t *testing.T) {
+	zero := 0
 	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
@@ -296,6 +337,11 @@ func TestSchematicGetJobDetail(t *testing.T) {
 		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
+		TestOptions: &TestSchematicOptions{
+			Testing:                      new(testing.T),
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
 	}
 	mockErrorType := new(schematicErrorMock)
 
@@ -319,6 +365,7 @@ func TestSchematicGetJobDetail(t *testing.T) {
 }
 
 func TestSchematicDeleteWorkspace(t *testing.T) {
+	zero := 0
 	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
@@ -326,6 +373,11 @@ func TestSchematicDeleteWorkspace(t *testing.T) {
 		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
+		TestOptions: &TestSchematicOptions{
+			Testing:                      new(testing.T),
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
 	}
 	mockErrorType := new(schematicErrorMock)
 
@@ -345,6 +397,7 @@ func TestSchematicDeleteWorkspace(t *testing.T) {
 }
 
 func TestSchematicWaitForJobFinish(t *testing.T) {
+	zero := 0
 	schematicSvc := new(schematicServiceMock)
 	authSvc := new(iamAuthenticatorMock)
 	svc := &SchematicsTestService{
@@ -352,6 +405,11 @@ func TestSchematicWaitForJobFinish(t *testing.T) {
 		ApiAuthenticator: authSvc,
 		WorkspaceID:      mockWorkspaceID,
 		TemplateID:       mockTemplateID,
+		TestOptions: &TestSchematicOptions{
+			Testing:                      new(testing.T),
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
 	}
 	mockErrorType := new(schematicErrorMock)
 
@@ -369,5 +427,64 @@ func TestSchematicWaitForJobFinish(t *testing.T) {
 		schematicSvc.failGetWorkspaceActivity = true
 		_, err := svc.WaitForFinalJobStatus(mockActivityID)
 		assert.ErrorAs(t, err, &mockErrorType)
+	})
+}
+
+func TestSchematicApiRetry(t *testing.T) {
+	retry := 1
+	svc := &SchematicsTestService{
+		TestOptions: &TestSchematicOptions{
+			SchematicSvcRetryCount:       &retry,
+			SchematicSvcRetryWaitSeconds: &retry,
+		},
+	}
+
+	testErr := errors.NotFound("not found")
+
+	t.Run("NoErrorNoRetry", func(t *testing.T) {
+		wasRetry := svc.retryApiCall(nil, 200, 0)
+		assert.False(t, wasRetry)
+	})
+
+	t.Run("ErrorMaxRetries", func(t *testing.T) {
+		wasRetry := svc.retryApiCall(testErr, 404, 1)
+		assert.False(t, wasRetry)
+	})
+
+	t.Run("RetryOnError", func(t *testing.T) {
+		wasRetry := svc.retryApiCall(testErr, 404, 0)
+		assert.True(t, wasRetry)
+	})
+
+	t.Run("ErrorNoRetryException", func(t *testing.T) {
+		wasRetry := svc.retryApiCall(testErr, getApiRetryStatusExceptions()[0], 0)
+		assert.False(t, wasRetry)
+	})
+
+	t.Run("VerifyDefaultUsed", func(t *testing.T) {
+		zero := 0
+		svc.TestOptions = &TestSchematicOptions{
+			SchematicSvcRetryWaitSeconds: &zero,
+		}
+		loops := 0
+		for {
+			wasRetry := svc.retryApiCall(testErr, 404, loops)
+			if wasRetry {
+				loops++
+			} else {
+				break
+			}
+		}
+		assert.Equal(t, defaultApiRetryCount, loops)
+	})
+
+	t.Run("VerifyCanTurnOffRetry", func(t *testing.T) {
+		zero := 0
+		svc.TestOptions = &TestSchematicOptions{
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		}
+		wasRetry := svc.retryApiCall(testErr, 404, 0)
+		assert.False(t, wasRetry)
 	})
 }

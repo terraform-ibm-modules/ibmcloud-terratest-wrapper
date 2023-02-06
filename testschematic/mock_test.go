@@ -13,6 +13,7 @@ import (
 )
 
 const mockWorkspaceID = "ws12345"
+const mockWorkspaceName = "NewWorkspace-12345"
 const mockTemplateID = "template54321"
 const mockActivityID = "activity98765"
 const mockPlanID = "plan123"
@@ -74,11 +75,12 @@ func mockSchematicServiceReset(mock *schematicServiceMock, options *TestSchemati
 // SCHEMATIC SERVICE MOCK FUNCTIONS
 func (mock *schematicServiceMock) CreateWorkspace(createWorkspaceOptions *schematics.CreateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error) {
 	if mock.failCreateWorkspace {
-		return nil, nil, &schematicErrorMock{}
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 
 	result := &schematics.WorkspaceResponse{
-		ID: core.StringPtr(mockWorkspaceID),
+		ID:   core.StringPtr(mockWorkspaceID),
+		Name: core.StringPtr(mockWorkspaceName),
 		TemplateData: []schematics.TemplateSourceDataResponse{
 			{ID: core.StringPtr(mockTemplateID)},
 		},
@@ -89,7 +91,7 @@ func (mock *schematicServiceMock) CreateWorkspace(createWorkspaceOptions *schema
 
 func (mock *schematicServiceMock) UpdateWorkspace(updateWorkspaceOptions *schematics.UpdateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error) {
 	if mock.failCreateWorkspace {
-		return nil, nil, &schematicErrorMock{}
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 
 	result := &schematics.WorkspaceResponse{
@@ -104,7 +106,7 @@ func (mock *schematicServiceMock) UpdateWorkspace(updateWorkspaceOptions *schema
 
 func (mock *schematicServiceMock) DeleteWorkspace(deleteWorkspaceOptions *schematics.DeleteWorkspaceOptions) (*string, *core.DetailedResponse, error) {
 	if mock.failDeleteWorkspace {
-		return nil, nil, &schematicErrorMock{}
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 	result := core.StringPtr("deleted")
 	response := &core.DetailedResponse{StatusCode: 200}
@@ -114,7 +116,7 @@ func (mock *schematicServiceMock) DeleteWorkspace(deleteWorkspaceOptions *schema
 
 func (mock *schematicServiceMock) TemplateRepoUpload(templateRepoUploadOptions *schematics.TemplateRepoUploadOptions) (*schematics.TemplateRepoTarUploadResponse, *core.DetailedResponse, error) {
 	if mock.failTemplateRepoUpload {
-		return nil, nil, &schematicErrorMock{}
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 	result := &schematics.TemplateRepoTarUploadResponse{
 		ID: core.StringPtr(mockWorkspaceID),
@@ -125,7 +127,7 @@ func (mock *schematicServiceMock) TemplateRepoUpload(templateRepoUploadOptions *
 
 func (mock *schematicServiceMock) ReplaceWorkspaceInputs(replaceWorkspaceInputsOptions *schematics.ReplaceWorkspaceInputsOptions) (*schematics.UserValues, *core.DetailedResponse, error) {
 	if mock.failReplaceWorkspaceInputs {
-		return nil, nil, &schematicErrorMock{}
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 	result := &schematics.UserValues{
 		Variablestore: []schematics.WorkspaceVariableResponse{},
@@ -136,7 +138,7 @@ func (mock *schematicServiceMock) ReplaceWorkspaceInputs(replaceWorkspaceInputsO
 
 func (mock *schematicServiceMock) ListWorkspaceActivities(listWorkspaceactivitiesOptions *schematics.ListWorkspaceActivitiesOptions) (*schematics.WorkspaceActivities, *core.DetailedResponse, error) {
 	if mock.failListWorkspaceActivities {
-		return nil, nil, &schematicErrorMock{}
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 	var result *schematics.WorkspaceActivities
 	if mock.emptyListWorkspaceActivities {
@@ -165,11 +167,11 @@ func (mock *schematicServiceMock) ListWorkspaceActivities(listWorkspaceactivitie
 
 func (mock *schematicServiceMock) GetWorkspaceActivity(getWorkspaceActivityOptions *schematics.GetWorkspaceActivityOptions) (*schematics.WorkspaceActivity, *core.DetailedResponse, error) {
 	if mock.failGetWorkspaceActivity {
-		return nil, nil, &schematicErrorMock{}
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 
 	if getWorkspaceActivityOptions.WID == nil || getWorkspaceActivityOptions.ActivityID == nil {
-		return nil, nil, &schematicErrorMock{}
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 
 	var result *schematics.WorkspaceActivity
@@ -198,7 +200,7 @@ func (mock *schematicServiceMock) findActivity(id string) *schematics.WorkspaceA
 
 func (mock *schematicServiceMock) PlanWorkspaceCommand(planWorkspaceCommandOptions *schematics.PlanWorkspaceCommandOptions) (*schematics.WorkspaceActivityPlanResult, *core.DetailedResponse, error) {
 	if mock.failPlanWorkspaceCommand {
-		return nil, nil, &schematicErrorMock{}
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 	result := &schematics.WorkspaceActivityPlanResult{
 		Activityid: core.StringPtr(mockPlanID),
@@ -209,7 +211,7 @@ func (mock *schematicServiceMock) PlanWorkspaceCommand(planWorkspaceCommandOptio
 
 func (mock *schematicServiceMock) ApplyWorkspaceCommand(applyWorkspaceCommandOptions *schematics.ApplyWorkspaceCommandOptions) (*schematics.WorkspaceActivityApplyResult, *core.DetailedResponse, error) {
 	if mock.failApplyWorkspaceCommand {
-		return nil, nil, &schematicErrorMock{}
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 	result := &schematics.WorkspaceActivityApplyResult{
 		Activityid: core.StringPtr(mockApplyID),
@@ -221,7 +223,7 @@ func (mock *schematicServiceMock) ApplyWorkspaceCommand(applyWorkspaceCommandOpt
 
 func (mock *schematicServiceMock) DestroyWorkspaceCommand(destroyWorkspaceCommandOptions *schematics.DestroyWorkspaceCommandOptions) (*schematics.WorkspaceActivityDestroyResult, *core.DetailedResponse, error) {
 	if mock.failDestroyWorkspaceCommand {
-		return nil, nil, &schematicErrorMock{}
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 	result := &schematics.WorkspaceActivityDestroyResult{
 		Activityid: core.StringPtr(mockDestroyID),
