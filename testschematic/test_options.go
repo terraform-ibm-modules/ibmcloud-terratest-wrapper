@@ -19,7 +19,7 @@ const defaultRegionYaml = "../common-dev-assets/common-go-assets/cloudinfo-regio
 const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 const defaultGitUserEnvKey = "GIT_TOKEN_USER"
 const defaultGitTokenEnvKey = "GIT_TOKEN"
-const DefaultWaitJobCompleteMinutes = int16(120) // default 2 hrs wait time
+const DefaultWaitJobCompleteMinutes = int16(240) // default 4 hrs wait time
 const DefaultSchematicsApiURL = "https://schematics.cloud.ibm.com"
 
 // TestSchematicOptions is the main data struct containing all options related to running a Terraform unit test wihtin IBM Schematics Workspaces
