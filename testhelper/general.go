@@ -1,4 +1,4 @@
-// Package testhelper General helper functions that can be used in tests
+// Package testhelper contains functions that can be used to assist and standardize the execution of unit tests for IBM Cloud Terraform projects
 package testhelper
 
 import (

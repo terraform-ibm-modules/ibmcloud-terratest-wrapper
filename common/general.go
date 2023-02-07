@@ -1,3 +1,4 @@
+// Package common contains general functions that are used by various packages and unit tests in ibmcloud-terratest-wrapper module
 package common
 
 import (
