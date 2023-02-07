@@ -1,3 +1,5 @@
+// Package testschematic contains functions that can be used to assist and standardize the execution of unit tests for IBM Cloud Terraform projects
+// by using the IBM Cloud Schematics service
 package testschematic
 
 import (
