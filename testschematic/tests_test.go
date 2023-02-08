@@ -21,6 +21,7 @@ func TestSchematicFullTest(t *testing.T) {
 		TemplateID:       mockTemplateID,
 	}
 	//mockErrorType := new(schematicv1ErrorMock)
+	zero := 0
 
 	options := &TestSchematicOptions{
 		Testing:                 new(testing.T),
@@ -32,12 +33,14 @@ func TestSchematicFullTest(t *testing.T) {
 			{Name: "var1", Value: "val1", DataType: "string", Secure: false},
 			{Name: "var2", Value: "val2", DataType: "string", Secure: false},
 		},
-		Tags:                   []string{"unit-test"},
-		TarIncludePatterns:     []string{"*.md"},
-		WaitJobCompleteMinutes: 1,
-		DeleteWorkspaceOnFail:  false,
-		SchematicsApiSvc:       schematicSvc,
-		schematicsTestSvc:      svc,
+		Tags:                         []string{"unit-test"},
+		TarIncludePatterns:           []string{"*.md"},
+		WaitJobCompleteMinutes:       1,
+		DeleteWorkspaceOnFail:        false,
+		SchematicsApiSvc:             schematicSvc,
+		schematicsTestSvc:            svc,
+		SchematicSvcRetryCount:       &zero,
+		SchematicSvcRetryWaitSeconds: &zero,
 	}
 
 	// mock at least one good tar upload and one other completed activity

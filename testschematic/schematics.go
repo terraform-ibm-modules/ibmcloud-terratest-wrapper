@@ -6,7 +6,6 @@ import (
 	"archive/tar"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,6 +30,15 @@ const SchematicsJobStatusCompleted = "COMPLETED"
 const SchematicsJobStatusFailed = "FAILED"
 const SchematicsJobStatusCreated = "CREATED"
 const SchematicsJobStatusInProgress = "INPROGRESS"
+
+// Defaults for API retry mechanic
+const defaultApiRetryCount int = 5
+const defaultApiRetryWaitSeconds int = 5
+
+// golang does not support constant array/slice, this is our constant
+func getApiRetryStatusExceptions() []int {
+	return []int{401, 403}
+}
 
 // interface for the external schematics service api. Can be mocked for tests
 type SchematicsApiSvcI interface {
@@ -59,6 +67,7 @@ type SchematicsTestService struct {
 	SchematicsApiSvc          SchematicsApiSvcI     // the main schematics service interface
 	ApiAuthenticator          IamAuthenticatorSvcI  // the authenticator used for schematics api calls
 	WorkspaceID               string                // workspace ID used for tests
+	WorkspaceName             string                // name of workspace that was created for test
 	TemplateID                string                // workspace template ID used for tests
 	TestOptions               *TestSchematicOptions // additional testing options
 	TerraformTestStarted      bool                  // keeps track of when actual Terraform resource testing has begin, used for proper test teardown logic
@@ -160,7 +169,20 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 		Tags:          tags,
 	}
 
-	workspace, _, workspaceErr := svc.SchematicsApiSvc.CreateWorkspace(createWorkspaceOptions)
+	var workspace *schematics.WorkspaceResponse
+	var resp *core.DetailedResponse
+	var workspaceErr error
+	retries := 0
+	for {
+		workspace, resp, workspaceErr = svc.SchematicsApiSvc.CreateWorkspace(createWorkspaceOptions)
+		if svc.retryApiCall(workspaceErr, resp.StatusCode, retries) {
+			retries++
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY CreateWorkspace, status code: %d", resp.StatusCode)
+		} else {
+			break
+		}
+	}
+
 	if workspaceErr != nil {
 		return nil, workspaceErr
 	}
@@ -168,6 +190,7 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 	// set workspace and template IDs created for later use
 	svc.WorkspaceID = *workspace.ID
 	svc.TemplateID = *workspace.TemplateData[0].ID
+	svc.WorkspaceName = *workspace.Name
 
 	return workspace, nil
 }
@@ -205,7 +228,19 @@ func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTer
 	}
 
 	// now update template
-	_, _, updateErr := svc.SchematicsApiSvc.ReplaceWorkspaceInputs(templateModel)
+	var resp *core.DetailedResponse
+	var updateErr error
+	retries := 0
+	for {
+		_, resp, updateErr = svc.SchematicsApiSvc.ReplaceWorkspaceInputs(templateModel)
+		if svc.retryApiCall(updateErr, resp.StatusCode, retries) {
+			retries++
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ReplaceWorkspaceInputs, status code: %d", resp.StatusCode)
+		} else {
+			break
+		}
+	}
+
 	if updateErr != nil {
 		return updateErr
 	}
@@ -229,7 +264,18 @@ func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
 		FileContentType: core.StringPtr("application/octet-stream"),
 	}
 
-	_, _, uploadErr := svc.SchematicsApiSvc.TemplateRepoUpload(uploadTarOptions)
+	var resp *core.DetailedResponse
+	var uploadErr error
+	retries := 0
+	for {
+		_, resp, uploadErr = svc.SchematicsApiSvc.TemplateRepoUpload(uploadTarOptions)
+		if svc.retryApiCall(uploadErr, resp.StatusCode, retries) {
+			retries++
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY TemplateRepoUpload, status code: %d", resp.StatusCode)
+		} else {
+			break
+		}
+	}
 	if uploadErr != nil {
 		return uploadErr
 	}
@@ -245,10 +291,22 @@ func (svc *SchematicsTestService) CreatePlanJob() (*schematics.WorkspaceActivity
 		return nil, tokenErr
 	}
 
-	planResult, _, err := svc.SchematicsApiSvc.PlanWorkspaceCommand(&schematics.PlanWorkspaceCommandOptions{
-		WID:          core.StringPtr(svc.WorkspaceID),
-		RefreshToken: core.StringPtr(refreshToken),
-	})
+	var planResult *schematics.WorkspaceActivityPlanResult
+	var resp *core.DetailedResponse
+	var err error
+	retries := 0
+	for {
+		planResult, resp, err = svc.SchematicsApiSvc.PlanWorkspaceCommand(&schematics.PlanWorkspaceCommandOptions{
+			WID:          core.StringPtr(svc.WorkspaceID),
+			RefreshToken: core.StringPtr(refreshToken),
+		})
+		if svc.retryApiCall(err, resp.StatusCode, retries) {
+			retries++
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY PlanWorkspaceCommand, status code: %d", resp.StatusCode)
+		} else {
+			break
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -264,10 +322,22 @@ func (svc *SchematicsTestService) CreateApplyJob() (*schematics.WorkspaceActivit
 		return nil, tokenErr
 	}
 
-	applyResult, _, err := svc.SchematicsApiSvc.ApplyWorkspaceCommand(&schematics.ApplyWorkspaceCommandOptions{
-		WID:          core.StringPtr(svc.WorkspaceID),
-		RefreshToken: core.StringPtr(refreshToken),
-	})
+	var applyResult *schematics.WorkspaceActivityApplyResult
+	var resp *core.DetailedResponse
+	var err error
+	retries := 0
+	for {
+		applyResult, resp, err = svc.SchematicsApiSvc.ApplyWorkspaceCommand(&schematics.ApplyWorkspaceCommandOptions{
+			WID:          core.StringPtr(svc.WorkspaceID),
+			RefreshToken: core.StringPtr(refreshToken),
+		})
+		if svc.retryApiCall(err, resp.StatusCode, retries) {
+			retries++
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ApplyWorkspaceCommand, status code: %d", resp.StatusCode)
+		} else {
+			break
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -283,10 +353,22 @@ func (svc *SchematicsTestService) CreateDestroyJob() (*schematics.WorkspaceActiv
 		return nil, tokenErr
 	}
 
-	destroyResult, _, err := svc.SchematicsApiSvc.DestroyWorkspaceCommand(&schematics.DestroyWorkspaceCommandOptions{
-		WID:          core.StringPtr(svc.WorkspaceID),
-		RefreshToken: core.StringPtr(refreshToken),
-	})
+	var destroyResult *schematics.WorkspaceActivityDestroyResult
+	var resp *core.DetailedResponse
+	var err error
+	retries := 0
+	for {
+		destroyResult, resp, err = svc.SchematicsApiSvc.DestroyWorkspaceCommand(&schematics.DestroyWorkspaceCommandOptions{
+			WID:          core.StringPtr(svc.WorkspaceID),
+			RefreshToken: core.StringPtr(refreshToken),
+		})
+		if svc.retryApiCall(err, resp.StatusCode, retries) {
+			retries++
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY DestroyWorkspaceCommand, status code: %d", resp.StatusCode)
+		} else {
+			break
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -300,9 +382,22 @@ func (svc *SchematicsTestService) CreateDestroyJob() (*schematics.WorkspaceActiv
 func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (*schematics.WorkspaceActivity, error) {
 
 	// get array of jobs using workspace id
-	listResult, _, listErr := svc.SchematicsApiSvc.ListWorkspaceActivities(&schematics.ListWorkspaceActivitiesOptions{
-		WID: core.StringPtr(svc.WorkspaceID),
-	})
+	var listResult *schematics.WorkspaceActivities
+	var resp *core.DetailedResponse
+	var listErr error
+	retries := 0
+	for {
+		listResult, resp, listErr = svc.SchematicsApiSvc.ListWorkspaceActivities(&schematics.ListWorkspaceActivitiesOptions{
+			WID: core.StringPtr(svc.WorkspaceID),
+		})
+		if svc.retryApiCall(listErr, resp.StatusCode, retries) {
+			retries++
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ListWorkspaceActivities, status code: %d", resp.StatusCode)
+		} else {
+			break
+		}
+	}
+
 	if listErr != nil {
 		return nil, listErr
 	}
@@ -336,10 +431,23 @@ func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (
 func (svc *SchematicsTestService) GetWorkspaceJobDetail(jobID string) (*schematics.WorkspaceActivity, error) {
 
 	// look up job by ID
-	activityResponse, _, err := svc.SchematicsApiSvc.GetWorkspaceActivity(&schematics.GetWorkspaceActivityOptions{
-		WID:        core.StringPtr(svc.WorkspaceID),
-		ActivityID: core.StringPtr(jobID),
-	})
+	var activityResponse *schematics.WorkspaceActivity
+	var resp *core.DetailedResponse
+	var err error
+	retries := 0
+	for {
+		activityResponse, resp, err = svc.SchematicsApiSvc.GetWorkspaceActivity(&schematics.GetWorkspaceActivityOptions{
+			WID:        core.StringPtr(svc.WorkspaceID),
+			ActivityID: core.StringPtr(jobID),
+		})
+		if svc.retryApiCall(err, resp.StatusCode, retries) {
+			retries++
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY GetWorkspaceActivity, status code: %d", resp.StatusCode)
+		} else {
+			break
+		}
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +488,7 @@ func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, e
 		}
 		// only log svc once a minute or so
 		if runMinutes > lastLog {
-			log.Printf("[SCHEMATICS] ... still waiting for job %s to complete: %d minutes", *job.Name, runMinutes)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] ... still waiting for job %s to complete: %d minutes", *job.Name, runMinutes)
 			lastLog = runMinutes
 		}
 
@@ -389,7 +497,7 @@ func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, e
 			len(*job.Status) > 0 &&
 			*job.Status != SchematicsJobStatusCreated &&
 			*job.Status != SchematicsJobStatusInProgress {
-			log.Printf("[SCHEMATICS] The status of job %s is: %s", *job.Name, *job.Status)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] The status of job %s is: %s", *job.Name, *job.Status)
 			break
 		}
 
@@ -411,11 +519,24 @@ func (svc *SchematicsTestService) DeleteWorkspace() (string, error) {
 		return "", tokenErr
 	}
 
-	result, _, err := svc.SchematicsApiSvc.DeleteWorkspace(&schematics.DeleteWorkspaceOptions{
-		WID:              core.StringPtr(svc.WorkspaceID),
-		RefreshToken:     core.StringPtr(refreshToken),
-		DestroyResources: core.StringPtr("false"),
-	})
+	var result *string
+	var resp *core.DetailedResponse
+	var err error
+	retries := 0
+	for {
+		result, resp, err = svc.SchematicsApiSvc.DeleteWorkspace(&schematics.DeleteWorkspaceOptions{
+			WID:              core.StringPtr(svc.WorkspaceID),
+			RefreshToken:     core.StringPtr(refreshToken),
+			DestroyResources: core.StringPtr("false"),
+		})
+		if svc.retryApiCall(err, resp.StatusCode, retries) {
+			retries++
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY DeleteWorkspace, status code: %d", resp.StatusCode)
+		} else {
+			break
+		}
+	}
+
 	if err != nil {
 		return "", fmt.Errorf("delete of schematic job failed: %w", err)
 	}
@@ -432,12 +553,6 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 
 	// create unique tar filename
 	target := fmt.Sprintf("%sschematic-test-%s.tar", os.TempDir(), strings.ToLower(random.UniqueId()))
-
-	// files are relative to the root of the project
-	chdirErr := os.Chdir(projectPath)
-	if chdirErr != nil {
-		return "", chdirErr
-	}
 
 	// set up tarfile on filesystem
 	tarfile, fileErr := os.Create(target)
@@ -476,7 +591,9 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 	}
 
 	for _, pattern := range *includePatterns {
-		files, _ := filepath.Glob(pattern)
+		// for glob search, use full path plus pattern
+		patternPath := filepath.Join(projectPath, pattern)
+		files, _ := filepath.Glob(patternPath)
 
 		// loop through files
 		for _, fileName := range files {
@@ -485,7 +602,13 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 			if infoErr != nil {
 				return "", infoErr
 			}
-			fileDir := filepath.Dir(fileName)
+			// keep the full path to file, and a relative path based on project path
+			// full path used for info lookups, relative is used for inside TAR file
+			fullFileDir := filepath.Dir(fileName)
+			relFileDir, relFileDirErr := filepath.Rel(projectPath, fullFileDir)
+			if relFileDirErr != nil {
+				return "", relFileDirErr
+			}
 
 			// skip directories that were directly found by the Glob, we will add those another way (see below)
 			if info.IsDir() {
@@ -497,27 +620,27 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 				return "", hdrErr
 			}
 
-			// the FI header sets the name as base name only, so to preserve the leading directories (if needed)
+			// the FI header sets the name as base name only, so to preserve the leading relative directories (if needed)
 			// we will alter the name
-			if fileDir != "." {
-				hdr.Name = filepath.Join(parentDirInfo.Name(), fileDir, hdr.Name)
+			if relFileDir != "." {
+				hdr.Name = filepath.Join(parentDirInfo.Name(), relFileDir, hdr.Name)
 				hdr.Linkname = hdr.Name
 
 				// if the file resides in subdirectory, add that directory to tar file so that extraction works correctly
-				if !common.StrArrayContains(dirsAdded, fileDir) {
-					dirInfo, dirInfoErr := os.Stat(fileDir)
+				if !common.StrArrayContains(dirsAdded, relFileDir) {
+					dirInfo, dirInfoErr := os.Stat(fullFileDir)
 					if dirInfoErr != nil {
 						return "", dirInfoErr
 					}
-					dirHdr, dirHdrErr := tar.FileInfoHeader(dirInfo, filepath.Join(parentDirInfo.Name(), fileDir))
+					dirHdr, dirHdrErr := tar.FileInfoHeader(dirInfo, filepath.Join(parentDirInfo.Name(), relFileDir))
 					if dirHdrErr != nil {
 						return "", dirHdrErr
 					}
-					dirHdr.Name = filepath.Join(parentDirInfo.Name(), fileDir) // use full path
+					dirHdr.Name = filepath.Join(parentDirInfo.Name(), relFileDir) // use full realative path
 					if tarWriteDirErr := tw.WriteHeader(dirHdr); tarWriteDirErr != nil {
 						return "", tarWriteDirErr
 					}
-					dirsAdded = append(dirsAdded, fileDir)
+					dirsAdded = append(dirsAdded, relFileDir)
 				}
 			} else {
 				// file is at root level, put it right below parent dir
@@ -583,4 +706,36 @@ func addNetrcToWorkspaceEnv(values *[]interface{}, metadata *[]schematics.Enviro
 	*values = append(*values, map[string]string{"__netrc__": netrcValue})
 	// add a metadata entry for sensitive value
 	*metadata = append(*metadata, schematics.EnvironmentValuesMetadata{Name: core.StringPtr("__netrc__"), Hidden: core.BoolPtr(false), Secure: core.BoolPtr(true)})
+}
+
+func (svc *SchematicsTestService) retryApiCall(apiError error, apiStatusCode int, currentRetryCount int) bool {
+	// set up defaults
+	maxRetries := defaultApiRetryCount
+	maxWait := defaultApiRetryWaitSeconds
+
+	// override defaults if provided
+	if svc.TestOptions.SchematicSvcRetryCount != nil {
+		maxRetries = *svc.TestOptions.SchematicSvcRetryCount
+	}
+	if svc.TestOptions.SchematicSvcRetryWaitSeconds != nil {
+		maxWait = *svc.TestOptions.SchematicSvcRetryWaitSeconds
+	}
+
+	// if we are at our max retry count, do not retry
+	if currentRetryCount >= maxRetries {
+		return false
+	}
+
+	// if no error was returned, or if it was and we should ignore status code, do not retry
+	if apiError == nil {
+		return false
+	} else {
+		if common.IntArrayContains(getApiRetryStatusExceptions(), apiStatusCode) {
+			return false
+		}
+	}
+
+	// wait and retry
+	time.Sleep(time.Duration(maxWait) * time.Second)
+	return true
 }

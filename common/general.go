@@ -165,3 +165,14 @@ func StrArrayContains(arr []string, val string) bool {
 
 	return false
 }
+
+// IntArrayContains is a helper function that will check an array and see if an int value is already present
+func IntArrayContains(arr []int, val int) bool {
+	for _, arrVal := range arr {
+		if arrVal == val {
+			return true
+		}
+	}
+
+	return false
+}

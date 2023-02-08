@@ -111,6 +111,16 @@ type TestSchematicOptions struct {
 	CloudInfoService  cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 	SchematicsApiSvc  SchematicsApiSvcI           // OPTIONAL: service pointer for interacting with external schematics api
 	schematicsTestSvc *SchematicsTestService      // internal property to specify pointer to test service, used for test mocking
+
+	// These optional fields can be used to override the default retry settings for making Schematics API calls.
+	// If SDK/API calls to Schematics result in errors, such as retrieving existing workspace details,
+	// the test framework will retry those calls for a set number of times, with a wait time between calls.
+	//
+	// NOTE: these are pointers to int, so that we know they were purposly set (they are nil), as zero is a legitimate value
+	//
+	// Current Default: 5 retries, 5 second wait
+	SchematicSvcRetryCount       *int
+	SchematicSvcRetryWaitSeconds *int
 }
 
 type TestSchematicTerraformVar struct {
