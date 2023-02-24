@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20230120122421-afb48116b8f1
 	github.com/IBM-Cloud/power-go-client v1.2.2
-	github.com/IBM/go-sdk-core/v5 v5.12.1
+	github.com/IBM/go-sdk-core/v5 v5.12.2
 	github.com/IBM/platform-services-go-sdk v0.31.6
 	github.com/IBM/schematics-go-sdk v0.2.1
 	github.com/IBM/vpc-go-sdk v1.0.2
