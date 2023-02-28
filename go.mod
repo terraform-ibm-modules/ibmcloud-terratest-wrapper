@@ -6,6 +6,7 @@ require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20230120122421-afb48116b8f1
 	github.com/IBM-Cloud/power-go-client v1.2.2
 	github.com/IBM/go-sdk-core/v5 v5.12.1
+	github.com/IBM/ibm-cos-sdk-go v1.9.4
 	github.com/IBM/platform-services-go-sdk v0.31.6
 	github.com/IBM/schematics-go-sdk v0.2.1
 	github.com/IBM/vpc-go-sdk v1.0.2
@@ -88,10 +89,10 @@ require (
 	golang.org/x/crypto v0.3.0 // indirect
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect
 	golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4 // indirect
-	golang.org/x/net v0.2.0 // indirect
+	golang.org/x/net v0.5.0 // indirect
 	golang.org/x/oauth2 v0.0.0-20210514164344-f6687ab2804c // indirect
-	golang.org/x/sys v0.3.0 // indirect
-	golang.org/x/text v0.4.0 // indirect
+	golang.org/x/sys v0.4.0 // indirect
+	golang.org/x/text v0.6.0 // indirect
 	golang.org/x/tools v0.1.12 // indirect
 	google.golang.org/api v0.47.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect

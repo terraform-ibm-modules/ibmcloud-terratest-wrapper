@@ -2,16 +2,17 @@
 package cloudinfo
 
 import (
+	"context"
 	"errors"
-	"log"
-	"os"
-	"sync"
-
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
+	"log"
+	"os"
+	"sync"
 )
 
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
@@ -22,6 +23,7 @@ type CloudInfoService struct {
 	vpcService                vpcService
 	iamIdentityService        iamIdentityService
 	resourceControllerService resourceControllerService
+	cbrService                cbrService
 	regionsData               []RegionData
 	lock                      sync.Mutex
 }
@@ -44,6 +46,7 @@ type CloudInfoServiceOptions struct {
 	VpcService                vpcService
 	ResourceControllerService resourceControllerService
 	IamIdentityService        iamIdentityService
+	CbrService                cbrService
 	RegionPrefs               []RegionData
 }
 
@@ -81,6 +84,11 @@ type resourceControllerService interface {
 // ibmPowerService for external IBM Powercloud Service API. Used for mocking.
 type ibmPICloudConnectionClient interface {
 	GetAll() (*ibmpimodels.CloudConnections, error)
+}
+
+type cbrService interface {
+	GetRuleWithContext(context.Context, *contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
+	GetZoneWithContext(context.Context, *contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
 }
 
 // SortedRegionsDataByPriority is an array of RegionData struct that is used as a receiver to implement the
@@ -144,6 +152,23 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.vpcService = vpcService
+	}
+
+	// if vpcService is not supplied, use default of external service
+	if options.CbrService != nil {
+		infoSvc.cbrService = options.CbrService
+	} else {
+		// Instantiate the service with an API key based IAM authenticator
+		cbrService, cbrErr := contextbasedrestrictionsv1.NewContextBasedRestrictionsV1(&contextbasedrestrictionsv1.ContextBasedRestrictionsV1Options{
+			Authenticator: infoSvc.authenticator,
+		})
+
+		if cbrErr != nil {
+			log.Println("ERROR: Could not create NewVpcV1 service:", cbrErr)
+			return nil, cbrErr
+		}
+
+		infoSvc.cbrService = cbrService
 	}
 
 	// if resourceControllerService is not supplied use new external

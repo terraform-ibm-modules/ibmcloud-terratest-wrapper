@@ -1,16 +1,17 @@
 package cloudinfo
 
 import (
+	"context"
 	"errors"
-	"log"
-	"strconv"
-	"strings"
-
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"github.com/stretchr/testify/mock"
+	"log"
+	"strconv"
+	"strings"
 )
 
 // VPC SERVICE INTERFACE MOCK
@@ -123,4 +124,21 @@ func (mock *resourceControllerServiceMock) ListResourceInstances(options *resour
 	}
 
 	return retList, nil, nil
+}
+
+// Mock CBR
+type cbrServiceMock struct {
+	mock.Mock
+	rule             *contextbasedrestrictionsv1.Rule
+	zone             *contextbasedrestrictionsv1.Zone
+	detailedResponse *core.DetailedResponse
+	err              error
+}
+
+func (mock *cbrServiceMock) GetZoneWithContext(ctx context.Context, options *contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error) {
+	return mock.zone, mock.detailedResponse, mock.err
+}
+
+func (mock *cbrServiceMock) GetRuleWithContext(ctx context.Context, options *contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error) {
+	return mock.rule, mock.detailedResponse, mock.err
 }
