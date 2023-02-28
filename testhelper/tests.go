@@ -97,96 +97,110 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 // * If calling test had not provided its own TerraformOptions, then default settings are used
 // * Temp directory is created
 func (options *TestOptions) TestSetup() {
+	oldSetupValue := options.SkipTestSetup
+	options.SkipTestSetup = false
 	options.testSetup()
+	options.SkipTestSetup = oldSetupValue
 }
 
 // testSetup Setup test
 func (options *TestOptions) testSetup() {
-	os.Setenv("API_DATA_IS_SENSITIVE", "true")
-	// If calling test had not provided its own TerraformOptions, use the default settings
-	if options.TerraformOptions == nil {
-		// Construct the terraform options with default retryable errors to handle the most common
-		// retryable errors in terraform testing.
-		options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
-			// Set the path to the Terraform code that will be tested.
-			TerraformDir: options.TerraformDir,
-			Vars:         options.TerraformVars,
-			// Set Upgrade to true to ensure the latest version of providers and modules are used by terratest.
-			// This is the same as setting the -upgrade=true flag with terraform.
-			Upgrade: true,
-		})
-	}
-
-	// Ensure always running from git root
-	gitRoot, _ := common.GitRootPath(".")
-
-	// To avoid workspace collisions when running in parallel, ignoring any temp terraform files
-	// NOTE: if it is upgrade test we need hidden .git files
-	tempDirFilter := func(path string) bool {
-		if !options.IsUpgradeTest && files.PathContainsHiddenFileOrFolder(path) {
-			return false
+	if !options.SkipTestSetup {
+		os.Setenv("API_DATA_IS_SENSITIVE", "true")
+		// If calling test had not provided its own TerraformOptions, use the default settings
+		if options.TerraformOptions == nil {
+			// Construct the terraform options with default retryable errors to handle the most common
+			// retryable errors in terraform testing.
+			options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
+				// Set the path to the Terraform code that will be tested.
+				TerraformDir: options.TerraformDir,
+				Vars:         options.TerraformVars,
+				// Set Upgrade to true to ensure the latest version of providers and modules are used by terratest.
+				// This is the same as setting the -upgrade=true flag with terraform.
+				Upgrade: true,
+			})
 		}
-		if files.PathContainsTerraformStateOrVars(path) {
-			return false
+
+		// Ensure always running from git root
+		gitRoot, _ := common.GitRootPath(".")
+
+		// To avoid workspace collisions when running in parallel, ignoring any temp terraform files
+		// NOTE: if it is upgrade test we need hidden .git files
+		tempDirFilter := func(path string) bool {
+			if !options.IsUpgradeTest && files.PathContainsHiddenFileOrFolder(path) {
+				return false
+			}
+			if files.PathContainsTerraformStateOrVars(path) {
+				return false
+			}
+			return true
 		}
-		return true
-	}
-	tempDir, tempDirErr := files.CopyFolderToTemp(gitRoot, options.Prefix, tempDirFilter)
-	require.Nil(options.Testing, tempDirErr, "Error setting up TEMP directory")
-	logger.Log(options.Testing, "TEMP TESTING DIR CREATED: ", tempDir)
+		tempDir, tempDirErr := files.CopyFolderToTemp(gitRoot, options.Prefix, tempDirFilter)
+		require.Nil(options.Testing, tempDirErr, "Error setting up TEMP directory")
+		logger.Log(options.Testing, "TEMP TESTING DIR CREATED: ", tempDir)
 
-	options.TerraformDir = fmt.Sprintf("%s/%s", tempDir, options.TerraformDir)
-	options.baseTempWorkingDir = tempDir
+		options.TerraformDir = fmt.Sprintf("%s/%s", tempDir, options.TerraformDir)
+		options.baseTempWorkingDir = tempDir
 
-	// update existing TerraformOptions with full path of new temp location
-	options.TerraformOptions.TerraformDir = options.TerraformDir
+		// update existing TerraformOptions with full path of new temp location
+		options.TerraformOptions.TerraformDir = options.TerraformDir
 
-	options.WorkspacePath = options.TerraformDir
-	if options.UseTerraformWorkspace {
-		// Always run in a new clean workspace to avoid reusing existing state files
-		options.WorkspaceName = terraform.WorkspaceSelectOrNew(options.Testing, options.TerraformOptions, options.Prefix)
-		options.WorkspacePath = fmt.Sprintf("%s/terraform.tfstate.d/%s", options.WorkspacePath, options.Prefix)
+		options.WorkspacePath = options.TerraformDir
+		if options.UseTerraformWorkspace {
+			// Always run in a new clean workspace to avoid reusing existing state files
+			options.WorkspaceName = terraform.WorkspaceSelectOrNew(options.Testing, options.TerraformOptions, options.Prefix)
+			options.WorkspacePath = fmt.Sprintf("%s/terraform.tfstate.d/%s", options.WorkspacePath, options.Prefix)
+		}
+	} else {
+		logger.Log(options.Testing, "Skipping automatic Test Setup")
 	}
 }
 
 // Function to destroy all resources. Resources are not destroyed if tests failed and "DO_NOT_DESTROY_ON_FAILURE" environment variable is true.
 // If options.ImplicitDestroy is set then these resources from the State file are removed to allow implicit destroy.
 func (options *TestOptions) TestTearDown() {
+	oldTearDownValue := options.SkipTestTearDown
+	options.SkipTestTearDown = false
 	options.testTearDown()
+	options.SkipTestTearDown = oldTearDownValue
 }
 
 // testTearDown Tear down test
 func (options *TestOptions) testTearDown() {
-	// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
-	envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
+	if !options.SkipTestTearDown {
+		// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
+		envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
 
-	// Do not destroy if tests failed and "DO_NOT_DESTROY_ON_FAILURE" is true
-	if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
-		fmt.Println("Terratest failed. Debug the Test and delete resources manually.")
-	} else {
+		// Do not destroy if tests failed and "DO_NOT_DESTROY_ON_FAILURE" is true
+		if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+			fmt.Println("Terratest failed. Debug the Test and delete resources manually.")
+		} else {
 
-		for _, address := range options.ImplicitDestroy {
-			statefile := fmt.Sprintf("%s/terraform.tfstate", options.WorkspacePath)
-			out, err := RemoveFromStateFile(statefile, address)
-			if options.ImplicitRequired && err != nil {
-				logger.Log(options.Testing, out)
-				assert.Nil(options.Testing, err, "Could not remove from state file")
-			} else {
-				logger.Log(options.Testing, out)
+			for _, address := range options.ImplicitDestroy {
+				statefile := fmt.Sprintf("%s/terraform.tfstate", options.WorkspacePath)
+				out, err := RemoveFromStateFile(statefile, address)
+				if options.ImplicitRequired && err != nil {
+					logger.Log(options.Testing, out)
+					assert.Nil(options.Testing, err, "Could not remove from state file")
+				} else {
+					logger.Log(options.Testing, out)
+				}
 			}
-		}
 
-		logger.Log(options.Testing, "START: Destroy")
-		terraform.Destroy(options.Testing, options.TerraformOptions)
-		if options.UseTerraformWorkspace {
-			terraform.WorkspaceDelete(options.Testing, options.TerraformOptions, options.Prefix)
-		}
-		logger.Log(options.Testing, "END: Destroy")
+			logger.Log(options.Testing, "START: Destroy")
+			terraform.Destroy(options.Testing, options.TerraformOptions)
+			if options.UseTerraformWorkspace {
+				terraform.WorkspaceDelete(options.Testing, options.TerraformOptions, options.Prefix)
+			}
+			logger.Log(options.Testing, "END: Destroy")
 
-		// remove the temp directory which is one level above the working directory
-		tempDirParent := filepath.Dir(options.baseTempWorkingDir)
-		logger.Log(options.Testing, "Deleting the temp working directory")
-		os.RemoveAll(tempDirParent)
+			// remove the temp directory which is one level above the working directory
+			tempDirParent := filepath.Dir(options.baseTempWorkingDir)
+			logger.Log(options.Testing, "Deleting the temp working directory")
+			os.RemoveAll(tempDirParent)
+		}
+	} else {
+		logger.Log(options.Testing, "Skipping automatic Test Teardown")
 	}
 }
 
