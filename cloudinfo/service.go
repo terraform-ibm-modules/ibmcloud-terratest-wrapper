@@ -154,7 +154,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.vpcService = vpcService
 	}
 
-	// if vpcService is not supplied, use default of external service
+	// if CbrService is not supplied, use default of external service
 	if options.CbrService != nil {
 		infoSvc.cbrService = options.CbrService
 	} else {
@@ -164,7 +164,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		})
 
 		if cbrErr != nil {
-			log.Println("ERROR: Could not create NewVpcV1 service:", cbrErr)
+			log.Println("ERROR: Could not create contextbasedrestrictionsv1 service:", cbrErr)
 			return nil, cbrErr
 		}
 
