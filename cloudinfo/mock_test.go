@@ -1,7 +1,6 @@
 package cloudinfo
 
 import (
-	"context"
 	"errors"
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
@@ -135,10 +134,10 @@ type cbrServiceMock struct {
 	err              error
 }
 
-func (mock *cbrServiceMock) GetZoneWithContext(ctx context.Context, options *contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error) {
+func (mock *cbrServiceMock) GetZone(options *contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error) {
 	return mock.zone, mock.detailedResponse, mock.err
 }
 
-func (mock *cbrServiceMock) GetRuleWithContext(ctx context.Context, options *contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error) {
+func (mock *cbrServiceMock) GetRule(options *contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error) {
 	return mock.rule, mock.detailedResponse, mock.err
 }

@@ -2,7 +2,6 @@
 package cloudinfo
 
 import (
-	"context"
 	"errors"
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
@@ -87,8 +86,8 @@ type ibmPICloudConnectionClient interface {
 }
 
 type cbrService interface {
-	GetRuleWithContext(context.Context, *contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
-	GetZoneWithContext(context.Context, *contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
+	GetRule(*contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
+	GetZone(*contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
 }
 
 // SortedRegionsDataByPriority is an array of RegionData struct that is used as a receiver to implement the
