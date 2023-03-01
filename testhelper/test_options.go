@@ -114,6 +114,10 @@ type TestOptions struct {
 	// Set to true if you wish for an Upgrade test to do a final `terraform apply` after the consistency check on the new (not main) branch.
 	CheckApplyResultForUpgrade bool
 
+	// If you want to skip test setup and teardown use these
+	SkipTestSetup    bool
+	SkipTestTearDown bool
+
 	// These properties are considered READ ONLY and are used internally in the service to keep track of certain data elements.
 	// Some of these properties are public, and can be used after the test is run to determine specific outcomes.
 	IsUpgradeTest      bool   // Identifies if current test is an UPGRADE test, used for special processing
@@ -197,6 +201,8 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 			newOptions.Region, _ = GetBestVpcRegionO(newOptions.RequiredEnvironmentVars[ibmcloudApiKeyVar], defaultRegionYaml, newOptions.DefaultRegion, *regionOptions)
 		}
 	}
+	newOptions.SkipTestSetup = false
+	newOptions.SkipTestTearDown = false
 
 	newOptions.TerraformOptions = nil
 
