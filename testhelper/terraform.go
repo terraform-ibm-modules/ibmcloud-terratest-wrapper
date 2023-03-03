@@ -38,22 +38,26 @@ func RemoveFromStateFile(stateFile string, resourceAddress string) (string, erro
 func ValidateTerraformOutputs(outputs map[string]interface{}, expectedKeys ...string) ([]string, error) {
 	var missingKeys []string
 	var err error
+	// Set up ANSI escape codes for blue and bold text
+	blueBold := "\033[1;34m"
+	reset := "\033[0m"
+
 	for _, key := range expectedKeys {
 		value, ok := outputs[key]
 		if !ok {
 			missingKeys = append(missingKeys, key)
 			if err != nil {
-				err = fmt.Errorf("%wOutput: '%s' was not found\n", err, key)
+				err = fmt.Errorf("%wOutput: %s'%s'%s was not found\n", err, blueBold, key, reset)
 			} else {
-				err = fmt.Errorf("Output: '%s' was not found\n", key)
+				err = fmt.Errorf("Output: %s'%s'%s was not found\n", blueBold, key, reset)
 			}
 		} else {
 			if value == nil {
 				missingKeys = append(missingKeys, key)
 				if err != nil {
-					err = fmt.Errorf("%wOutput: '%s' was not expected to be nil\n", err, key)
+					err = fmt.Errorf("%wOutput: %s'%s'%s was not expected to be nil\n", err, blueBold, key, reset)
 				} else {
-					err = fmt.Errorf("Output: '%s' was not expected to be nil\n", key)
+					err = fmt.Errorf("Output: %s'%s'%s was not expected to be nil\n", blueBold, key, reset)
 				}
 			}
 		}

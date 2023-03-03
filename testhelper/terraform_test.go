@@ -39,7 +39,7 @@ func TestGetTerraformOutputs(t *testing.T) {
 		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Contains(t, missingKeys, "test4")
 		assert.Error(t, err)
-		assert.Equal(t, err.Error(), "Output: 'test4' was not expected to be nil\n")
+		assert.Equal(t, "Output: \x1b[1;34m'test4'\x1b[0m was not expected to be nil\n", err.Error())
 	})
 
 	t.Run("Not all outputs exist", func(t *testing.T) {
@@ -56,7 +56,7 @@ func TestGetTerraformOutputs(t *testing.T) {
 		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Contains(t, missingKeys, "test4")
 		assert.Error(t, err)
-		assert.Equal(t, err.Error(), "Output: 'test4' was not found\n")
+		assert.Equal(t, "Output: \x1b[1;34m'test4'\x1b[0m was not found\n", err.Error())
 	})
 
 	t.Run("Mixed errors", func(t *testing.T) {
@@ -74,6 +74,6 @@ func TestGetTerraformOutputs(t *testing.T) {
 		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Contains(t, missingKeys, "test4")
 		assert.Error(t, err)
-		assert.Equal(t, err.Error(), "Output: 'test4' was not found\nOutput: 'test5' was not found\nOutput: 'test6' was not expected to be nil\n")
+		assert.Equal(t, "Output: \x1b[1;34m'test4'\x1b[0m was not found\nOutput: \x1b[1;34m'test5'\x1b[0m was not found\nOutput: \x1b[1;34m'test6'\x1b[0m was not expected to be nil\n", err.Error())
 	})
 }
