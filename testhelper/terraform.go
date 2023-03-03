@@ -42,11 +42,19 @@ func ValidateTerraformOutputs(outputs map[string]interface{}, expectedKeys ...st
 		value, ok := outputs[key]
 		if !ok {
 			missingKeys = append(missingKeys, key)
-			err = fmt.Errorf("%w\nOutput %s was not found\n", err, key)
+			if err != nil {
+				err = fmt.Errorf("%wOutput %s was not found\n", err, key)
+			} else {
+				err = fmt.Errorf("Output %s was not found\n", key)
+			}
 		} else {
 			if value == nil {
-				err = fmt.Errorf("%wOutput %s was not expected to be nil\n", err, key)
 				missingKeys = append(missingKeys, key)
+				if err != nil {
+					err = fmt.Errorf("%wOutput %s was not expected to be nil\n", err, key)
+				} else {
+					err = fmt.Errorf("Output %s was not expected to be nil\n", key)
+				}
 			}
 		}
 	}
