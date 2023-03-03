@@ -39,7 +39,7 @@ func TestGetTerraformOutputs(t *testing.T) {
 		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Contains(t, missingKeys, "test4")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "Output test4 was not expected to be nil")
+		assert.Equal(t, err.Error(), "Output: 'test4' was not expected to be nil\n")
 	})
 
 	t.Run("Not all outputs exist", func(t *testing.T) {
@@ -56,6 +56,24 @@ func TestGetTerraformOutputs(t *testing.T) {
 		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Contains(t, missingKeys, "test4")
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "Output test4 was not found")
+		assert.Equal(t, err.Error(), "Output: 'test4' was not found\n")
+	})
+
+	t.Run("Mixed errors", func(t *testing.T) {
+		// Generate a map of static key-value pairs for testing purposes.
+		outputs := map[string]interface{}{
+			"test1": "1234",
+			"test2": "5678",
+			"test3": "91011",
+			"test6": nil,
+		}
+
+		// Extract a slice of the keys for use in the test.
+		expectedKeys := []string{"test1", "test2", "test3", "test4", "test5", "test6"}
+
+		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
+		assert.Contains(t, missingKeys, "test4")
+		assert.Error(t, err)
+		assert.Equal(t, err.Error(), "Output: 'test4' was not found\nOutput: 'test5' was not found\nOutput: 'test6' was not expected to be nil\n")
 	})
 }
