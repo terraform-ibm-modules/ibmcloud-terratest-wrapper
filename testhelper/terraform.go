@@ -7,7 +7,6 @@ import (
 	"log"
 	"os/exec"
 	"path/filepath"
-	"testing"
 )
 
 // RemoveFromStateFile Attempts to remove resource from state file
@@ -33,27 +32,24 @@ func RemoveFromStateFile(stateFile string, resourceAddress string) (string, erro
 	}
 }
 
-// GetTerraformOutputs This function takes the output from terraform.OutputAll, 1..N strings.
-// // For each string, it gets the value and checks if it could successfully get the value.
-// // The function returns a map of the found values with their keys and a list of the output keys that were not found.
-func GetTerraformOutputs(t *testing.T, outputs map[string]interface{}, outputKeys ...string) (map[string]interface{}, []string) {
-	foundValues := make(map[string]interface{})
+// ValidateTerraformOutputs takes a map of Terraform output keys and values, it checks if all the
+// expected output keys are present. The function returns a list of the output keys that were not found
+// and an error message that includes details about which keys were missing.
+func ValidateTerraformOutputs(outputs map[string]interface{}, expectedKeys ...string) ([]string, error) {
 	var missingKeys []string
-
-	for _, key := range outputKeys {
+	var err error
+	for _, key := range expectedKeys {
 		value, ok := outputs[key]
 		if !ok {
 			missingKeys = append(missingKeys, key)
-			t.Errorf("Output %s was not found", key)
+			err = fmt.Errorf("%w\nOutput %s was not found\n", err, key)
 		} else {
-			if value != nil {
-				foundValues[key] = value
-			} else {
-				t.Errorf("Output %s was not expected to be nil", key)
+			if value == nil {
+				err = fmt.Errorf("%wOutput %s was not expected to be nil\n", err, key)
 				missingKeys = append(missingKeys, key)
 			}
 		}
 	}
 
-	return foundValues, missingKeys
+	return missingKeys, err
 }

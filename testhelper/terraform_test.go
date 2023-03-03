@@ -13,15 +13,15 @@ func TestGetTerraformOutputs(t *testing.T) {
 			"test1": "1234",
 			"test2": "5678",
 			"test3": "91011",
-			"test4": []string{"12", "123"},
+			"test4": "98427",
 		}
 
 		// Extract a slice of the keys for use in the test.
-		outputKeys := []string{"test1", "test2", "test3", "test4"}
+		expectedKeys := []string{"test1", "test2", "test3", "test4"}
 
-		foundValues, missingKeys := GetTerraformOutputs(t, outputs, outputKeys...)
-		assert.Equal(t, len(outputKeys), len(foundValues))
+		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Empty(t, missingKeys)
+		assert.NoError(t, err)
 	})
 
 	t.Run("All outputs exist, but with nil value", func(t *testing.T) {
@@ -34,14 +34,12 @@ func TestGetTerraformOutputs(t *testing.T) {
 		}
 
 		// Extract a slice of the keys for use in the test.
-		outputKeys := []string{"test1", "test2", "test3", "test4"}
+		expectedKeys := []string{"test1", "test2", "test3", "test4"}
 
-		failedT := new(testing.T)
-		foundValues, missingKeys := GetTerraformOutputs(failedT, outputs, outputKeys...)
-		assert.True(t, failedT.Failed(), "test4 should have caused an error because it is nil")
-
+		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Contains(t, missingKeys, "test4")
-		assert.Equal(t, len(outputKeys)-1, len(foundValues))
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "Output test4 was not expected to be nil")
 	})
 
 	t.Run("Not all outputs exist", func(t *testing.T) {
@@ -53,16 +51,11 @@ func TestGetTerraformOutputs(t *testing.T) {
 		}
 
 		// Extract a slice of the keys for use in the test.
-		outputKeys := []string{"test1", "test2", "test3", "test4"}
+		expectedKeys := []string{"test1", "test2", "test3", "test4"}
 
-		failedT := new(testing.T)
-		foundValues, missingKeys := GetTerraformOutputs(failedT, outputs, outputKeys...)
-		assert.True(t, failedT.Failed(), "test4 should have caused an error because it is missing")
-
-		assert.Equal(t, len(foundValues), len(outputKeys)-1)
+		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Contains(t, missingKeys, "test4")
-		assert.NotContains(t, missingKeys, "test1")
-		assert.NotContains(t, missingKeys, "test2")
-		assert.NotContains(t, missingKeys, "test3")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "Output test4 was not found")
 	})
 }
