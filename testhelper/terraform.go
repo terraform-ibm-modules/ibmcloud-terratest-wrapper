@@ -7,6 +7,7 @@ import (
 	"log"
 	"os/exec"
 	"path/filepath"
+	"testing"
 )
 
 // RemoveFromStateFile Attempts to remove resource from state file
@@ -30,4 +31,29 @@ func RemoveFromStateFile(stateFile string, resourceAddress string) (string, erro
 
 		return "", errors.New(errorMsg)
 	}
+}
+
+// GetTerraformOutputs This function takes the output from terraform.OutputAll, 1..N strings.
+// // For each string, it gets the value and checks if it could successfully get the value.
+// // The function returns a map of the found values with their keys and a list of the output keys that were not found.
+func GetTerraformOutputs(t *testing.T, outputs map[string]interface{}, outputKeys ...string) (map[string]interface{}, []string) {
+	foundValues := make(map[string]interface{})
+	var missingKeys []string
+
+	for _, key := range outputKeys {
+		value, ok := outputs[key]
+		if !ok {
+			missingKeys = append(missingKeys, key)
+			t.Errorf("Output %s was not found", key)
+		} else {
+			if value != nil {
+				foundValues[key] = value
+			} else {
+				t.Errorf("Output %s was not expected to be nil", key)
+				missingKeys = append(missingKeys, key)
+			}
+		}
+	}
+
+	return foundValues, missingKeys
 }
