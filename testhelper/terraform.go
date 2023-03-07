@@ -7,6 +7,7 @@ import (
 	"log"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // RemoveFromStateFile Attempts to remove resource from state file
@@ -52,12 +53,18 @@ func ValidateTerraformOutputs(outputs map[string]interface{}, expectedKeys ...st
 				err = fmt.Errorf("Output: %s'%s'%s was not found\n", blueBold, key, reset)
 			}
 		} else {
-			if value == nil {
+			if value == nil || len(strings.Trim(value.(string), " ")) == 0 {
 				missingKeys = append(missingKeys, key)
+				expected := "unknown"
+				if value == nil {
+					expected = "nil"
+				} else if len(strings.Trim(value.(string), " ")) == 0 {
+					expected = "blank string"
+				}
 				if err != nil {
-					err = fmt.Errorf("%wOutput: %s'%s'%s was not expected to be nil\n", err, blueBold, key, reset)
+					err = fmt.Errorf("%wOutput: %s'%s'%s was not expected to be %s\n", err, blueBold, key, reset, expected)
 				} else {
-					err = fmt.Errorf("Output: %s'%s'%s was not expected to be nil\n", blueBold, key, reset)
+					err = fmt.Errorf("Output: %s'%s'%s was not expected to be %s\n", blueBold, key, reset, expected)
 				}
 			}
 		}
