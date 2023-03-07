@@ -7,6 +7,7 @@ import (
 	"log"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // RemoveFromStateFile Attempts to remove resource from state file
@@ -30,4 +31,44 @@ func RemoveFromStateFile(stateFile string, resourceAddress string) (string, erro
 
 		return "", errors.New(errorMsg)
 	}
+}
+
+// ValidateTerraformOutputs takes a map of Terraform output keys and values, it checks if all the
+// expected output keys are present. The function returns a list of the output keys that were not found
+// and an error message that includes details about which keys were missing.
+func ValidateTerraformOutputs(outputs map[string]interface{}, expectedKeys ...string) ([]string, error) {
+	var missingKeys []string
+	var err error
+	// Set up ANSI escape codes for blue and bold text
+	blueBold := "\033[1;34m"
+	reset := "\033[0m"
+
+	for _, key := range expectedKeys {
+		value, ok := outputs[key]
+		if !ok {
+			missingKeys = append(missingKeys, key)
+			if err != nil {
+				err = fmt.Errorf("%wOutput: %s'%s'%s was not found\n", err, blueBold, key, reset)
+			} else {
+				err = fmt.Errorf("Output: %s'%s'%s was not found\n", blueBold, key, reset)
+			}
+		} else {
+			if value == nil || len(strings.Trim(value.(string), " ")) == 0 {
+				missingKeys = append(missingKeys, key)
+				expected := "unknown"
+				if value == nil {
+					expected = "nil"
+				} else if len(strings.Trim(value.(string), " ")) == 0 {
+					expected = "blank string"
+				}
+				if err != nil {
+					err = fmt.Errorf("%wOutput: %s'%s'%s was not expected to be %s\n", err, blueBold, key, reset, expected)
+				} else {
+					err = fmt.Errorf("Output: %s'%s'%s was not expected to be %s\n", blueBold, key, reset, expected)
+				}
+			}
+		}
+	}
+
+	return missingKeys, err
 }
