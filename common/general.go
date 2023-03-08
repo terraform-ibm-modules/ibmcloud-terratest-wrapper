@@ -3,6 +3,9 @@ package common
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"gopkg.in/yaml.v3"
 	"os"
 	"os/exec"
 	"reflect"
@@ -175,4 +178,24 @@ func IntArrayContains(arr []int, val int) bool {
 	}
 
 	return false
+}
+
+// LoadMapFromYaml loads a YAML file into a map[string]interface{}.
+// It returns the resulting map and any error encountered.
+func LoadMapFromYaml(filePath string) (map[string]interface{}, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("file not found: %w", err)
+		}
+		return nil, err
+	}
+
+	var result map[string]interface{}
+	err = yaml.Unmarshal(data, &result)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing YAML data: %w", err)
+	}
+
+	return result, nil
 }
