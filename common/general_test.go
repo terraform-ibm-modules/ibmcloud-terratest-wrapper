@@ -1,6 +1,8 @@
 package common
 
 import (
+	"os"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -139,5 +141,77 @@ func TestIsArray(t *testing.T) {
 		obj := &TestObject{"hello", 99}
 		sis := IsArray(*obj)
 		assert.False(t, sis)
+	})
+}
+
+// / TestLoadMapFromYaml tests the LoadMapFromYaml function.
+func TestLoadMapFromYaml(t *testing.T) {
+	yamlData := `
+        name: John
+        age: 30
+        isMarried: true
+        hobbies:
+          - reading
+          - running
+          - swimming
+        address:
+          street: 123 Main St.
+          city: Anytown
+          state: CA
+          zip: "12345"
+    `
+	expectedOutput := map[string]interface{}{
+		"name":      "John",
+		"age":       30,
+		"isMarried": true,
+		"hobbies": []interface{}{
+			"reading",
+			"running",
+			"swimming",
+		},
+		"address": map[string]interface{}{
+			"street": "123 Main St.",
+			"city":   "Anytown",
+			"state":  "CA",
+			"zip":    "12345",
+		},
+	}
+
+	t.Run("valid yaml", func(t *testing.T) {
+		tempFile, err := os.CreateTemp("", "example.yaml")
+		if assert.Nilf(t, err, "Failed to create temporary file: %v", err) {
+
+			defer os.Remove(tempFile.Name())
+
+			_, err = tempFile.WriteString(yamlData)
+
+			if assert.Nilf(t, err, "Failed to write YAML data to file: %v", err) {
+				output, err := LoadMapFromYaml(tempFile.Name())
+				assert.Nilf(t, err, "Unexpected error: %v", err)
+				assert.Truef(t, reflect.DeepEqual(output, expectedOutput), "Unexpected output. Got %v, expected %v", output, expectedOutput)
+			}
+		}
+	})
+
+	t.Run("nonexistent file", func(t *testing.T) {
+		_, err := LoadMapFromYaml("nonexistent.yaml")
+		assert.Errorf(t, err, "Unexpected error. Got %v, expected %v", err, os.ErrNotExist)
+	})
+
+	t.Run("invalid yaml", func(t *testing.T) {
+		tempFile, err := os.CreateTemp("", "example.yaml")
+		if assert.Nilf(t, err, "Failed to create temporary file: %v", err) {
+			defer os.Remove(tempFile.Name())
+
+			_, err = tempFile.WriteString("invalid yaml data")
+			if err != nil {
+				t.Fatalf("Failed to write YAML data to file: %v", err)
+			}
+
+			_, err = LoadMapFromYaml(tempFile.Name())
+			if err == nil {
+				t.Error("Expected an error, but got none")
+			}
+		}
 	})
 }
