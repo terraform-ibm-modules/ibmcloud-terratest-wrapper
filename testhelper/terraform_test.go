@@ -14,10 +14,11 @@ func TestGetTerraformOutputs(t *testing.T) {
 			"test2": "5678",
 			"test3": "91011",
 			"test4": "98427",
+			"test5": []string{"substring", "substring"},
 		}
 
 		// Extract a slice of the keys for use in the test.
-		expectedKeys := []string{"test1", "test2", "test3", "test4"}
+		expectedKeys := []string{"test1", "test2", "test3", "test4", "test5"}
 
 		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Empty(t, missingKeys)

@@ -7,6 +7,7 @@ import (
 	"log"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 )
 
@@ -53,7 +54,7 @@ func ValidateTerraformOutputs(outputs map[string]interface{}, expectedKeys ...st
 				err = fmt.Errorf("Output: %s'%s'%s was not found\n", blueBold, key, reset)
 			}
 		} else {
-			if value == nil || len(strings.Trim(value.(string), " ")) == 0 {
+			if value == nil || (reflect.TypeOf(value).String() == "string" && len(strings.Trim(value.(string), " ")) == 0) {
 				missingKeys = append(missingKeys, key)
 				expected := "unknown"
 				if value == nil {
