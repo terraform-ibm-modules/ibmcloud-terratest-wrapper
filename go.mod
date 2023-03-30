@@ -3,7 +3,7 @@ module github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper
 go 1.20
 
 require (
-	github.com/IBM-Cloud/bluemix-go v0.0.0-20230120122421-afb48116b8f1
+	github.com/IBM-Cloud/bluemix-go v0.0.0-20230330100610-b58456b0d67e
 	github.com/IBM-Cloud/power-go-client v1.2.2
 	github.com/IBM/go-sdk-core/v5 v5.13.1
 	github.com/IBM/platform-services-go-sdk v0.35.0
