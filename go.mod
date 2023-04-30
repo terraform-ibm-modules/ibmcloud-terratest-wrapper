@@ -12,7 +12,7 @@ require (
 	github.com/go-git/go-git/v5 v5.6.1
 	github.com/go-openapi/errors v0.20.3
 	github.com/go-openapi/strfmt v0.21.7
-	github.com/gruntwork-io/terratest v0.41.21
+	github.com/gruntwork-io/terratest v0.41.23
 	github.com/jinzhu/copier v0.3.5
 	github.com/stretchr/testify v1.8.2
 	gopkg.in/yaml.v3 v3.0.1
