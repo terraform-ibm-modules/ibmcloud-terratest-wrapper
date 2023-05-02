@@ -50,6 +50,8 @@ func skipUpgradeTest(branch string) bool {
 // checkConsistency Fails the test if any destroys are detected and the resource is not exempt.
 // If any addresses are provided in IgnoreUpdates.List then fail on updates too unless the resource is exempt
 func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
+	validChange := false
+
 	for _, resource := range plan.ResourceChangesMap {
 		// get JSON string of full changes for the logs
 		changesBytes, changesErr := json.MarshalIndent(resource.Change, "", "  ")
@@ -58,6 +60,9 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 		if changesErr == nil {
 			changesJson = string(changesBytes)
 		}
+
+		// Run plan again to output the nice human-readable plan
+		//terraform.Plan(options.Testing, options.TerraformOptions)
 
 		var resourceDetails string
 
@@ -73,10 +78,12 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 			assert.False(options.Testing, resource.Change.Actions.Delete(), errorMessage)
 			assert.False(options.Testing, resource.Change.Actions.DestroyBeforeCreate(), errorMessage)
 			assert.False(options.Testing, resource.Change.Actions.CreateBeforeDestroy(), errorMessage)
+			validChange = true
 		}
 		if !options.IgnoreUpdates.IsExemptedResource(resource.Address) {
 			errorMessage = fmt.Sprintf("Resource(s) identified to be updated %s", resourceDetails)
 			assert.False(options.Testing, resource.Change.Actions.Update(), errorMessage)
+			validChange = true
 		}
 		// We only want to check pure Adds (creates without destroy) if the consistency test is
 		// NOT the result of an Upgrade, as some adds are expected when doing the Upgrade test
@@ -85,8 +92,13 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 			if !options.IgnoreAdds.IsExemptedResource(resource.Address) {
 				errorMessage = fmt.Sprintf("Resource(s) identified to be created %s", resourceDetails)
 				assert.False(options.Testing, resource.Change.Actions.Create(), errorMessage)
+				validChange = true
 			}
 		}
+	}
+	// Run plan again to output the nice human-readable plan if there are valid changes
+	if validChange {
+		terraform.Plan(options.Testing, options.TerraformOptions)
 	}
 }
 
@@ -377,6 +389,7 @@ func (options *TestOptions) runTestPlan() (*terraform.PlanStruct, error) {
 	// We are temporarily turning the terratest logger OFF (discard) while running "show" to prevent large JSON stdout.
 	options.TerraformOptions.Logger = logger.Discard
 	outputStruct, err := terraform.InitAndPlanAndShowWithStructE(options.Testing, options.TerraformOptions)
+
 	options.TerraformOptions.Logger = logger.Default // turn log back on
 
 	assert.Nil(options.Testing, err, "Failed to create plan: ", err)
