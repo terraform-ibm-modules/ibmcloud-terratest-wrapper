@@ -62,6 +62,9 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 			changesJson = string(changesBytes)
 		}
 
+		// Run plan again to output the nice human-readable plan
+		//terraform.Plan(options.Testing, options.TerraformOptions)
+
 		var resourceDetails string
 
 		if resource.Change.Actions.Update() {
