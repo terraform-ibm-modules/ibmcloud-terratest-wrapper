@@ -215,3 +215,12 @@ func TestLoadMapFromYaml(t *testing.T) {
 		}
 	})
 }
+
+func TestGenerateSshPublicKey(t *testing.T) {
+	newKey, err := GenerateSshRsaPublicKey()
+	assert.NoErrorf(t, err, "Failed to create key: %v", err)
+	if assert.NotEmpty(t, newKey) {
+		// make sure there are no newlines
+		assert.NotContains(t, newKey, "\n")
+	}
+}
