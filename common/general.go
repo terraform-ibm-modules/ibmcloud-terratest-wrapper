@@ -2,15 +2,19 @@
 package common
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"os"
 	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/ssh"
+	"gopkg.in/yaml.v3"
 
 	"github.com/stretchr/testify/require"
 )
@@ -198,4 +202,29 @@ func LoadMapFromYaml(filePath string) (map[string]interface{}, error) {
 	}
 
 	return result, nil
+}
+
+// Generate an SSH RSA Keypair (4096 bits), and return the PublicKey in OpenSSH Authorized Key format.
+// Used for tests to generate unique throw-away (but valid) SSH key to supply to test inputs.
+// SPECIAL NOTE: the newline character at end of key will be trimmed and not included!
+func GenerateSshRsaPublicKey() (string, error) {
+	// generate a new RSA key
+	newkey, keyerr := rsa.GenerateKey(rand.Reader, 4096)
+	if keyerr != nil {
+		return "", keyerr
+	}
+
+	// convert the RSA key into OpenSSH structure
+	pubKey, ssherr := ssh.NewPublicKey(&newkey.PublicKey)
+	if ssherr != nil {
+		return "", ssherr
+	}
+
+	// marshall public key into "authorized_key" format string (from binary)
+	pubKeyStr := string(ssh.MarshalAuthorizedKey(pubKey))
+
+	// trim all whitespace, including trailing newline
+	pubKeyStrTrim := strings.TrimSpace(pubKeyStr)
+
+	return pubKeyStrTrim, nil
 }
