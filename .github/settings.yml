@@ -10,6 +10,7 @@ repository:
   allow_merge_commit: false
   allow_rebase_merge: false
   delete_branch_on_merge: true
+  topics: "core-team"
 
 teams:
   - name: github-mergers # Use the slug name (!= display name) w/o organization !
