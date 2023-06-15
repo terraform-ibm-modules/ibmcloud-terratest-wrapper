@@ -302,9 +302,13 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			//       The solution here is to do this final checkout on the HASH of the original branch which will work
 			//       with both detached and normal branches.
 			resultErr = w.Checkout(&git.CheckoutOptions{
-				Hash:  prRef.Hash(),
-				Force: true})
+				Hash: prRef.Hash(),
+				Keep: true}) // Keep true so we do not blow away the state file
 			assert.Nilf(options.Testing, resultErr, "Could Not Checkout PR Branch")
+
+			_, stateErr := os.Stat(options.TerraformDir + "/terraform.tfstate")
+			assert.False(options.Testing, os.IsNotExist(stateErr), "State file not found cannot compare plan for test")
+
 			if resultErr == nil {
 				cur, _ = gitRepo.Head()
 				logger.Log(options.Testing, "Current Branch (PR):", cur.Name(), "-", cur.Hash())
