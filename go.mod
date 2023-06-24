@@ -4,7 +4,7 @@ go 1.20
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20230616121711-b838ccdcd2fb
-	github.com/IBM-Cloud/power-go-client v1.2.3
+	github.com/IBM-Cloud/power-go-client v1.2.4
 	github.com/IBM/go-sdk-core/v5 v5.13.4
 	github.com/IBM/platform-services-go-sdk v0.40.0
 	github.com/IBM/schematics-go-sdk v0.2.1
@@ -12,7 +12,7 @@ require (
 	github.com/go-git/go-git/v5 v5.7.0
 	github.com/go-openapi/errors v0.20.4
 	github.com/go-openapi/strfmt v0.21.7
-	github.com/gruntwork-io/terratest v0.43.0
+	github.com/gruntwork-io/terratest v0.43.4
 	github.com/jinzhu/copier v0.3.5
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/crypto v0.10.0
