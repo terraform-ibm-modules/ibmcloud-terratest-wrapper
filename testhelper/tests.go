@@ -3,8 +3,10 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -229,7 +231,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 	// Determine the name of the PR branch
 	branchCmd := exec.Command("/bin/sh", "-c", "git rev-parse --abbrev-ref HEAD")
 	branch, _ := branchCmd.CombinedOutput()
-
 	if skipUpgradeTest(string(branch)) {
 		options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
 	} else {
@@ -238,6 +239,14 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		// Setup the test including a TEMP directory to run in
 		options.testSetup()
+
+		// Create a temporary directory for the state file
+		tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
+		if err != nil {
+			log.Fatal(err)
+			logger.Log(options.Testing, err)
+		}
+		defer os.RemoveAll(tempDir) // clean up
 
 		// from here on we will operate in the temp directory
 		gitRoot, _ := common.GitRootPath(options.TerraformDir)
@@ -293,8 +302,19 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on MASTER branch has failed")
 
+		// Get the path to the state file
+		statePath := path.Join(options.TerraformDir, "terraform.tfstate")
+
+		// Copy the state file to the temporary directory
+		errCopyState := common.CopyFile(statePath, path.Join(tempDir, "terraform.tfstate"))
+		if errCopyState != nil {
+			log.Fatal(errCopyState)
+			logger.Log(options.Testing, errCopyState)
+		}
+
 		// Only proceed to upgrade Test of master branch apply passed
-		if resultErr == nil {
+		if resultErr == nil && errCopyState == nil {
+
 			logger.Log(options.Testing, "Attempting Git Checkout PR Branch:", prRef.Name(), "-", prRef.Hash())
 			// checkout the HASH of original (PR) branch.
 			// NOTE: in automation the original checkout branch is detached and points to the pseudo merge of the PR.
@@ -302,14 +322,20 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			//       The solution here is to do this final checkout on the HASH of the original branch which will work
 			//       with both detached and normal branches.
 			resultErr = w.Checkout(&git.CheckoutOptions{
-				Hash: prRef.Hash(),
-				Keep: true}) // Keep true so we do not blow away the state file
+				Hash:  prRef.Hash(),
+				Force: true})
 			assert.Nilf(options.Testing, resultErr, "Could Not Checkout PR Branch")
 
-			_, stateErr := os.Stat(options.TerraformDir + "/terraform.tfstate")
-			assert.False(options.Testing, os.IsNotExist(stateErr), "State file not found cannot compare plan for test")
+			// Copy the state file back to the original location
+			if errCopyState := common.CopyFile(path.Join(tempDir, "terraform.tfstate"), statePath); err != nil {
+				log.Fatal(errCopyState)
+				logger.Log(options.Testing, errCopyState)
+			}
 
-			if resultErr == nil {
+			_, stateErr := os.Stat(statePath)
+			assert.Nil(options.Testing, stateErr, "State file not found cannot compare plan for test")
+
+			if resultErr == nil && stateErr == nil {
 				cur, _ = gitRepo.Head()
 				logger.Log(options.Testing, "Current Branch (PR):", cur.Name(), "-", cur.Hash())
 
