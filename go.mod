@@ -3,8 +3,8 @@ module github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper
 go 1.20
 
 require (
-	github.com/IBM-Cloud/bluemix-go v0.0.0-20230601050310-eecebfbff63e
-	github.com/IBM-Cloud/power-go-client v1.2.3
+	github.com/IBM-Cloud/bluemix-go v0.0.0-20230616121711-b838ccdcd2fb
+	github.com/IBM-Cloud/power-go-client v1.2.4
 	github.com/IBM/go-sdk-core/v5 v5.13.4
 	github.com/IBM/platform-services-go-sdk v0.40.0
 	github.com/IBM/schematics-go-sdk v0.2.1
@@ -12,10 +12,10 @@ require (
 	github.com/go-git/go-git/v5 v5.7.0
 	github.com/go-openapi/errors v0.20.4
 	github.com/go-openapi/strfmt v0.21.7
-	github.com/gruntwork-io/terratest v0.43.0
+	github.com/gruntwork-io/terratest v0.43.6
 	github.com/jinzhu/copier v0.3.5
 	github.com/stretchr/testify v1.8.4
-	golang.org/x/crypto v0.9.0
+	golang.org/x/crypto v0.11.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -100,8 +100,8 @@ require (
 	golang.org/x/mod v0.10.0 // indirect
 	golang.org/x/net v0.10.0 // indirect
 	golang.org/x/oauth2 v0.8.0 // indirect
-	golang.org/x/sys v0.9.0 // indirect
-	golang.org/x/text v0.10.0 // indirect
+	golang.org/x/sys v0.10.0 // indirect
+	golang.org/x/text v0.11.0 // indirect
 	golang.org/x/tools v0.9.3 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/api v0.127.0 // indirect
@@ -110,7 +110,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20230530153820-e85fd2cbaebc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230530153820-e85fd2cbaebc // indirect
 	google.golang.org/grpc v1.55.0 // indirect
-	google.golang.org/protobuf v1.30.0 // indirect
+	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
