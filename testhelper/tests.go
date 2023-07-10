@@ -3,7 +3,6 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path"
@@ -243,7 +242,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Create a temporary directory for the state file
 		tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
 		if err != nil {
-			log.Fatal(err)
 			logger.Log(options.Testing, err)
 		}
 		defer os.RemoveAll(tempDir) // clean up
@@ -307,13 +305,9 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		// Copy the state file to the temporary directory
 		errCopyState := common.CopyFile(statePath, path.Join(tempDir, "terraform.tfstate"))
-		if errCopyState != nil {
-			log.Fatal(errCopyState)
-			logger.Log(options.Testing, errCopyState)
-		}
 
 		// Only proceed to upgrade Test of master branch apply passed
-		if resultErr == nil && errCopyState == nil {
+		if resultErr == nil && assert.Nil(options.Testing, errCopyState, fmt.Sprintf("Error copying state: %s", errCopyState)) {
 
 			logger.Log(options.Testing, "Attempting Git Checkout PR Branch:", prRef.Name(), "-", prRef.Hash())
 			// checkout the HASH of original (PR) branch.
@@ -327,15 +321,9 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			assert.Nilf(options.Testing, resultErr, "Could Not Checkout PR Branch")
 
 			// Copy the state file back to the original location
-			if errCopyState := common.CopyFile(path.Join(tempDir, "terraform.tfstate"), statePath); err != nil {
-				log.Fatal(errCopyState)
-				logger.Log(options.Testing, errCopyState)
-			}
+			errCopyState := common.CopyFile(path.Join(tempDir, "terraform.tfstate"), statePath)
 
-			_, stateErr := os.Stat(statePath)
-			assert.Nil(options.Testing, stateErr, "State file not found cannot compare plan for test")
-
-			if resultErr == nil && stateErr == nil {
+			if resultErr == nil && assert.Nil(options.Testing, errCopyState, fmt.Sprintf("State file not found cannot compare plan for test\nError copying state: %s", errCopyState)) {
 				cur, _ = gitRepo.Head()
 				logger.Log(options.Testing, "Current Branch (PR):", cur.Name(), "-", cur.Hash())
 
