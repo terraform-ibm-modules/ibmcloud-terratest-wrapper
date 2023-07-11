@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"reflect"
@@ -227,4 +228,27 @@ func GenerateSshRsaPublicKey() (string, error) {
 	pubKeyStrTrim := strings.TrimSpace(pubKeyStr)
 
 	return pubKeyStrTrim, nil
+}
+
+// CopyFile copies a file from source to destination.
+// Returns an error if the operation fails.
+func CopyFile(source, destination string) error {
+	src, err := os.Open(source)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer src.Close()
+
+	dst, err := os.Create(destination)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer dst.Close()
+
+	_, err = io.Copy(dst, src)
+	if err != nil {
+		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
+	return nil
 }
