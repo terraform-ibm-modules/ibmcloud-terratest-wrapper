@@ -9,10 +9,10 @@ require (
 	github.com/IBM/platform-services-go-sdk v0.41.0
 	github.com/IBM/schematics-go-sdk v0.2.1
 	github.com/IBM/vpc-go-sdk v1.0.2
-	github.com/go-git/go-git/v5 v5.7.0
+	github.com/go-git/go-git/v5 v5.8.0
 	github.com/go-openapi/errors v0.20.4
 	github.com/go-openapi/strfmt v0.21.7
-	github.com/gruntwork-io/terratest v0.43.8
+	github.com/gruntwork-io/terratest v0.43.9
 	github.com/jinzhu/copier v0.3.5
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/crypto v0.11.0
