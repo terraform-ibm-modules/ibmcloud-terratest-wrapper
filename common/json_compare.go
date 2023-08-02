@@ -71,13 +71,13 @@ func GetJsonComparison(jsonFile1 string, jsonFile2 string) bool {
 	// Read JSON from files
 	jsonData1, err := os.ReadFile(jsonFile1)
 	if err != nil {
-		fmt.Println("Error reading JSON file 1:", err)
+		fmt.Printf("Error reading JSON file : %s as \n %s", jsonFile1, err)
 		return false
 	}
 
 	jsonData2, err := os.ReadFile(jsonFile2)
 	if err != nil {
-		fmt.Println("Error reading JSON file 2:", err)
+		fmt.Printf("Error reading JSON file : %s as \n %s", jsonFile2, err)
 		return false
 	}
 
@@ -85,13 +85,13 @@ func GetJsonComparison(jsonFile1 string, jsonFile2 string) bool {
 	var data1, data2 map[string]interface{}
 	err = json.Unmarshal(jsonData1, &data1)
 	if err != nil {
-		fmt.Println("Error parsing JSON output from file 1:", err)
+		fmt.Printf("Error while parsing JSON file : %s as \n %s", jsonFile1, err)
 		return false
 	}
 
 	err = json.Unmarshal(jsonData2, &data2)
 	if err != nil {
-		fmt.Println("Error parsing JSON output from file 2:", err)
+		fmt.Printf("Error while parsing JSON file : %s as \n %s", jsonFile2, err)
 		return false
 	}
 

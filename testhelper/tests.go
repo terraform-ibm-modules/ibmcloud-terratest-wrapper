@@ -432,3 +432,28 @@ func (options *TestOptions) runTest() (string, error) {
 
 	return output, err
 }
+
+// RunTestConsistencyWithOutput extends RunTestConsistency method to return output of terraform apply.
+func (options *TestOptions) RunTestConsistencyWithOutput() (*terraform.PlanStruct, map[string]interface{}, error) {
+	options.testSetup()
+
+	logger.Log(options.Testing, "START: Init / Apply / Consistency Check")
+	_, err := options.runTest()
+
+	if err != nil {
+		options.testTearDown()
+		return nil, nil, err
+	}
+
+	result, err := options.runTestPlan()
+	if err != nil {
+		options.testTearDown()
+		return result, nil, err
+	}
+	options.checkConsistency(result)
+	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
+	// As the test was successfully completed, collected output after apply is completed.
+	output := terraform.OutputAll(options.Testing, options.TerraformOptions)
+	options.testTearDown()
+	return result, output, err
+}
