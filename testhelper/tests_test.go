@@ -171,3 +171,21 @@ func TestRunTestConsistency(t *testing.T) {
 	assert.Nil(t, err, "This should not have errored")
 	assert.NotNil(t, output, "Expected some output")
 }
+
+func TestRunTestConsistencyWithOutput(t *testing.T) {
+	t.Parallel()
+	os.Setenv("TF_VAR_ibmcloud_api_key", "12345")
+	options := TestOptionsDefaultWithVars(&TestOptions{
+		Testing:        t,
+		TerraformDir:   sample3,
+		Prefix:         "testRunConsistencyWithOutput",
+		ResourceGroup:  "test-rg",
+		Region:         "us-south",
+		TerraformVars:  terraformVars,
+		IgnoreDestroys: Exemptions{List: []string{"null_resource.sample"}},
+	})
+	_, output, err := options.RunTestConsistencyWithOutput()
+
+	assert.Nil(t, err, "This should not have errored")
+	assert.NotNil(t, output, "Expected some output")
+}
