@@ -359,6 +359,12 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 // RunTestConsistency Runs Test To check consistency between apply and re-apply, returns the output as string for further assertions
 func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) {
 	options.testSetup()
+	result, err := options.runTestConsistency()
+	options.testTearDown()
+	return result, err
+}
+
+func (options *TestOptions) runTestConsistency() (*terraform.PlanStruct, error) {
 
 	logger.Log(options.Testing, "START: Init / Apply / Consistency Check")
 	_, err := options.runTest()
@@ -373,7 +379,6 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 	}
 	options.checkConsistency(result)
 	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
-	options.testTearDown()
 
 	return result, err
 }
@@ -436,23 +441,7 @@ func (options *TestOptions) runTest() (string, error) {
 // RunTestConsistencyWithOutput extends RunTestConsistency method to return output of terraform apply.
 func (options *TestOptions) RunTestConsistencyWithOutput() (*terraform.PlanStruct, map[string]interface{}, error) {
 	options.testSetup()
-
-	logger.Log(options.Testing, "START: Init / Apply / Consistency Check")
-	_, err := options.runTest()
-
-	if err != nil {
-		options.testTearDown()
-		return nil, nil, err
-	}
-
-	result, err := options.runTestPlan()
-	if err != nil {
-		options.testTearDown()
-		return result, nil, err
-	}
-	options.checkConsistency(result)
-	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
-	// As the test was successfully completed, collected output after apply is completed.
+	result, err := options.runTestConsistency()
 	output := terraform.OutputAll(options.Testing, options.TerraformOptions)
 	options.testTearDown()
 	return result, output, err
