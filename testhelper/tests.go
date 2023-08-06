@@ -364,6 +364,7 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 	return result, err
 }
 
+// runTestConsistency Runs Test To check consistency between apply and re-apply, returns the output as string for further assertions for internal use no setup or teardown
 func (options *TestOptions) runTestConsistency() (*terraform.PlanStruct, error) {
 
 	logger.Log(options.Testing, "START: Init / Apply / Consistency Check")
@@ -438,7 +439,7 @@ func (options *TestOptions) runTest() (string, error) {
 	return output, err
 }
 
-// RunTestConsistencyWithOutput extends RunTestConsistency method to return output of terraform apply.
+// RunTestConsistencyWithOutput Runs consistency checks and returns output of terraform apply
 func (options *TestOptions) RunTestConsistencyWithOutput() (*terraform.PlanStruct, map[string]interface{}, error) {
 	options.testSetup()
 	result, err := options.runTestConsistency()

@@ -4,6 +4,7 @@ package common
 // in case of SLZ but can be used anywhere)
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -67,32 +68,33 @@ func SortMap(m map[string]interface{}) {
 	}
 }
 
-func GetJsonComparison(jsonFile1 string, jsonFile2 string) bool {
+// IsJsonEqual validates whether the two JSON files are equal or not
+func IsJsonEqual(jsonFile1 string, jsonFile2 string) (bool, error) {
 	// Read JSON from files
 	jsonData1, err := os.ReadFile(jsonFile1)
 	if err != nil {
-		fmt.Printf("Error reading JSON file : %s as \n %s", jsonFile1, err)
-		return false
+		newErr := fmt.Errorf("error reading json file %s :  %w", jsonFile1, err)
+		return false, newErr
 	}
 
 	jsonData2, err := os.ReadFile(jsonFile2)
 	if err != nil {
-		fmt.Printf("Error reading JSON file : %s as \n %s", jsonFile2, err)
-		return false
+		newErr := fmt.Errorf("error reading json file %s :  %w", jsonFile2, err)
+		return false, newErr
 	}
 
 	// Unmarshal JSON data into generic map[string]interface{}
 	var data1, data2 map[string]interface{}
 	err = json.Unmarshal(jsonData1, &data1)
 	if err != nil {
-		fmt.Printf("Error while parsing JSON file : %s as \n %s", jsonFile1, err)
-		return false
+		newErr := fmt.Errorf("error while parsing %s :  %w", jsonFile1, err)
+		return false, newErr
 	}
 
 	err = json.Unmarshal(jsonData2, &data2)
 	if err != nil {
-		fmt.Printf("Error while parsing JSON file : %s as \n %s", jsonFile2, err)
-		return false
+		newErr := fmt.Errorf("error while parsing %s :  %w", jsonFile2, err)
+		return false, newErr
 	}
 
 	// Sort the maps to ensure the keys are in a consistent order
@@ -100,12 +102,10 @@ func GetJsonComparison(jsonFile1 string, jsonFile2 string) bool {
 	SortMap(data2)
 
 	// Compare the maps using go-cmp with a custom slice comparator and float tolerance
-	if diff := cmp.Diff(data1, data2, cmpopts.EquateEmpty(), cmpopts.EquateApprox(0.0, 0.00001)); diff != "" {
-		fmt.Println("JSON files are different:")
-		fmt.Println(diff)
-		return false
-	} else {
-		fmt.Println("JSON files are equal")
-		return true
+	diff := cmp.Diff(data1, data2, cmpopts.EquateEmpty(), cmpopts.EquateApprox(0.0, 0.00001))
+	if diff != "" {
+		// If diff is not empty, create an error object with the diff string
+		return false, errors.New(diff)
 	}
+	return true, nil
 }
