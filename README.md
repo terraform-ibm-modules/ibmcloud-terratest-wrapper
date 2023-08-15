@@ -180,3 +180,25 @@ go test -v ./cloudinfo
 # run all packages tests, skipping template tests that exist in common-dev-assets
 go test -v $(go list ./... | grep -v /common-dev-assets/)
 ```
+
+<!-- BEGINNING OF PRE-COMMIT-TERRAFORM DOCS HOOK -->
+### Requirements
+
+No requirements.
+
+### Modules
+
+No modules.
+
+### Resources
+
+No resources.
+
+### Inputs
+
+No inputs.
+
+### Outputs
+
+No outputs.
+<!-- END OF PRE-COMMIT-TERRAFORM DOCS HOOK -->

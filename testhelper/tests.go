@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -232,7 +233,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 	// Determine the name of the PR branch
 	branchCmd := exec.Command("/bin/sh", "-c", "git rev-parse --abbrev-ref HEAD")
 	branch, _ := branchCmd.CombinedOutput()
-
 	if skipUpgradeTest(string(branch)) {
 		options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
 	} else {
@@ -241,6 +241,13 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		// Setup the test including a TEMP directory to run in
 		options.testSetup()
+
+		// Create a temporary directory for the state file
+		tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
+		if err != nil {
+			logger.Log(options.Testing, err)
+		}
+		defer os.RemoveAll(tempDir) // clean up
 
 		// from here on we will operate in the temp directory
 		gitRoot, _ := common.GitRootPath(options.TerraformDir)
@@ -296,8 +303,15 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on MASTER branch has failed")
 
+		// Get the path to the state file
+		statePath := path.Join(options.TerraformDir, "terraform.tfstate")
+
+		// Copy the state file to the temporary directory
+		errCopyState := common.CopyFile(statePath, path.Join(tempDir, "terraform.tfstate"))
+
 		// Only proceed to upgrade Test of master branch apply passed
-		if resultErr == nil {
+		if resultErr == nil && assert.Nil(options.Testing, errCopyState, fmt.Sprintf("Error copying state: %s", errCopyState)) {
+
 			logger.Log(options.Testing, "Attempting Git Checkout PR Branch:", prRef.Name(), "-", prRef.Hash())
 			// checkout the HASH of original (PR) branch.
 			// NOTE: in automation the original checkout branch is detached and points to the pseudo merge of the PR.
@@ -308,7 +322,11 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 				Hash:  prRef.Hash(),
 				Force: true})
 			assert.Nilf(options.Testing, resultErr, "Could Not Checkout PR Branch")
-			if resultErr == nil {
+
+			// Copy the state file back to the original location
+			errCopyState := common.CopyFile(path.Join(tempDir, "terraform.tfstate"), statePath)
+
+			if resultErr == nil && assert.Nil(options.Testing, errCopyState, fmt.Sprintf("State file not found cannot compare plan for test\nError copying state: %s", errCopyState)) {
 				cur, _ = gitRepo.Head()
 				logger.Log(options.Testing, "Current Branch (PR):", cur.Name(), "-", cur.Hash())
 
