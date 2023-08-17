@@ -300,14 +300,38 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			return nil, fmt.Errorf("failed to get default repo and branch: %v", err)
 		}
 
-		// Clone the base repo and branch into baseTempDir
-		_, err = git.PlainClone(baseTempDir, false, &git.CloneOptions{
+		authMethod, err := common.DetermineAuthMethod(baseRepo, options.BaseGitPersonalAccessToken, options.BaseGitPrivateSshKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to determine authentication method: %v", err)
+		}
+
+		// Try to clone with authentication first
+		_, errAuth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
 			URL:           baseRepo,
 			ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
 			SingleBranch:  true,
+			Auth:          authMethod,
 		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to clone base repo and branch: %v", err)
+
+		if errAuth != nil {
+			// Convert SSH URL to HTTPS URL
+			if strings.HasPrefix(baseRepo, "git@") {
+				baseRepo = strings.Replace(baseRepo, ":", "/", 1)
+				baseRepo = strings.Replace(baseRepo, "git@", "https://", 1)
+				baseRepo = strings.TrimSuffix(baseRepo, ".git") + ".git"
+			}
+
+			// Try to clone without authentication
+			_, errUnauth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
+				URL:           baseRepo,
+				ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
+				SingleBranch:  true,
+			})
+
+			if errUnauth != nil {
+				// If unauthenticated clone also fails, return the error from the authenticated approach
+				return nil, fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
+			}
 		}
 		// Set TerraformDir to the appropriate directory within baseTempDir
 		options.TerraformOptions.TerraformDir = path.Join(baseTempDir, relativeTestSampleDir)
@@ -318,14 +342,16 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Get the path to the state file in baseTempDir
 		baseStatePath := path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate")
 
-		// Set TerraformDir to the appropriate directory within prTempDir
-		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
-
 		// Copy the state file to the corresponding directory in prTempDir
 		errCopyState := common.CopyFile(baseStatePath, path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
 		if errCopyState != nil {
+			// Tear down the test
+			options.testTearDown()
 			return nil, fmt.Errorf("failed to copy state file: %v", errCopyState)
 		}
+
+		// Set TerraformDir to the appropriate directory within prTempDir
+		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
 
 		// Run Terraform plan in prTempDir
 		result, resultErr = options.runTestPlan()
