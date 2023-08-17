@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -37,18 +36,6 @@ func GetRequiredEnvVars(t *testing.T, variableNames []string) map[string]string 
 	require.Empty(t, missingVariables, "The following environment variables must be set: %v", missingVariables)
 
 	return envVars
-}
-
-// GitRootPath gets the path to the current git repos root directory
-func GitRootPath(fromPath string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	cmd.Dir = fromPath
-	path, err := cmd.Output()
-
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(path)), nil
 }
 
 // GetBeforeAfterDiff takes a JSON string as input and returns a string with the differences
@@ -233,6 +220,21 @@ func GenerateSshRsaPublicKey() (string, error) {
 // CopyFile copies a file from source to destination.
 // Returns an error if the operation fails.
 func CopyFile(source, destination string) error {
+	// Check if source is a symlink
+	srcInfo, err := os.Lstat(source)
+	if err != nil {
+		return fmt.Errorf("failed to stat source file: %w", err)
+	}
+
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		// Source is a symlink
+		linkTarget, err := os.Readlink(source)
+		if err != nil {
+			return fmt.Errorf("failed to read symlink: %w", err)
+		}
+		return os.Symlink(linkTarget, destination)
+	}
+
 	src, err := os.Open(source)
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
@@ -248,6 +250,44 @@ func CopyFile(source, destination string) error {
 	_, err = io.Copy(dst, src)
 	if err != nil {
 		return fmt.Errorf("failed to copy file contents: %w", err)
+	}
+
+	return nil
+}
+
+// CopyDirectory copies a directory from source to destination.
+// Returns an error if the operation fails.
+func CopyDirectory(src string, dst string) error {
+	srcInfo, err := os.Lstat(src)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+		return err
+	}
+
+	directory, _ := os.Open(src)
+	objects, err := directory.Readdir(-1)
+	if err != nil {
+		return err
+	}
+
+	for _, obj := range objects {
+		srcFile := src + "/" + obj.Name()
+		dstFile := dst + "/" + obj.Name()
+
+		if obj.IsDir() {
+			// Create sub-directories - recursively
+			if err = CopyDirectory(srcFile, dstFile); err != nil {
+				return err
+			}
+		} else {
+			// Perform the file copy
+			if err = CopyFile(srcFile, dstFile); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
