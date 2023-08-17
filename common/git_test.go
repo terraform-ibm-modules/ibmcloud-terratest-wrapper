@@ -73,6 +73,19 @@ func TestGetBaseRepoAndBranch_Negative(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestGetDefaultRepoAndBranch_SSHRemote(t *testing.T) {
+	mockCmd := new(MockCommander)
+	mockCmd.On("gitRootPath", mock.Anything).Return("../", nil)
+	mockCmd.On("getRemoteURL", mock.Anything).Return("git@github.com:terraform-ibm-modules/terraform-ibm-cbr.git", nil)
+	mockCmd.On("getSymbolicRef", mock.Anything).Return("refs/remotes/origin/main", nil)
+
+	repo, branch, err := getDefaultRepoAndBranch("../", mockCmd)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "git@github.com:terraform-ibm-modules/terraform-ibm-cbr.git", repo)
+	assert.Equal(t, "main", branch)
+}
+
 // Test for GetDefaultRepoAndBranch
 func TestGetDefaultRepoAndBranch(t *testing.T) {
 	mockCmd := new(MockCommander)

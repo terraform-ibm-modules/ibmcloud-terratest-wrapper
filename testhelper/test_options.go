@@ -19,7 +19,7 @@ const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 
 type TestOptions struct {
 	// REQUIRED: a pointer to an initialized testing object.
-	// Typically you would assign the test object used in the unit test.
+	// Typically, you would assign the test object used in the unit test.
 	Testing *testing.T `copier:"-"`
 
 	// The default constructors will use this map to check that all required environment variables are set properly.
@@ -76,6 +76,16 @@ type TestOptions struct {
 	// Will be overidden by environment variables BASE_TERRAFORM_REPO and BASE_TERRAFORM_BRANCH if set.
 	BaseTerraformRepo   string
 	BaseTerraformBranch string
+
+	// BaseGitPersonalAccessToken specifies the Personal Access Token (PAT) to use for Git operations.
+	// This token provides authentication the base repository is private and accessed over HTTPS.
+	// If the environment variable GIT_PAT is set, it will override this value.
+	BaseGitPersonalAccessToken string
+
+	// BaseGitPrivateSshKey specifies the private SSH key to use for Git operations.
+	// This key provides authentication when the repository is private and accessed over SSH.
+	// If the environment variable SSH_PRIVATE_KEY is set, it will override this value.
+	BaseGitPrivateSshKey string
 
 	// Resource tags to use for tests.
 	// NOTE: when using `...WithVars()` constructor, this value will be automatically added to the appropriate

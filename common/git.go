@@ -2,8 +2,12 @@
 package common
 
 import (
+	"errors"
 	"fmt"
-	"net/url"
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"golang.org/x/crypto/ssh"
 	"os"
 	"os/exec"
 	"strings"
@@ -41,11 +45,11 @@ func (r *realGitOps) getRemoteURL(repoDir string) (string, error) {
 	}
 	remoteURL := strings.TrimSpace(string(output))
 
-	// Convert SSH URL to HTTPS URL
-	if strings.HasPrefix(remoteURL, "git@") {
-		remoteURL = strings.Replace(remoteURL, ":", "/", 1)
-		remoteURL = strings.Replace(remoteURL, "git@", "https://", 1)
-	}
+	//// Convert SSH URL to HTTPS URL
+	//if strings.HasPrefix(remoteURL, "git@") {
+	//	remoteURL = strings.Replace(remoteURL, ":", "/", 1)
+	//	remoteURL = strings.Replace(remoteURL, "git@", "https://", 1)
+	//}
 
 	return remoteURL, nil
 }
@@ -129,13 +133,6 @@ func getDefaultRepoAndBranch(path string, ops gitOps) (string, string, error) {
 		return "", "", err
 	}
 
-	parsedURL, err := url.Parse(remote)
-	if err != nil {
-		return "", "", fmt.Errorf("error parsing URL: %v", err)
-	}
-	parsedURL.User = nil
-	defaultRepo := parsedURL.String()
-
 	branchRef, err := ops.getSymbolicRef(repo)
 	if err != nil {
 		return "", "", err
@@ -143,7 +140,7 @@ func getDefaultRepoAndBranch(path string, ops gitOps) (string, string, error) {
 	defaultBranch := strings.TrimSpace(branchRef)
 	defaultBranch = strings.TrimPrefix(defaultBranch, "refs/remotes/origin/")
 
-	return defaultRepo, defaultBranch, nil
+	return remote, defaultBranch, nil
 }
 
 // GetBaseRepoAndBranch determines the base repository URL and branch name based on a hierarchy of sources.
@@ -216,4 +213,70 @@ func getCurrentPrRepoAndBranch(ops gitOps) (string, string, error) {
 	}
 
 	return repoURL, branch, nil
+}
+
+// DetermineAuthMethod determines the appropriate authentication method for a given repository URL.
+// The function supports both HTTPS and SSH-based repositories.
+//
+// For HTTPS repositories:
+// - It first checks if the GIT_PAT environment variable is set. If so, it uses this as the Personal Access Token (PAT).
+// - If the GIT_PAT environment variable is not set, it uses the provided 'pat' parameter.
+//
+// For SSH repositories:
+// - It first checks if the SSH_PRIVATE_KEY environment variable is set. If so, it uses this as the SSH private key.
+// - If the SSH_PRIVATE_KEY environment variable is not set, it uses the provided 'sshPrivateKey' parameter.
+// - If the 'sshPrivateKey' parameter is not set, it attempts to use the default SSH key at ~/.ssh/id_rsa.
+//
+// Parameters:
+// - repoURL: The URL of the Git repository.
+// - pat: The Personal Access Token (PAT) for HTTPS repositories. This is used if the GIT_TOKEN environment variable is not set.
+// - sshPrivateKey: The SSH private key for SSH repositories. This is used if the SSH_PRIVATE_KEY environment variable is not set.
+//
+// Returns:
+// - An appropriate AuthMethod based on the repository URL and available credentials.
+// - An error if there's an issue parsing the SSH private key.
+func DetermineAuthMethod(repoURL string, pat string, sshPrivateKey string) (transport.AuthMethod, error) {
+	if strings.HasPrefix(repoURL, "https://") {
+		// Check for Personal Access Token (PAT) in environment variable
+		envPat, exists := os.LookupEnv("GIT_TOKEN")
+		if exists {
+			pat = envPat
+		}
+		if pat != "" {
+			return &http.BasicAuth{
+				Username: "git", // This can be anything except an empty string
+				Password: pat,
+			}, nil
+		}
+	} else if strings.HasPrefix(repoURL, "git@") {
+		// SSH authentication
+		envSSHKey, exists := os.LookupEnv("SSH_PRIVATE_KEY")
+		if exists {
+			sshPrivateKey = envSSHKey
+		}
+		if sshPrivateKey == "" {
+			// Attempt to use the default SSH key if none is provided
+			defaultKeyPath := os.ExpandEnv("$HOME/.ssh/id_rsa")
+			if _, err := os.Stat(defaultKeyPath); !os.IsNotExist(err) {
+				// Read the default key
+				keyBytes, err := os.ReadFile(defaultKeyPath)
+				if err != nil {
+					return nil, err
+				}
+				sshPrivateKey = string(keyBytes)
+			}
+		}
+		if sshPrivateKey != "" {
+			key, err := ssh.ParseRawPrivateKey([]byte(sshPrivateKey))
+			if err != nil {
+				return nil, err
+			}
+			signer, ok := key.(ssh.Signer)
+			if !ok {
+				return nil, errors.New("unable to cast private key to ssh.Signer")
+			}
+			return &gitssh.PublicKeys{User: "git", Signer: signer}, nil
+		}
+	}
+	return nil, nil // No authentication
 }
