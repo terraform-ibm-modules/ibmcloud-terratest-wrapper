@@ -71,6 +71,12 @@ type TestOptions struct {
 	WorkspaceName         string
 	WorkspacePath         string
 
+	// Use these options to specify a base terraform repo and branch to use for upgrade tests.
+	// If not supplied, the default logic will be used to determine the base repo and branch.
+	// Will be overidden by environment variables BASE_TERRAFORM_REPO and BASE_TERRAFORM_BRANCH if set.
+	BaseTerraformRepo   string
+	BaseTerraformBranch string
+
 	// Resource tags to use for tests.
 	// NOTE: when using `...WithVars()` constructor, this value will be automatically added to the appropriate
 	// TerraformVars entries for tags.
