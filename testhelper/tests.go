@@ -333,8 +333,10 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		if resultErr != nil {
 			logger.Log(options.Testing, "Error during Terraform Plan on PR branch:", resultErr)
 			assert.Nilf(options.Testing, resultErr, "Terraform Plan on PR branch has failed")
-			// If there were issues running InitAndPlan, reinitialize Terraform for potential downstream operations
-			terraform.Init(options.Testing, options.TerraformOptions)
+
+			// Tear down the test
+			options.testTearDown()
+
 			return nil, resultErr
 		}
 
@@ -348,6 +350,10 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			if applyErr != nil {
 				logger.Log(options.Testing, "Error during Terraform Apply on PR branch:", applyErr)
 				assert.Nilf(options.Testing, applyErr, "Terraform Apply on PR branch has failed")
+
+				// Tear down the test
+				options.testTearDown()
+
 				return nil, applyErr
 			}
 		}
