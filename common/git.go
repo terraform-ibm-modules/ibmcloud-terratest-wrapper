@@ -39,7 +39,15 @@ func (r *realGitOps) getRemoteURL(repoDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(output)), nil
+	remoteURL := strings.TrimSpace(string(output))
+
+	// Convert SSH URL to HTTPS URL
+	if strings.HasPrefix(remoteURL, "git@") {
+		remoteURL = strings.Replace(remoteURL, ":", "/", 1)
+		remoteURL = strings.Replace(remoteURL, "git@", "https://", 1)
+	}
+
+	return remoteURL, nil
 }
 
 func (r *realGitOps) gitRootPath(fromPath string) (string, error) {
