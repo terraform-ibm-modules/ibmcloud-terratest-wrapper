@@ -351,12 +351,17 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		}
 		// Set TerraformDir to the appropriate directory within baseTempDir
 		options.TerraformOptions.TerraformDir = path.Join(baseTempDir, relativeTestSampleDir)
-
+		logger.Log(options.Testing, "Init / Apply on Base repo:", baseRepo)
+		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
+		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
 
 		// Get the path to the state file in baseTempDir
 		baseStatePath := path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate")
+
+		// Set TerraformDir to the appropriate directory within prTempDir
+		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
 
 		// Copy the state file to the corresponding directory in prTempDir
 		errCopyState := common.CopyFile(baseStatePath, path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
@@ -368,11 +373,8 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			logger.Log(options.Testing, "State file copied to PR branch dir:", path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
 		}
 
-		logger.Log(options.Testing, "Validating upgrade on Current Branch (PR):", prBranch)
-		logger.Log(options.Testing, "In directory:", prTempDir)
-		// Set TerraformDir to the appropriate directory within prTempDir
-		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
-
+		logger.Log(options.Testing, "Init / Plan on PR Branch:", prBranch)
+		logger.Log(options.Testing, "Init / Plan on PR Branch dir:", options.TerraformOptions.TerraformDir)
 		// Run Terraform plan in prTempDir
 		result, resultErr = options.runTestPlan()
 
