@@ -254,6 +254,8 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 	_, prBranch, err := common.GetCurrentPrRepoAndBranch()
 	if err != nil {
 		return nil, fmt.Errorf("failed to determine the PR repo and branch: %v", err)
+	} else {
+		logger.Log(options.Testing, "PR Branch:", prBranch)
 	}
 
 	if skipUpgradeTest(prBranch) {
@@ -279,6 +281,8 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		prTempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-pr-%s", options.Prefix))
 		if err != nil {
 			logger.Log(options.Testing, err)
+		} else {
+			logger.Log(options.Testing, "TEMP PR DIR CREATED: ", prTempDir)
 		}
 		defer os.RemoveAll(prTempDir) // clean up
 
@@ -286,18 +290,25 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		errCopyPR := common.CopyDirectory(gitRoot, prTempDir)
 		if errCopyPR != nil {
 			return nil, fmt.Errorf("failed to copy PR code to temporary directory: %v", errCopyPR)
+		} else {
+			logger.Log(options.Testing, "PR Code copied to TEMP PR DIR: ", prTempDir)
 		}
 
 		// Create a temporary directory for the base branch
 		baseTempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-base-%s", options.Prefix))
 		if err != nil {
 			logger.Log(options.Testing, err)
+		} else {
+			logger.Log(options.Testing, "TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
 		}
 		defer os.RemoveAll(baseTempDir) // clean up
 
 		baseRepo, baseBranch, err := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get default repo and branch: %v", err)
+		} else {
+			logger.Log(options.Testing, "Base Repo:", baseRepo)
+			logger.Log(options.Testing, "Base Branch:", baseBranch)
 		}
 
 		authMethod, err := common.DetermineAuthMethod(baseRepo)
@@ -314,6 +325,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		})
 
 		if errAuth != nil {
+			logger.Log(options.Testing, "Failed to clone base repo and branch with authentication, trying without authentication...")
 			// Convert SSH URL to HTTPS URL
 			if strings.HasPrefix(baseRepo, "git@") {
 				baseRepo = strings.Replace(baseRepo, ":", "/", 1)
@@ -331,7 +343,11 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			if errUnauth != nil {
 				// If unauthenticated clone also fails, return the error from the authenticated approach
 				return nil, fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
+			} else {
+				logger.Log(options.Testing, "Cloned base repo and branch without authentication")
 			}
+		} else {
+			logger.Log(options.Testing, "Cloned base repo and branch with authentication")
 		}
 		// Set TerraformDir to the appropriate directory within baseTempDir
 		options.TerraformOptions.TerraformDir = path.Join(baseTempDir, relativeTestSampleDir)
@@ -348,8 +364,12 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			// Tear down the test
 			options.testTearDown()
 			return nil, fmt.Errorf("failed to copy state file: %v", errCopyState)
+		} else {
+			logger.Log(options.Testing, "State file copied to PR branch dir:", path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
 		}
 
+		logger.Log(options.Testing, "Validating upgrade on Current Branch (PR):", prBranch)
+		logger.Log(options.Testing, "In directory:", prTempDir)
 		// Set TerraformDir to the appropriate directory within prTempDir
 		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
 
