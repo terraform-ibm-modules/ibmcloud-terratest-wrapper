@@ -8,7 +8,7 @@ require (
 	github.com/IBM/go-sdk-core/v5 v5.14.0
 	github.com/IBM/platform-services-go-sdk v0.46.0
 	github.com/IBM/schematics-go-sdk v0.2.1
-	github.com/IBM/vpc-go-sdk v1.0.2
+	github.com/IBM/vpc-go-sdk v0.41.0
 	github.com/go-git/go-git/v5 v5.8.1
 	github.com/go-openapi/errors v0.20.4
 	github.com/go-openapi/strfmt v0.21.7
