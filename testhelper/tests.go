@@ -300,7 +300,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			return nil, fmt.Errorf("failed to get default repo and branch: %v", err)
 		}
 
-		authMethod, err := common.DetermineAuthMethod(baseRepo, options.BaseGitPersonalAccessToken, options.BaseGitPrivateSshKey)
+		authMethod, err := common.DetermineAuthMethod(baseRepo)
 		if err != nil {
 			return nil, fmt.Errorf("failed to determine authentication method: %v", err)
 		}

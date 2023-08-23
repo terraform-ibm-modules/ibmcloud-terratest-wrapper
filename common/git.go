@@ -219,23 +219,23 @@ func getCurrentPrRepoAndBranch(ops gitOps) (string, string, error) {
 // The function supports both HTTPS and SSH-based repositories.
 //
 // For HTTPS repositories:
-// - It first checks if the GIT_PAT environment variable is set. If so, it uses this as the Personal Access Token (PAT).
-// - If the GIT_PAT environment variable is not set, it uses the provided 'pat' parameter.
+// - It first checks if the GIT_TOKEN environment variable is set. If so, it uses this as the Personal Access Token (PAT).
+// - If the GIT_TOKEN environment variable is not set, no authentication is used for HTTPS repositories.
 //
 // For SSH repositories:
 // - It first checks if the SSH_PRIVATE_KEY environment variable is set. If so, it uses this as the SSH private key.
-// - If the SSH_PRIVATE_KEY environment variable is not set, it uses the provided 'sshPrivateKey' parameter.
-// - If the 'sshPrivateKey' parameter is not set, it attempts to use the default SSH key at ~/.ssh/id_rsa.
+// - If the SSH_PRIVATE_KEY environment variable is not set, it attempts to use the default SSH key located at ~/.ssh/id_rsa.
+// - If neither the environment variable nor the default key is available, no authentication is used for SSH repositories.
 //
 // Parameters:
 // - repoURL: The URL of the Git repository.
-// - pat: The Personal Access Token (PAT) for HTTPS repositories. This is used if the GIT_TOKEN environment variable is not set.
-// - sshPrivateKey: The SSH private key for SSH repositories. This is used if the SSH_PRIVATE_KEY environment variable is not set.
 //
 // Returns:
 // - An appropriate AuthMethod based on the repository URL and available credentials.
-// - An error if there's an issue parsing the SSH private key.
-func DetermineAuthMethod(repoURL string, pat string, sshPrivateKey string) (transport.AuthMethod, error) {
+// - An error if there's an issue parsing the SSH private key or if the private key cannot be cast to an ssh.Signer.
+func DetermineAuthMethod(repoURL string) (transport.AuthMethod, error) {
+	var pat string
+	var sshPrivateKey string
 	if strings.HasPrefix(repoURL, "https://") {
 		// Check for Personal Access Token (PAT) in environment variable
 		envPat, exists := os.LookupEnv("GIT_TOKEN")
