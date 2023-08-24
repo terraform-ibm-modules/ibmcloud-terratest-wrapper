@@ -307,7 +307,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
 
 		// TODO: Remove before merge
-		options.printFiles()
+		printFiles(options.Testing, options.TerraformOptions.TerraformDir)
 
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on MASTER branch has failed")
@@ -336,7 +336,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Init / Plan on PR Branch dir:", options.TerraformOptions.TerraformDir)
 
 		// TODO: Remove before merge
-		options.printFiles()
+		printFiles(options.Testing, options.TerraformOptions.TerraformDir)
 
 		// Run Terraform plan in prTempDir
 		result, resultErr = options.runTestPlan()
@@ -379,14 +379,14 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 	return result, resultErr
 }
 
-func (options *TestOptions) printFiles() {
+func printFiles(t *testing.T, dir string) {
 	// TODO: Debug details do not merge
 	// print files in terraform dir with permisions and details including hidden files
-	fileDetails, err := exec.Command("/bin/sh", "-c", "ls -laR", options.TerraformOptions.TerraformDir).CombinedOutput()
+	fileDetails, err := exec.Command("/bin/sh", "-c", "ls -la", dir).CombinedOutput()
 	if err != nil {
-		logger.Log(options.Testing, "Error during ls -laR on base branch:", err)
+		logger.Log(t, "Error during ls -la  in ", dir, "\n", err)
 	} else {
-		logger.Log(options.Testing, "ls -laR on base branch:", string(fileDetails))
+		logger.Log(t, "ls -laR in ", dir, ":\n", string(fileDetails))
 	}
 
 	// TODO: Debug details do not merge
