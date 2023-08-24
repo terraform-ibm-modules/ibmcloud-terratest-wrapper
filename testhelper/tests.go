@@ -4,14 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/gruntwork-io/terratest/modules/files"
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/gruntwork-io/terratest/modules/files"
 	"github.com/gruntwork-io/terratest/modules/logger"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
@@ -112,10 +113,10 @@ func (options *TestOptions) TestSetup() {
 	options.SkipTestSetup = oldSetupValue
 }
 
+// testSetup Setup test
 func (options *TestOptions) testSetup() {
 	if !options.SkipTestSetup {
 		os.Setenv("API_DATA_IS_SENSITIVE", "true")
-
 		// If calling test had not provided its own TerraformOptions, use the default settings
 		if options.TerraformOptions == nil {
 			// Construct the terraform options with default retryable errors to handle the most common
@@ -130,52 +131,31 @@ func (options *TestOptions) testSetup() {
 			})
 		}
 
-		if !options.DisableTempWorkingDir {
-			// Ensure always running from git root
-			gitRoot, _ := common.GitRootPath(".")
+		// Ensure always running from git root
+		gitRoot, _ := common.GitRootPath(".")
 
-			// Create a temporary directory
-			tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
-			if err != nil {
-				logger.Log(options.Testing, err)
-			} else {
-				logger.Log(options.Testing, "TEMP CREATED: ", tempDir)
-
-				// To avoid workspace collisions when running in parallel, ignoring any temp terraform files
-				// NOTE: if it is an upgrade test, we need hidden .git files
-				tempDirFilter := func(path string) bool {
-					if !options.IsUpgradeTest && files.PathContainsHiddenFileOrFolder(path) {
-						return false
-					}
-					if files.PathContainsTerraformStateOrVars(path) {
-						return false
-					}
-					// Add a filter to ignore directories named "temp"
-					if strings.Contains(strings.ToLower(path), "/temp/") || strings.HasSuffix(strings.ToLower(path), "/temp") {
-						return false
-					}
-
-					return true
-				}
-
-				// Define the source and destination directories for the directory copy
-				srcDir := gitRoot
-				dstDir := tempDir
-
-				// Use CopyDirectory to copy the source directory to the destination directory with the filter
-				err := common.CopyDirectory(srcDir, dstDir, tempDirFilter)
-				if err != nil {
-					require.Nil(options.Testing, err, "Error copying directory")
-				}
-
-				// Update Terraform options with the full path of the new temp location
-				options.TerraformOptions.TerraformDir = path.Join(dstDir, options.TerraformDir)
-				options.TerraformDir = options.TerraformOptions.TerraformDir
-				options.baseTempWorkingDir = tempDir
+		// To avoid workspace collisions when running in parallel, ignoring any temp terraform files
+		// NOTE: if it is upgrade test we need hidden .git files
+		tempDirFilter := func(path string) bool {
+			if !options.IsUpgradeTest && files.PathContainsHiddenFileOrFolder(path) {
+				return false
 			}
+			if files.PathContainsTerraformStateOrVars(path) {
+				return false
+			}
+			return true
 		}
+		tempDir, tempDirErr := files.CopyFolderToTemp(gitRoot, options.Prefix, tempDirFilter)
+		require.Nil(options.Testing, tempDirErr, "Error setting up TEMP directory")
+		logger.Log(options.Testing, "TEMP TESTING DIR CREATED: ", tempDir)
 
-		options.WorkspacePath = options.TerraformOptions.TerraformDir
+		options.TerraformDir = fmt.Sprintf("%s/%s", tempDir, options.TerraformDir)
+		options.baseTempWorkingDir = tempDir
+
+		// update existing TerraformOptions with full path of new temp location
+		options.TerraformOptions.TerraformDir = options.TerraformDir
+
+		options.WorkspacePath = options.TerraformDir
 		if options.UseTerraformWorkspace {
 			// Always run in a new clean workspace to avoid reusing existing state files
 			options.WorkspaceName = terraform.WorkspaceSelectOrNew(options.Testing, options.TerraformOptions, options.Prefix)
@@ -224,10 +204,10 @@ func (options *TestOptions) testTearDown() {
 			}
 			logger.Log(options.Testing, "END: Destroy")
 
-			if options.baseTempWorkingDir != "" {
-				logger.Log(options.Testing, "Deleting the temp working directory")
-				os.RemoveAll(options.baseTempWorkingDir)
-			}
+			// remove the temp directory which is one level above the working directory
+			tempDirParent := filepath.Dir(options.baseTempWorkingDir)
+			logger.Log(options.Testing, "Deleting the temp working directory")
+			os.RemoveAll(tempDirParent)
 		}
 	} else {
 		logger.Log(options.Testing, "Skipping automatic Test Teardown")
@@ -294,18 +274,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Just in case an absolute path was provided, make it relative to the git root
 		relativeTestSampleDir := strings.TrimPrefix(originalTerraformDir, gitRoot)
 
-		// Disable the creation of a temporary directory in test setup, Upgrade Test will create its own
-		// Backup the original value of DisableTempWorkingDir
-		tempDirCreationBackup := options.DisableTempWorkingDir
-
-		// Temporarily disable the creation of a temporary directory
-		options.DisableTempWorkingDir = true
-
-		// Defer a function to restore the original value
-		defer func() {
-			options.DisableTempWorkingDir = tempDirCreationBackup
-		}()
-
 		// Setup the test including a TEMP directory to run in
 		options.testSetup()
 
@@ -318,6 +286,14 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		}
 		defer os.RemoveAll(prTempDir) // clean up
 
+		// Copy the code from root (PR branch) to prTempDir
+		errCopyPR := common.CopyDirectory(gitRoot, prTempDir)
+		if errCopyPR != nil {
+			return nil, fmt.Errorf("failed to copy PR code to temporary directory: %v", errCopyPR)
+		} else {
+			logger.Log(options.Testing, "PR Code copied to TEMP PR DIR: ", prTempDir)
+		}
+
 		// Create a temporary directory for the base branch
 		baseTempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-base-%s", options.Prefix))
 		if err != nil {
@@ -327,28 +303,9 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		}
 		defer os.RemoveAll(baseTempDir) // clean up
 
-		// Copy the current code (from PR branch) to the PR temp directory with the filter
-		errCopy := common.CopyDirectory(gitRoot, prTempDir, func(path string) bool {
-			if files.PathContainsTerraformStateOrVars(path) {
-				return false
-			}
-			// Add a filter to ignore directories named "temp"
-			if strings.Contains(strings.ToLower(path), "/temp/") || strings.HasSuffix(strings.ToLower(path), "/temp") {
-				return false
-			}
-			return true
-		})
-		if errCopy != nil {
-			// Tear down the test
-			options.testTearDown()
-			return nil, fmt.Errorf("failed to copy PR directory to temp: %v", errCopy)
-		} else {
-			logger.Log(options.Testing, "Copied current code to PR branch dir:", prTempDir)
-		}
-
-		baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
-		if baseBranch == "" || baseRepo == "" {
-			return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
+		baseRepo, baseBranch, err := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get default repo and branch: %v", err)
 		} else {
 			logger.Log(options.Testing, "Base Repo:", baseRepo)
 			logger.Log(options.Testing, "Base Branch:", baseBranch)
@@ -392,14 +349,21 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		} else {
 			logger.Log(options.Testing, "Cloned base repo and branch with authentication")
 		}
-
 		// Set TerraformDir to the appropriate directory within baseTempDir
 		options.TerraformOptions.TerraformDir = path.Join(baseTempDir, relativeTestSampleDir)
-		options.TerraformDir = options.TerraformOptions.TerraformDir
 		logger.Log(options.Testing, "Init / Apply on Base repo:", baseRepo)
 		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
 		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
+		// TODO: Debug details do not merge
+		// print files in terraform dir with permisions and details including hidden files
+		fileDetails, err := exec.Command("/bin/sh", "-c", "ls -laR", options.TerraformOptions.TerraformDir).CombinedOutput()
+		if err != nil {
+			logger.Log(options.Testing, "Error during ls -laR on base branch:", err)
+		} else {
+			logger.Log(options.Testing, "ls -laR on base branch:", string(fileDetails))
+		}
 
+		// TODO: Debug details do not merge
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
 
@@ -408,10 +372,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		// Set TerraformDir to the appropriate directory within prTempDir
 		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
-		options.TerraformDir = options.TerraformOptions.TerraformDir
-
-		// ensure terraform working files/folders are removed before copying state file ie .terraform, .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup
-		CleanTerraformDir(options.TerraformOptions.TerraformDir)
 
 		// Copy the state file to the corresponding directory in prTempDir
 		errCopyState := common.CopyFile(baseStatePath, path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
@@ -425,7 +385,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		logger.Log(options.Testing, "Init / Plan on PR Branch:", prBranch)
 		logger.Log(options.Testing, "Init / Plan on PR Branch dir:", options.TerraformOptions.TerraformDir)
-
 		// Run Terraform plan in prTempDir
 		result, resultErr = options.runTestPlan()
 
@@ -484,9 +443,6 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 	}
 	options.checkConsistency(result)
 	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
-
-	// Clear the plan file path so it is not used in the next test if testSetup is disabled
-	options.TerraformOptions.PlanFilePath = ""
 	options.testTearDown()
 
 	return result, err
