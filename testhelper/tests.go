@@ -291,15 +291,30 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		logger.Log(options.Testing, "Default Branch: ", defaultBranch)
 
-		w, _ := gitRepo.Worktree()
-		logger.Log(options.Testing, "Attempting Git Checkout Default Branch: ", defaultBranch)
-		resultErr = w.Checkout(&git.CheckoutOptions{
-			Branch: defaultBranch,
-			Force:  true})
-		assert.Nilf(options.Testing, resultErr, "Could Not Checkout Default Branch")
-		cur, _ := gitRepo.Head()
-		logger.Log(options.Testing, "Current Branch (Default): "+cur.Name())
+			if errUnauth != nil {
+				// If unauthenticated clone also fails, return the error from the authenticated approach
+				return nil, fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
+			} else {
+				logger.Log(options.Testing, "Cloned base repo and branch without authentication")
+			}
+		} else {
+			logger.Log(options.Testing, "Cloned base repo and branch with authentication")
+		}
+		// Set TerraformDir to the appropriate directory within baseTempDir
+		options.TerraformOptions.TerraformDir = path.Join(baseTempDir, relativeTestSampleDir)
+		logger.Log(options.Testing, "Init / Apply on Base repo:", baseRepo)
+		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
+		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
+		// TODO: Debug details do not merge
+		// print files in terraform dir with permisions and details including hidden files
+		fileDetails, err := exec.Command("/bin/sh", "-c", "ls -laR", options.TerraformOptions.TerraformDir).CombinedOutput()
+		if err != nil {
+			logger.Log(options.Testing, "Error during ls -laR on base branch:", err)
+		} else {
+			logger.Log(options.Testing, "ls -laR on base branch:", string(fileDetails))
+		}
 
+		// TODO: Debug details do not merge
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on MASTER branch has failed")
 
