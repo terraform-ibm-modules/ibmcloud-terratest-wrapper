@@ -305,16 +305,10 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Init / Apply on Base repo:", baseRepo)
 		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
 		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
-		// TODO: Debug details do not merge
-		// print files in terraform dir with permisions and details including hidden files
-		fileDetails, err := exec.Command("/bin/sh", "-c", "ls -laR", options.TerraformOptions.TerraformDir).CombinedOutput()
-		if err != nil {
-			logger.Log(options.Testing, "Error during ls -laR on base branch:", err)
-		} else {
-			logger.Log(options.Testing, "ls -laR on base branch:", string(fileDetails))
-		}
 
-		// TODO: Debug details do not merge
+		// TODO: Remove before merge
+		printFiles()
+
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on MASTER branch has failed")
 
@@ -338,29 +332,40 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 				Force: true})
 			assert.Nilf(options.Testing, resultErr, "Could Not Checkout PR Branch")
 
-			// Copy the state file back to the original location
-			errCopyState := common.CopyFile(path.Join(tempDir, "terraform.tfstate"), statePath)
+		logger.Log(options.Testing, "Init / Plan on PR Branch:", prBranch)
+		logger.Log(options.Testing, "Init / Plan on PR Branch dir:", options.TerraformOptions.TerraformDir)
 
-			if resultErr == nil && assert.Nil(options.Testing, errCopyState, fmt.Sprintf("State file not found cannot compare plan for test\nError copying state: %s", errCopyState)) {
-				cur, _ = gitRepo.Head()
-				logger.Log(options.Testing, "Current Branch (PR):", cur.Name(), "-", cur.Hash())
+		// TODO: Remove before merge
+		printFiles()
 
-				result, resultErr = options.runTestPlan()
-				assert.Nilf(options.Testing, resultErr, "Terraform Plan on PR branch has failed")
-				if result != nil && resultErr == nil {
-					logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)..")
-					options.checkConsistency(result)
-					// Adding optional upgrade support on PR Branch
-					if options.CheckApplyResultForUpgrade && !options.Testing.Failed() {
-						logger.Log(options.Testing, "Validating Optional upgrade on Current Branch (PR):", cur.Name())
-						_, resultErr = terraform.ApplyE(options.Testing, options.TerraformOptions)
-						assert.Nilf(options.Testing, resultErr, "Terraform Apply on PR branch has failed")
-					}
-				} else {
-					// if there were issues running InitAndPlan, an Init needs to take place after branch change in order for downstream
-					// terraform to work (like the destroy)
-					terraform.Init(options.Testing, options.TerraformOptions)
-				}
+		// Run Terraform plan in prTempDir
+		result, resultErr = options.runTestPlan()
+
+		if resultErr != nil {
+			logger.Log(options.Testing, "Error during Terraform Plan on PR branch:", resultErr)
+			assert.Nilf(options.Testing, resultErr, "Terraform Plan on PR branch has failed")
+
+			// Tear down the test
+			options.testTearDown()
+
+			return nil, resultErr
+		}
+
+		logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)...")
+		options.checkConsistency(result)
+
+		// Check if optional upgrade support on PR Branch is needed
+		if options.CheckApplyResultForUpgrade && !options.Testing.Failed() {
+			logger.Log(options.Testing, "Validating Optional upgrade on Current Branch (PR):", prBranch)
+			_, applyErr := terraform.ApplyE(options.Testing, options.TerraformOptions)
+			if applyErr != nil {
+				logger.Log(options.Testing, "Error during Terraform Apply on PR branch:", applyErr)
+				assert.Nilf(options.Testing, applyErr, "Terraform Apply on PR branch has failed")
+
+				// Tear down the test
+				options.testTearDown()
+
+				return nil, applyErr
 			}
 		}
 
@@ -372,6 +377,19 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 	options.UpgradeTestSkipped = skipped
 
 	return result, resultErr
+}
+
+func printFiles() {
+	// TODO: Debug details do not merge
+	// print files in terraform dir with permisions and details including hidden files
+	fileDetails, err := exec.Command("/bin/sh", "-c", "ls -laR", options.TerraformOptions.TerraformDir).CombinedOutput()
+	if err != nil {
+		logger.Log(options.Testing, "Error during ls -laR on base branch:", err)
+	} else {
+		logger.Log(options.Testing, "ls -laR on base branch:", string(fileDetails))
+	}
+
+	// TODO: Debug details do not merge
 }
 
 // RunTestConsistency Runs Test To check consistency between apply and re-apply, returns the output as string for further assertions
