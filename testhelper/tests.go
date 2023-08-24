@@ -354,6 +354,16 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Init / Apply on Base repo:", baseRepo)
 		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
 		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
+		// TODO: Debug details do not merge
+		// print files in terraform dir with permisions and details including hidden files
+		fileDetails, err := exec.Command("/bin/sh", "-c", "ls -laR", options.TerraformOptions.TerraformDir).CombinedOutput()
+		if err != nil {
+			logger.Log(options.Testing, "Error during ls -laR on base branch:", err)
+		} else {
+			logger.Log(options.Testing, "ls -laR on base branch:", string(fileDetails))
+		}
+
+		// TODO: Debug details do not merge
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
 
