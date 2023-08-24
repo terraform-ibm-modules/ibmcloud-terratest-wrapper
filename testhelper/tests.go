@@ -427,7 +427,9 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 func printFiles(t *testing.T, dir string) {
 	// TODO: Debug details do not merge
 	// print files in terraform dir with permisions and details including hidden files
-	fileDetails, err := exec.Command("/bin/sh", "-c", "ls -la", dir).CombinedOutput()
+	cmd := exec.Command("/bin/sh", "-c", "ls -la")
+	cmd.Dir = dir
+	fileDetails, err := cmd.CombinedOutput()
 	if err != nil {
 		logger.Log(t, "Error during ls -la  in ", dir, "\n", err)
 	} else {
