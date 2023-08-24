@@ -367,6 +367,10 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Set TerraformDir to the appropriate directory within prTempDir
 		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
 
+		logger.Log(options.Testing, "Files before copying state file to PR branch dir")
+		// TODO: Remove before merge
+		printFiles(options.Testing, options.TerraformOptions.TerraformDir)
+
 		// Copy the state file to the corresponding directory in prTempDir
 		errCopyState := common.CopyFile(baseStatePath, path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
 		if errCopyState != nil {
