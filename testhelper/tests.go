@@ -356,7 +356,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
 
 		// TODO: Remove before merge
-		printFiles()
+		options.printFiles()
 
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
@@ -381,7 +381,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Init / Plan on PR Branch dir:", options.TerraformOptions.TerraformDir)
 
 		// TODO: Remove before merge
-		printFiles()
+		options.printFiles()
 
 		// Run Terraform plan in prTempDir
 		result, resultErr = options.runTestPlan()
@@ -424,7 +424,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 	return result, resultErr
 }
 
-func printFiles() {
+func (options *TestOptions) printFiles() {
 	// TODO: Debug details do not merge
 	// print files in terraform dir with permisions and details including hidden files
 	fileDetails, err := exec.Command("/bin/sh", "-c", "ls -laR", options.TerraformOptions.TerraformDir).CombinedOutput()
