@@ -3,11 +3,14 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -214,30 +217,7 @@ func (options *TestOptions) testTearDown() {
 	}
 }
 
-// RunTestUpgrade runs the upgrade test to ensure that the Terraform configurations being tested
-// do not result in any resources being destroyed during an upgrade. This is crucial to ensure that
-// existing infrastructure remains intact during updates.
-//
-// The function performs the following steps:
-// 1. Checks if the test is running in short mode and skips the upgrade test if so.
-// 2. Determines the current PR branch.
-// 3. Checks if the upgrade test should be skipped based on commit messages.
-// 4. If not skipped:
-//    a. Sets up the test environment.
-//    b. Copies the current code (from PR branch) to a temporary directory.
-//    c. Clones the base branch into a separate temporary directory.
-//    d. Applies Terraform configurations on the base branch.
-//    e. Moves the state file from the base branch directory to the PR branch directory.
-//    f. Runs Terraform plan in the PR branch directory to check for any inconsistencies.
-//    g. Optionally, it can also apply the Terraform configurations on the PR branch.
-//
-// Parameters:
-// - options: TestOptions containing various settings and configurations for the test.
-//
-// Returns:
-// - A terraform.PlanStruct containing the results of the Terraform plan.
-// - An error if any step in the function fails.
-
+// RunTestUpgrade Runs upgrade Test and asserts no resources have been destroyed in the upgrade, returns plan struct for further assertions
 func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 	var result *terraform.PlanStruct
@@ -251,183 +231,121 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 	}
 
 	// Determine the name of the PR branch
-	_, prBranch, err := common.GetCurrentPrRepoAndBranch()
-	if err != nil {
-		return nil, fmt.Errorf("failed to determine the PR repo and branch: %v", err)
-	} else {
-		logger.Log(options.Testing, "PR Branch:", prBranch)
-	}
-
-	if skipUpgradeTest(prBranch) {
+	branchCmd := exec.Command("/bin/sh", "-c", "git rev-parse --abbrev-ref HEAD")
+	branch, _ := branchCmd.CombinedOutput()
+	if skipUpgradeTest(string(branch)) {
 		options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
 	} else {
 		skipped = false
 		options.IsUpgradeTest = true
 
-		gitRoot, err := common.GitRootPath(".")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get git root path: %v", err)
-		}
-
-		// Extract the relative path from the original TerraformDir
-		originalTerraformDir := options.TerraformDir
-		// Just in case an absolute path was provided, make it relative to the git root
-		relativeTestSampleDir := strings.TrimPrefix(originalTerraformDir, gitRoot)
-
 		// Setup the test including a TEMP directory to run in
 		options.testSetup()
 
-		// Create a temporary directory for the PR code
-		prTempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-pr-%s", options.Prefix))
+		// Create a temporary directory for the state file
+		tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
 		if err != nil {
 			logger.Log(options.Testing, err)
-		} else {
-			logger.Log(options.Testing, "TEMP PR DIR CREATED: ", prTempDir)
 		}
-		defer os.RemoveAll(prTempDir) // clean up
+		defer os.RemoveAll(tempDir) // clean up
 
-		// Copy the code from root (PR branch) to prTempDir
-		errCopyPR := common.CopyDirectory(gitRoot, prTempDir)
-		if errCopyPR != nil {
-			return nil, fmt.Errorf("failed to copy PR code to temporary directory: %v", errCopyPR)
-		} else {
-			logger.Log(options.Testing, "PR Code copied to TEMP PR DIR: ", prTempDir)
-		}
+		// from here on we will operate in the temp directory
+		gitRoot, _ := common.GitRootPath(options.TerraformDir)
+		gitRepo, _ := git.PlainOpen(gitRoot)
 
-		// Create a temporary directory for the base branch
-		baseTempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-base-%s", options.Prefix))
+		// maintain a reference of current checkout, which might be a detatched PR merge, will be used to switch back later
+		prRef, _ := gitRepo.Head()
+		logger.Log(options.Testing, "Current Branch [Name - Hash]:", prRef.Name(), "-", prRef.Hash())
+
+		// fetch to ensure all branches are present
+		remote, err := gitRepo.Remote("origin")
 		if err != nil {
 			logger.Log(options.Testing, err)
-		} else {
-			logger.Log(options.Testing, "TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
-		}
-		defer os.RemoveAll(baseTempDir) // clean up
-
-		baseRepo, baseBranch, err := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get default repo and branch: %v", err)
-		} else {
-			logger.Log(options.Testing, "Base Repo:", baseRepo)
-			logger.Log(options.Testing, "Base Branch:", baseBranch)
 		}
 
-		authMethod, err := common.DetermineAuthMethod(baseRepo)
-		if err != nil {
-			return nil, fmt.Errorf("failed to determine authentication method: %v", err)
+		opts := &git.FetchOptions{
+			RefSpecs: []config.RefSpec{"refs/*:refs/*"},
 		}
 
-		// Try to clone with authentication first
-		_, errAuth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
-			URL:           baseRepo,
-			ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
-			SingleBranch:  true,
-			Auth:          authMethod,
-		})
+		if err := remote.Fetch(opts); err != nil {
+			logger.Log(options.Testing, err)
+		}
 
-		if errAuth != nil {
-			logger.Log(options.Testing, "Failed to clone base repo and branch with authentication, trying without authentication...")
-			// Convert SSH URL to HTTPS URL
-			if strings.HasPrefix(baseRepo, "git@") {
-				baseRepo = strings.Replace(baseRepo, ":", "/", 1)
-				baseRepo = strings.Replace(baseRepo, "git@", "https://", 1)
-				baseRepo = strings.TrimSuffix(baseRepo, ".git") + ".git"
-			}
-
-			// Try to clone without authentication
-			_, errUnauth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
-				URL:           baseRepo,
-				ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
-				SingleBranch:  true,
+		var branches storer.ReferenceIter
+		var defaultBranch plumbing.ReferenceName
+		branches, resultErr = gitRepo.Branches()
+		if resultErr == nil {
+			logger.Log(options.Testing, "Branches: ")
+			_ = branches.ForEach(func(ref *plumbing.Reference) error {
+				logger.Log(options.Testing, ref.Name().String())
+				if defaultBranch == "" {
+					match, _ := regexp.MatchString("/[mM]ain|[mM]aster$", ref.Name().String())
+					if match {
+						defaultBranch = ref.Name()
+					}
+				}
+				return nil
 			})
 
-			if errUnauth != nil {
-				// If unauthenticated clone also fails, return the error from the authenticated approach
-				return nil, fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
-			} else {
-				logger.Log(options.Testing, "Cloned base repo and branch without authentication")
-			}
-		} else {
-			logger.Log(options.Testing, "Cloned base repo and branch with authentication")
 		}
-		// Set TerraformDir to the appropriate directory within baseTempDir
-		options.TerraformOptions.TerraformDir = path.Join(baseTempDir, relativeTestSampleDir)
-		logger.Log(options.Testing, "Init / Apply on Base repo:", baseRepo)
-		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
-		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
 
-		// TODO: Remove before merge
-		printFiles(options.Testing, options.TerraformOptions.TerraformDir)
+		logger.Log(options.Testing, "Default Branch: ", defaultBranch)
+
+		w, _ := gitRepo.Worktree()
+		logger.Log(options.Testing, "Attempting Git Checkout Default Branch: ", defaultBranch)
+		resultErr = w.Checkout(&git.CheckoutOptions{
+			Branch: defaultBranch,
+			Force:  true})
+		assert.Nilf(options.Testing, resultErr, "Could Not Checkout Default Branch")
+		cur, _ := gitRepo.Head()
+		logger.Log(options.Testing, "Current Branch (Default): "+cur.Name())
+
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
-		assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
+		assert.Nilf(options.Testing, resultErr, "Terraform Apply on MASTER branch has failed")
 
-		// Get the path to the state file in baseTempDir
-		baseStatePath := path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate")
+		// Get the path to the state file
+		statePath := path.Join(options.TerraformDir, "terraform.tfstate")
 
-		// Set TerraformDir to the appropriate directory within prTempDir
-		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
-		// clean directory before copying state file
-		// remove .terraform directory and .terraform.lock.hcl file
-		err = os.RemoveAll(path.Join(options.TerraformOptions.TerraformDir, ".terraform"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to remove .terraform directory: %v", err)
-		} else {
-			logger.Log(options.Testing, "Removed .terraform directory")
-		}
-		err = os.Remove(path.Join(options.TerraformOptions.TerraformDir, ".terraform.lock.hcl"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to remove .terraform.lock.hcl file: %v", err)
-		} else {
-			logger.Log(options.Testing, "Removed .terraform.lock.hcl file")
-		}
+		// Copy the state file to the temporary directory
+		errCopyState := common.CopyFile(statePath, path.Join(tempDir, "terraform.tfstate"))
 
-		logger.Log(options.Testing, "Files before copying state file to PR branch dir")
-		// TODO: Remove before merge
-		printFiles(options.Testing, options.TerraformOptions.TerraformDir)
+		// Only proceed to upgrade Test of master branch apply passed
+		if resultErr == nil && assert.Nil(options.Testing, errCopyState, fmt.Sprintf("Error copying state: %s", errCopyState)) {
 
-		// Copy the state file to the corresponding directory in prTempDir
-		errCopyState := common.CopyFile(baseStatePath, path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
-		if errCopyState != nil {
-			// Tear down the test
-			options.testTearDown()
-			return nil, fmt.Errorf("failed to copy state file: %v", errCopyState)
-		} else {
-			logger.Log(options.Testing, "State file copied to PR branch dir:", path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
-		}
+			logger.Log(options.Testing, "Attempting Git Checkout PR Branch:", prRef.Name(), "-", prRef.Hash())
+			// checkout the HASH of original (PR) branch.
+			// NOTE: in automation the original checkout branch is detached and points to the pseudo merge of the PR.
+			//       These detached merge branches report their name as "HEAD" which is not a suitable checkout value.
+			//       The solution here is to do this final checkout on the HASH of the original branch which will work
+			//       with both detached and normal branches.
+			resultErr = w.Checkout(&git.CheckoutOptions{
+				Hash:  prRef.Hash(),
+				Force: true})
+			assert.Nilf(options.Testing, resultErr, "Could Not Checkout PR Branch")
 
-		logger.Log(options.Testing, "Init / Plan on PR Branch:", prBranch)
-		logger.Log(options.Testing, "Init / Plan on PR Branch dir:", options.TerraformOptions.TerraformDir)
+			// Copy the state file back to the original location
+			errCopyState := common.CopyFile(path.Join(tempDir, "terraform.tfstate"), statePath)
 
-		// TODO: Remove before merge
-		printFiles(options.Testing, options.TerraformOptions.TerraformDir)
+			if resultErr == nil && assert.Nil(options.Testing, errCopyState, fmt.Sprintf("State file not found cannot compare plan for test\nError copying state: %s", errCopyState)) {
+				cur, _ = gitRepo.Head()
+				logger.Log(options.Testing, "Current Branch (PR):", cur.Name(), "-", cur.Hash())
 
-		// Run Terraform plan in prTempDir
-		result, resultErr = options.runTestPlan()
-
-		if resultErr != nil {
-			logger.Log(options.Testing, "Error during Terraform Plan on PR branch:", resultErr)
-			assert.Nilf(options.Testing, resultErr, "Terraform Plan on PR branch has failed")
-
-			// Tear down the test
-			options.testTearDown()
-
-			return nil, resultErr
-		}
-
-		logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)...")
-		options.checkConsistency(result)
-
-		// Check if optional upgrade support on PR Branch is needed
-		if options.CheckApplyResultForUpgrade && !options.Testing.Failed() {
-			logger.Log(options.Testing, "Validating Optional upgrade on Current Branch (PR):", prBranch)
-			_, applyErr := terraform.ApplyE(options.Testing, options.TerraformOptions)
-			if applyErr != nil {
-				logger.Log(options.Testing, "Error during Terraform Apply on PR branch:", applyErr)
-				assert.Nilf(options.Testing, applyErr, "Terraform Apply on PR branch has failed")
-
-				// Tear down the test
-				options.testTearDown()
-
-				return nil, applyErr
+				result, resultErr = options.runTestPlan()
+				assert.Nilf(options.Testing, resultErr, "Terraform Plan on PR branch has failed")
+				if result != nil && resultErr == nil {
+					logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)..")
+					options.checkConsistency(result)
+					// Adding optional upgrade support on PR Branch
+					if options.CheckApplyResultForUpgrade && !options.Testing.Failed() {
+						logger.Log(options.Testing, "Validating Optional upgrade on Current Branch (PR):", cur.Name())
+						_, resultErr = terraform.ApplyE(options.Testing, options.TerraformOptions)
+						assert.Nilf(options.Testing, resultErr, "Terraform Apply on PR branch has failed")
+					}
+				} else {
+					// if there were issues running InitAndPlan, an Init needs to take place after branch change in order for downstream
+					// terraform to work (like the destroy)
+					terraform.Init(options.Testing, options.TerraformOptions)
+				}
 			}
 		}
 
@@ -439,21 +357,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 	options.UpgradeTestSkipped = skipped
 
 	return result, resultErr
-}
-
-func printFiles(t *testing.T, dir string) {
-	// TODO: Debug details do not merge
-	// print files in terraform dir with permisions and details including hidden files
-	cmd := exec.Command("/bin/sh", "-c", "ls -la")
-	cmd.Dir = dir
-	fileDetails, err := cmd.CombinedOutput()
-	if err != nil {
-		logger.Log(t, "Error during ls -la  in ", dir, "\n", err)
-	} else {
-		logger.Log(t, "ls -laR in ", dir, ":\n", string(fileDetails))
-	}
-
-	// TODO: Debug details do not merge
 }
 
 // RunTestConsistency Runs Test To check consistency between apply and re-apply, returns the output as string for further assertions
