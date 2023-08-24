@@ -357,7 +357,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		// TODO: Remove before merge
 		printFiles(options.Testing, options.TerraformOptions.TerraformDir)
-
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
 
@@ -366,6 +365,20 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		// Set TerraformDir to the appropriate directory within prTempDir
 		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
+		// clean directory before copying state file
+		// remove .terraform directory and .terraform.lock.hcl file
+		err = os.RemoveAll(path.Join(options.TerraformOptions.TerraformDir, ".terraform"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to remove .terraform directory: %v", err)
+		} else {
+			logger.Log(options.Testing, "Removed .terraform directory")
+		}
+		err = os.Remove(path.Join(options.TerraformOptions.TerraformDir, ".terraform.lock.hcl"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to remove .terraform.lock.hcl file: %v", err)
+		} else {
+			logger.Log(options.Testing, "Removed .terraform.lock.hcl file")
+		}
 
 		logger.Log(options.Testing, "Files before copying state file to PR branch dir")
 		// TODO: Remove before merge
