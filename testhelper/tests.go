@@ -318,6 +318,10 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Copy the state file to the temporary directory
 		errCopyState := common.CopyFile(statePath, path.Join(tempDir, "terraform.tfstate"))
 
+		logger.Log(options.Testing, "Files before copying state file to PR branch dir")
+		// TODO: Remove before merge
+		printFiles(options.Testing, options.TerraformOptions.TerraformDir)
+
 		// Only proceed to upgrade Test of master branch apply passed
 		if resultErr == nil && assert.Nil(options.Testing, errCopyState, fmt.Sprintf("Error copying state: %s", errCopyState)) {
 
