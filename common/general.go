@@ -7,13 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/crypto/ssh"
-	"gopkg.in/yaml.v3"
 	"io"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/ssh"
+	"gopkg.in/yaml.v3"
 
 	"github.com/stretchr/testify/require"
 )
@@ -221,7 +222,6 @@ func GenerateSshRsaPublicKey() (string, error) {
 func CopyFile(source, destination string) error {
 	// Check if source is a symlink
 	srcInfo, err := os.Lstat(source)
-
 	if err != nil {
 		return fmt.Errorf("failed to stat source file: %w", err)
 	}
@@ -258,7 +258,6 @@ func CopyFile(source, destination string) error {
 // CopyDirectory copies a directory from source to destination, with optional file filtering.
 // Returns an error if the operation fails.
 func CopyDirectory(src string, dst string, fileFilter ...func(string) bool) error {
-	// Check if source is a symlink
 	srcInfo, err := os.Lstat(src)
 	if err != nil {
 		return err
