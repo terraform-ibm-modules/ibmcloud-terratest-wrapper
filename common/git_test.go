@@ -32,7 +32,7 @@ func TestGetDefaultRepoAndBranch_Positive(t *testing.T) {
 	mockCmd := new(MockCommander)
 	mockCmd.On("gitRootPath", mock.Anything).Return("../", nil)
 	mockCmd.On("getRemoteURL", mock.Anything).Return("https://github.com/user/repo.git", nil)
-	mockCmd.On("getSymbolicRef", mock.Anything).Return("refs/remotes/origin/main", nil)
+	mockCmd.On("getDefaultBranch", mock.Anything).Return("main", nil)
 
 	repo, branch, err := getDefaultRepoAndBranch("../", mockCmd)
 
@@ -77,7 +77,7 @@ func TestGetDefaultRepoAndBranch_SSHRemote(t *testing.T) {
 	mockCmd := new(MockCommander)
 	mockCmd.On("gitRootPath", mock.Anything).Return("../", nil)
 	mockCmd.On("getRemoteURL", mock.Anything).Return("git@github.com:terraform-ibm-modules/terraform-ibm-cbr.git", nil)
-	mockCmd.On("getSymbolicRef", mock.Anything).Return("refs/remotes/origin/main", nil)
+	mockCmd.On("getDefaultBranch", mock.Anything).Return("main", nil)
 
 	repo, branch, err := getDefaultRepoAndBranch("../", mockCmd)
 
@@ -97,7 +97,7 @@ func TestGetDefaultRepoAndBranch(t *testing.T) {
 	mockCmd.On("getRemoteURL", mock.Anything).Return("https://github.com/user/repo.git", nil)
 
 	// Mock the getSymbolicRef method
-	mockCmd.On("getSymbolicRef", mock.Anything).Return("refs/remotes/origin/main", nil)
+	mockCmd.On("getDefaultBranch", mock.Anything).Return("main", nil)
 
 	// Use the mock in the function
 	repo, branch, err := getDefaultRepoAndBranch("../", mockCmd)
@@ -111,8 +111,9 @@ func TestGetDefaultRepoAndBranch(t *testing.T) {
 // Test for GetCurrentPrRepoAndBranch
 func TestGetCurrentPrRepoAndBranch_Positive(t *testing.T) {
 	mockCmd := new(MockCommander)
+	// Mock the gitRootPath method
 	mockCmd.On("getCurrentBranch").Return("feature-branch", nil)
-	mockCmd.On("getRemoteURL", "feature-branch").Return("https://github.com/user/repo.git", nil)
+	mockCmd.On("getRemoteURL", ".").Return("https://github.com/user/repo.git", nil)
 
 	repo, branch, err := getCurrentPrRepoAndBranch(mockCmd)
 
@@ -135,17 +136,17 @@ type MockCommander struct {
 	mock.Mock
 }
 
+func (m *MockCommander) getDefaultBranch(repoDir string) (string, error) {
+	args := m.Called(repoDir)
+	return args.String(0), args.Error(1)
+}
+
 func (m *MockCommander) gitRootPath(fromPath string) (string, error) {
 	args := m.Called(fromPath)
 	return args.String(0), args.Error(1)
 }
 
 func (m *MockCommander) getRemoteURL(repoPath string) (string, error) {
-	args := m.Called(repoPath)
-	return args.String(0), args.Error(1)
-}
-
-func (m *MockCommander) getSymbolicRef(repoPath string) (string, error) {
 	args := m.Called(repoPath)
 	return args.String(0), args.Error(1)
 }
