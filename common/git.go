@@ -4,6 +4,8 @@ package common
 import (
 	"errors"
 	"fmt"
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
@@ -20,10 +22,10 @@ type gitOps interface {
 	gitRootPath(fromPath string) (string, error)
 	// GetRemoteURL retrieves the URL of the remote repository.
 	getRemoteURL(repoDir string) (string, error)
-	// GetSymbolicRef fetches the symbolic reference for the default branch.
-	getSymbolicRef(repo string) (string, error)
 	// GetCurrentBranch returns the name of the current branch.
 	getCurrentBranch() (string, error)
+	// GetDefaultBranch returns the name of the default branch.
+	getDefaultBranch(repoDir string) (string, error)
 }
 
 // envOps is an interface that abstracts environment variable operations.
@@ -44,12 +46,6 @@ func (r *realGitOps) getRemoteURL(repoDir string) (string, error) {
 		return "", err
 	}
 	remoteURL := strings.TrimSpace(string(output))
-
-	//// Convert SSH URL to HTTPS URL
-	//if strings.HasPrefix(remoteURL, "git@") {
-	//	remoteURL = strings.Replace(remoteURL, ":", "/", 1)
-	//	remoteURL = strings.Replace(remoteURL, "git@", "https://", 1)
-	//}
 
 	return remoteURL, nil
 }
@@ -74,6 +70,40 @@ func (r *realGitOps) getSymbolicRef(repo string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+func (r *realGitOps) getDefaultBranch(repoPath string) (string, error) {
+	// Open the Git repository at the specified path
+	repo, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return "", err
+	}
+
+	// List all references in the repository
+	iter, err := repo.References()
+	if err != nil {
+		return "", err
+	}
+
+	// Initialize a variable to store the default branch name
+	var defaultBranch string
+
+	// Iterate through references to find the symbolic reference for origin/HEAD
+	err = iter.ForEach(func(ref *plumbing.Reference) error {
+		if ref.Name().IsRemote() && ref.Name().Short() == "origin/HEAD" {
+			defaultBranch = strings.TrimPrefix(ref.Target().Short(), "origin/")
+			return nil
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	if defaultBranch == "" {
+		return "", fmt.Errorf("default branch not found")
+	}
+
+	return defaultBranch, nil
+}
 func (r *realGitOps) getCurrentBranch() (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	output, err := cmd.Output()
@@ -133,12 +163,10 @@ func getDefaultRepoAndBranch(path string, ops gitOps) (string, string, error) {
 		return "", "", err
 	}
 
-	branchRef, err := ops.getSymbolicRef(repo)
+	defaultBranch, err := ops.getDefaultBranch(repo)
 	if err != nil {
 		return "", "", err
 	}
-	defaultBranch := strings.TrimSpace(branchRef)
-	defaultBranch = strings.TrimPrefix(defaultBranch, "refs/remotes/origin/")
 
 	return remote, defaultBranch, nil
 }
@@ -173,6 +201,11 @@ func getBaseRepoAndBranch(repo string, branch string, git gitOps, env envOps) (s
 		branch = envBranch
 	}
 
+	// If environment variable GITHUB_HEAD_REF is set, use that. This is used in GitHub Actions and from a fork.
+	baseRef := os.Getenv("GITHUB_HEAD_REF")
+	if baseRef != "" {
+		branch = baseRef
+	}
 	if repo == "" || branch == "" {
 		defaultRepo, defaultBranch, err := getDefaultRepoAndBranch("../", git)
 		if err != nil {

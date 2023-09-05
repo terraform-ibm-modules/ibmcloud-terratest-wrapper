@@ -255,9 +255,9 @@ func CopyFile(source, destination string) error {
 	return nil
 }
 
-// CopyDirectory copies a directory from source to destination.
+// CopyDirectory copies a directory from source to destination, with optional file filtering.
 // Returns an error if the operation fails.
-func CopyDirectory(src string, dst string) error {
+func CopyDirectory(src string, dst string, fileFilter ...func(string) bool) error {
 	srcInfo, err := os.Lstat(src)
 	if err != nil {
 		return err
@@ -273,13 +273,28 @@ func CopyDirectory(src string, dst string) error {
 		return err
 	}
 
+	var filterFunc func(string) bool
+
+	if len(fileFilter) > 0 && fileFilter[0] != nil {
+		filterFunc = fileFilter[0]
+	} else {
+		// Default behavior: copy all files if no filter is provided
+		filterFunc = func(_ string) bool {
+			return true
+		}
+	}
+
 	for _, obj := range objects {
 		srcFile := src + "/" + obj.Name()
 		dstFile := dst + "/" + obj.Name()
 
+		if !filterFunc(srcFile) {
+			continue // Skip files that don't match the filter
+		}
+
 		if obj.IsDir() {
 			// Create sub-directories - recursively
-			if err = CopyDirectory(srcFile, dstFile); err != nil {
+			if err = CopyDirectory(srcFile, dstFile, fileFilter...); err != nil {
 				return err
 			}
 		} else {
