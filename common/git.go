@@ -44,7 +44,7 @@ func (r *realGitOps) getRemoteOriginURL(repoDir string) (string, error) {
 	cmd.Dir = repoDir
 	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to determine the remote origin URL: %s\n%v", output, err)
 	}
 	remoteURL := strings.TrimSpace(string(output))
 
@@ -56,7 +56,7 @@ func (r *realGitOps) gitRootPath(fromPath string) (string, error) {
 	cmd.Dir = fromPath
 	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to determine the Git root path: %s\n%v", output, err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }
@@ -65,7 +65,7 @@ func (r *realGitOps) getCurrentBranch() (string, error) {
 	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to determine the PR branch: %v", err)
+		return "", fmt.Errorf("failed to determine the PR branch: %s\n%v", output, err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }
