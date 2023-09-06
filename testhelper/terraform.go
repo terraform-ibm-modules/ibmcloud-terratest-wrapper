@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/gruntwork-io/terratest/modules/files"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -72,4 +73,19 @@ func ValidateTerraformOutputs(outputs map[string]interface{}, expectedKeys ...st
 	}
 
 	return missingKeys, err
+}
+
+// CleanTerraformDir removes the .terraform directory and other terraform files .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup from the directory
+func CleanTerraformDir(directory string) {
+	terraformFilesAndDirectories := []string{".terraform", ".terraform.lock.hcl", "terraform.tfstate", "terraform.tfstate.backup"}
+	for _, file := range terraformFilesAndDirectories {
+		// Check if file exists then remove
+		if _, err := os.Stat(filepath.Join(directory, file)); err == nil {
+			err := os.RemoveAll(filepath.Join(directory, file))
+			if err != nil {
+				// ignore errors, just log them
+				log.Printf("Error removing file %s: %s", file, err)
+			}
+		}
+	}
 }

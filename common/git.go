@@ -86,7 +86,11 @@ func (r *realGitOps) getCurrentBranch() (string, error) {
 		}
 
 	}
-	return strings.TrimSpace(string(output)), nil
+	branch := strings.TrimSpace(string(output))
+	if branch == "HEAD" {
+		fmt.Println("HEAD means no branch, running in detached mode. This is probable running in GHA")
+	}
+	return branch, nil
 }
 
 func (r *realGitOps) getOriginURL(repoPath string) string {
