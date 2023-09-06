@@ -27,34 +27,11 @@ func TestGitRootPath_Negative(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// Test for GetDefaultRepoAndBranch
-func TestGetDefaultRepoAndBranch_Positive(t *testing.T) {
-	mockCmd := new(MockCommander)
-	mockCmd.On("gitRootPath", mock.Anything).Return("../", nil)
-	mockCmd.On("getRemoteURL", mock.Anything).Return("https://github.com/user/repo.git", nil)
-	mockCmd.On("getDefaultBranch", mock.Anything).Return("main", nil)
-
-	repo, branch, err := getDefaultRepoAndBranch("../", mockCmd)
-
-	assert.NoError(t, err)
-	assert.Equal(t, "https://github.com/user/repo.git", repo)
-	assert.Equal(t, "main", branch)
-}
-
-func TestGetDefaultRepoAndBranch_Negative(t *testing.T) {
-	mockCmd := new(MockCommander)
-	mockCmd.On("gitRootPath", mock.Anything).Return("", errors.New("error finding git root"))
-
-	_, _, err := getDefaultRepoAndBranch("../", mockCmd)
-
-	assert.Error(t, err)
-}
-
 // Test for GetBaseRepoAndBranch
 func TestGetBaseRepoAndBranch_Positive(t *testing.T) {
 	mockCmd := new(MockCommander)
 	mockCmd.On("gitRootPath", mock.Anything).Return("../", nil)
-	mockCmd.On("getRemoteURL", mock.Anything).Return("https://github.com/user/repo.git", nil)
+	mockCmd.On("getRemoteOriginURL", mock.Anything).Return("https://github.com/user/repo.git", nil)
 	mockCmd.On("getOriginURL", mock.Anything).Return("https://github.com/origin/repo.git")
 	mockCmd.On("getOriginBranch", mock.Anything).Return("main")
 
@@ -66,6 +43,7 @@ func TestGetBaseRepoAndBranch_Positive(t *testing.T) {
 
 func TestGetBaseRepoAndBranch_Negative(t *testing.T) {
 	mockCmd := new(MockCommander)
+	mockCmd.On("gitRootPath", mock.Anything).Return("../", nil)
 	mockCmd.On("getOriginURL", mock.Anything).Return("")
 	mockCmd.On("getOriginBranch", mock.Anything).Return("")
 	repo, branch := getBaseRepoAndBranch("", "", mockCmd, &realEnvOps{})
@@ -74,47 +52,12 @@ func TestGetBaseRepoAndBranch_Negative(t *testing.T) {
 	assert.Empty(t, branch)
 }
 
-func TestGetDefaultRepoAndBranch_SSHRemote(t *testing.T) {
-	mockCmd := new(MockCommander)
-	mockCmd.On("gitRootPath", mock.Anything).Return("../", nil)
-	mockCmd.On("getRemoteURL", mock.Anything).Return("git@github.com:terraform-ibm-modules/terraform-ibm-cbr.git", nil)
-	mockCmd.On("getDefaultBranch", mock.Anything).Return("main", nil)
-
-	repo, branch, err := getDefaultRepoAndBranch("../", mockCmd)
-
-	assert.NoError(t, err)
-	assert.Equal(t, "git@github.com:terraform-ibm-modules/terraform-ibm-cbr.git", repo)
-	assert.Equal(t, "main", branch)
-}
-
-// Test for GetDefaultRepoAndBranch
-func TestGetDefaultRepoAndBranch(t *testing.T) {
-	mockCmd := new(MockCommander)
-
-	// Mock the gitRootPath method
-	mockCmd.On("gitRootPath", mock.Anything).Return("../", nil)
-
-	// Mock the getRemoteURL method
-	mockCmd.On("getRemoteURL", mock.Anything).Return("https://github.com/user/repo.git", nil)
-
-	// Mock the getSymbolicRef method
-	mockCmd.On("getDefaultBranch", mock.Anything).Return("main", nil)
-
-	// Use the mock in the function
-	repo, branch, err := getDefaultRepoAndBranch("../", mockCmd)
-
-	// Assertions
-	assert.NoError(t, err)
-	assert.Equal(t, "https://github.com/user/repo.git", repo)
-	assert.Equal(t, "main", branch)
-}
-
 // Test for GetCurrentPrRepoAndBranch
 func TestGetCurrentPrRepoAndBranch_Positive(t *testing.T) {
 	mockCmd := new(MockCommander)
 	// Mock the gitRootPath method
 	mockCmd.On("getCurrentBranch").Return("feature-branch", nil)
-	mockCmd.On("getRemoteURL", ".").Return("https://github.com/user/repo.git", nil)
+	mockCmd.On("getRemoteOriginURL", ".").Return("https://github.com/user/repo.git", nil)
 
 	repo, branch, err := getCurrentPrRepoAndBranch(mockCmd)
 
@@ -147,7 +90,7 @@ func (m *MockCommander) gitRootPath(fromPath string) (string, error) {
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockCommander) getRemoteURL(repoPath string) (string, error) {
+func (m *MockCommander) getRemoteOriginURL(repoPath string) (string, error) {
 	args := m.Called(repoPath)
 	return args.String(0), args.Error(1)
 }
