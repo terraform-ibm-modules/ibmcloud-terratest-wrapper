@@ -336,6 +336,11 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		} else {
 			logger.Log(options.Testing, "Copied current code to PR branch dir:", prTempDir)
 		}
+
+		// TODO: Remove before merge
+		logger.Log(options.Testing, "Files in PR branch temp dir")
+		printFiles(options.Testing, prTempDir)
+
 		// TODO: This is not working in GitHub Actions
 		// checkout action might need to be modified
 		// Another thought is to check the GHA environment variables for the details
@@ -385,6 +390,10 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		} else {
 			logger.Log(options.Testing, "Cloned base repo and branch with authentication")
 		}
+		// TODO: Remove before merge
+		logger.Log(options.Testing, "Files in default branch temp dir after clone")
+		printFiles(options.Testing, baseTempDir)
+
 		// Set TerraformDir to the appropriate directory within baseTempDir
 		options.TerraformOptions.TerraformDir = path.Join(baseTempDir, relativeTestSampleDir)
 		options.TerraformDir = options.TerraformOptions.TerraformDir
@@ -468,7 +477,9 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 func printFiles(t *testing.T, dir string) {
 	// TODO: Debug details do not merge
 	// print files in terraform dir with permisions and details including hidden files
-	fileDetails, err := exec.Command("/bin/sh", "-c", "ls -la", dir).CombinedOutput()
+	cmd := exec.Command("/bin/sh", "-c", "ls -la")
+	cmd.Dir = dir
+	fileDetails, err := cmd.CombinedOutput()
 	if err != nil {
 		logger.Log(t, "Error during ls -la  in ", dir, "\n", err)
 	} else {

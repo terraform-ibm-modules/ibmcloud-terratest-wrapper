@@ -62,7 +62,7 @@ func (r *realGitOps) gitRootPath(fromPath string) (string, error) {
 }
 
 func (r *realGitOps) getCurrentBranch() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to determine the PR branch: %v", err)
