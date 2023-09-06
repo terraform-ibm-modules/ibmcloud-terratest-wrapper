@@ -339,9 +339,9 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// TODO: This is not working in GitHub Actions
 		// checkout action might need to be modified
 		// Another thought is to check the GHA environment variables for the details
-		baseRepo, baseBranch, err := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get default repo and branch: %v", err)
+		baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
+		if baseBranch == "" || baseRepo == "" {
+			return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
 		} else {
 			logger.Log(options.Testing, "Base Repo:", baseRepo)
 			logger.Log(options.Testing, "Base Branch:", baseBranch)
