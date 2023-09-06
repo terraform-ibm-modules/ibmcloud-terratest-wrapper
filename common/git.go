@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -44,7 +45,7 @@ func (r *realGitOps) getRemoteOriginURL(repoDir string) (string, error) {
 	cmd.Dir = repoDir
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to determine the remote origin URL: %s\n%v", output, err)
+		return "", fmt.Errorf("failed to determine the remote origin URL: %s %v", output, err)
 	}
 	remoteURL := strings.TrimSpace(string(output))
 
@@ -56,16 +57,34 @@ func (r *realGitOps) gitRootPath(fromPath string) (string, error) {
 	cmd.Dir = fromPath
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to determine the Git root path: %s\n%v", output, err)
+		return "", fmt.Errorf("failed to determine the Git root path: %s %v", output, err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }
 
 func (r *realGitOps) getCurrentBranch() (string, error) {
 	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to determine the PR branch: %s\n%v", output, err)
+	output, _ := cmd.Output()
+	// If the output is empty, try to get the branch name using git rev-parse
+	if string(output) == "" {
+		cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+		output, _ = cmd.Output()
+	}
+	// If the output is still empty, try to get the branch name using git status
+	if string(output) == "" {
+		cmd := exec.Command("git", "status", "--branch", "--porcelain")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to determine the current branch: %s %v", output, err)
+		}
+
+		// Parse the output to extract the current branch name.
+		re := regexp.MustCompile(`## (.+)\.\.\.`)
+		matches := re.FindStringSubmatch(string(output))
+		if len(matches) != 2 {
+			return "", fmt.Errorf("failed to determine the current branch: unable to parse git status")
+		}
+
 	}
 	return strings.TrimSpace(string(output)), nil
 }
