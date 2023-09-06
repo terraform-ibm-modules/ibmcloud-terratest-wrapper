@@ -19,7 +19,7 @@ const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 
 type TestOptions struct {
 	// REQUIRED: a pointer to an initialized testing object.
-	// Typically you would assign the test object used in the unit test.
+	// Typically, you would assign the test object used in the unit test.
 	Testing *testing.T `copier:"-"`
 
 	// The default constructors will use this map to check that all required environment variables are set properly.
@@ -70,6 +70,21 @@ type TestOptions struct {
 	UseTerraformWorkspace bool
 	WorkspaceName         string
 	WorkspacePath         string
+
+	// Use these options to specify a base terraform repo and branch to use for upgrade tests.
+	// If not supplied, the default logic will be used to determine the base repo and branch.
+	// Will be overridden by environment variables BASE_TERRAFORM_REPO and BASE_TERRAFORM_BRANCH if set.
+	//
+	// For repositories that require authentication:
+	// - For HTTPS repositories, set the GIT_TOKEN environment variable to your Personal Access Token (PAT).
+	// - For SSH repositories, set the SSH_PRIVATE_KEY environment variable to your SSH private key.
+	//   If the SSH_PRIVATE_KEY environment variable is not set, the default SSH key located at ~/.ssh/id_rsa will be used.
+	//   Ensure that the appropriate public key is added to the repository's list of authorized keys.
+	//
+	// BaseTerraformRepo:   The URL of the base Terraform repository.
+	BaseTerraformRepo string
+	// BaseTerraformBranch: The branch within the base Terraform repository to use for upgrade tests.
+	BaseTerraformBranch string
 
 	// Resource tags to use for tests.
 	// NOTE: when using `...WithVars()` constructor, this value will be automatically added to the appropriate

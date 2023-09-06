@@ -3,6 +3,9 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 	"os"
 	"os/exec"
 	"path"
@@ -12,9 +15,6 @@ import (
 	"testing"
 
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/storer"
 	"github.com/gruntwork-io/terratest/modules/files"
 	"github.com/gruntwork-io/terratest/modules/logger"
 	"github.com/gruntwork-io/terratest/modules/terraform"
@@ -61,6 +61,9 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 		if changesErr == nil {
 			changesJson = string(changesBytes)
 		}
+
+		// Run plan again to output the nice human-readable plan
+		//terraform.Plan(options.Testing, options.TerraformOptions)
 
 		var resourceDetails string
 
