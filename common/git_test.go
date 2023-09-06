@@ -55,22 +55,23 @@ func TestGetBaseRepoAndBranch_Positive(t *testing.T) {
 	mockCmd := new(MockCommander)
 	mockCmd.On("gitRootPath", mock.Anything).Return("../", nil)
 	mockCmd.On("getRemoteURL", mock.Anything).Return("https://github.com/user/repo.git", nil)
-	mockCmd.On("getSymbolicRef", mock.Anything).Return("refs/remotes/origin/main", nil)
+	mockCmd.On("getOriginURL", mock.Anything).Return("https://github.com/origin/repo.git")
+	mockCmd.On("getOriginBranch", mock.Anything).Return("main")
 
-	repo, branch, err := getBaseRepoAndBranch("https://github.com/user/repo.git", "main", mockCmd, &realEnvOps{})
+	repo, branch := getBaseRepoAndBranch("", "", mockCmd, &realEnvOps{})
 
-	assert.NoError(t, err)
-	assert.Equal(t, "https://github.com/user/repo.git", repo)
+	assert.Equal(t, "https://github.com/origin/repo.git", repo)
 	assert.Equal(t, "main", branch)
 }
 
 func TestGetBaseRepoAndBranch_Negative(t *testing.T) {
 	mockCmd := new(MockCommander)
-	mockCmd.On("gitRootPath", mock.Anything).Return("", errors.New("error finding git root"))
+	mockCmd.On("getOriginURL", mock.Anything).Return("")
+	mockCmd.On("getOriginBranch", mock.Anything).Return("")
+	repo, branch := getBaseRepoAndBranch("", "", mockCmd, &realEnvOps{})
 
-	_, _, err := getBaseRepoAndBranch("", "", mockCmd, &realEnvOps{})
-
-	assert.Error(t, err)
+	assert.Empty(t, repo)
+	assert.Empty(t, branch)
 }
 
 func TestGetDefaultRepoAndBranch_SSHRemote(t *testing.T) {
@@ -154,4 +155,14 @@ func (m *MockCommander) getRemoteURL(repoPath string) (string, error) {
 func (m *MockCommander) getCurrentBranch() (string, error) {
 	args := m.Called()
 	return args.String(0), args.Error(1)
+}
+
+func (m *MockCommander) getOriginURL(repoPath string) string {
+	args := m.Called()
+	return args.String(0)
+}
+
+func (m *MockCommander) getOriginBranch(repoPath string) string {
+	args := m.Called()
+	return args.String(0)
 }
