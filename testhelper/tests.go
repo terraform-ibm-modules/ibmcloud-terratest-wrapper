@@ -3,9 +3,6 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/go-git/go-git/v5/config"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/storer"
 	"os"
 	"os/exec"
 	"path"
@@ -13,6 +10,10 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5/config"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/storer"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/gruntwork-io/terratest/modules/files"
@@ -361,30 +362,39 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 // RunTestConsistency Runs Test To check consistency between apply and re-apply, returns the output as string for further assertions
 func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) {
-	options.testSetup()
-	result, err := options.runTestConsistency()
-	options.testTearDown()
+	result, _, err := options.runTestConsistency()
 	return result, err
 }
 
-// runTestConsistency Runs Test To check consistency between apply and re-apply, returns the output as string for further assertions for internal use no setup or teardown
-func (options *TestOptions) runTestConsistency() (*terraform.PlanStruct, error) {
+// RunTestConsistencyWithOutput Runs consistency checks and returns output of terraform apply
+func (options *TestOptions) RunTestConsistencyWithOutput() (*terraform.PlanStruct, map[string]interface{}, error) {
+	result, output, err := options.runTestConsistency()
+	return result, output, err
+}
 
+// runTestConsistency Runs Test To check consistency between apply and re-apply, returns the output as string for further assertions for internal use no setup or teardown
+func (options *TestOptions) runTestConsistency() (*terraform.PlanStruct, map[string]interface{}, error) {
+	options.testSetup()
 	logger.Log(options.Testing, "START: Init / Apply / Consistency Check")
 	_, err := options.runTest()
 	if err != nil {
 		options.testTearDown()
-		return nil, err
+		return nil, nil, err
 	}
+	output := terraform.OutputAll(options.Testing, options.TerraformOptions)
+
 	result, err := options.runTestPlan()
+
 	if err != nil {
 		options.testTearDown()
-		return result, err
+		return result, output, err
 	}
+
 	options.checkConsistency(result)
+	options.testTearDown()
 	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
 
-	return result, err
+	return result, output, err
 }
 
 // RunTestPlan Runs Test plan and returns the plan as a struct for assertions
@@ -440,13 +450,4 @@ func (options *TestOptions) runTest() (string, error) {
 	logger.Log(options.Testing, "FINISHED: Init / Apply")
 
 	return output, err
-}
-
-// RunTestConsistencyWithOutput Runs consistency checks and returns output of terraform apply
-func (options *TestOptions) RunTestConsistencyWithOutput() (*terraform.PlanStruct, map[string]interface{}, error) {
-	options.testSetup()
-	result, err := options.runTestConsistency()
-	output := terraform.OutputAll(options.Testing, options.TerraformOptions)
-	options.testTearDown()
-	return result, output, err
 }
