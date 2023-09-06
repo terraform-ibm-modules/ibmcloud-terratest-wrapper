@@ -402,7 +402,11 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		// Set TerraformDir to the appropriate directory within prTempDir
 		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
+		options.TerraformDir = options.TerraformOptions.TerraformDir
 		// TODO: Note this worked for Tekton
+
+		// ensure terraform working files/folders are removed before copying state file ie .terraform, .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup
+		CleanTerraformDir(options.TerraformOptions.TerraformDir)
 
 		logger.Log(options.Testing, "Files before copying state file to PR branch dir")
 		// TODO: Remove before merge

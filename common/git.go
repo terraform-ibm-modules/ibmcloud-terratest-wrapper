@@ -67,7 +67,11 @@ func (r *realGitOps) getSymbolicRef(repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(output)), nil
+	branch := strings.TrimSpace(string(output))
+	if branch == "HEAD" {
+		fmt.Println("HEAD means no branch, running in detached mode. This is probable running in GHA")
+	}
+	return branch, nil
 }
 
 func (r *realGitOps) getDefaultBranch(repoPath string) (string, error) {
