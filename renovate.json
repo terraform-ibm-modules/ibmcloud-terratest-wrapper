@@ -6,6 +6,12 @@
       "matchManagers": ["gomod"],
       "semanticCommitType": "fix",
       "groupName": "gomod"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "matchPackageNames": ["github.com/ibm/vpc-go-sdk"],
+      "enabled": false,
+      "description": "Temporarily disable major version updates of vpc-go-sdk (see https://github.com/IBM/vpc-go-sdk/issues/49)"
     }
   ]
 }
