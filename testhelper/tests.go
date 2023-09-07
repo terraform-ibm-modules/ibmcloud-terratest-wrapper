@@ -346,13 +346,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			logger.Log(options.Testing, "Copied current code to PR branch dir:", prTempDir)
 		}
 
-		// TODO: Remove before merge
-		logger.Log(options.Testing, "Files in PR branch temp dir")
-		printFiles(options.Testing, prTempDir)
-
-		// TODO: This is not working in GitHub Actions
-		// checkout action might need to be modified
-		// Another thought is to check the GHA environment variables for the details
 		baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
 		if baseBranch == "" || baseRepo == "" {
 			return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
@@ -399,9 +392,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		} else {
 			logger.Log(options.Testing, "Cloned base repo and branch with authentication")
 		}
-		// TODO: Remove before merge
-		logger.Log(options.Testing, "Files in default branch temp dir after clone")
-		printFiles(options.Testing, baseTempDir)
 
 		// Set TerraformDir to the appropriate directory within baseTempDir
 		options.TerraformOptions.TerraformDir = path.Join(baseTempDir, relativeTestSampleDir)
@@ -410,8 +400,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
 		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
 
-		// TODO: Remove before merge
-		printFiles(options.Testing, options.TerraformOptions.TerraformDir)
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 		assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
 
@@ -421,14 +409,9 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Set TerraformDir to the appropriate directory within prTempDir
 		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
 		options.TerraformDir = options.TerraformOptions.TerraformDir
-		// TODO: Note this worked for Tekton
 
 		// ensure terraform working files/folders are removed before copying state file ie .terraform, .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup
 		CleanTerraformDir(options.TerraformOptions.TerraformDir)
-
-		logger.Log(options.Testing, "Files before copying state file to PR branch dir")
-		// TODO: Remove before merge
-		printFiles(options.Testing, options.TerraformOptions.TerraformDir)
 
 		// Copy the state file to the corresponding directory in prTempDir
 		errCopyState := common.CopyFile(baseStatePath, path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
@@ -442,9 +425,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		logger.Log(options.Testing, "Init / Plan on PR Branch:", prBranch)
 		logger.Log(options.Testing, "Init / Plan on PR Branch dir:", options.TerraformOptions.TerraformDir)
-
-		// TODO: Remove before merge
-		printFiles(options.Testing, options.TerraformOptions.TerraformDir)
 
 		// Run Terraform plan in prTempDir
 		result, resultErr = options.runTestPlan()
@@ -487,21 +467,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 	return result, resultErr
 }
 
-func printFiles(t *testing.T, dir string) {
-	// TODO: Debug details do not merge
-	// print files in terraform dir with permisions and details including hidden files
-	cmd := exec.Command("/bin/sh", "-c", "ls -la")
-	cmd.Dir = dir
-	fileDetails, err := cmd.CombinedOutput()
-	if err != nil {
-		logger.Log(t, "Error during ls -la  in ", dir, "\n", err)
-	} else {
-		logger.Log(t, "ls -laR in ", dir, ":\n", string(fileDetails))
-	}
-
-	// TODO: Debug details do not merge
-}
-
 // RunTestConsistency Runs Test To check consistency between apply and re-apply, returns the output as string for further assertions
 func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) {
 	options.testSetup()
@@ -519,8 +484,8 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 	}
 	options.checkConsistency(result)
 	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
-	// TODO: Clear plan file from test options
-	// Add description why we are doing this
+
+	// Clear the plan file path so it is not used in the next test if testSetup is disabled
 	options.TerraformOptions.PlanFilePath = ""
 	options.testTearDown()
 
