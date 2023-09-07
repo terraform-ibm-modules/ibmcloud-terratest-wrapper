@@ -150,10 +150,6 @@ func (options *TestOptions) testSetup() {
 					if files.PathContainsTerraformStateOrVars(path) {
 						return false
 					}
-					// Add a filter to ignore directories named "temp"
-					if strings.Contains(strings.ToLower(path), "/temp/") || strings.HasSuffix(strings.ToLower(path), "/temp") {
-						return false
-					}
 
 					return true
 				}
@@ -345,9 +341,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		} else {
 			logger.Log(options.Testing, "Copied current code to PR branch dir:", prTempDir)
 		}
-		// TODO: This is not working in GitHub Actions
-		// checkout action might need to be modified
-		// Another thought is to check the GHA environment variables for the details
+
 		baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
 		if baseBranch == "" || baseRepo == "" {
 			return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
@@ -411,7 +405,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Set TerraformDir to the appropriate directory within prTempDir
 		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
 		options.TerraformDir = options.TerraformOptions.TerraformDir
-		// TODO: Note this worked for Tekton
 
 		// ensure terraform working files/folders are removed before copying state file ie .terraform, .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup
 		CleanTerraformDir(options.TerraformOptions.TerraformDir)
