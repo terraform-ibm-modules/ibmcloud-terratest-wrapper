@@ -135,7 +135,7 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 	}
 
 	// initialize empty environment structures
-	envValues := []interface{}{}
+	envValues := make([]map[string]interface{}, 0)
 	envMetadata := []schematics.EnvironmentValuesMetadata{}
 
 	// add env needed for restapi provider by default
@@ -682,30 +682,44 @@ func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, 
 	return target, nil
 }
 
-func addWorkspaceEnv(values *[]interface{}, metadata *[]schematics.EnvironmentValuesMetadata, key string, value string, hidden bool, secure bool) {
-	// add the value to env
-	*values = append(*values, map[string]string{key: value})
-	// add a metadata entry for sensitive value
-	*metadata = append(*metadata, schematics.EnvironmentValuesMetadata{Name: core.StringPtr(key), Hidden: core.BoolPtr(hidden), Secure: core.BoolPtr(secure)})
+func addWorkspaceEnv(values *[]map[string]interface{}, metadata *[]schematics.EnvironmentValuesMetadata, key string, value string, hidden bool, secure bool) {
+	// Create a map of type map[string]interface{} to store key-value pair
+	envValue := map[string]interface{}{key: value}
+
+	// Append the map to the values slice
+	*values = append(*values, envValue)
+
+	// Add a metadata entry for the sensitive value
+	*metadata = append(*metadata, schematics.EnvironmentValuesMetadata{
+		Name:   core.StringPtr(key),
+		Hidden: core.BoolPtr(hidden),
+		Secure: core.BoolPtr(secure),
+	})
 }
 
-func addNetrcToWorkspaceEnv(values *[]interface{}, metadata *[]schematics.EnvironmentValuesMetadata, netrcEntries []NetrcCredential) {
-	// loop through provided entries and add to one netrc string
-	netrcValue := ""
+func addNetrcToWorkspaceEnv(values *[]map[string]interface{}, metadata *[]schematics.EnvironmentValuesMetadata, netrcEntries []NetrcCredential) {
+	// Create a slice to store netrc entries
+	netrcValue := []interface{}{}
+
+	// Loop through provided entries and add to the slice
 	for _, netrc := range netrcEntries {
-		if len(netrcValue) > 0 {
-			netrcValue += ","
+		entry := map[string]interface{}{
+			"host":     netrc.Host,
+			"username": netrc.Username,
+			"password": netrc.Password,
 		}
-		netrcValue += fmt.Sprintf("['%s','%s','%s']", netrc.Host, netrc.Username, netrc.Password)
+		netrcValue = append(netrcValue, entry)
 	}
 
-	// wrap all entries in array brackets (to make array of arrays)
-	netrcValue = fmt.Sprintf("[%s]", netrcValue)
+	// Add the slice of netrc entries to env with "__netrc__" as the key
+	*values = append(*values, map[string]interface{}{"__netrc__": netrcValue})
 
-	// add the value to env
-	*values = append(*values, map[string]string{"__netrc__": netrcValue})
-	// add a metadata entry for sensitive value
-	*metadata = append(*metadata, schematics.EnvironmentValuesMetadata{Name: core.StringPtr("__netrc__"), Hidden: core.BoolPtr(false), Secure: core.BoolPtr(true)})
+	// Add a metadata entry for the sensitive value
+	*metadata = append(*metadata, schematics.EnvironmentValuesMetadata{
+		Name:   core.StringPtr("__netrc__"),
+		Hidden: core.BoolPtr(false), // Set to false as it's not hidden
+		Secure: core.BoolPtr(true),  // Set to true as it's considered secure
+	})
 }
 
 func (svc *SchematicsTestService) retryApiCall(apiError error, apiStatusCode int, currentRetryCount int) bool {
