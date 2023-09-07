@@ -112,6 +112,7 @@ func TestGetDefaultRepoAndBranch(t *testing.T) {
 func TestGetCurrentPrRepoAndBranch_Positive(t *testing.T) {
 	mockCmd := new(MockCommander)
 	// Mock the gitRootPath method
+	mockCmd.On("gitRootPath", mock.Anything).Return(".", nil)
 	mockCmd.On("getCurrentBranch").Return("feature-branch", nil)
 	mockCmd.On("getRemoteURL", ".").Return("https://github.com/user/repo.git", nil)
 

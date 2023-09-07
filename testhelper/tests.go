@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -132,6 +131,9 @@ func (options *TestOptions) testSetup() {
 		}
 
 		if !options.DisableTempWorkingDir {
+			// Ensure always running from git root
+			gitRoot, _ := common.GitRootPath(".")
+
 			// Create a temporary directory
 			tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
 			if err != nil {
@@ -148,11 +150,13 @@ func (options *TestOptions) testSetup() {
 					if files.PathContainsTerraformStateOrVars(path) {
 						return false
 					}
+					// Add a filter to ignore directories named "temp"
+					if strings.Contains(strings.ToLower(path), "/temp/") || strings.HasSuffix(strings.ToLower(path), "/temp") {
+						return false
+					}
+
 					return true
 				}
-
-				// Ensure always running from git root
-				gitRoot, _ := common.GitRootPath(".")
 
 				// Define the source and destination directories for the directory copy
 				srcDir := gitRoot
@@ -166,6 +170,7 @@ func (options *TestOptions) testSetup() {
 
 				// Update Terraform options with the full path of the new temp location
 				options.TerraformOptions.TerraformDir = path.Join(dstDir, options.TerraformDir)
+				options.TerraformDir = options.TerraformOptions.TerraformDir
 				options.baseTempWorkingDir = tempDir
 			}
 		}
@@ -219,10 +224,10 @@ func (options *TestOptions) testTearDown() {
 			}
 			logger.Log(options.Testing, "END: Destroy")
 
-			// remove the temp directory which is one level above the working directory
-			tempDirParent := filepath.Dir(options.baseTempWorkingDir)
-			logger.Log(options.Testing, "Deleting the temp working directory")
-			os.RemoveAll(tempDirParent)
+			if options.baseTempWorkingDir != "" {
+				logger.Log(options.Testing, "Deleting the temp working directory")
+				os.RemoveAll(options.baseTempWorkingDir)
+			}
 		}
 	} else {
 		logger.Log(options.Testing, "Skipping automatic Test Teardown")
@@ -325,6 +330,10 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Copy the current code (from PR branch) to the PR temp directory with the filter
 		errCopy := common.CopyDirectory(gitRoot, prTempDir, func(path string) bool {
 			if files.PathContainsTerraformStateOrVars(path) {
+				return false
+			}
+			// Add a filter to ignore directories named "temp"
+			if strings.Contains(strings.ToLower(path), "/temp/") || strings.HasSuffix(strings.ToLower(path), "/temp") {
 				return false
 			}
 			return true
