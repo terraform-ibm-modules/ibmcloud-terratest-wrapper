@@ -8,8 +8,10 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"golang.org/x/crypto/ssh"
+	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
@@ -19,11 +21,13 @@ type gitOps interface {
 	// GitRootPath returns the root directory of the current Git repository.
 	gitRootPath(fromPath string) (string, error)
 	// GetRemoteURL retrieves the URL of the remote repository.
-	getRemoteURL(repoDir string) (string, error)
-	// GetSymbolicRef fetches the symbolic reference for the default branch.
-	getSymbolicRef(repo string) (string, error)
+	getRemoteOriginURL(repoDir string) (string, error)
 	// GetCurrentBranch returns the name of the current branch.
 	getCurrentBranch() (string, error)
+	// GetOriginURL returns the URL of the origin repository.
+	getOriginURL(repoPath string) string
+	// GetOriginBranch returns the name of the origin branch.
+	getOriginBranch(repoPath string) string
 }
 
 // envOps is an interface that abstracts environment variable operations.
@@ -36,20 +40,14 @@ type envOps interface {
 // realGitOps provides the real-world implementation of gitOps, executing actual Git commands.
 type realGitOps struct{}
 
-func (r *realGitOps) getRemoteURL(repoDir string) (string, error) {
+func (r *realGitOps) getRemoteOriginURL(repoDir string) (string, error) {
 	cmd := exec.Command("git", "remote", "get-url", "origin")
 	cmd.Dir = repoDir
 	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to determine the remote origin URL: %s %v", output, err)
 	}
 	remoteURL := strings.TrimSpace(string(output))
-
-	//// Convert SSH URL to HTTPS URL
-	//if strings.HasPrefix(remoteURL, "git@") {
-	//	remoteURL = strings.Replace(remoteURL, ":", "/", 1)
-	//	remoteURL = strings.Replace(remoteURL, "git@", "https://", 1)
-	//}
 
 	return remoteURL, nil
 }
@@ -59,28 +57,111 @@ func (r *realGitOps) gitRootPath(fromPath string) (string, error) {
 	cmd.Dir = fromPath
 	output, err := cmd.Output()
 	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(output)), nil
-}
-
-func (r *realGitOps) getSymbolicRef(repo string) (string, error) {
-	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
-	cmd.Dir = repo
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to determine the Git root path: %s %v", output, err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }
 
 func (r *realGitOps) getCurrentBranch() (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to determine the PR branch: %v", err)
+	cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
+	output, _ := cmd.Output()
+	// If the output is empty, try to get the branch name using git rev-parse
+	if string(output) == "" {
+		cmd = exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+		output, _ = cmd.Output()
 	}
-	return strings.TrimSpace(string(output)), nil
+	// If the output is still empty, try to get the branch name using git status
+	if string(output) == "" {
+		cmd := exec.Command("git", "status", "--branch", "--porcelain")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to determine the current branch: %s %v", output, err)
+		}
+
+		// Parse the output to extract the current branch name.
+		re := regexp.MustCompile(`## (.+)\.\.\.`)
+		matches := re.FindStringSubmatch(string(output))
+		if len(matches) != 2 {
+			return "", fmt.Errorf("failed to determine the current branch: unable to parse git status")
+		}
+
+	}
+	branch := strings.TrimSpace(string(output))
+	if branch == "HEAD" {
+		fmt.Println("HEAD means no branch, running in detached mode. This is probable running in GHA")
+	}
+	return branch, nil
+}
+
+func (r *realGitOps) getOriginURL(repoPath string) string {
+	// Determine the URL of the upstream remote (usually "origin")
+	repo := ""
+	cmd := exec.Command("git", "remote", "get-url", "upstream")
+	cmd.Dir = repoPath
+	output, err := cmd.Output()
+	if err == nil { // Check if the first command is successful
+		repo = strings.TrimSpace(string(output))
+	} else {
+		// If there's no "upstream" remote, fall back to "origin"
+		cmd := exec.Command("git", "remote", "get-url", "origin")
+		output, err = cmd.Output()
+		if err != nil {
+			log.Println("Unable to determine origin URL")
+			log.Println(err)
+			return ""
+		}
+		repo = strings.TrimSpace(string(output))
+	}
+
+	return repo
+}
+
+func (r *realGitOps) getOriginBranch(repoPath string) string {
+	branch := ""
+	// Try to get the branch from the "origin" remote
+	cmd := exec.Command("git", "remote", "show", "origin")
+	output, err := cmd.Output()
+	if err == nil { // Check if the first command is successful
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "HEAD branch:") {
+				parts := strings.SplitN(line, ":", 2)
+				if len(parts) == 2 {
+					branch = strings.TrimSpace(parts[1])
+					break
+				}
+			}
+		}
+	}
+
+	// If branch is still empty, try to get it from the "upstream" remote
+	if branch == "" {
+		cmd := exec.Command("git", "remote", "show", "upstream")
+		output, err := cmd.Output()
+		if err == nil {
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "HEAD branch:") {
+					parts := strings.SplitN(line, ":", 2)
+					if len(parts) == 2 {
+						branch = strings.TrimSpace(parts[1])
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// If branch is still empty, use an alternative method to get the current branch
+	if branch == "" {
+		cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
+		output, err := cmd.Output()
+		if err == nil {
+			branch = strings.TrimSpace(string(output))
+		}
+	}
+
+	return branch
 }
 
 // realEnvOps provides the real-world implementation of envOps, interacting with actual environment variables.
@@ -106,43 +187,6 @@ func gitRootPath(fromPath string, ops gitOps) (string, error) {
 	return ops.gitRootPath(fromPath)
 }
 
-// GetDefaultRepoAndBranch determines the default repository URL and branch name
-// of the current Git repository. This function is useful when you want to programmatically
-// determine the repository and branch details without relying on manual input.
-//
-// Parameters:
-//   - path: The directory from which the Git commands should be executed. This is typically
-//     the root directory of your project or any sub-directory within it.
-//
-// Returns:
-// - A string representing the default repository URL without any credentials.
-// - A string representing the default branch name.
-// - An error if any of the Git commands fail or if the repository/branch details cannot be determined.
-func GetDefaultRepoAndBranch(path string) (string, string, error) {
-	return getDefaultRepoAndBranch(path, &realGitOps{})
-}
-
-func getDefaultRepoAndBranch(path string, ops gitOps) (string, string, error) {
-	repo, err := ops.gitRootPath(path)
-	if err != nil {
-		return "", "", err
-	}
-
-	remote, err := ops.getRemoteURL(repo)
-	if err != nil {
-		return "", "", err
-	}
-
-	branchRef, err := ops.getSymbolicRef(repo)
-	if err != nil {
-		return "", "", err
-	}
-	defaultBranch := strings.TrimSpace(branchRef)
-	defaultBranch = strings.TrimPrefix(defaultBranch, "refs/remotes/origin/")
-
-	return remote, defaultBranch, nil
-}
-
 // GetBaseRepoAndBranch determines the base repository URL and branch name based on a hierarchy of sources.
 // The function first checks the provided arguments, then checks environment variables, and finally,
 // if neither source provides the values, it uses Git logic to fetch the details.
@@ -159,11 +203,11 @@ func getDefaultRepoAndBranch(path string, ops gitOps) (string, string, error) {
 // - A string representing the base repository URL.
 // - A string representing the base branch name.
 // - An error if any of the Git commands fail or if the repository/branch details cannot be determined.
-func GetBaseRepoAndBranch(repo string, branch string) (string, string, error) {
+func GetBaseRepoAndBranch(repo string, branch string) (string, string) {
 	return getBaseRepoAndBranch(repo, branch, &realGitOps{}, &realEnvOps{})
 }
 
-func getBaseRepoAndBranch(repo string, branch string, git gitOps, env envOps) (string, string, error) {
+func getBaseRepoAndBranch(repo string, branch string, git gitOps, env envOps) (string, string) {
 	envRepo, exists := env.lookupEnv("BASE_TERRAFORM_REPO")
 	if exists {
 		repo = envRepo
@@ -174,19 +218,15 @@ func getBaseRepoAndBranch(repo string, branch string, git gitOps, env envOps) (s
 	}
 
 	if repo == "" || branch == "" {
-		defaultRepo, defaultBranch, err := getDefaultRepoAndBranch("../", git)
+		repoPath, err := git.gitRootPath(".")
 		if err != nil {
-			return "", "", err
+			log.Fatal(err)
 		}
-		if repo == "" {
-			repo = defaultRepo
-		}
-		if branch == "" {
-			branch = defaultBranch
-		}
+		repo = git.getOriginURL(repoPath)
+		branch = git.getOriginBranch(repoPath)
 	}
 
-	return repo, branch, nil
+	return repo, branch
 }
 
 // GetCurrentPrRepoAndBranch returns the repository URL and branch name of the current PR.
@@ -199,15 +239,19 @@ func GetCurrentPrRepoAndBranch() (string, string, error) {
 	return getCurrentPrRepoAndBranch(&realGitOps{})
 }
 
-func getCurrentPrRepoAndBranch(ops gitOps) (string, string, error) {
+func getCurrentPrRepoAndBranch(git gitOps) (string, string, error) {
 	// Get the current branch name
-	branch, err := ops.getCurrentBranch()
+	branch, err := git.getCurrentBranch()
 	if err != nil {
 		return "", "", err
 	}
 
+	repoPath, err := git.gitRootPath(".")
+	if err != nil {
+		return "", "", err
+	}
 	// Get the remote URL for the current branch
-	repoURL, err := ops.getRemoteURL(".")
+	repoURL, err := git.getRemoteOriginURL(repoPath)
 	if err != nil {
 		return "", "", err
 	}
