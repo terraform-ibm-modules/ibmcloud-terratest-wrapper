@@ -57,7 +57,13 @@ func (r *realGitOps) gitRootPath(fromPath string) (string, error) {
 	cmd.Dir = fromPath
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to determine the Git root path: %s %v", output, err)
+		// if current directory contains .git, then it is the root
+		// otherwise, return the error
+		if _, err := os.Stat(fromPath + "/.git"); os.IsNotExist(err) {
+			return "", fmt.Errorf("failed to determine the Git root path: %s %v", output, err)
+		}
+		// current directory is the root
+		return fromPath, nil
 	}
 	return strings.TrimSpace(string(output)), nil
 }
