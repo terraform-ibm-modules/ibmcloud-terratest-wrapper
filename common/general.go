@@ -219,6 +219,10 @@ func GenerateSshRsaPublicKey() (string, error) {
 // CopyFile copies a file from source to destination.
 // Returns an error if the operation fails.
 func CopyFile(source, destination string) error {
+	// Check path exists
+	if _, err := os.Stat(source); os.IsNotExist(err) {
+		return fmt.Errorf("source path %s does not exist: %w", source, err)
+	}
 	// Check if source is a symlink
 	srcInfo, err := os.Lstat(source)
 
@@ -258,6 +262,10 @@ func CopyFile(source, destination string) error {
 // CopyDirectory copies a directory from source to destination, with optional file filtering.
 // Returns an error if the operation fails.
 func CopyDirectory(src string, dst string, fileFilter ...func(string) bool) error {
+	// Check path exists
+	if _, err := os.Stat(src); os.IsNotExist(err) {
+		return fmt.Errorf("source path %s does not exist: %w", src, err)
+	}
 	// Check if source is a symlink
 	srcInfo, err := os.Lstat(src)
 	if err != nil {
