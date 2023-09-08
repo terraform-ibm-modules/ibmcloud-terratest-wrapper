@@ -57,14 +57,30 @@ func (r *realGitOps) gitRootPath(fromPath string) (string, error) {
 	cmd.Dir = fromPath
 	output, err := cmd.Output()
 	if err != nil {
-		// if current directory contains .git, then it is the root
+		log.Println("Unable to determine Git root path")
+		log.Printf("Checking if the fromPath: %s directory is the root\n", fromPath)
+		// if fromPath contains .git, then it is the root
 		// otherwise, return the error
-		if _, err := os.Stat(fromPath + "/.git"); os.IsNotExist(err) {
-			return "", fmt.Errorf("failed to determine the Git root path: %s %v", output, err)
+		if _, errNotExist := os.Stat(fromPath + "/.git"); os.IsNotExist(errNotExist) {
+			// check if the current working directory is the root
+			cwd, errGetCwd := os.Getwd()
+			if errGetCwd != nil {
+				return "", fmt.Errorf("failed to determine the Git root path: %s %v", output, err)
+			} else {
+				log.Println("fromPath is not the root")
+				log.Printf("Checking if the current working directory: %s is the root\n", cwd)
+				if _, errNotExist := os.Stat(cwd + "/.git"); os.IsNotExist(errNotExist) {
+					log.Println("current working directory is not the root")
+					return "", fmt.Errorf("failed to determine the Git root path: %s %v", output, err)
+				}
+				log.Println("current working directory is the root")
+				return cwd, nil
+			}
 		}
-		// current directory is the root
+		log.Println("fromPath is the root")
 		return fromPath, nil
 	}
+
 	return strings.TrimSpace(string(output)), nil
 }
 
