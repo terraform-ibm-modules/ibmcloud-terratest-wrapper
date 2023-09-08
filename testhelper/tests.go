@@ -328,10 +328,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			if files.PathContainsTerraformStateOrVars(path) {
 				return false
 			}
-			// Add a filter to ignore directories named "temp"
-			if strings.Contains(strings.ToLower(path), "/temp/") || strings.HasSuffix(strings.ToLower(path), "/temp") {
-				return false
-			}
+
 			return true
 		})
 		if errCopy != nil {
@@ -344,6 +341,8 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
 		if baseBranch == "" || baseRepo == "" {
+			// Tear down the test
+			options.testTearDown()
 			return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
 		} else {
 			logger.Log(options.Testing, "Base Repo:", baseRepo)
