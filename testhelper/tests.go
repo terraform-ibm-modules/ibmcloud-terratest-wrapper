@@ -132,7 +132,7 @@ func (options *TestOptions) testSetup() {
 
 		if !options.DisableTempWorkingDir {
 			// Ensure always running from git root
-			gitRoot, _ := common.GitRootPath(".")
+			gitRoot, err := common.GitRootPath(".")
 
 			// Create a temporary directory
 			tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
@@ -235,17 +235,17 @@ func (options *TestOptions) testTearDown() {
 // existing infrastructure remains intact during updates.
 //
 // The function performs the following steps:
-// 1. Checks if the test is running in short mode and skips the upgrade test if so.
-// 2. Determines the current PR branch.
-// 3. Checks if the upgrade test should be skipped based on commit messages.
-// 4. If not skipped:
-//    a. Sets up the test environment.
-//    b. Copies the current code (from PR branch) to a temporary directory.
-//    c. Clones the base branch into a separate temporary directory.
-//    d. Applies Terraform configurations on the base branch.
-//    e. Moves the state file from the base branch directory to the PR branch directory.
-//    f. Runs Terraform plan in the PR branch directory to check for any inconsistencies.
-//    g. Optionally, it can also apply the Terraform configurations on the PR branch.
+//  1. Checks if the test is running in short mode and skips the upgrade test if so.
+//  2. Determines the current PR branch.
+//  3. Checks if the upgrade test should be skipped based on commit messages.
+//  4. If not skipped:
+//     a. Sets up the test environment, including creating temporary directories.
+//     b. Copies the current code (from the PR branch) to a temporary directory.
+//     c. Clones the base branch into a separate temporary directory.
+//     d. Applies Terraform configurations on the base branch.
+//     e. Moves the state file from the base branch directory to the PR branch directory.
+//     f. Runs Terraform plan in the PR branch directory to check for any inconsistencies.
+//     g. Optionally, it can also apply the Terraform configurations on the PR branch.
 //
 // Parameters:
 // - options: TestOptions containing various settings and configurations for the test.
@@ -253,7 +253,6 @@ func (options *TestOptions) testTearDown() {
 // Returns:
 // - A terraform.PlanStruct containing the results of the Terraform plan.
 // - An error if any step in the function fails.
-
 func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 	var result *terraform.PlanStruct
