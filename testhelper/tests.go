@@ -396,8 +396,11 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
 
 		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
-		assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
-
+		if resultErr != nil {
+			assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
+			options.testTearDown()
+			return nil, resultErr
+		}
 		// Get the path to the state file in baseTempDir
 		baseStatePath := path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate")
 
