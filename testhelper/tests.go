@@ -134,6 +134,10 @@ func (options *TestOptions) testSetup() {
 			// Ensure always running from git root
 			gitRoot, err := common.GitRootPath(".")
 
+			if err != nil {
+				require.Nil(options.Testing, err, "Error getting git root path")
+			}
+
 			// Create a temporary directory
 			tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
 			if err != nil {
