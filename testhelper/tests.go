@@ -197,6 +197,14 @@ func (options *TestOptions) TestTearDown() {
 
 // testTearDown Tear down test
 func (options *TestOptions) testTearDown() {
+	// Get the output of the last terraform apply
+	// NOTE: this is done before the destroy so that the output is available for debugging
+	var outputErr error
+	options.LastTestTerraformOutputs, outputErr = terraform.OutputAllE(options.Testing, options.TerraformOptions)
+	if outputErr != nil {
+		logger.Log(options.Testing, "failed to get terraform output: ", outputErr)
+	}
+
 	if !options.SkipTestTearDown {
 		// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
 		envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")

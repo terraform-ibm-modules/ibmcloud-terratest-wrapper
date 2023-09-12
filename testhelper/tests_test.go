@@ -2,14 +2,18 @@ package testhelper
 
 import (
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 var sample1 = "sample/terraform/sample1"
+var sample1ExpectedOutputs = []string{"world"}
 var sample2 = "sample/terraform/sample2"
+var sample2ExpectedOutputs = []string{}
 var sample3 = "sample/terraform/sample3"
+var sample3ExpectedOutputs = []string{"world"}
 
 var terraformVars = map[string]interface{}{
 	"hello": "hello from the tests!"}
@@ -28,6 +32,9 @@ func TestRunTest(t *testing.T) {
 	output, err := options.RunTest()
 	assert.Nil(t, err, "This should not have errored")
 	assert.NotNil(t, output, "Expected some output")
+	assert.NotNil(t, options.LastTestTerraformOutputs, "Expected some Terraform outputs")
+	_, outErr := ValidateTerraformOutputs(options.LastTestTerraformOutputs, sample1ExpectedOutputs...)
+	assert.Nil(t, outErr, outErr)
 
 }
 
@@ -45,6 +52,9 @@ func TestRunTestRelativeModule(t *testing.T) {
 	output, err := options.RunTest()
 	assert.Nil(t, err, "This should not have errored")
 	assert.NotNil(t, output, "Expected some output")
+	assert.NotNil(t, options.LastTestTerraformOutputs, "Expected some Terraform outputs")
+	_, outErr := ValidateTerraformOutputs(options.LastTestTerraformOutputs, sample2ExpectedOutputs...)
+	assert.Nil(t, outErr, outErr)
 
 }
 
@@ -64,6 +74,9 @@ func TestRunTestImplicitDestroy(t *testing.T) {
 	output, err := options.RunTest()
 	assert.Nil(t, err, "This should not have errored")
 	assert.NotNil(t, output, "Expected some output")
+	assert.NotNil(t, options.LastTestTerraformOutputs, "Expected some Terraform outputs")
+	_, outErr := ValidateTerraformOutputs(options.LastTestTerraformOutputs, sample1ExpectedOutputs...)
+	assert.Nil(t, outErr, outErr)
 
 }
 
@@ -83,6 +96,9 @@ func TestRunTestImplicitDestroyRelativeModule(t *testing.T) {
 	output, err := options.RunTest()
 	assert.Nil(t, err, "This should not have errored")
 	assert.NotNil(t, output, "Expected some output")
+	assert.NotNil(t, options.LastTestTerraformOutputs, "Expected some Terraform outputs")
+	_, outErr := ValidateTerraformOutputs(options.LastTestTerraformOutputs, sample2ExpectedOutputs...)
+	assert.Nil(t, outErr, outErr)
 
 }
 
@@ -100,6 +116,10 @@ func TestRunTestResultStruct(t *testing.T) {
 	output, err := options.RunTestPlan()
 	assert.Nil(t, err, "This should not have errored")
 	assert.NotNil(t, output, "Expected some output")
+	// Check if options.LastTestTerraformOutputs is an empty map
+	isEmpty := reflect.DeepEqual(options.LastTestTerraformOutputs, map[string]interface{}{})
+
+	assert.True(t, isEmpty, "Expected no Terraform outputs")
 
 }
 
@@ -117,6 +137,10 @@ func TestRunTestResultStructRelativeModule(t *testing.T) {
 	output, err := options.RunTestPlan()
 	assert.Nil(t, err, "This should not have errored")
 	assert.NotNil(t, output, "Expected some output")
+	// Check if options.LastTestTerraformOutputs is an empty map
+	isEmpty := reflect.DeepEqual(options.LastTestTerraformOutputs, map[string]interface{}{})
+
+	assert.True(t, isEmpty, "Expected no Terraform outputs")
 }
 
 func TestRunUpgradeTestInPlace(t *testing.T) {
@@ -134,6 +158,9 @@ func TestRunUpgradeTestInPlace(t *testing.T) {
 
 	if !options.UpgradeTestSkipped {
 		assert.NotNil(t, output, "Expected some output")
+		assert.NotNil(t, options.LastTestTerraformOutputs, "Expected some Terraform outputs")
+		_, outErr := ValidateTerraformOutputs(options.LastTestTerraformOutputs, sample1ExpectedOutputs...)
+		assert.Nil(t, outErr, outErr)
 	}
 }
 
@@ -151,6 +178,9 @@ func TestRunUpgradeTestInPlaceRelativeModule(t *testing.T) {
 	output, _ := options.RunTestUpgrade()
 	if !options.UpgradeTestSkipped {
 		assert.NotNil(t, output, "Expected some output")
+		assert.NotNil(t, options.LastTestTerraformOutputs, "Expected some Terraform outputs")
+		_, outErr := ValidateTerraformOutputs(options.LastTestTerraformOutputs, sample2ExpectedOutputs...)
+		assert.Nil(t, outErr, outErr)
 	}
 }
 
@@ -170,4 +200,7 @@ func TestRunTestConsistency(t *testing.T) {
 
 	assert.Nil(t, err, "This should not have errored")
 	assert.NotNil(t, output, "Expected some output")
+	assert.NotNil(t, options.LastTestTerraformOutputs, "Expected some Terraform outputs")
+	_, outErr := ValidateTerraformOutputs(options.LastTestTerraformOutputs, sample3ExpectedOutputs...)
+	assert.Nil(t, outErr, outErr)
 }

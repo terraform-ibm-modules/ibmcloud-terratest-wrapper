@@ -137,6 +137,9 @@ type TestOptions struct {
 	// Note: Workspace collisions when running in parallel can occur if this is set to true
 	DisableTempWorkingDir bool
 
+	// LastTestTerraformOutputs is a map of the last terraform outputs from the test run
+	LastTestTerraformOutputs map[string]interface{}
+
 	// These properties are considered READ ONLY and are used internally in the service to keep track of certain data elements.
 	// Some of these properties are public, and can be used after the test is run to determine specific outcomes.
 	IsUpgradeTest      bool   // Identifies if current test is an UPGRADE test, used for special processing
