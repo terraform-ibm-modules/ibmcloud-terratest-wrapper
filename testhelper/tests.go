@@ -324,7 +324,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			// Create a temporary directory for the PR code
 			prTempDir, err = os.MkdirTemp("", fmt.Sprintf("terraform-pr-%s", options.Prefix))
 			if err != nil {
-				options.testTearDown()
+				// No need to tearDown as nothing was created
 				return nil, fmt.Errorf("failed to create temp dir for PR branch: %v", err)
 			} else {
 				logger.Log(options.Testing, "TEMP PR DIR CREATED: ", prTempDir)
@@ -336,7 +336,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			// Create a temporary directory for the base branch
 			baseTempDir, err = os.MkdirTemp("", fmt.Sprintf("terraform-base-%s", options.Prefix))
 			if err != nil {
-				options.testTearDown()
+				// No need to tearDown as nothing was created
 				return nil, fmt.Errorf("failed to create temp dir for base branch: %v", err)
 			} else {
 				logger.Log(options.Testing, "TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
@@ -354,8 +354,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 				return true
 			})
 			if errCopy != nil {
-				// Tear down the test
-				options.testTearDown()
+				// No need to tearDown as nothing was created
 				return nil, fmt.Errorf("failed to copy PR directory to temp: %v", errCopy)
 			} else {
 				logger.Log(options.Testing, "Copied current code to PR branch dir:", prTempDir)
@@ -365,7 +364,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			// This directory never gets deleted by automation if teardown is skipped
 			baseTempDir, err = os.MkdirTemp("", baseTempDir)
 			if err != nil {
-				options.testTearDown()
+				// No need to tearDown as nothing was created
 				return nil, fmt.Errorf("failed to create temp dir for base branch in git root: %v", err)
 			} else {
 				logger.Log(options.Testing, "TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
@@ -376,8 +375,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		}
 		baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
 		if baseBranch == "" || baseRepo == "" {
-			// Tear down the test
-			options.testTearDown()
+			// No need to tearDown as nothing was created
 			return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
 		} else {
 			logger.Log(options.Testing, "Base Repo:", baseRepo)
