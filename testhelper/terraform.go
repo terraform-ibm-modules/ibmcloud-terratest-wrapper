@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gruntwork-io/terratest/modules/files"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 	"log"
 	"os"
 	"os/exec"
@@ -101,21 +102,11 @@ func CleanTerraformDir(directory string) {
 		filePath := filepath.Join(directory, fileName)
 
 		// Check if it's one of the known Terraform files or a file matching the format
-		if contains(terraformFilesAndDirectories, fileName) || re.MatchString(fileName) {
+		if common.StrArrayContains(terraformFilesAndDirectories, fileName) || re.MatchString(fileName) {
 			if err := os.RemoveAll(filePath); err != nil {
 				// Ignore errors, just log them
 				log.Printf("Error removing file %s: %s", fileName, err)
 			}
 		}
 	}
-}
-
-// Helper function to check if a string is in a slice of strings
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }
