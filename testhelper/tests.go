@@ -236,6 +236,8 @@ func (options *TestOptions) testTearDown() {
 				logger.Log(options.Testing, "Deleting the temp working directory")
 				os.RemoveAll(options.baseTempWorkingDir)
 			}
+			//Clean up terraform files
+			CleanTerraformDir(options.TerraformDir)
 		}
 	} else {
 		logger.Log(options.Testing, "Skipping automatic Test Teardown")

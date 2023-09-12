@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 )
 
@@ -75,17 +76,46 @@ func ValidateTerraformOutputs(outputs map[string]interface{}, expectedKeys ...st
 	return missingKeys, err
 }
 
-// CleanTerraformDir removes the .terraform directory and other terraform files .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup from the directory
+// CleanTerraformDir removes the .terraform directory, other Terraform files, and files with the specified format from the directory
 func CleanTerraformDir(directory string) {
-	terraformFilesAndDirectories := []string{".terraform", ".terraform.lock.hcl", "terraform.tfstate", "terraform.tfstate.backup"}
-	for _, file := range terraformFilesAndDirectories {
-		// Check if file exists then remove
-		if _, err := os.Stat(filepath.Join(directory, file)); err == nil {
-			err := os.RemoveAll(filepath.Join(directory, file))
-			if err != nil {
-				// ignore errors, just log them
-				log.Printf("Error removing file %s: %s", file, err)
+	terraformFilesAndDirectories := []string{
+		".terraform",
+		".terraform.lock.hcl",
+		"terraform.tfstate",
+		"terraform.tfstate.backup",
+	}
+
+	// Define a regular expression pattern to match the desired file format
+	pattern := `^terratest-plan-file-\d+$`
+	re := regexp.MustCompile(pattern)
+
+	// List files in the directory
+	files, err := os.ReadDir(directory)
+	if err != nil {
+		log.Printf("Error listing files in directory %s: %s", directory, err)
+		return
+	}
+
+	for _, file := range files {
+		fileName := file.Name()
+		filePath := filepath.Join(directory, fileName)
+
+		// Check if it's one of the known Terraform files or a file matching the format
+		if contains(terraformFilesAndDirectories, fileName) || re.MatchString(fileName) {
+			if err := os.RemoveAll(filePath); err != nil {
+				// Ignore errors, just log them
+				log.Printf("Error removing file %s: %s", fileName, err)
 			}
 		}
 	}
+}
+
+// Helper function to check if a string is in a slice of strings
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }
