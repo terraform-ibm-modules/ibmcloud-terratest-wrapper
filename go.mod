@@ -4,9 +4,9 @@ go 1.20
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20230616121711-b838ccdcd2fb
-	github.com/IBM-Cloud/power-go-client v1.3.0
+	github.com/IBM-Cloud/power-go-client v1.3.1
 	github.com/IBM/go-sdk-core/v5 v5.14.1
-	github.com/IBM/platform-services-go-sdk v0.48.0
+	github.com/IBM/platform-services-go-sdk v0.48.1
 	github.com/IBM/schematics-go-sdk v0.2.2
 	github.com/IBM/vpc-go-sdk v0.41.0
 	github.com/go-git/go-git/v5 v5.8.1
@@ -15,7 +15,7 @@ require (
 	github.com/gruntwork-io/terratest v0.43.13
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.8.4
-	golang.org/x/crypto v0.12.0
+	golang.org/x/crypto v0.13.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -100,8 +100,8 @@ require (
 	golang.org/x/mod v0.10.0 // indirect
 	golang.org/x/net v0.12.0 // indirect
 	golang.org/x/oauth2 v0.8.0 // indirect
-	golang.org/x/sys v0.11.0 // indirect
-	golang.org/x/text v0.12.0 // indirect
+	golang.org/x/sys v0.12.0 // indirect
+	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/tools v0.9.3 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/api v0.127.0 // indirect
