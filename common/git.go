@@ -110,7 +110,7 @@ func (r *realGitOps) getCurrentBranch() (string, error) {
 	}
 	branch := strings.TrimSpace(string(output))
 	if branch == "HEAD" {
-		fmt.Println("HEAD means no branch, running in detached mode. This is probable running in GHA")
+		fmt.Println("HEAD means no branch, running in detached mode. This is probably running in GHA")
 	}
 	return branch, nil
 }
