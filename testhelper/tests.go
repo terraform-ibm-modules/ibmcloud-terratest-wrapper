@@ -197,6 +197,14 @@ func (options *TestOptions) TestTearDown() {
 
 // testTearDown Tear down test
 func (options *TestOptions) testTearDown() {
+	// Get the output of the last terraform apply
+	// NOTE: this is done before the destroy so that the output is available for debugging
+	var outputErr error
+	options.LastTestTerraformOutputs, outputErr = terraform.OutputAllE(options.Testing, options.TerraformOptions)
+	if outputErr != nil {
+		logger.Log(options.Testing, "failed to get terraform output: ", outputErr)
+	}
+
 	if !options.SkipTestTearDown {
 		// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
 		envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
@@ -228,6 +236,8 @@ func (options *TestOptions) testTearDown() {
 				logger.Log(options.Testing, "Deleting the temp working directory")
 				os.RemoveAll(options.baseTempWorkingDir)
 			}
+			//Clean up terraform files
+			CleanTerraformDir(options.TerraformDir)
 		}
 	} else {
 		logger.Log(options.Testing, "Skipping automatic Test Teardown")
@@ -308,44 +318,64 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Setup the test including a TEMP directory to run in
 		options.testSetup()
 
-		// Create a temporary directory for the PR code
-		prTempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-pr-%s", options.Prefix))
-		if err != nil {
-			logger.Log(options.Testing, err)
-		} else {
-			logger.Log(options.Testing, "TEMP PR DIR CREATED: ", prTempDir)
-		}
-		defer os.RemoveAll(prTempDir) // clean up
-
-		// Create a temporary directory for the base branch
-		baseTempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-base-%s", options.Prefix))
-		if err != nil {
-			logger.Log(options.Testing, err)
-		} else {
-			logger.Log(options.Testing, "TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
-		}
-		defer os.RemoveAll(baseTempDir) // clean up
-
-		// Copy the current code (from PR branch) to the PR temp directory with the filter
-		errCopy := common.CopyDirectory(gitRoot, prTempDir, func(path string) bool {
-			if files.PathContainsTerraformStateOrVars(path) {
-				return false
+		prTempDir := gitRoot
+		baseTempDir := ""
+		if !options.DisableTempWorkingDir {
+			// Create a temporary directory for the PR code
+			prTempDir, err = os.MkdirTemp("", fmt.Sprintf("terraform-pr-%s", options.Prefix))
+			if err != nil {
+				// No need to tearDown as nothing was created
+				return nil, fmt.Errorf("failed to create temp dir for PR branch: %v", err)
+			} else {
+				logger.Log(options.Testing, "TEMP PR DIR CREATED: ", prTempDir)
+			}
+			if !options.SkipTestTearDown {
+				defer os.RemoveAll(prTempDir) // clean up
 			}
 
-			return true
-		})
-		if errCopy != nil {
-			// Tear down the test
-			options.testTearDown()
-			return nil, fmt.Errorf("failed to copy PR directory to temp: %v", errCopy)
-		} else {
-			logger.Log(options.Testing, "Copied current code to PR branch dir:", prTempDir)
-		}
+			// Create a temporary directory for the base branch
+			baseTempDir, err = os.MkdirTemp("", fmt.Sprintf("terraform-base-%s", options.Prefix))
+			if err != nil {
+				// No need to tearDown as nothing was created
+				return nil, fmt.Errorf("failed to create temp dir for base branch: %v", err)
+			} else {
+				logger.Log(options.Testing, "TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
+			}
+			if !options.SkipTestTearDown {
+				defer os.RemoveAll(baseTempDir) // clean up
+			}
 
+			// Copy the current code (from PR branch) to the PR temp directory with the filter
+			errCopy := common.CopyDirectory(gitRoot, prTempDir, func(path string) bool {
+				if files.PathContainsTerraformStateOrVars(path) {
+					return false
+				}
+
+				return true
+			})
+			if errCopy != nil {
+				// No need to tearDown as nothing was created
+				return nil, fmt.Errorf("failed to copy PR directory to temp: %v", errCopy)
+			} else {
+				logger.Log(options.Testing, "Copied current code to PR branch dir:", prTempDir)
+			}
+		} else {
+			// create temp dir for base branch in git root
+			// This directory never gets deleted by automation if teardown is skipped
+			baseTempDir, err = os.MkdirTemp("", baseTempDir)
+			if err != nil {
+				// No need to tearDown as nothing was created
+				return nil, fmt.Errorf("failed to create temp dir for base branch in git root: %v", err)
+			} else {
+				logger.Log(options.Testing, "TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
+			}
+			if !options.SkipTestTearDown {
+				defer os.RemoveAll(baseTempDir) // clean up
+			}
+		}
 		baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
 		if baseBranch == "" || baseRepo == "" {
-			// Tear down the test
-			options.testTearDown()
+			// No need to tearDown as nothing was created
 			return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
 		} else {
 			logger.Log(options.Testing, "Base Repo:", baseRepo)
