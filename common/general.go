@@ -256,6 +256,11 @@ func CopyFile(source, destination string) error {
 		return fmt.Errorf("failed to copy file contents: %w", err)
 	}
 
+	// Set the permissions of the destination file to match the source file
+	if err := os.Chmod(destination, srcInfo.Mode()); err != nil {
+		return fmt.Errorf("failed to set destination file permissions: %w", err)
+	}
+
 	return nil
 }
 
