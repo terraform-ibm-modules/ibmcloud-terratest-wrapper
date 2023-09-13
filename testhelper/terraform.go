@@ -93,7 +93,7 @@ func CleanTerraformDir(directory string) {
 	// List files in the directory
 	files, err := os.ReadDir(directory)
 	if err != nil {
-		log.Printf("Error listing files in directory %s: %s", directory, err)
+		log.Printf("Could not read directory for cleanup %s: %s Skipping...", directory, err)
 		return
 	}
 
