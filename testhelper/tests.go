@@ -520,7 +520,9 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
 
 	// Clear the plan file path so it is not used in the next test if testSetup is disabled
-	options.TerraformOptions.PlanFilePath = ""
+	if options.SkipTestSetup {
+		options.TerraformOptions.PlanFilePath = ""
+	}
 	options.testTearDown()
 
 	return result, err
