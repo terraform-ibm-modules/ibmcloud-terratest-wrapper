@@ -234,7 +234,10 @@ func (options *TestOptions) testTearDown() {
 
 			if options.baseTempWorkingDir != "" {
 				logger.Log(options.Testing, "Deleting the temp working directory")
-				os.RemoveAll(options.baseTempWorkingDir)
+				// Check directory exists and delete it
+				if _, err := os.Stat(options.baseTempWorkingDir); err == nil {
+					os.RemoveAll(options.baseTempWorkingDir)
+				}
 			}
 			//Clean up terraform files
 			CleanTerraformDir(options.TerraformDir)
