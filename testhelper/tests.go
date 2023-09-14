@@ -3,13 +3,14 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/gruntwork-io/terratest/modules/files"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/gruntwork-io/terratest/modules/files"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/gruntwork-io/terratest/modules/logger"
@@ -503,6 +504,12 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 // RunTestConsistency Runs Test To check consistency between apply and re-apply, returns the output as string for further assertions
 func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) {
+	defer func() {
+		// Clear the plan file path so it is not used in the next test if testSetup is disabled
+		if options.SkipTestSetup {
+			options.TerraformOptions.PlanFilePath = ""
+		}
+	}()
 	options.testSetup()
 
 	logger.Log(options.Testing, "START: Init / Apply / Consistency Check")
@@ -519,8 +526,6 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 	options.checkConsistency(result)
 	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
 
-	// Clear the plan file path so it is not used in the next test if testSetup is disabled
-	options.TerraformOptions.PlanFilePath = ""
 	options.testTearDown()
 
 	return result, err
