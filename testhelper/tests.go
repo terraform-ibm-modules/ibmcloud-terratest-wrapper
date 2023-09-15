@@ -216,6 +216,7 @@ func (options *TestOptions) testTearDown() {
 		} else {
 
 			for _, address := range options.ImplicitDestroy {
+				// TODO: is this the correct path to the state file? and/or does it need to be updated upstream to a relative path(temp dir)?
 				statefile := fmt.Sprintf("%s/terraform.tfstate", options.WorkspacePath)
 				out, err := RemoveFromStateFile(statefile, address)
 				if options.ImplicitRequired && err != nil {
@@ -312,6 +313,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		tempDirCreationBackup := options.DisableTempWorkingDir
 
 		// Temporarily disable the creation of a temporary directory
+		// Upgrade Test will create its own
 		options.DisableTempWorkingDir = true
 
 		// Defer a function to restore the original value
@@ -584,4 +586,11 @@ func (options *TestOptions) runTest() (string, error) {
 	logger.Log(options.Testing, "FINISHED: Init / Apply")
 
 	return output, err
+}
+
+// setTerraformDir helper funtion to set the terraform directory
+func (options *TestOptions) setTerraformDir(tempDir string) {
+	options.TerraformOptions.TerraformDir = tempDir
+	options.TerraformDir = tempDir
+	options.WorkspacePath = tempDir
 }
