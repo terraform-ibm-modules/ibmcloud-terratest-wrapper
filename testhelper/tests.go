@@ -308,13 +308,10 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Upgrade Test will create its own
 		options.DisableTempWorkingDir = true
 
-		// Defer a function to restore the original value
-		defer func() {
-			options.DisableTempWorkingDir = tempDirCreationBackup
-		}()
-
-		// Setup the test including a TEMP directory to run in
+		// Setup the test
 		options.testSetup()
+		// restore the original value
+		options.DisableTempWorkingDir = tempDirCreationBackup
 
 		prTempDir := gitRoot
 		baseTempDir := ""
