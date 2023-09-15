@@ -170,8 +170,7 @@ func (options *TestOptions) testSetup() {
 				}
 
 				// Update Terraform options with the full path of the new temp location
-				options.TerraformOptions.TerraformDir = path.Join(dstDir, options.TerraformDir)
-				options.TerraformDir = options.TerraformOptions.TerraformDir
+				options.setTerraformDir(path.Join(dstDir, options.TerraformDir))
 			}
 		}
 
@@ -297,6 +296,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		// Extract the relative path from the original TerraformDir
 		originalTerraformDir := options.TerraformDir
+
 		// Just in case an absolute path was provided, make it relative to the git root
 		relativeTestSampleDir := strings.TrimPrefix(originalTerraformDir, gitRoot)
 
@@ -307,6 +307,17 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Temporarily disable the creation of a temporary directory
 		// Upgrade Test will create its own
 		options.DisableTempWorkingDir = true
+
+		// Temporarily disable workspace usage
+		useTerraformWorkspaceBackup := options.UseTerraformWorkspace
+		terraformWorkspaceBackup := options.WorkspacePath
+		options.UseTerraformWorkspace = false
+		logger.Log(options.Testing, "Temporarily disabling UseTerraformWorkspace in Upgrade Test as temporary directories are used instead of workspaces")
+		defer func() {
+			logger.Log(options.Testing, fmt.Sprintf("Restoring UseTerraformWorkspace and WorkspacePath to original values: %v %v", useTerraformWorkspaceBackup, terraformWorkspaceBackup))
+			options.UseTerraformWorkspace = useTerraformWorkspaceBackup
+			options.WorkspacePath = terraformWorkspaceBackup
+		}()
 
 		// Setup the test
 		options.testSetup()
@@ -417,8 +428,8 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		}
 
 		// Set TerraformDir to the appropriate directory within baseTempDir
-		options.TerraformOptions.TerraformDir = path.Join(baseTempDir, relativeTestSampleDir)
-		options.TerraformDir = options.TerraformOptions.TerraformDir
+		options.setTerraformDir(path.Join(baseTempDir, relativeTestSampleDir))
+
 		logger.Log(options.Testing, "Init / Apply on Base repo:", baseRepo)
 		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
 		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
@@ -433,8 +444,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		baseStatePath := path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate")
 
 		// Set TerraformDir to the appropriate directory within prTempDir
-		options.TerraformOptions.TerraformDir = path.Join(prTempDir, relativeTestSampleDir)
-		options.TerraformDir = options.TerraformOptions.TerraformDir
+		options.setTerraformDir(path.Join(prTempDir, relativeTestSampleDir))
 
 		// ensure terraform working files/folders are removed before copying state file ie .terraform, .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup
 		CleanTerraformDir(options.TerraformOptions.TerraformDir)
@@ -578,6 +588,7 @@ func (options *TestOptions) runTest() (string, error) {
 }
 
 // setTerraformDir helper funtion to set the terraform directory
+// sets the TerraformOptions.TerraformDir, TestOptions.TerraformDir and TestOptions.WorkspacePath
 func (options *TestOptions) setTerraformDir(tempDir string) {
 	options.TerraformOptions.TerraformDir = tempDir
 	options.TerraformDir = tempDir
