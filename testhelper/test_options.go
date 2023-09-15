@@ -144,9 +144,8 @@ type TestOptions struct {
 
 	// These properties are considered READ ONLY and are used internally in the service to keep track of certain data elements.
 	// Some of these properties are public, and can be used after the test is run to determine specific outcomes.
-	IsUpgradeTest      bool   // Identifies if current test is an UPGRADE test, used for special processing
-	UpgradeTestSkipped bool   // Informs the calling test that conditions were met to skip the upgrade test
-	baseTempWorkingDir string // INTERNAL variable to store the base level of temporary working directory
+	IsUpgradeTest      bool // Identifies if current test is an UPGRADE test, used for special processing
+	UpgradeTestSkipped bool // Informs the calling test that conditions were met to skip the upgrade test
 
 }
 
