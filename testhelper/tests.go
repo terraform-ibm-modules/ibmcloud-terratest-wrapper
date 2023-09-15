@@ -172,7 +172,6 @@ func (options *TestOptions) testSetup() {
 				// Update Terraform options with the full path of the new temp location
 				options.TerraformOptions.TerraformDir = path.Join(dstDir, options.TerraformDir)
 				options.TerraformDir = options.TerraformOptions.TerraformDir
-				options.baseTempWorkingDir = tempDir
 			}
 		}
 
@@ -234,13 +233,6 @@ func (options *TestOptions) testTearDown() {
 			}
 			logger.Log(options.Testing, "END: Destroy")
 
-			if options.baseTempWorkingDir != "" {
-				logger.Log(options.Testing, "Deleting the temp working directory")
-				// Check directory exists and delete it
-				if _, err := os.Stat(options.baseTempWorkingDir); err == nil {
-					os.RemoveAll(options.baseTempWorkingDir)
-				}
-			}
 			//Clean up terraform files
 			CleanTerraformDir(options.TerraformDir)
 		}
