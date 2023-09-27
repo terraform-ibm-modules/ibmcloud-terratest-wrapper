@@ -1,7 +1,9 @@
 package common
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -223,4 +225,65 @@ func TestGenerateSshPublicKey(t *testing.T) {
 		// make sure there are no newlines
 		assert.NotContains(t, newKey, "\n")
 	}
+}
+
+func TestCopyDirectoryAndFile(t *testing.T) {
+	// Create a temporary directory for testing
+	tmpDir := t.TempDir()
+
+	// Create a source directory with some files and permissions
+	sourceDir := filepath.Join(tmpDir, "source")
+	if err := os.Mkdir(sourceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sourceFile := filepath.Join(sourceDir, "file.txt")
+	if _, err := os.Create(sourceFile); err != nil {
+		t.Fatal(err)
+	}
+	// Set permissions on the source file
+	if err := os.Chmod(sourceFile, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a destination directory
+	destDir := filepath.Join(tmpDir, "destination")
+
+	// Log permissions before copying
+	srcFileInfo, err := os.Stat(sourceFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Printf("Source File Permissions: %v\n", srcFileInfo.Mode())
+
+	// Copy the source directory to the destination
+	if err := CopyDirectory(sourceDir, destDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Check if the destination directory and file exist
+	_, err = os.Stat(destDir)
+	if os.IsNotExist(err) {
+		t.Fatal("Destination directory does not exist")
+	}
+
+	destFile := filepath.Join(destDir, "file.txt")
+	_, err = os.Stat(destFile)
+	if os.IsNotExist(err) {
+		t.Fatal("Destination file does not exist")
+	}
+
+	// Log permissions after copying
+	destFileInfo, err := os.Stat(destFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Printf("Destination File Permissions: %v\n", destFileInfo.Mode())
+
+	// Check if permissions are preserved
+	if srcFileInfo.Mode() != destFileInfo.Mode() {
+		t.Fatalf("File permissions are not preserved. Expected: %v, Got: %v", srcFileInfo.Mode(), destFileInfo.Mode())
+	}
+
+	// Clean up: remove temporary directory
+	os.RemoveAll(tmpDir)
 }

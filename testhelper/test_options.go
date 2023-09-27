@@ -126,18 +126,26 @@ type TestOptions struct {
 	// this service in a variable that is shared amongst all unit tests and supply the pointer here.
 	CloudInfoService cloudinfo.CloudInfoServiceI
 
-	// Set to true if you wish for an Upgrade test to do a final `terraform apply` after the consistency check on the new (not main) branch.
+	// Set to true if you wish for an Upgrade test to do a final `terraform apply` after the consistency check on the new (not base) branch.
 	CheckApplyResultForUpgrade bool
 
 	// If you want to skip test setup and teardown use these
 	SkipTestSetup    bool
 	SkipTestTearDown bool
 
+	// Use to disable temporary working directory
+	// Note: Workspace collisions when running in parallel can occur if this is set to true
+	DisableTempWorkingDir bool
+
+	// LastTestTerraformOutputs is a map of the last terraform outputs from the last apply of the test.
+	// Note: Plans do not create output. As a side effect of this the upgrade test will have the outputs from the base terraform apply not the upgrade.
+	// Unless the upgrade test is run with the `CheckApplyResultForUpgrade` set to true.
+	LastTestTerraformOutputs map[string]interface{}
+
 	// These properties are considered READ ONLY and are used internally in the service to keep track of certain data elements.
 	// Some of these properties are public, and can be used after the test is run to determine specific outcomes.
-	IsUpgradeTest      bool   // Identifies if current test is an UPGRADE test, used for special processing
-	UpgradeTestSkipped bool   // Informs the calling test that conditions were met to skip the upgrade test
-	baseTempWorkingDir string // INTERNAL variable to store the base level of temporary working directory
+	IsUpgradeTest      bool // Identifies if current test is an UPGRADE test, used for special processing
+	UpgradeTestSkipped bool // Informs the calling test that conditions were met to skip the upgrade test
 
 }
 

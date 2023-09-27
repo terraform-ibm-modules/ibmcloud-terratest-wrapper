@@ -4,10 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/gruntwork-io/terratest/modules/files"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 )
 
@@ -72,4 +75,38 @@ func ValidateTerraformOutputs(outputs map[string]interface{}, expectedKeys ...st
 	}
 
 	return missingKeys, err
+}
+
+// CleanTerraformDir removes the .terraform directory, other Terraform files, and files with the specified format from the directory
+func CleanTerraformDir(directory string) {
+	terraformFilesAndDirectories := []string{
+		".terraform",
+		".terraform.lock.hcl",
+		"terraform.tfstate",
+		"terraform.tfstate.backup",
+	}
+
+	// Define a regular expression pattern to match the desired file format
+	pattern := `^terratest-plan-file-\d+$`
+	re := regexp.MustCompile(pattern)
+
+	// List files in the directory
+	files, err := os.ReadDir(directory)
+	if err != nil {
+		log.Printf("Could not read directory for cleanup %s: %s Skipping...", directory, err)
+		return
+	}
+
+	for _, file := range files {
+		fileName := file.Name()
+		filePath := filepath.Join(directory, fileName)
+
+		// Check if it's one of the known Terraform files or a file matching the format
+		if common.StrArrayContains(terraformFilesAndDirectories, fileName) || re.MatchString(fileName) {
+			if err := os.RemoveAll(filePath); err != nil {
+				// Ignore errors, just log them
+				log.Printf("Error removing file %s: %s", fileName, err)
+			}
+		}
+	}
 }
