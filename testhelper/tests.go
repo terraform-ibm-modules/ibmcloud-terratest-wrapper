@@ -513,39 +513,23 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 	}()
 	options.testSetup()
 
-// RunTestConsistencyWithOutput Runs consistency checks and returns output of terraform apply
-func (options *TestOptions) RunTestConsistencyWithOutput() (*terraform.PlanStruct, map[string]interface{}, error) {
-	result, output, err := options.runTestConsistency()
-	return result, output, err
-}
-
-// runTestConsistency Runs Test To check consistency between apply and re-apply, returns the output as string for further assertions for internal use no setup or teardown
-func (options *TestOptions) runTestConsistency() (*terraform.PlanStruct, map[string]interface{}, error) {
-	options.testSetup()
 	logger.Log(options.Testing, "START: Init / Apply / Consistency Check")
 	_, err := options.runTest()
 	if err != nil {
 		options.testTearDown()
-		return nil, nil, err
+		return nil, err
 	}
-	output := terraform.OutputAll(options.Testing, options.TerraformOptions)
-
 	result, err := options.runTestPlan()
-
 	if err != nil {
 		options.testTearDown()
-		return result, output, err
+		return result, err
 	}
 	options.checkConsistency(result)
 	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
 
 	options.testTearDown()
 
-	options.checkConsistency(result)
-	options.testTearDown()
-	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
-
-	return result, output, err
+	return result, err
 }
 
 // RunTestPlan Runs Test plan and returns the plan as a struct for assertions
