@@ -3,6 +3,7 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"os"
 	"os/exec"
 	"path"
@@ -225,6 +226,30 @@ func (options *TestOptions) testTearDown() {
 				}
 			}
 
+			if options.CBRRuleListOutputVariable != "" {
+				// Disable any CBR Rules before procceding with destroy
+				expected_outputs := []string{options.CBRRuleListOutputVariable}
+				_, err := ValidateTerraformOutputs(options.LastTestTerraformOutputs, expected_outputs...)
+				if err == nil {
+					cbr_rule_ids := options.LastTestTerraformOutputs[options.CBRRuleListOutputVariable].([]interface{})
+					infosvc, err := cloudinfo.NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, cloudinfo.CloudInfoServiceOptions{})
+					if err != nil {
+						logger.Log(options.Testing, "Error creating CloudInfoService for testhelper, skipping CBR Rule disable")
+					} else {
+						for _, cbr_rule_id := range cbr_rule_ids {
+							// Disable CBR Rule
+							disable_error := infosvc.SetCBREnforcementMode(cbr_rule_id.(string), "disabled")
+							if disable_error != nil {
+								logger.Log(options.Testing, fmt.Sprintf("Error Disabling CBR Rule %s, %s", cbr_rule_id.(string), disable_error))
+							} else {
+								logger.Log(options.Testing, fmt.Sprintf("Disabled CBR Rule %s", cbr_rule_id.(string)))
+							}
+						}
+					}
+				} else {
+					logger.Log(options.Testing, fmt.Sprintf("Error output containg CBRRuleList %s not found in Statefile, skipping CBR Rule disable", options.CBRRuleListOutputVariable))
+				}
+			}
 			logger.Log(options.Testing, "START: Destroy")
 			terraform.Destroy(options.Testing, options.TerraformOptions)
 			if options.UseTerraformWorkspace {
