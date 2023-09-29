@@ -87,7 +87,36 @@ type ibmPICloudConnectionClient interface {
 
 type cbrService interface {
 	GetRule(*contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
+	ReplaceRule(*contextbasedrestrictionsv1.ReplaceRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	GetZone(*contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
+}
+
+// ReplaceCBRRule replaces a CBR rule using the provided options.
+// updatedExistingRule is the rule to be replaced with the changes already made.
+// eTag is the eTag of the existing rule that is being replaced.
+func (infoSvc *CloudInfoService) ReplaceCBRRule(updatedExistingRule *contextbasedrestrictionsv1.Rule, eTag *string) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error) {
+	// Ensure that the CBR service is initialized in the CloudInfoService
+	if infoSvc.cbrService == nil {
+		return nil, nil, errors.New("CBR service is not initialized")
+	}
+
+	updatedRuleOptions := &contextbasedrestrictionsv1.ReplaceRuleOptions{
+		RuleID:          updatedExistingRule.ID,
+		Description:     updatedExistingRule.Description,
+		Contexts:        updatedExistingRule.Contexts,
+		Resources:       updatedExistingRule.Resources,
+		Operations:      updatedExistingRule.Operations,
+		EnforcementMode: updatedExistingRule.EnforcementMode,
+		IfMatch:         eTag,
+	}
+	// Call the ReplaceRuleWithContext method of the CBR service
+	rule, response, err := infoSvc.cbrService.ReplaceRule(updatedRuleOptions)
+
+	if err != nil {
+		return nil, response, err
+	}
+
+	return rule, response, nil
 }
 
 // SortedRegionsDataByPriority is an array of RegionData struct that is used as a receiver to implement the

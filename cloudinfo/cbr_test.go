@@ -28,7 +28,7 @@ func TestGetCBRRuleByID(t *testing.T) {
 		mockCBR := &cbrServiceMock{rule: mockRule, detailedResponse: &mockResponse200, err: nil}
 		infoSvc := CloudInfoService{cbrService: mockCBR}
 		// Call the GetCBRRuleByID function with the service instance and the rule ID
-		rule, err := infoSvc.GetCBRRuleByID(ruleID)
+		rule, _, err := infoSvc.GetCBRRuleByID(ruleID)
 		assert.Nil(t, err)
 		assert.NotNil(t, rule)
 		assert.Equal(t, ruleID, *rule.ID)
@@ -39,7 +39,7 @@ func TestGetCBRRuleByID(t *testing.T) {
 		mockCBR := &cbrServiceMock{rule: nil, detailedResponse: &mockResponse404, err: nil}
 		infoSvc := CloudInfoService{cbrService: mockCBR}
 		// Call the GetCBRRuleByID function with the service instance and the rule ID
-		rule, err := infoSvc.GetCBRRuleByID(ruleID)
+		rule, _, err := infoSvc.GetCBRRuleByID(ruleID)
 		assert.Nil(t, rule)
 		assert.Equal(t, errors.New("failed to get rule: Mock failure"), err)
 	})
@@ -48,7 +48,7 @@ func TestGetCBRRuleByID(t *testing.T) {
 		mockCBR := &cbrServiceMock{rule: nil, detailedResponse: nil, err: errors.New("some failure")}
 		infoSvc := CloudInfoService{cbrService: mockCBR}
 		// Call the GetCBRRuleByID function with the service instance and the rule ID
-		rule, err := infoSvc.GetCBRRuleByID(ruleID)
+		rule, _, err := infoSvc.GetCBRRuleByID(ruleID)
 		assert.Nil(t, rule)
 		assert.Equal(t, errors.New("some failure"), err)
 	})
@@ -100,4 +100,75 @@ func TestGetCBRZoneByID(t *testing.T) {
 		assert.Equal(t, errors.New("some failure"), err)
 	})
 
+}
+
+// TestSetCBREnforcementMode tests the SetCBREnforcementMode function.
+func TestSetCBREnforcementMode(t *testing.T) {
+	// Create a mock CBR service with an existing rule
+	existingRule := &contextbasedrestrictionsv1.Rule{
+		ID:              core.StringPtr("mock-rule-id"),
+		EnforcementMode: core.StringPtr("disabled"),
+	}
+	eTag := "mock-etag"
+
+	mockCBRService := &cbrServiceMock{
+		rule:             existingRule,
+		detailedResponse: &core.DetailedResponse{StatusCode: 200, Headers: map[string][]string{"eTag": []string{eTag}}},
+		err:              nil,
+	}
+
+	// Create a CloudInfoService with the mock CBR service
+	infoSvc := CloudInfoService{cbrService: mockCBRService}
+
+	// Define test cases using subtests
+	testCases := []struct {
+		name           string
+		mode           string
+		expectedMode   string
+		expectedErrStr string
+	}{
+		{
+			name:           "Set to enabled",
+			mode:           "enabled",
+			expectedMode:   "enabled",
+			expectedErrStr: "",
+		},
+		{
+			name:           "Set to report",
+			mode:           "report",
+			expectedMode:   "report",
+			expectedErrStr: "",
+		},
+		{
+			name:           "Set to disabled",
+			mode:           "disabled",
+			expectedMode:   "disabled",
+			expectedErrStr: "",
+		},
+		{
+			name:           "Set to invalid mode",
+			mode:           "invalid_mode",
+			expectedMode:   "disabled", // No mode change expected
+			expectedErrStr: "invalid CBR enforcement mode: invalid_mode, valid options enabled, report, or disabled",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+
+			// Set the enforcement mode
+			err := infoSvc.SetCBREnforcementMode("mock-rule-id", testCase.mode)
+
+			if testCase.expectedErrStr == "" {
+				assert.Nil(t, err)
+			} else {
+				if assert.NotNil(t, err, "eTag mismatch should have returned an error") {
+					assert.Contains(t, err.Error(), testCase.expectedErrStr)
+				}
+			}
+
+			assert.Equal(t, testCase.expectedMode, *existingRule.EnforcementMode)
+
+		})
+	}
 }

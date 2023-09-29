@@ -134,6 +134,10 @@ type cbrServiceMock struct {
 	err              error
 }
 
+func (mock *cbrServiceMock) ReplaceRule(options *contextbasedrestrictionsv1.ReplaceRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error) {
+	return mock.rule, mock.detailedResponse, mock.err
+}
+
 func (mock *cbrServiceMock) GetZone(options *contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error) {
 	return mock.zone, mock.detailedResponse, mock.err
 }
