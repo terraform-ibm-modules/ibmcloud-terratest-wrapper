@@ -54,6 +54,11 @@ type TestOptions struct {
 	// standard test variables.
 	TerraformVars map[string]interface{}
 
+	// When set during teardown this Terraform output will be used to disable CBR Rules that were created during the
+	// test to allow to destroy to complete.
+	// The last latest state of the terraform output will be used, and expects a list of CBR Rule IDs in string format.
+	CBRRuleListOutputVariable string
+
 	// This is the subdirectory of the project that contains the terraform to run for the test.
 	// This value is relative to the root directory of the project.
 	// Defaults to root directory of project if not supplied.
