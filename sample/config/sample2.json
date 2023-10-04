@@ -1,0 +1,21 @@
+{
+    "name": "CloudPortal",
+    "description": "An advanced cloud platform",
+    "year": 2023,
+    "features": [
+      "Scalability",
+      "High Availability",
+      "Auto Scaling"
+    ],
+    "performance": {
+      "CPU": 2.5,
+      "RAM": 16,
+      "Storage": 500
+    },
+    "security": {
+      "encryption": true,
+      "firewall": true,
+      "backup": true,
+      "two_factor_auth": false
+    }
+}
