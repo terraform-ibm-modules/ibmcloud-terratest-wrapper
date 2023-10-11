@@ -1,21 +1,22 @@
 module github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper
 
-go 1.20
+go 1.21
 
 require (
-	github.com/IBM-Cloud/bluemix-go v0.0.0-20230914140903-40534e34a2a5
-	github.com/IBM-Cloud/power-go-client v1.3.1
+	github.com/IBM-Cloud/bluemix-go v0.0.0-20230927110736-d84df0f30e60
+	github.com/IBM-Cloud/power-go-client v1.4.4
 	github.com/IBM/go-sdk-core/v5 v5.14.1
-	github.com/IBM/platform-services-go-sdk v0.50.1
+	github.com/IBM/platform-services-go-sdk v0.51.0
 	github.com/IBM/schematics-go-sdk v0.2.2
-	github.com/IBM/vpc-go-sdk v0.41.0
+	github.com/IBM/vpc-go-sdk v0.42.0
 	github.com/go-git/go-git/v5 v5.9.0
 	github.com/go-openapi/errors v0.20.4
 	github.com/go-openapi/strfmt v0.21.7
-	github.com/gruntwork-io/terratest v0.43.13
+	github.com/google/go-cmp v0.5.9
+	github.com/gruntwork-io/terratest v0.45.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.8.4
-	golang.org/x/crypto v0.13.0
+	golang.org/x/crypto v0.14.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -56,7 +57,6 @@ require (
 	github.com/go-playground/validator/v10 v10.14.1 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
-	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/s2a-go v0.1.4 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.2.4 // indirect
@@ -101,7 +101,7 @@ require (
 	golang.org/x/mod v0.12.0 // indirect
 	golang.org/x/net v0.15.0 // indirect
 	golang.org/x/oauth2 v0.8.0 // indirect
-	golang.org/x/sys v0.12.0 // indirect
+	golang.org/x/sys v0.13.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
 	golang.org/x/tools v0.13.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
