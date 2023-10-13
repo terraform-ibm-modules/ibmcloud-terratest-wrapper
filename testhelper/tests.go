@@ -3,12 +3,13 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 	"testing"
+
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/gruntwork-io/terratest/modules/files"
@@ -438,7 +439,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 				logger.Log(options.Testing, "Cloned base repo and branch without authentication")
 			}
 		} else {
-			// Try to clone with authentication first
+			// Authentication method determined, try with authentication
 			_, errAuth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
 				URL:           baseRepo,
 				ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
