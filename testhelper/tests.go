@@ -415,19 +415,8 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		authMethod, err := common.DetermineAuthMethod(baseRepo)
 		if err != nil {
-			return nil, fmt.Errorf("failed to determine authentication method: %v", err)
-		}
+			logger.Log(options.Testing, "Failed to determine authentication method, trying without authentication...")
 
-		// Try to clone with authentication first
-		_, errAuth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
-			URL:           baseRepo,
-			ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
-			SingleBranch:  true,
-			Auth:          authMethod,
-		})
-
-		if errAuth != nil {
-			logger.Log(options.Testing, "Failed to clone base repo and branch with authentication, trying without authentication...")
 			// Convert SSH URL to HTTPS URL
 			if strings.HasPrefix(baseRepo, "git@") {
 				baseRepo = strings.Replace(baseRepo, ":", "/", 1)
@@ -443,13 +432,45 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			})
 
 			if errUnauth != nil {
-				// If unauthenticated clone also fails, return the error from the authenticated approach
-				return nil, fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
+				// If unauthenticated clone fails and we cannot determine authentication, return the error from the unauthenticated approach
+				return nil, fmt.Errorf("failed to determine authentication method and clone base repo and branch without authentication: %v", errUnauth)
 			} else {
 				logger.Log(options.Testing, "Cloned base repo and branch without authentication")
 			}
 		} else {
-			logger.Log(options.Testing, "Cloned base repo and branch with authentication")
+			// Try to clone with authentication first
+			_, errAuth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
+				URL:           baseRepo,
+				ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
+				SingleBranch:  true,
+				Auth:          authMethod,
+			})
+
+			if errAuth != nil {
+				logger.Log(options.Testing, "Failed to clone base repo and branch with authentication, trying without authentication...")
+				// Convert SSH URL to HTTPS URL
+				if strings.HasPrefix(baseRepo, "git@") {
+					baseRepo = strings.Replace(baseRepo, ":", "/", 1)
+					baseRepo = strings.Replace(baseRepo, "git@", "https://", 1)
+					baseRepo = strings.TrimSuffix(baseRepo, ".git") + ".git"
+				}
+
+				// Try to clone without authentication
+				_, errUnauth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
+					URL:           baseRepo,
+					ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
+					SingleBranch:  true,
+				})
+
+				if errUnauth != nil {
+					// If unauthenticated clone also fails, return the error from the authenticated approach
+					return nil, fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
+				} else {
+					logger.Log(options.Testing, "Cloned base repo and branch without authentication")
+				}
+			} else {
+				logger.Log(options.Testing, "Cloned base repo and branch with authentication")
+			}
 		}
 
 		// Set TerraformDir to the appropriate directory within baseTempDir
