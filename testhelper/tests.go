@@ -201,7 +201,12 @@ func (options *TestOptions) testTearDown() {
 	// Get the output of the last terraform apply
 	// NOTE: this is done before the destroy so that the output is available for debugging
 	var outputErr error
+
+	// Turn off logging for this step so sensitive data is not logged
+	options.TerraformOptions.Logger = logger.Discard
 	options.LastTestTerraformOutputs, outputErr = terraform.OutputAllE(options.Testing, options.TerraformOptions)
+	options.TerraformOptions.Logger = logger.Default // turn log back on
+
 	if outputErr != nil {
 		logger.Log(options.Testing, "failed to get terraform output: ", outputErr)
 	}
