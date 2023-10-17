@@ -136,7 +136,7 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 		before, err := common.SanitizeSensitiveData(strings.TrimPrefix(beforeAfter[0], "Before: "), mergedSensitive)
 		handleSanitizationError(err, "before diff", options)
 
-		// Reassemble the sanitized changesJson
+		// Reassemble the sanitized diff string
 		diff = "  Before: \n\t" + before + "\n  After: \n\t" + after
 
 		resourceDetails = fmt.Sprintf("\nName: %s\nAddress: %s\nActions: %s\nDIFF:\n%s\n\nChange Detail:\n%s", resource.Name, resource.Address, resource.Change.Actions, diff, formatChangesJsonString)
