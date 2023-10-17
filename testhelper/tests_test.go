@@ -17,6 +17,8 @@ var sample3ExpectedOutputs = []string{"world"}
 var sample4 = "sample/terraform/sample4"
 var sample4ExpectedOutputs = []string{}
 
+var secureValuesChanging = "sample/terraform/secure_values_with_changes"
+
 var terraformVars = map[string]interface{}{
 	"hello": "hello from the tests!"}
 
@@ -245,4 +247,22 @@ func TestRunTestConsistency(t *testing.T) {
 	assert.NotNil(t, options.LastTestTerraformOutputs, "Expected some Terraform outputs")
 	_, outErr := ValidateTerraformOutputs(options.LastTestTerraformOutputs, sample3ExpectedOutputs...)
 	assert.Nil(t, outErr, outErr)
+}
+
+func TestRunTestConsistencyFailSecureValues(t *testing.T) {
+	t.Parallel()
+	os.Setenv("TF_VAR_ibmcloud_api_key", "12345")
+	options := TestOptionsDefaultWithVars(&TestOptions{
+		Testing:       t,
+		TerraformDir:  secureValuesChanging,
+		Prefix:        "testSecureValues",
+		ResourceGroup: "test-rg",
+		Region:        "us-south",
+		TerraformVars: terraformVars,
+	})
+	_, err := options.RunTestConsistency()
+
+	assert.NotNil(t, err, "This should have errored")
+	assert.Contains(t, err.Error(), "SECURE_VALUE_HIDDEN")
+
 }

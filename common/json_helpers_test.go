@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -106,4 +107,97 @@ func TestIsJsonNotEqual(t *testing.T) {
 		fmt.Println(err)
 	}
 	assert.Equal(t, false, result)
+}
+
+func TestSanitizeSensitiveData(t *testing.T) {
+	tests := []struct {
+		Name       string
+		InputJSON  string
+		SecureList map[string]interface{}
+		Expected   string
+		Err        string
+	}{
+		{
+			Name:       "Empty JSON",
+			InputJSON:  `{}`,
+			SecureList: map[string]interface{}{},
+			Expected:   `{}`,
+			Err:        "",
+		},
+		{
+			Name:       "Empty Secure List",
+			InputJSON:  `{"key": "sensitive_value"}`,
+			SecureList: map[string]interface{}{},
+			Expected:   `{"key":"sensitive_value"}`,
+			Err:        "",
+		},
+		{
+			Name:       "Sanitize Sensitive Value",
+			InputJSON:  `{"password": "sensitive_value"}`,
+			SecureList: map[string]interface{}{"password": true},
+			Expected:   `{"password":"SECURE_VALUE_HIDDEN"}`,
+			Err:        "",
+		},
+		{
+			Name:       "Sanitize Sensitive Value with other keys",
+			InputJSON:  `{"key1": "value1", "password": "sensitive_value", "key2": "value2"}`,
+			SecureList: map[string]interface{}{"password": true},
+			Expected:   `{"key1":"value1","password":"SECURE_VALUE_HIDDEN","key2":"value2"}`,
+			Err:        "",
+		},
+		{
+			Name:       "Sanitize Multiple Sensitive Values",
+			InputJSON:  `{"password": "sensitive_value", "token": "sensitive_value"}`,
+			SecureList: map[string]interface{}{"password": true, "token": true},
+			Expected:   `{"password":"SECURE_VALUE_HIDDEN","token":"SECURE_VALUE_HIDDEN"}`,
+			Err:        "",
+		},
+		{
+			Name:       "Nested JSON",
+			InputJSON:  `{"nested": {"key": "sensitive_value"}}`,
+			SecureList: map[string]interface{}{"key": true},
+			Expected:   `{"nested":{"key":"SECURE_VALUE_HIDDEN"}}`,
+			Err:        "",
+		},
+		{
+			Name:       "Nested JSON with nested values",
+			InputJSON:  `{"nested": {"key": {"subkey": "sensitive_value"}}}`,
+			SecureList: map[string]interface{}{"subkey": true},
+			Expected:   `{"nested":{"key":{"subkey":"SECURE_VALUE_HIDDEN"}}}`,
+			Err:        "",
+		},
+		{
+			Name:       "JSON Parsing Error",
+			InputJSON:  "{malformed json}",
+			SecureList: map[string]interface{}{},
+			Expected:   "", // The expected result is an empty string because parsing fails
+			Err:        "invalid character 'm' looking for beginning of object key string",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			result, err := SanitizeSensitiveData(test.InputJSON, test.SecureList)
+
+			if err != nil {
+				assert.Equal(t, test.Err, err.Error(), "Error mismatch")
+			} else {
+				// Loading into maps so that the order of keys doesn't matter
+				// Unmarshal the JSON strings into maps
+				var expectedMap map[string]interface{}
+				var resultMap map[string]interface{}
+
+				if err := json.Unmarshal([]byte(test.Expected), &expectedMap); err != nil {
+					t.Errorf("Error unmarshalling expected JSON: %v", err)
+				}
+
+				if err := json.Unmarshal([]byte(result), &resultMap); err != nil {
+					t.Errorf("Error unmarshalling result JSON: %v", err)
+				}
+
+				// Compare the maps
+				assert.Equal(t, expectedMap, resultMap, "Result mismatch")
+			}
+		})
+	}
 }

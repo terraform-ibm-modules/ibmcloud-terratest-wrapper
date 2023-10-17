@@ -3,6 +3,7 @@ package common
 // Compare the JSON values (intended to compare override json and config output
 // in case of SLZ but can be used anywhere)
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -108,4 +109,60 @@ func IsJsonEqual(jsonFile1 string, jsonFile2 string) (bool, error) {
 		return false, errors.New(diff)
 	}
 	return true, nil
+}
+
+func FormatJsonStringPretty(jsonString string) (string, error) {
+	var out bytes.Buffer
+	err := json.Indent(&out, []byte(jsonString), "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
+// SANITIZE_STRING is the string used to replace sensitive values.
+const SANITIZE_STRING = "SECURE_VALUE_HIDDEN"
+
+// SanitizeSensitiveData takes a JSON string and a list of sensitive keys
+// and replaces the values of the sensitive keys with a predefined string.
+func SanitizeSensitiveData(inputJSON string, secureList map[string]interface{}) (string, error) {
+	// Unmarshal the input JSON into a generic data structure.
+	var data interface{}
+	if err := json.Unmarshal([]byte(inputJSON), &data); err != nil {
+		return "", err
+	}
+
+	// Recursively sanitize the JSON data.
+	sanitizeJSON(data, secureList)
+
+	// Marshal the sanitized data back into a JSON string.
+	sanitizedJSON, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+
+	return string(sanitizedJSON), nil
+}
+
+// sanitizeJSON is a recursive function that traverses a JSON data structure
+// and replaces sensitive keys with SANITIZE_STRING.
+func sanitizeJSON(data interface{}, secureList map[string]interface{}) {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key := range v {
+			if _, ok := secureList[key]; ok {
+				// Replace sensitive values with SANITIZE_STRING.
+				v[key] = SANITIZE_STRING
+			} else {
+				// Recursively sanitize nested data.
+				sanitizeJSON(v[key], secureList)
+			}
+		}
+	case []interface{}:
+		for i, item := range v {
+			// Recursively sanitize each item in the array.
+			sanitizeJSON(item, secureList)
+			v[i] = item
+		}
+	}
 }
