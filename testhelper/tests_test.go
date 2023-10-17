@@ -17,6 +17,8 @@ var sample3ExpectedOutputs = []string{"world"}
 var sample4 = "sample/terraform/sample4"
 var sample4ExpectedOutputs = []string{}
 
+var secureValuesChanging = "sample/terraform/secure_values_with_changes"
+
 var terraformVars = map[string]interface{}{
 	"hello": "hello from the tests!"}
 
@@ -245,4 +247,26 @@ func TestRunTestConsistency(t *testing.T) {
 	assert.NotNil(t, options.LastTestTerraformOutputs, "Expected some Terraform outputs")
 	_, outErr := ValidateTerraformOutputs(options.LastTestTerraformOutputs, sample3ExpectedOutputs...)
 	assert.Nil(t, outErr, outErr)
+}
+
+func TestRunTestConsistencyFailSecureValues(t *testing.T) {
+	t.Skip("Skipping test because logs cannot be inspected manually to see the secure values are removed. Test is expected to fail.")
+	t.Parallel()
+	os.Setenv("TF_VAR_ibmcloud_api_key", "12345")
+
+	options := TestOptionsDefaultWithVars(&TestOptions{
+		Testing:       t,
+		TerraformDir:  secureValuesChanging,
+		Prefix:        "testSecureValues",
+		ResourceGroup: "test-rg",
+		Region:        "us-south",
+		TerraformVars: terraformVars,
+	})
+	_, err := options.RunTestConsistency()
+
+	assert.Nil(t, err, "This should not have errored")
+
+	assert.Truef(t, t.Failed(), "Expected test to fail")
+	// Logs cannot be inspected manually see the secure values are removed
+
 }
