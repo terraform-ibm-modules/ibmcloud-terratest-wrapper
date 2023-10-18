@@ -109,7 +109,6 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 				mergedSensitive[key] = value
 			}
 		}
-		diff := common.GetBeforeAfterDiff(changesJson)
 
 		// Perform sanitization
 		changesJson, err := sanitizeResourceChanges(resource.Change, mergedSensitive)
@@ -118,6 +117,7 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 			logger.Log(options.Testing, changesJson)
 		}
 		formatChangesJson, err := common.FormatJsonStringPretty(changesJson)
+
 		var formatChangesJsonString string
 		if err != nil {
 			logger.Log(options.Testing, "Error formatting JSON, use unformatted")
@@ -126,30 +126,35 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 			formatChangesJsonString = string(formatChangesJson)
 		}
 
-		// Split the changesJson into "Before" and "After" parts
-		beforeAfter := strings.Split(diff, "After: ")
+		diff, diffErr := common.GetBeforeAfterDiff(changesJson)
 
-		// Perform sanitization on "After" part
-		var after string
-		if len(beforeAfter) > 1 {
-			after, err = common.SanitizeSensitiveData(beforeAfter[1], mergedSensitive)
-			handleSanitizationError(err, "after diff", options)
+		if diffErr != nil {
+			diff = fmt.Sprintf("Error getting diff: %s", diffErr)
 		} else {
-			after = fmt.Sprintf("Could not parse after from diff") // dont print incase diff contains sensitive values
+			// Split the changesJson into "Before" and "After" parts
+			beforeAfter := strings.Split(diff, "After: ")
+
+			// Perform sanitization on "After" part
+			var after string
+			if len(beforeAfter) > 1 {
+				after, err = common.SanitizeSensitiveData(beforeAfter[1], mergedSensitive)
+				handleSanitizationError(err, "after diff", options)
+			} else {
+				after = fmt.Sprintf("Could not parse after from diff") // dont print incase diff contains sensitive values
+			}
+
+			// Perform sanitization on "Before" part
+			var before string
+			if len(beforeAfter) > 0 {
+				before, err = common.SanitizeSensitiveData(strings.TrimPrefix(beforeAfter[0], "Before: "), mergedSensitive)
+				handleSanitizationError(err, "before diff", options)
+			} else {
+				before = fmt.Sprintf("Could not parse before from diff") // dont print incase diff contains sensitive values
+			}
+
+			// Reassemble the sanitized diff string
+			diff = "  Before: \n\t" + before + "\n  After: \n\t" + after
 		}
-
-		// Perform sanitization on "Before" part
-		var before string
-		if len(beforeAfter) > 0 {
-			before, err = common.SanitizeSensitiveData(strings.TrimPrefix(beforeAfter[0], "Before: "), mergedSensitive)
-			handleSanitizationError(err, "before diff", options)
-		} else {
-			before = fmt.Sprintf("Could not parse before from diff") // dont print incase diff contains sensitive values
-		}
-
-		// Reassemble the sanitized diff string
-		diff = "  Before: \n\t" + before + "\n  After: \n\t" + after
-
 		resourceDetails = fmt.Sprintf("\nName: %s\nAddress: %s\nActions: %s\nDIFF:\n%s\n\nChange Detail:\n%s", resource.Name, resource.Address, resource.Change.Actions, diff, formatChangesJsonString)
 
 		var errorMessage string

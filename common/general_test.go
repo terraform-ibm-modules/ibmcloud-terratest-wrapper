@@ -30,46 +30,42 @@ func TestGetRequiredEnvVarsEmptyInput(t *testing.T) {
 func TestGetBeforeAfterDiffValidInput(t *testing.T) {
 	jsonString := `{"before": {"a": 1, "b": 2}, "after": {"a": 2, "b": 3}}`
 	expected := "Before: {\"a\":1,\"b\":2}\nAfter: {\"a\":2,\"b\":3}"
-	result := GetBeforeAfterDiff(jsonString)
-	if result != expected {
-		t.Errorf("TestGetBeforeAfterDiffValidInput(%q) returned %q, expected %q", jsonString, result, expected)
-	}
+
+	result, err := GetBeforeAfterDiff(jsonString)
+	assert.Equal(t, expected, result)
+	assert.Nil(t, err)
 }
 
 func TestGetBeforeAfterDiffMissingBeforeKey(t *testing.T) {
 	jsonString := `{"after": {"a": 1, "b": 2}}`
-	expected := "Error: missing 'before' or 'after' key in JSON"
-	result := GetBeforeAfterDiff(jsonString)
-	if result != expected {
-		t.Errorf("TestGetBeforeAfterDiffMissingBeforeKey(%q) returned %q, expected %q", jsonString, result, expected)
-	}
+	expectedErr := "missing 'before' or 'after' key in JSON"
+	result, err := GetBeforeAfterDiff(jsonString)
+	assert.Equal(t, "", result)
+	assert.EqualError(t, err, expectedErr)
 }
 
 func TestGetBeforeAfterDiffNonObjectBeforeValue(t *testing.T) {
 	jsonString := `{"before": ["a", "b"], "after": {"a": 1, "b": 2}}`
-	expected := "Error: 'before' value is not an object"
-	result := GetBeforeAfterDiff(jsonString)
-	if result != expected {
-		t.Errorf("TestGetBeforeAfterDiffNonObjectBeforeValue(%q) returned %q, expected %q", jsonString, result, expected)
-	}
+	expectedErr := "'before' value is not an object"
+	result, err := GetBeforeAfterDiff(jsonString)
+	assert.Equal(t, "", result)
+	assert.EqualError(t, err, expectedErr)
 }
 
 func TestGetBeforeAfterDiffNonObjectAfterValue(t *testing.T) {
 	jsonString := `{"before": {"a": 1, "b": 2}, "after": ["a", "b"]}`
-	expected := "Error: 'after' value is not an object"
-	result := GetBeforeAfterDiff(jsonString)
-	if result != expected {
-		t.Errorf("TestGetBeforeAfterDiffNonObjectAfterValue(%q) returned %q, expected %q", jsonString, result, expected)
-	}
+	expectedErr := "'after' value is not an object"
+	result, err := GetBeforeAfterDiff(jsonString)
+	assert.Equal(t, "", result)
+	assert.EqualError(t, err, expectedErr)
 }
 
 func TestGetBeforeAfterDiffInvalidJSON(t *testing.T) {
 	jsonString := `{"before": {"a": 1, "b": 2}, "after": {"a": 1, "b": 2}`
-	expected := "Error: unable to parse JSON string"
-	result := GetBeforeAfterDiff(jsonString)
-	if result != expected {
-		t.Errorf("TestGetBeforeAfterDiffInvalidJSON(%q) returned %q, expected %q", jsonString, result, expected)
-	}
+	expectedErr := "unable to parse JSON string"
+	result, err := GetBeforeAfterDiff(jsonString)
+	assert.Equal(t, "", result)
+	assert.EqualError(t, err, expectedErr)
 }
 
 func TestConvertArrayJson(t *testing.T) {

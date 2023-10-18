@@ -47,29 +47,29 @@ func GetRequiredEnvVars(t *testing.T, variableNames []string) map[string]string 
 // the function would return the string:
 //
 //	"Before: {"b": 2}\nAfter: {"a": 2, "b": 3}"
-func GetBeforeAfterDiff(jsonString string) string {
+func GetBeforeAfterDiff(jsonString string) (string, error) {
 	// Parse the JSON string into a map
 	var jsonMap map[string]interface{}
 	err := json.Unmarshal([]byte(jsonString), &jsonMap)
 	if err != nil {
-		return "Error: unable to parse JSON string"
+		return "", errors.New("unable to parse JSON string")
 	}
 
 	// Get the "before" and "after" values from the map
 	before, beforeOk := jsonMap["before"]
 	after, afterOk := jsonMap["after"]
 	if !beforeOk || !afterOk {
-		return "Error: missing 'before' or 'after' key in JSON"
+		return "", errors.New("missing 'before' or 'after' key in JSON")
 	}
 
 	// Check if the "before" and "after" values are objects
 	beforeObject, beforeOk := before.(map[string]interface{})
 	if !beforeOk {
-		return "Error: 'before' value is not an object"
+		return "", errors.New("'before' value is not an object")
 	}
 	afterObject, afterOk := after.(map[string]interface{})
 	if !afterOk {
-		return "Error: 'after' value is not an object"
+		return "", errors.New("'after' value is not an object")
 	}
 
 	// Find the differences between the two objects
@@ -83,7 +83,7 @@ func GetBeforeAfterDiff(jsonString string) string {
 	// Convert the diffs map to a JSON string
 	diffsJson, err := json.Marshal(diffsBefore)
 	if err != nil {
-		return "Error: unable to convert diffs to JSON"
+		return "", errors.New("unable to convert diffs to JSON")
 	}
 
 	// Find the differences between the two objects
@@ -97,10 +97,10 @@ func GetBeforeAfterDiff(jsonString string) string {
 	// Convert the diffs map to a JSON string
 	diffsJson2, err := json.Marshal(diffsAfter)
 	if err != nil {
-		return "Error: unable to convert diffs2 to JSON"
+		return "", errors.New("unable to convert diffs to JSON")
 	}
 
-	return "Before: " + string(diffsJson) + "\nAfter: " + string(diffsJson2)
+	return "Before: " + string(diffsJson) + "\nAfter: " + string(diffsJson2), nil
 }
 
 // overwriting duplicate keys
