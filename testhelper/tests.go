@@ -125,16 +125,27 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 		} else {
 			formatChangesJsonString = string(formatChangesJson)
 		}
+
 		// Split the changesJson into "Before" and "After" parts
 		beforeAfter := strings.Split(diff, "After: ")
 
 		// Perform sanitization on "After" part
-		after, err := common.SanitizeSensitiveData(beforeAfter[1], mergedSensitive)
-		handleSanitizationError(err, "after diff", options)
+		var after string
+		if len(beforeAfter) > 1 {
+			after, err = common.SanitizeSensitiveData(beforeAfter[1], mergedSensitive)
+			handleSanitizationError(err, "after diff", options)
+		} else {
+			after = fmt.Sprintf("Could not parse after from diff") // dont print incase diff contains sensitive values
+		}
 
 		// Perform sanitization on "Before" part
-		before, err := common.SanitizeSensitiveData(strings.TrimPrefix(beforeAfter[0], "Before: "), mergedSensitive)
-		handleSanitizationError(err, "before diff", options)
+		var before string
+		if len(beforeAfter) > 0 {
+			before, err = common.SanitizeSensitiveData(strings.TrimPrefix(beforeAfter[0], "Before: "), mergedSensitive)
+			handleSanitizationError(err, "before diff", options)
+		} else {
+			before = fmt.Sprintf("Could not parse before from diff") // dont print incase diff contains sensitive values
+		}
 
 		// Reassemble the sanitized diff string
 		diff = "  Before: \n\t" + before + "\n  After: \n\t" + after
