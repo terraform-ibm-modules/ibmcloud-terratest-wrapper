@@ -699,20 +699,22 @@ func addWorkspaceEnv(values *[]map[string]interface{}, metadata *[]schematics.En
 
 func addNetrcToWorkspaceEnv(values *[]map[string]interface{}, metadata *[]schematics.EnvironmentValuesMetadata, netrcEntries []NetrcCredential) {
 	// Create a slice to store netrc entries
-	netrcValue := []interface{}{}
+	netrcValue := [][]string{}
 
 	// Loop through provided entries and add to the slice
 	for _, netrc := range netrcEntries {
-		entry := map[string]interface{}{
-			"host":     netrc.Host,
-			"username": netrc.Username,
-			"password": netrc.Password,
+		entry := []string{
+			netrc.Host,
+			netrc.Username,
+			netrc.Password,
 		}
 		netrcValue = append(netrcValue, entry)
 	}
 
+	// turn entire array into string
+	netrcValueStr, _ := common.ConvertArrayToJsonString(netrcValue)
 	// Add the slice of netrc entries to env with "__netrc__" as the key
-	*values = append(*values, map[string]interface{}{"__netrc__": netrcValue})
+	*values = append(*values, map[string]interface{}{"__netrc__": netrcValueStr})
 
 	// Add a metadata entry for the sensitive value
 	*metadata = append(*metadata, schematics.EnvironmentValuesMetadata{
