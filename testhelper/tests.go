@@ -111,17 +111,17 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 		}
 
 		// Perform sanitization
-		changesJson, err := sanitizeResourceChanges(resource.Change, mergedSensitive)
+		sanitizedChangesJson, err := sanitizeResourceChanges(resource.Change, mergedSensitive)
 		if err != nil {
-			changesJson = "Error sanitizing sensitive data"
-			logger.Log(options.Testing, changesJson)
+			sanitizedChangesJson = "Error sanitizing sensitive data"
+			logger.Log(options.Testing, sanitizedChangesJson)
 		}
-		formatChangesJson, err := common.FormatJsonStringPretty(changesJson)
+		formatChangesJson, err := common.FormatJsonStringPretty(sanitizedChangesJson)
 
 		var formatChangesJsonString string
 		if err != nil {
 			logger.Log(options.Testing, "Error formatting JSON, use unformatted")
-			formatChangesJsonString = changesJson
+			formatChangesJsonString = sanitizedChangesJson
 		} else {
 			formatChangesJsonString = string(formatChangesJson)
 		}

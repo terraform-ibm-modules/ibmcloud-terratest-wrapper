@@ -4,6 +4,8 @@ package common
 // in case of SLZ but can be used anywhere)
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -121,7 +123,7 @@ func FormatJsonStringPretty(jsonString string) (string, error) {
 }
 
 // SANITIZE_STRING is the string used to replace sensitive values.
-const SANITIZE_STRING = "SECURE_VALUE_HIDDEN"
+const SANITIZE_STRING = "SECURE_VALUE_HIDDEN_HASH:"
 
 // SanitizeSensitiveData takes a JSON string and a list of sensitive keys
 // and replaces the values of the sensitive keys with a predefined string.
@@ -151,8 +153,19 @@ func sanitizeJSON(data interface{}, secureList map[string]interface{}) {
 	case map[string]interface{}:
 		for key := range v {
 			if _, ok := secureList[key]; ok {
-				// Replace sensitive values with SANITIZE_STRING.
-				v[key] = SANITIZE_STRING
+				// Generate a random salt value
+				salt := make([]byte, 16) // You can choose the salt length as needed
+				_, err := rand.Read(salt)
+				if err != nil {
+					fmt.Println("Error generating salt:", err)
+					return
+				}
+
+				// Concatenate the salt and input
+				saltedInput := append(salt, []byte(fmt.Sprintf("%v", v[key]))...)
+				// Replace sensitive values with SANITIZE_STRING+Hash of the value.
+				hashedValue := sha256.Sum224(saltedInput)
+				v[key] = SANITIZE_STRING + fmt.Sprintf("-%x", hashedValue)
 			} else {
 				// Recursively sanitize nested data.
 				sanitizeJSON(v[key], secureList)
