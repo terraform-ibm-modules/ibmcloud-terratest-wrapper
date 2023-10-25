@@ -3,6 +3,7 @@ package common
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -135,35 +136,35 @@ func TestSanitizeSensitiveData(t *testing.T) {
 			Name:       "Sanitize Sensitive Value",
 			InputJSON:  `{"password": "sensitive_value"}`,
 			SecureList: map[string]interface{}{"password": true},
-			Expected:   `{"password":"SECURE_VALUE_HIDDEN"}`,
+			Expected:   `{"password":"SECURE_VALUE_HIDDEN_HASH:"}`,
 			Err:        "",
 		},
 		{
 			Name:       "Sanitize Sensitive Value with other keys",
 			InputJSON:  `{"key1": "value1", "password": "sensitive_value", "key2": "value2"}`,
 			SecureList: map[string]interface{}{"password": true},
-			Expected:   `{"key1":"value1","password":"SECURE_VALUE_HIDDEN","key2":"value2"}`,
+			Expected:   `{"key1":"value1","password":"SECURE_VALUE_HIDDEN_HASH:","key2":"value2"}`,
 			Err:        "",
 		},
 		{
 			Name:       "Sanitize Multiple Sensitive Values",
 			InputJSON:  `{"password": "sensitive_value", "token": "sensitive_value"}`,
 			SecureList: map[string]interface{}{"password": true, "token": true},
-			Expected:   `{"password":"SECURE_VALUE_HIDDEN","token":"SECURE_VALUE_HIDDEN"}`,
+			Expected:   `{"password":"SECURE_VALUE_HIDDEN_HASH:","token":"SECURE_VALUE_HIDDEN_HASH:"}`,
 			Err:        "",
 		},
 		{
 			Name:       "Nested JSON",
 			InputJSON:  `{"nested": {"key": "sensitive_value"}}`,
 			SecureList: map[string]interface{}{"key": true},
-			Expected:   `{"nested":{"key":"SECURE_VALUE_HIDDEN"}}`,
+			Expected:   `{"nested":{"key":"SECURE_VALUE_HIDDEN_HASH:"}}`,
 			Err:        "",
 		},
 		{
 			Name:       "Nested JSON with nested values",
 			InputJSON:  `{"nested": {"key": {"subkey": "sensitive_value"}}}`,
 			SecureList: map[string]interface{}{"subkey": true},
-			Expected:   `{"nested":{"key":{"subkey":"SECURE_VALUE_HIDDEN"}}}`,
+			Expected:   `{"nested":{"key":{"subkey":"SECURE_VALUE_HIDDEN_HASH:"}}}`,
 			Err:        "",
 		},
 		{
@@ -182,7 +183,6 @@ func TestSanitizeSensitiveData(t *testing.T) {
 			if err != nil {
 				assert.Equal(t, test.Err, err.Error(), "Error mismatch")
 			} else {
-				// Loading into maps so that the order of keys doesn't matter
 				// Unmarshal the JSON strings into maps
 				var expectedMap map[string]interface{}
 				var resultMap map[string]interface{}
@@ -195,9 +195,29 @@ func TestSanitizeSensitiveData(t *testing.T) {
 					t.Errorf("Error unmarshalling result JSON: %v", err)
 				}
 
+				// Strip hashed values from the maps
+				expectedMap = stripHashesFromMap(expectedMap)
+				resultMap = stripHashesFromMap(resultMap)
+
 				// Compare the maps
 				assert.Equal(t, expectedMap, resultMap, "Result mismatch")
 			}
 		})
 	}
+}
+
+// Helper function to strip hashed values from a map
+func stripHashesFromMap(inputMap map[string]interface{}) map[string]interface{} {
+	for key, value := range inputMap {
+		if str, ok := value.(string); ok {
+			if strings.HasPrefix(str, "SECURE_VALUE_HIDDEN_HASH:") {
+				// Replace hashed values with an empty string
+				inputMap[key] = "SECURE_VALUE_HIDDEN_HASH:"
+			}
+		} else if subMap, ok := value.(map[string]interface{}); ok {
+			// Recursively strip hashed values from sub-maps
+			inputMap[key] = stripHashesFromMap(subMap)
+		}
+	}
+	return inputMap
 }
