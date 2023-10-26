@@ -123,17 +123,66 @@ func (r *realGitOps) getOriginURL(repoPath string) string {
 	// TODO: Remove debug log before merging
 	fmt.Println("Using Git logic to determine origin URL")
 	// Debug log
-	// git fetch origin
-	debug_cmd := exec.Command("git", "fetch", "origin")
+	// Check if detached HEAD
+	// git status --branch --porcelain
+	fmt.Printf("Checking if %s is detached HEAD\n", repoPath)
+	debug_cmd := exec.Command("git", "status", "--branch", "--porcelain")
 	debug_cmd.Dir = repoPath
 	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
 	debug_output, debug_err := debug_cmd.Output()
+	if debug_err != nil {
+		fmt.Println("Unable to get status --branch --porcelain")
+	}
+	fmt.Printf("Command output: %s\n", debug_output)
+
+	// get current branch
+	// git branch --show-current
+	fmt.Printf("Getting current branch\n")
+	debug_cmd = exec.Command("git", "branch", "--show-current")
+	debug_cmd.Dir = repoPath
+	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
+	debug_output, debug_err = debug_cmd.Output()
+	if debug_err != nil {
+		fmt.Println("Unable to get branch --show-current")
+	}
+	fmt.Printf("Command output: %s\n", debug_output)
+	cur_branch := strings.TrimSpace(string(debug_output))
+
+	// checkout the code again
+	// git checkout -f master
+	fmt.Printf("Checking out -f %s\n", cur_branch)
+	debug_cmd = exec.Command("git", "checkout", "-f", cur_branch)
+	debug_cmd.Dir = repoPath
+	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
+	debug_output, debug_err = debug_cmd.Output()
+	if debug_err != nil {
+		fmt.Println("Unable to checkout -f master")
+	}
+	fmt.Printf("Command output: %s\n", debug_output)
+
+	fmt.Printf("Checking if %s is detached HEAD\n", repoPath)
+	debug_cmd = exec.Command("git", "status", "--branch", "--porcelain")
+	debug_cmd.Dir = repoPath
+	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
+	debug_output, debug_err = debug_cmd.Output()
+	if debug_err != nil {
+		fmt.Println("Unable to get status --branch --porcelain")
+	}
+	fmt.Printf("Command output: %s\n", debug_output)
+
+	// git fetch origin
+	fmt.Printf("Fetching origin\n")
+	debug_cmd = exec.Command("git", "fetch", "origin")
+	debug_cmd.Dir = repoPath
+	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
+	debug_output, debug_err = debug_cmd.Output()
 	if debug_err != nil {
 		fmt.Println("Unable to fetch origin")
 	}
 	fmt.Printf("Command output: %s\n", debug_output)
 
 	// git remote -v
+	fmt.Printf("Getting remote -v\n")
 	debug_cmd = exec.Command("git", "remote", "-v")
 	debug_cmd.Dir = repoPath
 	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
