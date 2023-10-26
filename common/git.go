@@ -41,36 +41,11 @@ type envOps interface {
 type realGitOps struct{}
 
 func (r *realGitOps) getRemoteOriginURL(repoDir string) (string, error) {
-	// TODO: Remove debug log before merging
-	fmt.Println("Using Git logic to determine remote origin URL")
-	// Debug log
-	// git fetch origin
-	debug_cmd := exec.Command("git", "fetch", "origin")
-	debug_cmd.Dir = repoDir
-	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
-	debug_output, debug_err := debug_cmd.Output()
-	if debug_err != nil {
-		fmt.Println("Unable to fetch origin")
-	}
-	fmt.Printf("Command output: %s\n", debug_output)
-
-	// git remote -v
-	debug_cmd = exec.Command("git", "remote", "-v")
-	debug_cmd.Dir = repoDir
-	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
-	debug_output, debug_err = debug_cmd.Output()
-	if debug_err != nil {
-		fmt.Println("Unable to get remote -v")
-	}
-	fmt.Printf("Command output: %s\n", debug_output)
 
 	cmd := exec.Command("git", "remote", "get-url", "origin")
 	cmd.Dir = repoDir
-	// TODO: Remove debug log before merging
-	fmt.Printf("Running command: %s\n", strings.Join(cmd.Args, " "))
+
 	output, err := cmd.Output()
-	// TODO: Remove debug log before merging
-	fmt.Printf("Command output: %s\n", output)
 	if err != nil {
 		return "", fmt.Errorf("failed to determine the remote origin URL: %s %v", output, err)
 	}
@@ -143,8 +118,31 @@ func (r *realGitOps) getCurrentBranch() (string, error) {
 }
 
 func (r *realGitOps) getOriginURL(repoPath string) string {
+	// TODO: This is the function that needs the fix for tekton fork
+
 	// TODO: Remove debug log before merging
 	fmt.Println("Using Git logic to determine origin URL")
+	// Debug log
+	// git fetch origin
+	debug_cmd := exec.Command("git", "fetch", "origin")
+	debug_cmd.Dir = repoPath
+	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
+	debug_output, debug_err := debug_cmd.Output()
+	if debug_err != nil {
+		fmt.Println("Unable to fetch origin")
+	}
+	fmt.Printf("Command output: %s\n", debug_output)
+
+	// git remote -v
+	debug_cmd = exec.Command("git", "remote", "-v")
+	debug_cmd.Dir = repoPath
+	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
+	debug_output, debug_err = debug_cmd.Output()
+	if debug_err != nil {
+		fmt.Println("Unable to get remote -v")
+	}
+	fmt.Printf("Command output: %s\n", debug_output)
+
 	// Determine the URL of the upstream remote (usually "origin")
 	repo := ""
 	cmd := exec.Command("git", "remote", "get-url", "upstream")
@@ -158,13 +156,16 @@ func (r *realGitOps) getOriginURL(repoPath string) string {
 		repo = strings.TrimSpace(string(output))
 	} else {
 		// If there's no "upstream" remote, fall back to "origin"
+		fmt.Println("Unable to determine upstream URL, falling back to origin")
 		cmd := exec.Command("git", "remote", "get-url", "origin")
+		fmt.Printf("Running command: %s\n", strings.Join(cmd.Args, " "))
 		output, err = cmd.Output()
 		if err != nil {
 			log.Println("Unable to determine origin URL")
 			log.Println(err)
 			return ""
 		}
+		println("output: ", output)
 		repo = strings.TrimSpace(string(output))
 	}
 
@@ -172,18 +173,15 @@ func (r *realGitOps) getOriginURL(repoPath string) string {
 }
 
 func (r *realGitOps) getOriginBranch(repoPath string) string {
-	// TODO: Remove debug log before merging
-	fmt.Println("Using Git logic to determine origin branch")
+
 	branch := ""
 	// Try to get the branch from the "origin" remote
 	cmd := exec.Command("git", "remote", "show", "origin")
-	// TODO: Remove debug log before merging
-	fmt.Printf("Running command: %s\n", strings.Join(cmd.Args, " "))
+
 	cmd.Dir = repoPath
 	output, err := cmd.Output()
 	if err == nil { // Check if the first command is successful
-		// TODO: Remove debug log before merging
-		fmt.Printf("Command output: %s\n", output)
+
 		lines := strings.Split(string(output), "\n")
 		for _, line := range lines {
 			if strings.Contains(line, "HEAD branch:") {
@@ -198,15 +196,10 @@ func (r *realGitOps) getOriginBranch(repoPath string) string {
 
 	// If branch is still empty, try to get it from the "upstream" remote
 	if branch == "" {
-		// TODO: Remove debug log before merging
-		fmt.Println("Unable to determine origin branch, trying upstream")
+
 		cmd := exec.Command("git", "remote", "show", "upstream")
-		// TODO: Remove debug log before merging
-		fmt.Printf("Running command: %s\n", strings.Join(cmd.Args, " "))
 		output, err := cmd.Output()
 		if err == nil {
-			// TODO: Remove debug log before merging
-			fmt.Printf("Command output: %s\n", output)
 			lines := strings.Split(string(output), "\n")
 			for _, line := range lines {
 				if strings.Contains(line, "HEAD branch:") {
@@ -222,15 +215,9 @@ func (r *realGitOps) getOriginBranch(repoPath string) string {
 
 	// If branch is still empty, use an alternative method to get the current branch
 	if branch == "" {
-		// TODO: Remove debug log before merging
-		fmt.Println("Unable to determine origin branch, trying alternative method")
 		cmd := exec.Command("git", "symbolic-ref", "--short", "HEAD")
-		// TODO: Remove debug log before merging
-		fmt.Printf("Running command: %s\n", strings.Join(cmd.Args, " "))
 		output, err := cmd.Output()
 		if err == nil {
-			// TODO: Remove debug log before merging
-			fmt.Printf("Command output: %s\n", output)
 			branch = strings.TrimSpace(string(output))
 		}
 	}
@@ -284,14 +271,10 @@ func GetBaseRepoAndBranch(repo string, branch string) (string, string) {
 func getBaseRepoAndBranch(repo string, branch string, git gitOps, env envOps) (string, string) {
 	envRepo, exists := env.lookupEnv("BASE_TERRAFORM_REPO")
 	if exists {
-		// TODO: Remove debug log before merging
-		fmt.Println("Using BASE_TERRAFORM_REPO environment variable")
 		repo = envRepo
 	}
 	envBranch, exists := env.lookupEnv("BASE_TERRAFORM_BRANCH")
 	if exists {
-		// TODO: Remove debug log before merging
-		fmt.Println("Using BASE_TERRAFORM_BRANCH environment variable")
 		branch = envBranch
 	}
 
@@ -300,13 +283,8 @@ func getBaseRepoAndBranch(repo string, branch string, git gitOps, env envOps) (s
 		if err != nil {
 			log.Fatal(err)
 		}
-		// TODO: Remove debug log before merging
-		fmt.Println("Using Git logic to determine base repository and branch")
 		repo = git.getOriginURL(repoPath)
 		branch = git.getOriginBranch(repoPath)
-		// TODO: Remove debug log before merging
-		fmt.Printf("Base repository: %s\n", repo)
-		fmt.Printf("Base branch: %s\n", branch)
 	}
 
 	return repo, branch
