@@ -386,6 +386,9 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 	skipped := true
 
+	//TODO: Remove this output
+	fmt.Println("Tekton Test Branch")
+
 	// Skip upgrade Test in continuous testing pipeline which runs in short mode
 	if testing.Short() {
 		options.Testing.Skip("Skipping upgrade Test in short mode.")
