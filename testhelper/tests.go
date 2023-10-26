@@ -402,115 +402,146 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "PR Branch:", prBranch)
 	}
 
-	if skipUpgradeTest(prBranch) {
-		options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
-	} else {
-		skipped = false
-		options.IsUpgradeTest = true
+	//if skipUpgradeTest(prBranch) {
+	//	options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
+	//} else {
+	skipped = false
+	options.IsUpgradeTest = true
 
-		gitRoot, err := common.GitRootPath(".")
+	gitRoot, err := common.GitRootPath(".")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get git root path: %v", err)
+	}
+
+	// Extract the relative path from the original TerraformDir
+	originalTerraformDir := options.TerraformDir
+
+	// Just in case an absolute path was provided, make it relative to the git root
+	relativeTestSampleDir := strings.TrimPrefix(originalTerraformDir, gitRoot)
+
+	// Disable the creation of a temporary directory in test setup, Upgrade Test will create its own
+	// Backup the original value of DisableTempWorkingDir
+	tempDirCreationBackup := options.DisableTempWorkingDir
+
+	// Temporarily disable the creation of a temporary directory
+	// Upgrade Test will create its own
+	options.DisableTempWorkingDir = true
+
+	// Temporarily disable workspace usage
+	useTerraformWorkspaceBackup := options.UseTerraformWorkspace
+	terraformWorkspaceBackup := options.WorkspacePath
+	options.UseTerraformWorkspace = false
+	logger.Log(options.Testing, "Temporarily disabling UseTerraformWorkspace in Upgrade Test as temporary directories are used instead of workspaces")
+	defer func() {
+		logger.Log(options.Testing, fmt.Sprintf("Restoring UseTerraformWorkspace and WorkspacePath to original values: %v %v", useTerraformWorkspaceBackup, terraformWorkspaceBackup))
+		options.UseTerraformWorkspace = useTerraformWorkspaceBackup
+		options.WorkspacePath = terraformWorkspaceBackup
+	}()
+
+	// Setup the test
+	options.testSetup()
+	// restore the original value
+	options.DisableTempWorkingDir = tempDirCreationBackup
+
+	prTempDir := gitRoot
+	baseTempDir := ""
+	if !options.DisableTempWorkingDir {
+		// Create a temporary directory for the PR code
+		prTempDir, err = os.MkdirTemp("", fmt.Sprintf("terraform-pr-%s", options.Prefix))
 		if err != nil {
-			return nil, fmt.Errorf("failed to get git root path: %v", err)
-		}
-
-		// Extract the relative path from the original TerraformDir
-		originalTerraformDir := options.TerraformDir
-
-		// Just in case an absolute path was provided, make it relative to the git root
-		relativeTestSampleDir := strings.TrimPrefix(originalTerraformDir, gitRoot)
-
-		// Disable the creation of a temporary directory in test setup, Upgrade Test will create its own
-		// Backup the original value of DisableTempWorkingDir
-		tempDirCreationBackup := options.DisableTempWorkingDir
-
-		// Temporarily disable the creation of a temporary directory
-		// Upgrade Test will create its own
-		options.DisableTempWorkingDir = true
-
-		// Temporarily disable workspace usage
-		useTerraformWorkspaceBackup := options.UseTerraformWorkspace
-		terraformWorkspaceBackup := options.WorkspacePath
-		options.UseTerraformWorkspace = false
-		logger.Log(options.Testing, "Temporarily disabling UseTerraformWorkspace in Upgrade Test as temporary directories are used instead of workspaces")
-		defer func() {
-			logger.Log(options.Testing, fmt.Sprintf("Restoring UseTerraformWorkspace and WorkspacePath to original values: %v %v", useTerraformWorkspaceBackup, terraformWorkspaceBackup))
-			options.UseTerraformWorkspace = useTerraformWorkspaceBackup
-			options.WorkspacePath = terraformWorkspaceBackup
-		}()
-
-		// Setup the test
-		options.testSetup()
-		// restore the original value
-		options.DisableTempWorkingDir = tempDirCreationBackup
-
-		prTempDir := gitRoot
-		baseTempDir := ""
-		if !options.DisableTempWorkingDir {
-			// Create a temporary directory for the PR code
-			prTempDir, err = os.MkdirTemp("", fmt.Sprintf("terraform-pr-%s", options.Prefix))
-			if err != nil {
-				// No need to tearDown as nothing was created
-				return nil, fmt.Errorf("failed to create temp dir for PR branch: %v", err)
-			} else {
-				logger.Log(options.Testing, "TEMP PR DIR CREATED: ", prTempDir)
-			}
-			if !options.SkipTestTearDown {
-				defer os.RemoveAll(prTempDir) // clean up
-			}
-
-			// Create a temporary directory for the base branch
-			baseTempDir, err = os.MkdirTemp("", fmt.Sprintf("terraform-base-%s", options.Prefix))
-			if err != nil {
-				// No need to tearDown as nothing was created
-				return nil, fmt.Errorf("failed to create temp dir for base branch: %v", err)
-			} else {
-				logger.Log(options.Testing, "TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
-			}
-			if !options.SkipTestTearDown {
-				defer os.RemoveAll(baseTempDir) // clean up
-			}
-
-			// Copy the current code (from PR branch) to the PR temp directory with the filter
-			errCopy := common.CopyDirectory(gitRoot, prTempDir, func(path string) bool {
-				if files.PathContainsTerraformStateOrVars(path) {
-					return false
-				}
-
-				return true
-			})
-			if errCopy != nil {
-				// No need to tearDown as nothing was created
-				return nil, fmt.Errorf("failed to copy PR directory to temp: %v", errCopy)
-			} else {
-				logger.Log(options.Testing, "Copied current code to PR branch dir:", prTempDir)
-			}
-		} else {
-			// create temp dir for base branch in git root
-			// This directory never gets deleted by automation if teardown is skipped
-			baseTempDir, err = os.MkdirTemp("", baseTempDir)
-			if err != nil {
-				// No need to tearDown as nothing was created
-				return nil, fmt.Errorf("failed to create temp dir for base branch in git root: %v", err)
-			} else {
-				logger.Log(options.Testing, "TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
-			}
-			if !options.SkipTestTearDown {
-				defer os.RemoveAll(baseTempDir) // clean up
-			}
-		}
-		baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
-		if baseBranch == "" || baseRepo == "" {
 			// No need to tearDown as nothing was created
-			return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
+			return nil, fmt.Errorf("failed to create temp dir for PR branch: %v", err)
 		} else {
-			logger.Log(options.Testing, "Base Repo:", baseRepo)
-			logger.Log(options.Testing, "Base Branch:", baseBranch)
+			logger.Log(options.Testing, "TEMP PR DIR CREATED: ", prTempDir)
+		}
+		if !options.SkipTestTearDown {
+			defer os.RemoveAll(prTempDir) // clean up
 		}
 
-		authMethod, err := common.DetermineAuthMethod(baseRepo)
+		// Create a temporary directory for the base branch
+		baseTempDir, err = os.MkdirTemp("", fmt.Sprintf("terraform-base-%s", options.Prefix))
 		if err != nil {
-			logger.Log(options.Testing, "Failed to determine authentication method, trying without authentication...")
+			// No need to tearDown as nothing was created
+			return nil, fmt.Errorf("failed to create temp dir for base branch: %v", err)
+		} else {
+			logger.Log(options.Testing, "TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
+		}
+		if !options.SkipTestTearDown {
+			defer os.RemoveAll(baseTempDir) // clean up
+		}
 
+		// Copy the current code (from PR branch) to the PR temp directory with the filter
+		errCopy := common.CopyDirectory(gitRoot, prTempDir, func(path string) bool {
+			if files.PathContainsTerraformStateOrVars(path) {
+				return false
+			}
+
+			return true
+		})
+		if errCopy != nil {
+			// No need to tearDown as nothing was created
+			return nil, fmt.Errorf("failed to copy PR directory to temp: %v", errCopy)
+		} else {
+			logger.Log(options.Testing, "Copied current code to PR branch dir:", prTempDir)
+		}
+	} else {
+		// create temp dir for base branch in git root
+		// This directory never gets deleted by automation if teardown is skipped
+		baseTempDir, err = os.MkdirTemp("", baseTempDir)
+		if err != nil {
+			// No need to tearDown as nothing was created
+			return nil, fmt.Errorf("failed to create temp dir for base branch in git root: %v", err)
+		} else {
+			logger.Log(options.Testing, "TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
+		}
+		if !options.SkipTestTearDown {
+			defer os.RemoveAll(baseTempDir) // clean up
+		}
+	}
+	baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
+	if baseBranch == "" || baseRepo == "" {
+		// No need to tearDown as nothing was created
+		return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
+	} else {
+		logger.Log(options.Testing, "Base Repo:", baseRepo)
+		logger.Log(options.Testing, "Base Branch:", baseBranch)
+	}
+
+	authMethod, err := common.DetermineAuthMethod(baseRepo)
+	if err != nil {
+		logger.Log(options.Testing, "Failed to determine authentication method, trying without authentication...")
+
+		// Convert SSH URL to HTTPS URL
+		if strings.HasPrefix(baseRepo, "git@") {
+			baseRepo = strings.Replace(baseRepo, ":", "/", 1)
+			baseRepo = strings.Replace(baseRepo, "git@", "https://", 1)
+			baseRepo = strings.TrimSuffix(baseRepo, ".git") + ".git"
+		}
+
+		// Try to clone without authentication
+		_, errUnauth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
+			URL:           baseRepo,
+			ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
+			SingleBranch:  true,
+		})
+
+		if errUnauth != nil {
+			// If unauthenticated clone fails and we cannot determine authentication, return the error from the unauthenticated approach
+			return nil, fmt.Errorf("failed to determine authentication method and clone base repo and branch without authentication: %v", errUnauth)
+		} else {
+			logger.Log(options.Testing, "Cloned base repo and branch without authentication")
+		}
+	} else {
+		// Authentication method determined, try with authentication
+		_, errAuth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
+			URL:           baseRepo,
+			ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
+			SingleBranch:  true,
+			Auth:          authMethod,
+		})
+
+		if errAuth != nil {
+			logger.Log(options.Testing, "Failed to clone base repo and branch with authentication, trying without authentication...")
 			// Convert SSH URL to HTTPS URL
 			if strings.HasPrefix(baseRepo, "git@") {
 				baseRepo = strings.Replace(baseRepo, ":", "/", 1)
@@ -526,116 +557,85 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			})
 
 			if errUnauth != nil {
-				// If unauthenticated clone fails and we cannot determine authentication, return the error from the unauthenticated approach
-				return nil, fmt.Errorf("failed to determine authentication method and clone base repo and branch without authentication: %v", errUnauth)
+				// If unauthenticated clone also fails, return the error from the authenticated approach
+				return nil, fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
 			} else {
 				logger.Log(options.Testing, "Cloned base repo and branch without authentication")
 			}
 		} else {
-			// Authentication method determined, try with authentication
-			_, errAuth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
-				URL:           baseRepo,
-				ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
-				SingleBranch:  true,
-				Auth:          authMethod,
-			})
-
-			if errAuth != nil {
-				logger.Log(options.Testing, "Failed to clone base repo and branch with authentication, trying without authentication...")
-				// Convert SSH URL to HTTPS URL
-				if strings.HasPrefix(baseRepo, "git@") {
-					baseRepo = strings.Replace(baseRepo, ":", "/", 1)
-					baseRepo = strings.Replace(baseRepo, "git@", "https://", 1)
-					baseRepo = strings.TrimSuffix(baseRepo, ".git") + ".git"
-				}
-
-				// Try to clone without authentication
-				_, errUnauth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
-					URL:           baseRepo,
-					ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
-					SingleBranch:  true,
-				})
-
-				if errUnauth != nil {
-					// If unauthenticated clone also fails, return the error from the authenticated approach
-					return nil, fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
-				} else {
-					logger.Log(options.Testing, "Cloned base repo and branch without authentication")
-				}
-			} else {
-				logger.Log(options.Testing, "Cloned base repo and branch with authentication")
-			}
+			logger.Log(options.Testing, "Cloned base repo and branch with authentication")
 		}
+	}
 
-		// Set TerraformDir to the appropriate directory within baseTempDir
-		options.setTerraformDir(path.Join(baseTempDir, relativeTestSampleDir))
+	// Set TerraformDir to the appropriate directory within baseTempDir
+	options.setTerraformDir(path.Join(baseTempDir, relativeTestSampleDir))
 
-		logger.Log(options.Testing, "Init / Apply on Base repo:", baseRepo)
-		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
-		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
+	logger.Log(options.Testing, "Init / Apply on Base repo:", baseRepo)
+	logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
+	logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
 
-		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
-		if resultErr != nil {
-			assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
-			options.testTearDown()
-			return nil, resultErr
-		}
-		// Get the path to the state file in baseTempDir
-		baseStatePath := path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate")
+	_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
+	if resultErr != nil {
+		assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
+		options.testTearDown()
+		return nil, resultErr
+	}
+	// Get the path to the state file in baseTempDir
+	baseStatePath := path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate")
 
-		// Set TerraformDir to the appropriate directory within prTempDir
-		options.setTerraformDir(path.Join(prTempDir, relativeTestSampleDir))
+	// Set TerraformDir to the appropriate directory within prTempDir
+	options.setTerraformDir(path.Join(prTempDir, relativeTestSampleDir))
 
-		// ensure terraform working files/folders are removed before copying state file ie .terraform, .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup
-		CleanTerraformDir(options.TerraformOptions.TerraformDir)
+	// ensure terraform working files/folders are removed before copying state file ie .terraform, .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup
+	CleanTerraformDir(options.TerraformOptions.TerraformDir)
 
-		// Copy the state file to the corresponding directory in prTempDir
-		errCopyState := common.CopyFile(baseStatePath, path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
-		if errCopyState != nil {
-			// Tear down the test
-			options.testTearDown()
-			return nil, fmt.Errorf("failed to copy state file: %v", errCopyState)
-		} else {
-			logger.Log(options.Testing, "State file copied to PR branch dir:", path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
-		}
+	// Copy the state file to the corresponding directory in prTempDir
+	errCopyState := common.CopyFile(baseStatePath, path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
+	if errCopyState != nil {
+		// Tear down the test
+		options.testTearDown()
+		return nil, fmt.Errorf("failed to copy state file: %v", errCopyState)
+	} else {
+		logger.Log(options.Testing, "State file copied to PR branch dir:", path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate"))
+	}
 
-		logger.Log(options.Testing, "Init / Plan on PR Branch:", prBranch)
-		logger.Log(options.Testing, "Init / Plan on PR Branch dir:", options.TerraformOptions.TerraformDir)
+	logger.Log(options.Testing, "Init / Plan on PR Branch:", prBranch)
+	logger.Log(options.Testing, "Init / Plan on PR Branch dir:", options.TerraformOptions.TerraformDir)
 
-		// Run Terraform plan in prTempDir
-		result, resultErr = options.runTestPlan()
+	// Run Terraform plan in prTempDir
+	result, resultErr = options.runTestPlan()
 
-		if resultErr != nil {
-			logger.Log(options.Testing, "Error during Terraform Plan on PR branch:", resultErr)
-			assert.Nilf(options.Testing, resultErr, "Terraform Plan on PR branch has failed")
-
-			// Tear down the test
-			options.testTearDown()
-
-			return nil, resultErr
-		}
-
-		logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)...")
-		options.checkConsistency(result)
-
-		// Check if optional upgrade support on PR Branch is needed
-		if options.CheckApplyResultForUpgrade && !options.Testing.Failed() {
-			logger.Log(options.Testing, "Validating Optional upgrade on Current Branch (PR):", prBranch)
-			_, applyErr := terraform.ApplyE(options.Testing, options.TerraformOptions)
-			if applyErr != nil {
-				logger.Log(options.Testing, "Error during Terraform Apply on PR branch:", applyErr)
-				assert.Nilf(options.Testing, applyErr, "Terraform Apply on PR branch has failed")
-
-				// Tear down the test
-				options.testTearDown()
-
-				return nil, applyErr
-			}
-		}
+	if resultErr != nil {
+		logger.Log(options.Testing, "Error during Terraform Plan on PR branch:", resultErr)
+		assert.Nilf(options.Testing, resultErr, "Terraform Plan on PR branch has failed")
 
 		// Tear down the test
 		options.testTearDown()
+
+		return nil, resultErr
 	}
+
+	logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)...")
+	options.checkConsistency(result)
+
+	// Check if optional upgrade support on PR Branch is needed
+	if options.CheckApplyResultForUpgrade && !options.Testing.Failed() {
+		logger.Log(options.Testing, "Validating Optional upgrade on Current Branch (PR):", prBranch)
+		_, applyErr := terraform.ApplyE(options.Testing, options.TerraformOptions)
+		if applyErr != nil {
+			logger.Log(options.Testing, "Error during Terraform Apply on PR branch:", applyErr)
+			assert.Nilf(options.Testing, applyErr, "Terraform Apply on PR branch has failed")
+
+			// Tear down the test
+			options.testTearDown()
+
+			return nil, applyErr
+		}
+	}
+
+	// Tear down the test
+	options.testTearDown()
+	//}
 
 	// let the calling test know if this upgrade was skipped or not
 	options.UpgradeTestSkipped = skipped
