@@ -43,6 +43,26 @@ type realGitOps struct{}
 func (r *realGitOps) getRemoteOriginURL(repoDir string) (string, error) {
 	// TODO: Remove debug log before merging
 	fmt.Println("Using Git logic to determine remote origin URL")
+	// Debug log
+	// git fetch origin
+	debug_cmd := exec.Command("git", "fetch", "origin")
+	debug_cmd.Dir = repoDir
+	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
+	debug_output, debug_err := debug_cmd.Output()
+	if debug_err != nil {
+		fmt.Println("Unable to fetch origin")
+	}
+	fmt.Printf("Command output: %s\n", debug_output)
+
+	// git remote -v
+	debug_cmd = exec.Command("git", "remote", "-v")
+	debug_cmd.Dir = repoDir
+	fmt.Printf("Running command: %s\n", strings.Join(debug_cmd.Args, " "))
+	debug_output, debug_err = debug_cmd.Output()
+	if debug_err != nil {
+		fmt.Println("Unable to get remote -v")
+	}
+	fmt.Printf("Command output: %s\n", debug_output)
 
 	cmd := exec.Command("git", "remote", "get-url", "origin")
 	cmd.Dir = repoDir
