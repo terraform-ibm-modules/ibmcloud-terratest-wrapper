@@ -402,6 +402,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "PR Branch:", prBranch)
 	}
 
+	// TODO: add this back before merging
 	//if skipUpgradeTest(prBranch) {
 	//	options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
 	//} else {
