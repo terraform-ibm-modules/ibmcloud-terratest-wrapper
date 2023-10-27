@@ -204,18 +204,9 @@ func (r *realGitOps) getOriginURL(repoPath string) string {
 		fmt.Printf("Command output: %s\n", output)
 		repo = strings.TrimSpace(string(output))
 	} else {
-		// If there's no "upstream" remote, fall back to "origin"
-		fmt.Println("Unable to determine upstream URL, falling back to origin")
-		cmd := exec.Command("git", "remote", "get-url", "origin")
-		fmt.Printf("Running command: %s\n", strings.Join(cmd.Args, " "))
-		output, err = cmd.Output()
-		if err != nil {
-			log.Println("Unable to determine origin URL")
-			log.Println(err)
-			return ""
-		}
-		println("output: ", output)
-		repo = strings.TrimSpace(string(output))
+		// If there's no "upstream" remote, Unable to determine upstream URL"
+		fmt.Println("Unable to determine upstream URL")
+		repo = ""
 	}
 
 	return repo
@@ -320,10 +311,12 @@ func GetBaseRepoAndBranch(repo string, branch string) (string, string) {
 func getBaseRepoAndBranch(repo string, branch string, git gitOps, env envOps) (string, string) {
 	envRepo, exists := env.lookupEnv("BASE_TERRAFORM_REPO")
 	if exists {
+		fmt.Printf("Using BASE_TERRAFORM_REPO environment variable %s\n", envRepo)
 		repo = envRepo
 	}
 	envBranch, exists := env.lookupEnv("BASE_TERRAFORM_BRANCH")
 	if exists {
+		fmt.Printf("Using BASE_TERRAFORM_BRANCH environment variable %s\n", envBranch)
 		branch = envBranch
 	}
 
