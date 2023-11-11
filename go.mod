@@ -6,18 +6,18 @@ require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20231026045515-5c31bb9104f7
 	github.com/IBM-Cloud/power-go-client v1.5.3
 	github.com/IBM/go-sdk-core/v5 v5.14.1
-	github.com/IBM/platform-services-go-sdk v0.53.0
+	github.com/IBM/platform-services-go-sdk v0.53.1
 	github.com/IBM/schematics-go-sdk v0.2.2
 	github.com/IBM/vpc-go-sdk v0.43.0
 	github.com/go-git/go-git/v5 v5.10.0
 	github.com/go-openapi/errors v0.20.4
 	github.com/go-openapi/strfmt v0.21.7
 	github.com/google/go-cmp v0.6.0
-	github.com/gruntwork-io/terratest v0.46.5
-	github.com/hashicorp/terraform-json v0.17.1
+	github.com/gruntwork-io/terratest v0.46.6
+	github.com/hashicorp/terraform-json v0.18.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.8.4
-	golang.org/x/crypto v0.14.0
+	golang.org/x/crypto v0.15.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -33,6 +33,7 @@ require (
 	github.com/acomagu/bufpipe v1.0.4 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/apparentlymart/go-textseg/v13 v13.0.0 // indirect
+	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/aws/aws-sdk-go v1.44.281 // indirect
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
@@ -92,7 +93,7 @@ require (
 	github.com/tmccombs/hcl2json v0.5.0 // indirect
 	github.com/ulikunitz/xz v0.5.11 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
-	github.com/zclconf/go-cty v1.13.2 // indirect
+	github.com/zclconf/go-cty v1.14.1 // indirect
 	go.mongodb.org/mongo-driver v1.11.7 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/otel v1.16.0 // indirect
@@ -102,8 +103,8 @@ require (
 	golang.org/x/net v0.17.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect
-	golang.org/x/sys v0.13.0 // indirect
-	golang.org/x/text v0.13.0 // indirect
+	golang.org/x/sys v0.14.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.13.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/api v0.127.0 // indirect
