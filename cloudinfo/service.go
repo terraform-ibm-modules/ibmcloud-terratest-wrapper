@@ -3,6 +3,9 @@ package cloudinfo
 
 import (
 	"errors"
+	"github.com/IBM-Cloud/bluemix-go"
+	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
+	"github.com/IBM-Cloud/bluemix-go/session"
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
@@ -23,6 +26,7 @@ type CloudInfoService struct {
 	iamIdentityService        iamIdentityService
 	resourceControllerService resourceControllerService
 	cbrService                cbrService
+	containerClient           containerClient
 	regionsData               []RegionData
 	lock                      sync.Mutex
 }
@@ -46,6 +50,7 @@ type CloudInfoServiceOptions struct {
 	ResourceControllerService resourceControllerService
 	IamIdentityService        iamIdentityService
 	CbrService                cbrService
+	ContainerClient           containerClient
 	RegionPrefs               []RegionData
 }
 
@@ -85,6 +90,12 @@ type ibmPICloudConnectionClient interface {
 	GetAll() (*ibmpimodels.CloudConnections, error)
 }
 
+// containerClient interface for external Kubernetes Cluster Service API. Used for mocking.
+type containerClient interface {
+	Clusters() containerv2.Clusters
+}
+
+// cbrService interface for external Context Based Restrictions Service API. Used for mocking.
 type cbrService interface {
 	GetRule(*contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	ReplaceRule(*contextbasedrestrictionsv1.ReplaceRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
@@ -199,6 +210,27 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.cbrService = cbrService
 	}
 
+	// if containerClient is not supplied, use default external service
+	if options.ContainerClient != nil {
+		infoSvc.containerClient = options.ContainerClient
+	} else {
+		// Create a new Bluemix session
+		sess, sessErr := session.New(&bluemix.Config{
+			BluemixAPIKey: infoSvc.authenticator.ApiKey, // pragma: allowlist secret
+		})
+		if sessErr != nil {
+			log.Println("ERROR: Could not create Bluemix session:", sessErr)
+			return nil, sessErr
+		}
+
+		// Initialize the container service client with the session
+		containerClient, containerErr := containerv2.New(sess)
+		if containerErr != nil {
+			log.Println("ERROR: Could not create container service client:", containerErr)
+			return nil, containerErr
+		}
+		infoSvc.containerClient = containerClient
+	}
 	// if resourceControllerService is not supplied use new external
 	if options.ResourceControllerService != nil {
 		infoSvc.resourceControllerService = options.ResourceControllerService
