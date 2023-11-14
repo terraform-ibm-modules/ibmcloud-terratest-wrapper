@@ -2,6 +2,8 @@ package cloudinfo
 
 import (
 	"errors"
+	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
+	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
@@ -144,4 +146,58 @@ func (mock *cbrServiceMock) GetZone(options *contextbasedrestrictionsv1.GetZoneO
 
 func (mock *cbrServiceMock) GetRule(options *contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error) {
 	return mock.rule, mock.detailedResponse, mock.err
+}
+
+// Mock Container Client
+type containerClientMock struct {
+	mock.Mock
+}
+
+func (mock *containerClientMock) Clusters() containerv2.Clusters {
+	args := mock.Called()
+	return args.Get(0).(containerv2.Clusters) // Cast to the expected return type
+}
+
+type ClustersMock struct {
+	mock.Mock
+}
+
+func (m *ClustersMock) Create(params containerv2.ClusterCreateRequest, target containerv2.ClusterTargetHeader) (containerv2.ClusterCreateResponse, error) {
+	args := m.Called(params, target)
+	return args.Get(0).(containerv2.ClusterCreateResponse), args.Error(1)
+}
+
+func (m *ClustersMock) List(target containerv2.ClusterTargetHeader) ([]containerv2.ClusterInfo, error) {
+	args := m.Called(target)
+	return args.Get(0).([]containerv2.ClusterInfo), args.Error(1)
+}
+
+func (m *ClustersMock) Delete(name string, target containerv2.ClusterTargetHeader, deleteDependencies ...bool) error {
+	args := m.Called(name, target, deleteDependencies)
+	return args.Error(0)
+}
+
+func (m *ClustersMock) GetCluster(name string, target containerv2.ClusterTargetHeader) (*containerv2.ClusterInfo, error) {
+	args := m.Called(name, target)
+	return args.Get(0).(*containerv2.ClusterInfo), args.Error(1)
+}
+
+func (m *ClustersMock) GetClusterConfigDetail(name, homeDir string, admin bool, target containerv2.ClusterTargetHeader, endpointType string) (containerv1.ClusterKeyInfo, error) {
+	args := m.Called(name, homeDir, admin, target, endpointType)
+	return args.Get(0).(containerv1.ClusterKeyInfo), args.Error(1)
+}
+
+func (m *ClustersMock) StoreConfigDetail(name, baseDir string, admin bool, createCalicoConfig bool, target containerv2.ClusterTargetHeader, endpointType string) (string, containerv1.ClusterKeyInfo, error) {
+	args := m.Called(name, baseDir, admin, createCalicoConfig, target, endpointType)
+	return args.String(0), args.Get(1).(containerv1.ClusterKeyInfo), args.Error(2)
+}
+
+func (m *ClustersMock) EnableImageSecurityEnforcement(name string, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(name, target)
+	return args.Error(0)
+}
+
+func (m *ClustersMock) DisableImageSecurityEnforcement(name string, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(name, target)
+	return args.Error(0)
 }
