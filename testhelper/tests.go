@@ -3,12 +3,13 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
-	tfjson "github.com/hashicorp/terraform-json"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 	"testing"
+
+	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 
@@ -35,6 +36,9 @@ func skipUpgradeTest(branch string) bool {
 	if strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST") {
 		doNotRunUpgradeTest = true
 	}
+	if strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
+		doNotRunUpgradeTest = false
+	}
 	if !doNotRunUpgradeTest {
 		// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
 		// clone even if the default branch has not been checked out or pulled.
@@ -43,6 +47,9 @@ func skipUpgradeTest(branch string) bool {
 
 		if strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST") {
 			doNotRunUpgradeTest = true
+		}
+		if strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
+			doNotRunUpgradeTest = false
 		}
 	}
 	return doNotRunUpgradeTest
