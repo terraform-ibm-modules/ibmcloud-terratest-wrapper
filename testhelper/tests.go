@@ -3,12 +3,13 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
-	tfjson "github.com/hashicorp/terraform-json"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 	"testing"
+
+	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 
@@ -32,7 +33,7 @@ func skipUpgradeTest(branch string) bool {
 
 	// Skip upgrade Test if BREAKING CHANGE OR SKIP UPGRADE TEST string found in commit messages
 	doNotRunUpgradeTest := false
-	if strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST") {
+	if (strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST")) && !strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
 		doNotRunUpgradeTest = true
 	}
 	if !doNotRunUpgradeTest {
@@ -41,7 +42,7 @@ func skipUpgradeTest(branch string) bool {
 		cmd = exec.Command("/bin/sh", "-c", "git log origin/main..", branch)
 		out, _ = cmd.CombinedOutput()
 
-		if strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST") {
+		if (strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST")) && !strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
 			doNotRunUpgradeTest = true
 		}
 	}
