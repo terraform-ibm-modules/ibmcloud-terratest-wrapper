@@ -70,6 +70,9 @@ type TestSchematicOptions struct {
 	// This array will be used to construct a valid `Variablestore` configuration for the Schematics Workspace Template
 	TerraformVars []TestSchematicTerraformVar
 
+	// If you want to skip teardown use these
+	SkipTestTearDown bool
+
 	// This value will set the `folder` attribute in the Schematics template, and will be used as the execution folder for terraform.
 	// Defaults to root directory of source, "." if not supplied.
 	//
@@ -188,6 +191,8 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 	if len(newOptions.SchematicsApiURL) == 0 {
 		newOptions.SchematicsApiURL = DefaultSchematicsApiURL
 	}
+
+	newOptions.SkipTestTearDown = false
 
 	return newOptions
 

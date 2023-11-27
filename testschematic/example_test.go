@@ -3,6 +3,7 @@ package testschematic_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic"
 )
 
@@ -46,9 +47,10 @@ func Example_default() {
 		options.AddNetrcCredential("bitbucket.com", "bit-user", "bit-token")
 
 		// run the test
-		err := options.RunSchematicTest()
+		output, err := options.RunSchematicTest()
 		if err != nil {
 			t.Fail()
 		}
+		assert.NotNil(t, output, "Expected some output")
 	})
 }
