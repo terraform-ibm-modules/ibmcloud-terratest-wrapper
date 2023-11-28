@@ -192,7 +192,6 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 		newOptions.SchematicsApiURL = DefaultSchematicsApiURL
 	}
 
-
 	return newOptions
 
 }

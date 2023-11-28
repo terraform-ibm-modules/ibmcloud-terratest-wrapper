@@ -17,9 +17,6 @@ import (
 // 3. configure supplied test variables in workspace
 // 4. run PLAN/APPLY/DESTROY steps on workspace to provision and destroy resources
 // 5. delete the test workspace
-
-// var svc *SchematicsTestService
-
 func (options *TestSchematicOptions) RunSchematicTest() error {
 
 	// WORKSPACE SETUP
@@ -81,7 +78,6 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 
 	// since workspace is now created, always call the teardown to remove
 	defer testTearDownWorkspace(options)
-	// options.testTearDown()
 
 	// upload the terraform code
 	options.Testing.Log("[SCHEMATICS] Uploading TAR file")
