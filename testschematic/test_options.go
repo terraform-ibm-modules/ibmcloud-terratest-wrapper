@@ -113,7 +113,7 @@ type TestSchematicOptions struct {
 
 	CloudInfoService  cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 	SchematicsApiSvc  SchematicsApiSvcI           // OPTIONAL: service pointer for interacting with external schematics api
-	schematicsTestSvc *SchematicsTestService      // internal property to specify pointer to test service, used for test mocking
+	SchematicsTestSvc *SchematicsTestService      // internal property to specify pointer to test service, used for test mocking
 
 	// These optional fields can be used to override the default retry settings for making Schematics API calls.
 	// If SDK/API calls to Schematics result in errors, such as retrieving existing workspace details,
@@ -192,7 +192,6 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 		newOptions.SchematicsApiURL = DefaultSchematicsApiURL
 	}
 
-	newOptions.SkipTestTearDown = false
 
 	return newOptions
 

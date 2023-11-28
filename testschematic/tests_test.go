@@ -38,7 +38,7 @@ func TestSchematicFullTest(t *testing.T) {
 		WaitJobCompleteMinutes:       1,
 		DeleteWorkspaceOnFail:        false,
 		SchematicsApiSvc:             schematicSvc,
-		schematicsTestSvc:            svc,
+		SchematicsTestSvc:            svc,
 		SchematicSvcRetryCount:       &zero,
 		SchematicSvcRetryWaitSeconds: &zero,
 	}
@@ -52,9 +52,8 @@ func TestSchematicFullTest(t *testing.T) {
 	}
 
 	t.Run("CleanRun", func(t *testing.T) {
-		output, err := options.RunSchematicTest()
+		err := options.RunSchematicTest()
 		assert.NoError(t, err)
-		assert.NotNil(t, output, "Expected some output")
 		assert.True(t, schematicSvc.applyComplete)
 		assert.True(t, schematicSvc.destroyComplete)
 		assert.True(t, schematicSvc.workspaceDeleteComplete)
