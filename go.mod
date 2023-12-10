@@ -9,7 +9,7 @@ require (
 	github.com/IBM/platform-services-go-sdk v0.55.0
 	github.com/IBM/schematics-go-sdk v0.2.2
 	github.com/IBM/vpc-go-sdk v0.45.0
-	github.com/go-git/go-git/v5 v5.10.1
+	github.com/go-git/go-git/v5 v5.11.0
 	github.com/go-openapi/errors v0.20.4
 	github.com/go-openapi/strfmt v0.21.9
 	github.com/google/go-cmp v0.6.0
@@ -100,7 +100,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.16.0 // indirect
 	go.opentelemetry.io/otel/trace v1.16.0 // indirect
 	golang.org/x/mod v0.12.0 // indirect
-	golang.org/x/net v0.18.0 // indirect
+	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
 	golang.org/x/sync v0.3.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect
