@@ -732,3 +732,9 @@ func (options *TestOptions) setTerraformDir(tempDir string) {
 	options.TerraformDir = tempDir
 	options.WorkspacePath = tempDir
 }
+
+/*
+Add a function to write logic to call the function in containers.go
+Loop on the function till we get healthy state and
+if threshold is reached then report the non-healthy status
+*/

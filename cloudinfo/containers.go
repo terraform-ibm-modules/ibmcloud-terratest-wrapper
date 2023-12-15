@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"fmt"
+
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 )
 
@@ -47,3 +48,14 @@ func (infoSvc *CloudInfoService) GetClusterConfigPath(clusterId string, basePath
 
 	return configDetails.FilePath, nil
 }
+
+/*
+TODO-1:
+Add function: GetIngressState which returns (string, error)
+Requires:
+	REST API: https://containers.cloud.ibm.com/global/v2/alb/getStatus?cluster=<cluster_id>
+	authenticator := infoSvc.authenticator
+
+	Access token: cloud_info/service.go/CloudInfoService.authenticator
+	other parameter (need to check): check for CloudInfoService reference
+*/
