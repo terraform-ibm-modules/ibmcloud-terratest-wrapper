@@ -10,8 +10,8 @@ require (
 	github.com/IBM/schematics-go-sdk v0.2.2
 	github.com/IBM/vpc-go-sdk v0.46.0
 	github.com/go-git/go-git/v5 v5.11.0
-	github.com/go-openapi/errors v0.20.4
-	github.com/go-openapi/strfmt v0.21.9
+	github.com/go-openapi/errors v0.21.0
+	github.com/go-openapi/strfmt v0.21.10
 	github.com/google/go-cmp v0.6.0
 	github.com/gruntwork-io/terratest v0.46.8
 	github.com/hashicorp/terraform-json v0.18.0
