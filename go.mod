@@ -4,14 +4,14 @@ go 1.21
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20231207111833-cf0937e108a4
-	github.com/IBM-Cloud/power-go-client v1.5.5
+	github.com/IBM-Cloud/power-go-client v1.5.7
 	github.com/IBM/go-sdk-core/v5 v5.15.0
 	github.com/IBM/platform-services-go-sdk v0.55.0
 	github.com/IBM/schematics-go-sdk v0.2.2
-	github.com/IBM/vpc-go-sdk v0.45.0
+	github.com/IBM/vpc-go-sdk v0.46.0
 	github.com/go-git/go-git/v5 v5.11.0
-	github.com/go-openapi/errors v0.20.4
-	github.com/go-openapi/strfmt v0.21.9
+	github.com/go-openapi/errors v0.21.0
+	github.com/go-openapi/strfmt v0.21.10
 	github.com/google/go-cmp v0.6.0
 	github.com/gruntwork-io/terratest v0.46.8
 	github.com/hashicorp/terraform-json v0.18.0
@@ -44,16 +44,16 @@ require (
 	github.com/ghodss/yaml v1.0.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.5.0 // indirect
-	github.com/go-logr/logr v1.2.4 // indirect
+	github.com/go-logr/logr v1.3.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/analysis v0.21.4 // indirect
 	github.com/go-openapi/jsonpointer v0.20.0 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/loads v0.21.2 // indirect
 	github.com/go-openapi/runtime v0.26.0 // indirect
-	github.com/go-openapi/spec v0.20.9 // indirect
+	github.com/go-openapi/spec v0.20.11 // indirect
 	github.com/go-openapi/swag v0.22.4 // indirect
-	github.com/go-openapi/validate v0.22.2 // indirect
+	github.com/go-openapi/validate v0.22.3 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.14.1 // indirect
@@ -94,7 +94,7 @@ require (
 	github.com/ulikunitz/xz v0.5.11 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	github.com/zclconf/go-cty v1.14.1 // indirect
-	go.mongodb.org/mongo-driver v1.13.0 // indirect
+	go.mongodb.org/mongo-driver v1.13.1 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/otel v1.16.0 // indirect
 	go.opentelemetry.io/otel/metric v1.16.0 // indirect
