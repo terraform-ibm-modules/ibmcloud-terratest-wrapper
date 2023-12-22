@@ -8,16 +8,16 @@ require (
 	github.com/IBM/go-sdk-core/v5 v5.15.0
 	github.com/IBM/platform-services-go-sdk v0.55.0
 	github.com/IBM/schematics-go-sdk v0.2.2
-	github.com/IBM/vpc-go-sdk v0.46.0
+	github.com/IBM/vpc-go-sdk v0.47.0
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/go-openapi/errors v0.21.0
 	github.com/go-openapi/strfmt v0.21.10
 	github.com/google/go-cmp v0.6.0
 	github.com/gruntwork-io/terratest v0.46.8
-	github.com/hashicorp/terraform-json v0.18.0
+	github.com/hashicorp/terraform-json v0.20.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.8.4
-	golang.org/x/crypto v0.16.0
+	golang.org/x/crypto v0.17.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
