@@ -3,21 +3,21 @@ module github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper
 go 1.21
 
 require (
-	github.com/IBM-Cloud/bluemix-go v0.0.0-20231207111833-cf0937e108a4
+	github.com/IBM-Cloud/bluemix-go v0.0.0-20240110132033-6ead1f81a985
 	github.com/IBM-Cloud/power-go-client v1.5.8
 	github.com/IBM/go-sdk-core/v5 v5.15.0
-	github.com/IBM/platform-services-go-sdk v0.55.0
+	github.com/IBM/platform-services-go-sdk v0.56.0
 	github.com/IBM/schematics-go-sdk v0.2.3
 	github.com/IBM/vpc-go-sdk v0.47.0
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/go-openapi/errors v0.21.0
 	github.com/go-openapi/strfmt v0.22.0
 	github.com/google/go-cmp v0.6.0
-	github.com/gruntwork-io/terratest v0.46.8
+	github.com/gruntwork-io/terratest v0.46.9
 	github.com/hashicorp/terraform-json v0.20.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.8.4
-	golang.org/x/crypto v0.17.0
+	golang.org/x/crypto v0.18.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -102,8 +102,8 @@ require (
 	golang.org/x/mod v0.12.0 // indirect
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
-	golang.org/x/sync v0.3.0 // indirect
-	golang.org/x/sys v0.15.0 // indirect
+	golang.org/x/sync v0.4.0 // indirect
+	golang.org/x/sys v0.16.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.13.0 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
