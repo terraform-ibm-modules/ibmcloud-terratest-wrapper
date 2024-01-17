@@ -73,6 +73,11 @@ func handleSanitizationError(err error, location string, options *TestOptions) {
 
 // checkConsistency Fails the test if any destroys are detected and the resource is not exempt.
 // If any addresses are provided in IgnoreUpdates.List then fail on updates too unless the resource is exempt
+func (options *TestOptions) CheckConsistency(plan *terraform.PlanStruct) {
+	options.checkConsistency(plan)
+}
+
+// checkConsistency check consistency
 func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 	validChange := false
 
