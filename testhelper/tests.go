@@ -739,7 +739,7 @@ func (options *TestOptions) setTerraformDir(tempDir string) {
 }
 
 /*
-Add a function to write logic to call the function in containers.go
+TODO-2: Add a function to write logic to call the function in containers.go
 Loop on the function till we get healthy state and
 if threshold is reached then report the non-healthy status
 */

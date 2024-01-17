@@ -59,3 +59,25 @@ Requires:
 	Access token: cloud_info/service.go/CloudInfoService.authenticator
 	other parameter (need to check): check for CloudInfoService reference
 */
+
+// GetContainerStatus retrieves the ingress state of the cluster
+// clusterId: the ID
+// Returns the state of the cluster
+func (infoSvc *CloudInfoService) GetClusterStatus(clusterId string) (struct{}, error) {
+
+	accessToken, tokenErr := infoSvc.GetAccessToken()
+	if tokenErr != nil {
+		return struct, tokenErr
+	}
+	// TODO: Make a REST API call with return type as a Strcuture
+	// 1. Discuss if a wrapper is available to make REST API call
+	// 2. Otherwise find a method to make a REST API call in Go
+
+}
+
+// IsClusterIngressHealthy retrieves the ingress state of the cluster
+// clusterId: the ID
+// Returns the bool if ingress state is healthy or not
+func (infoSvc *CloudInfoService) IsClusterIngressHealthy() bool {
+
+}

@@ -3,6 +3,11 @@ package cloudinfo
 
 import (
 	"errors"
+	"fmt"
+	"log"
+	"os"
+	"sync"
+
 	"github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
@@ -12,9 +17,6 @@ import (
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
-	"log"
-	"os"
-	"sync"
 )
 
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
@@ -247,6 +249,19 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 	}
 
 	return infoSvc, nil
+}
+
+func (infoSvc *CloudInfoService) GetAccessToken() (string, error) {
+	response, err := infoSvc.authenticator.GetToken()
+	if err != nil {
+		return "", err
+	}
+	if len(response) == 0 {
+		// this shouldn't happen
+		return "", fmt.Errorf("access token is empty (invalid)")
+	}
+
+	return response, nil
 }
 
 // NewCloudInfoServiceFromEnv is a factory function used for creating a new initialized service structure.
