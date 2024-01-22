@@ -31,6 +31,7 @@ type CloudInfoService struct {
 	containerClient           containerClient
 	regionsData               []RegionData
 	lock                      sync.Mutex
+	albService                albService
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -54,6 +55,7 @@ type CloudInfoServiceOptions struct {
 	CbrService                cbrService
 	ContainerClient           containerClient
 	RegionPrefs               []RegionData
+	AlbService                albService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -251,6 +253,14 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.resourceControllerService = controllerClient
+	}
+
+	// if albService is supplied, use default of external service
+	if options.AlbService != nil {
+		infoSvc.albService = options.AlbService
+	} else {
+		// Instantiate the service
+		infoSvc.albService = nil // Instantiate wrapper
 	}
 
 	return infoSvc, nil
