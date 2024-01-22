@@ -3,7 +3,6 @@ package cloudinfo
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -11,6 +10,7 @@ import (
 	"github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
+	ksapi "github.com/IBM-Cloud/container-services-go-sdk/kubernetesserviceapiv1"
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
@@ -102,6 +102,11 @@ type cbrService interface {
 	GetRule(*contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	ReplaceRule(*contextbasedrestrictionsv1.ReplaceRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	GetZone(*contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
+}
+
+// albService interface for external Kubernetes Service API V1. Used for mocking.
+type albService interface {
+	GetClusterALB(*ksapi.GetClusterALBOptions) (*ksapi.ALBConfig, *core.DetailedResponse, error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -249,19 +254,6 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 	}
 
 	return infoSvc, nil
-}
-
-func (infoSvc *CloudInfoService) GetAccessToken() (string, error) {
-	response, err := infoSvc.authenticator.GetToken()
-	if err != nil {
-		return "", err
-	}
-	if len(response) == 0 {
-		// this shouldn't happen
-		return "", fmt.Errorf("access token is empty (invalid)")
-	}
-
-	return response, nil
 }
 
 // NewCloudInfoServiceFromEnv is a factory function used for creating a new initialized service structure.

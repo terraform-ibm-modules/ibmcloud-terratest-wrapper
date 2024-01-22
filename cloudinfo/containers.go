@@ -49,35 +49,10 @@ func (infoSvc *CloudInfoService) GetClusterConfigPath(clusterId string, basePath
 	return configDetails.FilePath, nil
 }
 
-/*
-TODO-1:
-Add function: GetIngressState which returns (string, error)
-Requires:
-	REST API: https://containers.cloud.ibm.com/global/v2/alb/getStatus?cluster=<cluster_id>
-	authenticator := infoSvc.authenticator
-
-	Access token: cloud_info/service.go/CloudInfoService.authenticator
-	other parameter (need to check): check for CloudInfoService reference
-*/
-
-// GetContainerStatus retrieves the ingress state of the cluster
+// GetAlbState retrieves the ingress state of the cluster
 // clusterId: the ID
 // Returns the state of the cluster
-func (infoSvc *CloudInfoService) GetClusterStatus(clusterId string) (struct{}, error) {
-
-	accessToken, tokenErr := infoSvc.GetAccessToken()
-	if tokenErr != nil {
-		return struct, tokenErr
-	}
-	// TODO: Make a REST API call with return type as a Strcuture
-	// 1. Discuss if a wrapper is available to make REST API call
-	// 2. Otherwise find a method to make a REST API call in Go
-
-}
-
-// IsClusterIngressHealthy retrieves the ingress state of the cluster
-// clusterId: the ID
-// Returns the bool if ingress state is healthy or not
-func (infoSvc *CloudInfoService) IsClusterIngressHealthy() bool {
-
+func (infoSvc *CloudInfoService) GetAlbState(clusterId string) (albConfig struct{}, err error) {
+	// some logic
+	return
 }
