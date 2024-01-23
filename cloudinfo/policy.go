@@ -13,8 +13,8 @@ const (
 	ErrTooManyRequests        = "too many requests have been made within a given time window"
 )
 
-// DeletePolicyByID will delete an IAM policy by ID
-func (infoSvc *CloudInfoService) DeletePolicyByID(policyId string) error {
+// DeleteIamPolicyByID will delete an IAM policy by ID
+func (infoSvc *CloudInfoService) DeleteIamPolicyByID(policyId string) error {
 	response, err := infoSvc.iamPolicyService.DeletePolicy(&iampolicymanagementv1.DeletePolicyOptions{
 		PolicyID: &policyId,
 	})

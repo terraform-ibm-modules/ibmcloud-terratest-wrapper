@@ -84,7 +84,7 @@ func TestDeletePolicyByID(t *testing.T) {
 			tc.setupMock(mock)
 
 			// Execute function under test
-			err := infoSvc.DeletePolicyByID("mock-policy-id")
+			err := infoSvc.DeleteIamPolicyByID("mock-policy-id")
 
 			// Assertions
 			if tc.expectedErr != "" {
