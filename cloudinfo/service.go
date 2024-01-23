@@ -255,12 +255,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.resourceControllerService = controllerClient
 	}
 
-	// if albService is supplied, use default of external service
+	// if albService is not supplied, use default of external service
 	if options.AlbService != nil {
 		infoSvc.albService = options.AlbService
 	} else {
-		// Instantiate the service
-		infoSvc.albService = nil // Instantiate wrapper
+		// Instantiate the service with an API key based IAM authenticator
+		albService, albErr := ksapi.NewKubernetesServiceApiV1(&ksapi.KubernetesServiceApiV1Options{
+			Authenticator: infoSvc.authenticator,
+		})
+
+		if albErr != nil {
+			log.Println("ERROR: Could not create NewKubernetesServiceApiV1 service:", albErr)
+			return nil, albErr
+		}
+
+		infoSvc.albService = albService
 	}
 
 	return infoSvc, nil
