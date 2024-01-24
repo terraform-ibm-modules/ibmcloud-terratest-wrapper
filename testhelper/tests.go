@@ -348,7 +348,60 @@ func (options *TestOptions) testTearDown() {
 				}
 			}
 			logger.Log(options.Testing, "START: Destroy")
-			terraform.Destroy(options.Testing, options.TerraformOptions)
+			destroyOutput := terraform.Destroy(options.Testing, options.TerraformOptions)
+			logger.Log(options.Testing, destroyOutput)
+			// On destroy resource group failure, list remaining resources
+			if strings.Contains(destroyOutput, "Error: [ERROR] Error Deleting resource group:") {
+				logger.Log(options.Testing, "ERROR: Destroy failed attempting to list remaining resources")
+				if options.LastTestTerraformOutputs != nil {
+					// Check if resource_group_id or resource_group_ids are in the outputs
+					expectedOutputs := []string{"resource_group_id", "resource_group_ids"}
+					missingOutputs, _ := ValidateTerraformOutputs(options.LastTestTerraformOutputs, expectedOutputs...)
+					actualOutputs := []string{}
+					if missingOutputs != nil {
+						// loop through expected outputs and if they are not in missing outputs then add them to actual outputs
+						for _, expectedOutput := range expectedOutputs {
+							if !common.StrArrayContains(missingOutputs, expectedOutput) {
+								actualOutputs = append(actualOutputs, expectedOutput)
+							}
+						}
+					} else {
+						actualOutputs = append(actualOutputs, expectedOutputs...)
+					}
+					// If resource_group_id or resource_group_ids are in the outputs then list resources in the resource group
+					if len(actualOutputs) > 0 {
+						cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, cloudinfo.CloudInfoServiceOptions{})
+						if err != nil {
+							logger.Log(options.Testing, "Error creating CloudInfoService for testhelper, skipping resource listing")
+						} else {
+							if common.StrArrayContains(actualOutputs, "resource_group_id") {
+								resourceGroupID := options.LastTestTerraformOutputs["resource_group_id"].(string)
+								// Get all resources in resource group
+								resources, err := cloudInfoSvc.ListResourcesByGroupID(resourceGroupID)
+								if err != nil {
+									logger.Log(options.Testing, fmt.Sprintf("Error listing resources in Resource Group %s, %s", resourceGroupID, err))
+								} else {
+									logger.Log(options.Testing, fmt.Sprintf("Resources in Resource Group %s", resourceGroupID))
+									cloudinfo.PrintResources(resources)
+								}
+							}
+							if common.StrArrayContains(actualOutputs, "resource_group_ids") {
+								resourceGroupIDs := options.LastTestTerraformOutputs["resource_group_ids"].([]interface{})
+								for _, resourceGroupID := range resourceGroupIDs {
+									// Get all resources in resource group
+									resources, err := cloudInfoSvc.ListResourcesByGroupID(resourceGroupID.(string))
+									if err != nil {
+										logger.Log(options.Testing, fmt.Sprintf("Error listing resources in Resource Group %s, %s", resourceGroupID.(string), err))
+									} else {
+										logger.Log(options.Testing, fmt.Sprintf("Resources in Resource Group %s", resourceGroupID.(string)))
+										cloudinfo.PrintResources(resources)
+									}
+								}
+							}
+						}
+					}
+				}
+			}
 			if options.UseTerraformWorkspace {
 				terraform.WorkspaceDelete(options.Testing, options.TerraformOptions, options.Prefix)
 			}

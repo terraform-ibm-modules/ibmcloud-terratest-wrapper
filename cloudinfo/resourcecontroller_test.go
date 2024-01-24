@@ -60,3 +60,40 @@ func TestListResourcesByCrnSvcName(t *testing.T) {
 		assert.Equal(t, len(hasList), 1)
 	})
 }
+
+func TestListResourcesByGroupID(t *testing.T) {
+	infoSvc := CloudInfoService{
+		resourceControllerService: &resourceControllerServiceMock{},
+	}
+
+	var zeroCount int64 = 0
+	var twoCount int64 = 2
+	var groupId string = "group-id"
+
+	// first test, group has zero resources
+	t.Run("ZeroTotalResources", func(t *testing.T) {
+		infoSvc.resourceControllerService = &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{RowsCount: &zeroCount},
+		}
+		zeroTotalList, zeroTotalErr := infoSvc.ListResourcesByGroupID(groupId)
+		assert.Nil(t, zeroTotalErr)
+		assert.Empty(t, zeroTotalList)
+	})
+
+	// second test, group has two resources
+	t.Run("TwoTotalResources", func(t *testing.T) {
+		infoSvc.resourceControllerService = &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &twoCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{ResourceGroupID: &groupId},
+					{ResourceGroupID: &groupId},
+				},
+			},
+		}
+		twoTotalList, twoTotalErr := infoSvc.ListResourcesByGroupID(groupId)
+		assert.Nil(t, twoTotalErr)
+		assert.NotEmpty(t, twoTotalList)
+		assert.Equal(t, len(twoTotalList), 2)
+	})
+}
