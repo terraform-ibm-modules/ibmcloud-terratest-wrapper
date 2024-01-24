@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 )
@@ -49,10 +50,15 @@ func (infoSvc *CloudInfoService) GetClusterConfigPath(clusterId string, basePath
 	return configDetails.FilePath, nil
 }
 
-// GetAlbState retrieves the ingress state of the cluster
-// clusterId: the ID
-// Returns the state of the cluster
-func (infoSvc *CloudInfoService) GetAlbState(clusterId string) (albConfig struct{}, err error) {
+// GetAlbInfo retrieves the details of an ALB
+// albId: the ID
+// Returns the detailed information for an ALB in a cluster.
+func (infoSvc *CloudInfoService) GetAlbInfo(albId string) (status string, err error) {
 	// some logic
+	albConfig, detailedResponse, err := infoSvc.albService.GetClusterALB(infoSvc.albService.NewGetClusterALBOptions(albId))
+	if err != nil {
+		log.Println("Failed to egt Cluster ALB details for ", albId, ":", err, "Full Response:", detailedResponse)
+		return "", err
+	}
 	return
 }

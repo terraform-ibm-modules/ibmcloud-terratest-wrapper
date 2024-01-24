@@ -109,6 +109,7 @@ type cbrService interface {
 // albService interface for external Kubernetes Service API V1. Used for mocking.
 type albService interface {
 	GetClusterALB(*ksapi.GetClusterALBOptions) (*ksapi.ALBConfig, *core.DetailedResponse, error)
+	NewGetClusterALBOptions(string) *ksapi.GetClusterALBOptions
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
