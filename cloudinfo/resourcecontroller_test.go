@@ -1,6 +1,7 @@
 package cloudinfo
 
 import (
+	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"testing"
 
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
@@ -92,6 +93,66 @@ func TestListResourcesByGroupID(t *testing.T) {
 			},
 		}
 		twoTotalList, twoTotalErr := infoSvc.ListResourcesByGroupID(groupId)
+		assert.Nil(t, twoTotalErr)
+		assert.NotEmpty(t, twoTotalList)
+		assert.Equal(t, len(twoTotalList), 2)
+	})
+}
+
+func TestListResourcesByGroupName(t *testing.T) {
+	infoSvc := CloudInfoService{
+		resourceControllerService: &resourceControllerServiceMock{},
+		resourceManagerService:    &resourceManagerServiceMock{},
+	}
+
+	var groupName1 string = "group-name-1"
+	var groupId1 string = "group-id-1"
+	var groupName2 string = "group-name-2"
+	var groupId2 string = "group-id-2"
+
+	// first test, group has zero resources
+	t.Run("ZeroTotalResources", func(t *testing.T) {
+		infoSvc.resourceControllerService = &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{},
+		}
+		infoSvc.resourceManagerService = &resourceManagerServiceMock{
+			mockResourceGroupList: &resourcemanagerv2.ResourceGroupList{
+				Resources: []resourcemanagerv2.ResourceGroup{
+					{ID: &groupId1, Name: &groupName1},
+				},
+			},
+			resourceGroups: map[string]string{
+				groupName1: groupId1,
+			},
+		}
+		zeroTotalList, zeroTotalErr := infoSvc.ListResourcesByGroupName(groupName1)
+		assert.Nil(t, zeroTotalErr)
+		assert.Empty(t, zeroTotalList)
+	})
+
+	// second test, group has two resources
+	t.Run("TwoTotalResources", func(t *testing.T) {
+		infoSvc.resourceControllerService = &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{ResourceGroupID: &groupId1},
+					{ResourceGroupID: &groupId2},
+				},
+			},
+		}
+		infoSvc.resourceManagerService = &resourceManagerServiceMock{
+			mockResourceGroupList: &resourcemanagerv2.ResourceGroupList{
+				Resources: []resourcemanagerv2.ResourceGroup{
+					{ID: &groupId1, Name: &groupName1},
+					{ID: &groupId2, Name: &groupName2},
+				},
+			},
+			resourceGroups: map[string]string{
+				groupName1: groupId1,
+				groupName2: groupId2,
+			},
+		}
+		twoTotalList, twoTotalErr := infoSvc.ListResourcesByGroupName(groupName1)
 		assert.Nil(t, twoTotalErr)
 		assert.NotEmpty(t, twoTotalList)
 		assert.Equal(t, len(twoTotalList), 2)

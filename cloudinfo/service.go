@@ -12,6 +12,7 @@ import (
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
+	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"log"
 	"os"
@@ -27,6 +28,7 @@ type CloudInfoService struct {
 	iamIdentityService        iamIdentityService
 	iamPolicyService          iamPolicyService
 	resourceControllerService resourceControllerService
+	resourceManagerService    resourceManagerService
 	cbrService                cbrService
 	containerClient           containerClient
 	regionsData               []RegionData
@@ -50,6 +52,7 @@ type CloudInfoServiceOptions struct {
 	Authenticator             *core.IamAuthenticator
 	VpcService                vpcService
 	ResourceControllerService resourceControllerService
+	ResourceManagerService    resourceManagerService
 	IamIdentityService        iamIdentityService
 	IamPolicyService          iamPolicyService
 	CbrService                cbrService
@@ -90,6 +93,12 @@ type iamPolicyService interface {
 type resourceControllerService interface {
 	NewListResourceInstancesOptions() *resourcecontrollerv2.ListResourceInstancesOptions
 	ListResourceInstances(*resourcecontrollerv2.ListResourceInstancesOptions) (*resourcecontrollerv2.ResourceInstancesList, *core.DetailedResponse, error)
+}
+
+// resourceManagerService for external Resource Manager V2 Service API. Used for mocking.
+type resourceManagerService interface {
+	NewListResourceGroupsOptions() *resourcemanagerv2.ListResourceGroupsOptions
+	ListResourceGroups(*resourcemanagerv2.ListResourceGroupsOptions) (*resourcemanagerv2.ResourceGroupList, *core.DetailedResponse, error)
 }
 
 // ibmPowerService for external IBM Powercloud Service API. Used for mocking.
@@ -266,6 +275,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.resourceControllerService = controllerClient
+	}
+
+	// if resourceManagerService is not supplied use new external
+	if options.ResourceControllerService != nil {
+		infoSvc.resourceManagerService = options.ResourceManagerService
+	} else {
+		managerClient, resMgrErr := resourcemanagerv2.NewResourceManagerV2(&resourcemanagerv2.ResourceManagerV2Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if resMgrErr != nil {
+			log.Println("Error creating resourcemanagerv2 client:", resMgrErr)
+			return nil, resMgrErr
+		}
+
+		infoSvc.resourceManagerService = managerClient
 	}
 
 	return infoSvc, nil

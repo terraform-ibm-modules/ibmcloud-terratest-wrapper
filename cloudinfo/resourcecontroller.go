@@ -42,6 +42,15 @@ func (infoSvc *CloudInfoService) ListResourcesByCrnServiceName(crnServiceName st
 	return filteredResources, nil
 }
 
+// ListResourcesByGroupName will retrieve all service instances in a resource group.
+func (infoSvc *CloudInfoService) ListResourcesByGroupName(resourceGroupName string) ([]resourcecontrollerv2.ResourceInstance, error) {
+	resourceGroupId, err := infoSvc.GetResourceGroupIDByName(resourceGroupName)
+	if err != nil {
+		return nil, fmt.Errorf("error getting resource group ID: %w", err)
+	}
+	return infoSvc.ListResourcesByGroupID(resourceGroupId)
+}
+
 // ListResourcesByGroupID will retrieve all service instances in a resource group.
 func (infoSvc *CloudInfoService) ListResourcesByGroupID(resourceGroupId string) ([]resourcecontrollerv2.ResourceInstance, error) {
 	listOptions := infoSvc.resourceControllerService.NewListResourceInstancesOptions()
@@ -57,6 +66,7 @@ func (infoSvc *CloudInfoService) ListResourcesByGroupID(resourceGroupId string) 
 	return allResources, nil
 }
 
+// listResourceInstances will retrieve all resources of a given type for an account
 func listResourceInstances(infoSvc *CloudInfoService, options *resourcecontrollerv2.ListResourceInstancesOptions) ([]resourcecontrollerv2.ResourceInstance, error) {
 	// this API is paginated, but there is no pager support in the library at this time.
 	// we are compensating by inspecting the NextURL and Start values supplied by the API
