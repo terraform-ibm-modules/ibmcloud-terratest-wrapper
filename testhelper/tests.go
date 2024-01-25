@@ -355,7 +355,7 @@ func (options *TestOptions) testTearDown() {
 				logger.Log(options.Testing, "ERROR: Destroy failed attempting to list remaining resources")
 				if options.LastTestTerraformOutputs != nil {
 					// Check if resource_group_id or resource_group_ids are in the outputs
-					expectedOutputs := []string{"resource_group_id", "resource_group_ids"}
+					expectedOutputs := []string{"resource_group_id", "resource_group_ids", "resource_group_name", "resource_group_names"}
 					missingOutputs, _ := ValidateTerraformOutputs(options.LastTestTerraformOutputs, expectedOutputs...)
 					actualOutputs := []string{}
 					if missingOutputs != nil {
@@ -376,6 +376,7 @@ func (options *TestOptions) testTearDown() {
 						} else {
 							if common.StrArrayContains(actualOutputs, "resource_group_id") {
 								resourceGroupID := options.LastTestTerraformOutputs["resource_group_id"].(string)
+								logger.Log(options.Testing, fmt.Sprintf("Resource Group %s", resourceGroupID))
 								// Get all resources in resource group
 								resources, err := cloudInfoSvc.ListResourcesByGroupID(resourceGroupID)
 								if err != nil {
@@ -389,11 +390,38 @@ func (options *TestOptions) testTearDown() {
 								resourceGroupIDs := options.LastTestTerraformOutputs["resource_group_ids"].([]interface{})
 								for _, resourceGroupID := range resourceGroupIDs {
 									// Get all resources in resource group
+									logger.Log(options.Testing, fmt.Sprintf("Resource Group %s", resourceGroupID.(string)))
 									resources, err := cloudInfoSvc.ListResourcesByGroupID(resourceGroupID.(string))
 									if err != nil {
 										logger.Log(options.Testing, fmt.Sprintf("Error listing resources in Resource Group %s, %s", resourceGroupID.(string), err))
 									} else {
 										logger.Log(options.Testing, fmt.Sprintf("Resources in Resource Group %s", resourceGroupID.(string)))
+										cloudinfo.PrintResources(resources)
+									}
+								}
+							}
+							if common.StrArrayContains(actualOutputs, "resource_group_name") {
+								resourceGroup := options.LastTestTerraformOutputs["resource_group_name"].(string)
+								logger.Log(options.Testing, fmt.Sprintf("Resource Group %s", resourceGroup))
+								// Get all resources in resource group
+								resources, err := cloudInfoSvc.ListResourcesByGroupName(resourceGroup)
+								if err != nil {
+									logger.Log(options.Testing, fmt.Sprintf("Error listing resources in Resource Group %s, %s", resourceGroup, err))
+								} else {
+									logger.Log(options.Testing, fmt.Sprintf("Resources in Resource Group %s", resourceGroup))
+									cloudinfo.PrintResources(resources)
+								}
+							}
+							if common.StrArrayContains(actualOutputs, "resource_group_names") {
+								resourceGroups := options.LastTestTerraformOutputs["resource_group_names"].([]interface{})
+								for _, resourceGroup := range resourceGroups {
+									// Get all resources in resource group
+									logger.Log(options.Testing, fmt.Sprintf("Resource Group %s", resourceGroup.(string)))
+									resources, err := cloudInfoSvc.ListResourcesByGroupName(resourceGroup.(string))
+									if err != nil {
+										logger.Log(options.Testing, fmt.Sprintf("Error listing resources in Resource Group %s, %s", resourceGroup.(string), err))
+									} else {
+										logger.Log(options.Testing, fmt.Sprintf("Resources in Resource Group %s", resourceGroup.(string)))
 										cloudinfo.PrintResources(resources)
 									}
 								}
