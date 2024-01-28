@@ -110,6 +110,8 @@ type cbrService interface {
 type albService interface {
 	GetClusterALB(*ksapi.GetClusterALBOptions) (*ksapi.ALBConfig, *core.DetailedResponse, error)
 	NewGetClusterALBOptions(string) *ksapi.GetClusterALBOptions
+	NewGetClusterALBsOptions(string) *ksapi.GetClusterALBsOptions
+	GetClusterALBs(*ksapi.GetClusterALBsOptions) ([]ksapi.ClusterALB, *core.DetailedResponse, error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
