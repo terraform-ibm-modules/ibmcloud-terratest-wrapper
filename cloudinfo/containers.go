@@ -50,10 +50,10 @@ func (infoSvc *CloudInfoService) GetClusterConfigPath(clusterId string, basePath
 	return configDetails.FilePath, nil
 }
 
-// GetAlbInfo retrieves the details of an ALB
+// GetAlbState retrieves the details of State corresponding to ALB ID
 // albId: the ID of the ALB
-// Returns the detailed information for an ALB in a cluster.
-func (infoSvc *CloudInfoService) GetAlbInfo(albId string) (status string, err error) {
+// Returns the State for an ALB ID.
+func (infoSvc *CloudInfoService) GetAlbState(albId string) (status string, err error) {
 	albConfig, detailedResponse, err := infoSvc.albService.GetClusterALB(infoSvc.albService.NewGetClusterALBOptions(albId))
 	if err != nil {
 		log.Println("Failed to get Cluster ALB details for ", albId, ":", err, "Full Response:", detailedResponse)
@@ -78,8 +78,39 @@ func (infoSvc *CloudInfoService) GetAlbIds(clusterId string) (ids []string, err 
 		log.Println("Failed to get ALB IDs for ", clusterId, ":", err, "Full Response:", detailedResponse)
 		return []string{}, err
 	}
+
+	// don't bother looping if empty
+	if len(clusterAlbs) == 0 {
+		return
+	}
+
+	// loop through clusterAlbs to get albIds
 	for _, clusterAlb := range clusterAlbs {
 		ids = append(ids, *clusterAlb.ID)
 	}
 	return ids, nil
+}
+
+// GetIngressState retrieves the state of each albIds in a cluster
+// clusterId: the ID or name of the cluster
+// Returns a map with albId as key and corresponding state as value
+func (infoSvc *CloudInfoService) GetIngressState(clusterId string) (state map[string]string, err error) {
+	albIds, err := infoSvc.GetAlbIds(clusterId)
+	if err != nil {
+		return state, fmt.Errorf("failed to get ALB IDS for cluster: %v", clusterId)
+	}
+
+	// don't bother looping if empty
+	if len(albIds) == 0 {
+		return
+	}
+
+	for _, albId := range albIds {
+		albState, err := infoSvc.GetAlbState(albId)
+		if err != nil {
+			state[albId] = ""
+		}
+		state[albId] = albState
+	}
+	return state, nil
 }
