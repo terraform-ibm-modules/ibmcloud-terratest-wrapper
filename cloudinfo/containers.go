@@ -60,5 +60,12 @@ func (infoSvc *CloudInfoService) GetAlbInfo(albId string) (status string, err er
 		log.Println("Failed to egt Cluster ALB details for ", albId, ":", err, "Full Response:", detailedResponse)
 		return "", err
 	}
-	return
+
+	// If any specific operation to perform for a state(healthy, critical, pending) is requried.
+	/*	if *albConfig.State == "healthy" {
+		} else if *albConfig.State == "critical" {
+		} else {
+		}
+	*/
+	return *albConfig.State, nil
 }
