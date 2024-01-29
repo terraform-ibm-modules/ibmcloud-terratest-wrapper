@@ -15,6 +15,7 @@ import (
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
+	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 )
@@ -26,6 +27,7 @@ type CloudInfoService struct {
 	apiKeyDetail              *iamidentityv1.APIKey  // IBMCloud account for user
 	vpcService                vpcService
 	iamIdentityService        iamIdentityService
+	iamPolicyService          iamPolicyService
 	resourceControllerService resourceControllerService
 	cbrService                cbrService
 	containerClient           containerClient
@@ -52,6 +54,7 @@ type CloudInfoServiceOptions struct {
 	VpcService                vpcService
 	ResourceControllerService resourceControllerService
 	IamIdentityService        iamIdentityService
+	IamPolicyService          iamPolicyService
 	CbrService                cbrService
 	ContainerClient           containerClient
 	RegionPrefs               []RegionData
@@ -81,6 +84,10 @@ type vpcService interface {
 // iamIdentityService interface for an external IBM IAM Identity V1 Service API. Used for mocking.
 type iamIdentityService interface {
 	GetAPIKeysDetails(*iamidentityv1.GetAPIKeysDetailsOptions) (*iamidentityv1.APIKey, *core.DetailedResponse, error)
+}
+
+type iamPolicyService interface {
+	DeletePolicy(deletePolicyOptions *iampolicymanagementv1.DeletePolicyOptions) (response *core.DetailedResponse, err error)
 }
 
 // resourceControllerService for external Resource Controller V2 Service API. Used for mocking.
@@ -187,6 +194,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 			return nil, iamErr
 		}
 		infoSvc.iamIdentityService = iamService
+	}
+
+	// if IamPolicyService is not supplied, use default external service
+	if options.IamPolicyService != nil {
+		infoSvc.iamPolicyService = options.IamPolicyService
+	} else {
+		policyService, err := iampolicymanagementv1.NewIamPolicyManagementV1UsingExternalConfig(
+			&iampolicymanagementv1.IamPolicyManagementV1Options{
+				Authenticator: infoSvc.authenticator,
+			})
+		if err != nil {
+			log.Println("ERROR: Could not create NewIamPolicyManagementV1 service:", err)
+			return nil, err
+		}
+		infoSvc.iamPolicyService = policyService
 	}
 
 	// if vpcService is not supplied, use default of external service

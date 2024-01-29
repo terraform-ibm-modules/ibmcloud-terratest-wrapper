@@ -7,6 +7,7 @@ import (
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
+	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"github.com/stretchr/testify/mock"
@@ -99,6 +100,20 @@ func (mock *iamIdentityServiceMock) GetAPIKeysDetails(options *iamidentityv1.Get
 	}, nil, nil
 }
 
+// IAM POLICY SERVICE MOCK
+type iamPolicyServiceMock struct {
+	mock.Mock
+}
+
+func (mock *iamPolicyServiceMock) DeletePolicy(deletePolicyOptions *iampolicymanagementv1.DeletePolicyOptions) (*core.DetailedResponse, error) {
+	args := mock.Called(deletePolicyOptions)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*core.DetailedResponse), args.Error(1)
+}
+
+// RESOURCE CONTROLLER SERVICE MOCK
 type resourceControllerServiceMock struct {
 	mock.Mock
 	mockResourceList *resourcecontrollerv2.ResourceInstancesList
