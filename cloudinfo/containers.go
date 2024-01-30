@@ -93,15 +93,16 @@ func (infoSvc *CloudInfoService) GetAlbIds(clusterId string) ([]string, error) {
 // GetIngressState retrieves the state of each albIds in a cluster
 // clusterId: the ID or name of the cluster
 // Returns a map with albId as key and corresponding state as value
-func (infoSvc *CloudInfoService) GetIngressState(clusterId string) (state map[string]string, err error) {
+func (infoSvc *CloudInfoService) GetIngressState(clusterId string) (map[string]string, error) {
+	state := make(map[string]string)
 	albIds, err := infoSvc.GetAlbIds(clusterId)
 	if err != nil {
-		return state, fmt.Errorf("failed to get ALB IDS for cluster: %v", clusterId)
+		return state, fmt.Errorf("failed to get Ingress State \nError: %w", err)
 	}
 
 	// don't bother looping if empty
 	if len(albIds) == 0 {
-		return
+		return state, nil
 	}
 
 	for _, albId := range albIds {
