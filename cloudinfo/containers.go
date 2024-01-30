@@ -54,7 +54,7 @@ func (infoSvc *CloudInfoService) GetClusterConfigPath(clusterId string, basePath
 // albId: the ID of the ALB
 // Returns the State for an ALB ID.
 func (infoSvc *CloudInfoService) GetAlbState(albId string) (status string, err error) {
-	albConfig, detailedResponse, err := infoSvc.albService.GetClusterALB(infoSvc.albService.NewGetClusterALBOptions(albId))
+	albConfig, detailedResponse, err := infoSvc.kubeService.GetClusterALB(infoSvc.kubeService.NewGetClusterALBOptions(albId))
 	if err != nil {
 		log.Println("Failed to get Cluster ALB details for ", albId, ":", err, "Full Response:", detailedResponse)
 		return "", err
@@ -73,7 +73,7 @@ func (infoSvc *CloudInfoService) GetAlbState(albId string) (status string, err e
 // clusterId: the ID or name of the cluster
 // Returns a list all ALB IDs in a cluster. If no ALB IDs are returned, then the cluster does not have a portable subnet.
 func (infoSvc *CloudInfoService) GetAlbIds(clusterId string) (ids []string, err error) {
-	clusterAlbs, detailedResponse, err := infoSvc.albService.GetClusterALBs(infoSvc.albService.NewGetClusterALBsOptions(clusterId))
+	clusterAlbs, detailedResponse, err := infoSvc.kubeService.GetClusterALBs(infoSvc.kubeService.NewGetClusterALBsOptions(clusterId))
 	if err != nil {
 		log.Println("Failed to get ALB IDs for ", clusterId, ":", err, "Full Response:", detailedResponse)
 		return []string{}, err

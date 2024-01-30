@@ -33,7 +33,7 @@ type CloudInfoService struct {
 	containerClient           containerClient
 	regionsData               []RegionData
 	lock                      sync.Mutex
-	albService                albService
+	kubeService               kubeService
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -58,7 +58,7 @@ type CloudInfoServiceOptions struct {
 	CbrService                cbrService
 	ContainerClient           containerClient
 	RegionPrefs               []RegionData
-	AlbService                albService
+	KubeService               kubeService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -113,8 +113,8 @@ type cbrService interface {
 	GetZone(*contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
 }
 
-// albService interface for external Kubernetes Service API V1. Used for mocking.
-type albService interface {
+// kubeService interface for external Kubernetes Service API V1. Used for mocking.
+type kubeService interface {
 	GetClusterALB(*ksapi.GetClusterALBOptions) (*ksapi.ALBConfig, *core.DetailedResponse, error)
 	NewGetClusterALBOptions(string) *ksapi.GetClusterALBOptions
 	NewGetClusterALBsOptions(string) *ksapi.GetClusterALBsOptions
@@ -280,21 +280,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.resourceControllerService = controllerClient
 	}
 
-	// if albService is not supplied, use default of external service
-	if options.AlbService != nil {
-		infoSvc.albService = options.AlbService
+	// if kubeService is not supplied, use default of external service
+	if options.KubeService != nil {
+		infoSvc.kubeService = options.KubeService
 	} else {
 		// Instantiate the service with an API key based IAM authenticator
-		albService, albErr := ksapi.NewKubernetesServiceApiV1(&ksapi.KubernetesServiceApiV1Options{
+		kubeService, kubeErr := ksapi.NewKubernetesServiceApiV1(&ksapi.KubernetesServiceApiV1Options{
 			Authenticator: infoSvc.authenticator,
 		})
 
-		if albErr != nil {
-			log.Println("ERROR: Could not create NewKubernetesServiceApiV1 service:", albErr)
-			return nil, albErr
+		if kubeErr != nil {
+			log.Println("ERROR: Could not create NewKubernetesServiceApiV1 service:", kubeErr)
+			return nil, kubeErr
 		}
 
-		infoSvc.albService = albService
+		infoSvc.kubeService = kubeService
 	}
 
 	return infoSvc, nil
