@@ -2,7 +2,6 @@ package cloudinfo
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 )
@@ -56,7 +55,7 @@ func (infoSvc *CloudInfoService) GetClusterConfigPath(clusterId string, basePath
 func (infoSvc *CloudInfoService) GetAlbState(albId string) (string, error) {
 	albConfig, _, err := infoSvc.kubeService.GetClusterALB(infoSvc.kubeService.NewGetClusterALBOptions(albId))
 	if err != nil {
-		return "", fmt.Errorf("failed to get Cluster ALB details for %s \nError: %w", albId, err)
+		return "", fmt.Errorf("failed to get Cluster ALB details for ALB ID: %s \nError: %w", albId, err)
 	}
 
 	// If any specific operation to perform for a state(healthy, critical, pending) is requried.
@@ -71,17 +70,18 @@ func (infoSvc *CloudInfoService) GetAlbState(albId string) (string, error) {
 // GetAlbIds retrieves the list of all ALBs in a cluster
 // clusterId: the ID or name of the cluster
 // Returns a list all ALB IDs in a cluster. If no ALB IDs are returned, then the cluster does not have a portable subnet.
-func (infoSvc *CloudInfoService) GetAlbIds(clusterId string) (ids []string, err error) {
-	clusterAlbs, detailedResponse, err := infoSvc.kubeService.GetClusterALBs(infoSvc.kubeService.NewGetClusterALBsOptions(clusterId))
+func (infoSvc *CloudInfoService) GetAlbIds(clusterId string) ([]string, error) {
+	clusterAlbs, _, err := infoSvc.kubeService.GetClusterALBs(infoSvc.kubeService.NewGetClusterALBsOptions(clusterId))
 	if err != nil {
-		log.Println("Failed to get ALB IDs for ", clusterId, ":", err, "Full Response:", detailedResponse)
-		return []string{}, err
+		return []string{}, fmt.Errorf("failed to get ALB IDs for cluster: %s \nError: %w", clusterId, err)
 	}
 
 	// don't bother looping if empty
 	if len(clusterAlbs) == 0 {
-		return
+		return []string{}, nil
 	}
+
+	ids := []string{}
 
 	// loop through clusterAlbs to get albIds
 	for _, clusterAlb := range clusterAlbs {
