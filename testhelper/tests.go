@@ -737,3 +737,9 @@ func (options *TestOptions) setTerraformDir(tempDir string) {
 	options.TerraformDir = tempDir
 	options.WorkspacePath = tempDir
 }
+
+/*
+TODO-2: Add a function to write logic to call the function GetIngressState in containers.go
+Loop on the function till we get healthy state for all ALBs and
+if threshold is reached then report the non-healthy status of respective ALB
+*/

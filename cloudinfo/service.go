@@ -3,9 +3,14 @@ package cloudinfo
 
 import (
 	"errors"
+	"log"
+	"os"
+	"sync"
+
 	"github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
+	ksapi "github.com/IBM-Cloud/container-services-go-sdk/kubernetesserviceapiv1"
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
@@ -13,9 +18,6 @@ import (
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
-	"log"
-	"os"
-	"sync"
 )
 
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
@@ -31,6 +33,7 @@ type CloudInfoService struct {
 	containerClient           containerClient
 	regionsData               []RegionData
 	lock                      sync.Mutex
+	kubeService               kubeService
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -55,6 +58,7 @@ type CloudInfoServiceOptions struct {
 	CbrService                cbrService
 	ContainerClient           containerClient
 	RegionPrefs               []RegionData
+	KubeService               kubeService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -107,6 +111,14 @@ type cbrService interface {
 	GetRule(*contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	ReplaceRule(*contextbasedrestrictionsv1.ReplaceRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	GetZone(*contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
+}
+
+// kubeService interface for external Kubernetes Service API V1. Used for mocking.
+type kubeService interface {
+	GetClusterALB(*ksapi.GetClusterALBOptions) (*ksapi.ALBConfig, *core.DetailedResponse, error)
+	NewGetClusterALBOptions(string) *ksapi.GetClusterALBOptions
+	NewGetClusterALBsOptions(string) *ksapi.GetClusterALBsOptions
+	GetClusterALBs(*ksapi.GetClusterALBsOptions) ([]ksapi.ClusterALB, *core.DetailedResponse, error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -266,6 +278,23 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.resourceControllerService = controllerClient
+	}
+
+	// if kubeService is not supplied, use default of external service
+	if options.KubeService != nil {
+		infoSvc.kubeService = options.KubeService
+	} else {
+		// Instantiate the service with an API key based IAM authenticator
+		kubeService, kubeErr := ksapi.NewKubernetesServiceApiV1(&ksapi.KubernetesServiceApiV1Options{
+			Authenticator: infoSvc.authenticator,
+		})
+
+		if kubeErr != nil {
+			log.Println("ERROR: Could not create NewKubernetesServiceApiV1 service:", kubeErr)
+			return nil, kubeErr
+		}
+
+		infoSvc.kubeService = kubeService
 	}
 
 	return infoSvc, nil
