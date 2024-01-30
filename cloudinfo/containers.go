@@ -53,11 +53,10 @@ func (infoSvc *CloudInfoService) GetClusterConfigPath(clusterId string, basePath
 // GetAlbState retrieves the details of State corresponding to ALB ID
 // albId: the ID of the ALB
 // Returns the State for an ALB ID.
-func (infoSvc *CloudInfoService) GetAlbState(albId string) (status string, err error) {
-	albConfig, detailedResponse, err := infoSvc.kubeService.GetClusterALB(infoSvc.kubeService.NewGetClusterALBOptions(albId))
+func (infoSvc *CloudInfoService) GetAlbState(albId string) (string, error) {
+	albConfig, _, err := infoSvc.kubeService.GetClusterALB(infoSvc.kubeService.NewGetClusterALBOptions(albId))
 	if err != nil {
-		log.Println("Failed to get Cluster ALB details for ", albId, ":", err, "Full Response:", detailedResponse)
-		return "", err
+		return "", fmt.Errorf("failed to get Cluster ALB details for %s \nError: %w", albId, err)
 	}
 
 	// If any specific operation to perform for a state(healthy, critical, pending) is requried.
