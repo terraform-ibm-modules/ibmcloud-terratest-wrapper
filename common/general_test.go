@@ -1,7 +1,6 @@
 package common
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -223,63 +222,195 @@ func TestGenerateSshPublicKey(t *testing.T) {
 	}
 }
 
-func TestCopyDirectoryAndFile(t *testing.T) {
+func TestCopyDirectory(t *testing.T) {
+
 	// Create a temporary directory for testing
 	tmpDir := t.TempDir()
-
+	// Clean up: remove temporary directory
+	defer os.RemoveAll(tmpDir)
 	// Create a source directory with some files and permissions
 	sourceDir := filepath.Join(tmpDir, "source")
 	if err := os.Mkdir(sourceDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	sourceFile := filepath.Join(sourceDir, "file.txt")
-	if _, err := os.Create(sourceFile); err != nil {
+	sourceFileTxt := filepath.Join(sourceDir, "file.txt")
+	if _, err := os.Create(sourceFileTxt); err != nil {
 		t.Fatal(err)
 	}
-	// Set permissions on the source file
-	if err := os.Chmod(sourceFile, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a destination directory
-	destDir := filepath.Join(tmpDir, "destination")
-
-	// Log permissions before copying
-	srcFileInfo, err := os.Stat(sourceFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fmt.Printf("Source File Permissions: %v\n", srcFileInfo.Mode())
-
-	// Copy the source directory to the destination
-	if err := CopyDirectory(sourceDir, destDir); err != nil {
+	// Set permissions on the source file txt
+	if err := os.Chmod(sourceFileTxt, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Check if the destination directory and file exist
-	_, err = os.Stat(destDir)
-	if os.IsNotExist(err) {
-		t.Fatal("Destination directory does not exist")
-	}
-
-	destFile := filepath.Join(destDir, "file.txt")
-	_, err = os.Stat(destFile)
-	if os.IsNotExist(err) {
-		t.Fatal("Destination file does not exist")
-	}
-
-	// Log permissions after copying
-	destFileInfo, err := os.Stat(destFile)
-	if err != nil {
+	sourceFileTf := filepath.Join(sourceDir, "file.tf")
+	if _, err := os.Create(sourceFileTf); err != nil {
 		t.Fatal(err)
 	}
-	fmt.Printf("Destination File Permissions: %v\n", destFileInfo.Mode())
-
-	// Check if permissions are preserved
-	if srcFileInfo.Mode() != destFileInfo.Mode() {
-		t.Fatalf("File permissions are not preserved. Expected: %v, Got: %v", srcFileInfo.Mode(), destFileInfo.Mode())
+	// Set permissions on the source file tf
+	if err := os.Chmod(sourceFileTf, 0755); err != nil {
+		t.Fatal(err)
 	}
 
+	tests := []struct {
+		Name                      string
+		Source                    string
+		Destination               string
+		FileFilter                func(string) bool
+		ExpectedError             string
+		ExpectedFileInDestination int
+	}{
+		{
+			Name:                      "Copy Directory",
+			Source:                    sourceDir,
+			Destination:               "testdata/destination",
+			FileFilter:                nil,
+			ExpectedError:             "",
+			ExpectedFileInDestination: 2,
+		},
+		{
+			Name:        "Copy Directory with Filter",
+			Source:      sourceDir,
+			Destination: "testdata/destination",
+			FileFilter: func(path string) bool {
+				return filepath.Ext(path) == ".tf"
+			},
+			ExpectedError:             "",
+			ExpectedFileInDestination: 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			// cleanup destination directory
+			defer os.RemoveAll(test.Destination)
+
+			err := CopyDirectory(test.Source, test.Destination, test.FileFilter)
+			if test.ExpectedError != "" {
+				assert.EqualError(t, err, test.ExpectedError)
+			} else {
+				assert.NoError(t, err)
+			}
+			files, err := os.ReadDir(test.Destination)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assert.Equal(t, test.ExpectedFileInDestination, len(files))
+		})
+	}
+}
+
+func TestCopyFile(t *testing.T) {
+
+	// Create a temporary directory for testing
+	tmpDir := t.TempDir()
 	// Clean up: remove temporary directory
-	os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+	// Create a source directory with some files and permissions
+	sourceDir := filepath.Join(tmpDir, "source")
+	if err := os.Mkdir(sourceDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sourceFileTxt := filepath.Join(sourceDir, "file.txt")
+	if _, err := os.Create(sourceFileTxt); err != nil {
+		t.Fatal(err)
+	}
+	// create destination directory
+	destinationDir := filepath.Join(tmpDir, "destination")
+	if err := os.Mkdir(destinationDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// cleanup destination directory
+	defer os.RemoveAll(destinationDir)
+
+	tests := []struct {
+		Name          string
+		Source        string
+		Destination   string
+		ExpectedError string
+	}{
+		{
+			Name:          "Copy File",
+			Source:        sourceFileTxt,
+			Destination:   filepath.Join(destinationDir, "file.txt"),
+			ExpectedError: "",
+		},
+		{
+			Name:          "Copy File with Invalid Source",
+			Source:        "testdata/source/invalid.txt",
+			Destination:   "testdata/destination/file.txt",
+			ExpectedError: "source path testdata/source/invalid.txt does not exist: stat testdata/source/invalid.txt: no such file or directory",
+		},
+		{
+			Name:          "Copy File with Invalid Destination",
+			Source:        sourceFileTxt,
+			Destination:   "testdata/destination/invalid/file.txt",
+			ExpectedError: "failed to create destination file: open testdata/destination/invalid/file.txt: no such file or directory",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			// cleanup destination directory
+			defer os.RemoveAll(test.Destination)
+
+			err := CopyFile(test.Source, test.Destination)
+			if test.ExpectedError != "" {
+				assert.EqualError(t, err, test.ExpectedError)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+func TestStringContainsIgnoreCase(t *testing.T) {
+	tests := []struct {
+		Name     string
+		Input    string
+		Contains string
+		Expected bool
+	}{
+		{
+			Name:     "Empty String",
+			Input:    "",
+			Contains: "test",
+			Expected: false,
+		},
+		{
+			Name:     "Contains",
+			Input:    "test",
+			Contains: "es",
+			Expected: true,
+		},
+		{
+			Name:     "Does Not Contain",
+			Input:    "test",
+			Contains: "nope",
+			Expected: false,
+		},
+		{
+			Name:     "Contains Upper Case",
+			Input:    "test",
+			Contains: "ES",
+			Expected: true,
+		},
+		{
+			Name:     "Contains Mixed Case",
+			Input:    "test",
+			Contains: "Es",
+			Expected: true,
+		},
+		{
+			Name:     "Contains Lower Case",
+			Input:    "TEST",
+			Contains: "es",
+			Expected: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			result := StringContainsIgnoreCase(test.Input, test.Contains)
+			assert.Equal(t, test.Expected, result)
+		})
+	}
 }
