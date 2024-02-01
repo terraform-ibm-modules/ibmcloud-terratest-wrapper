@@ -265,6 +265,9 @@ func CopyFile(source, destination string) error {
 }
 
 // CopyDirectory copies a directory from source to destination, with optional file filtering.
+// src Source directory to copy from
+// dst Destination directory to copy to
+// fileFilter Optional function to filter files to copy
 // Returns an error if the operation fails.
 func CopyDirectory(src string, dst string, fileFilter ...func(string) bool) error {
 	// Check path exists
@@ -320,4 +323,12 @@ func CopyDirectory(src string, dst string, fileFilter ...func(string) bool) erro
 	}
 
 	return nil
+}
+
+// StringContainsIgnoreCase checks if a string contains a substring, ignoring case.
+// Returns true if the string contains the substring, false otherwise.
+func StringContainsIgnoreCase(s, substr string) bool {
+	s = strings.ToLower(s)
+	substr = strings.ToLower(substr)
+	return strings.Contains(s, substr)
 }

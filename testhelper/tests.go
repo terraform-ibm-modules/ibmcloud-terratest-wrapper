@@ -245,7 +245,7 @@ func (options *TestOptions) testSetup() {
 					if !options.IsUpgradeTest && files.PathContainsHiddenFileOrFolder(path) {
 						return false
 					}
-					if files.PathContainsTerraformStateOrVars(path) {
+					if files.PathContainsTerraformStateOrVars(path) || files.PathIsTerraformLockFile(path) {
 						return false
 					}
 
@@ -351,7 +351,7 @@ func (options *TestOptions) testTearDown() {
 			destroyOutput := terraform.Destroy(options.Testing, options.TerraformOptions)
 			logger.Log(options.Testing, destroyOutput)
 			// On destroy resource group failure, list remaining resources
-			if strings.Contains(destroyOutput, "Error: [ERROR] Error Deleting resource group:") {
+			if common.StringContainsIgnoreCase(destroyOutput, "Error Deleting resource group") {
 				logger.Log(options.Testing, "ERROR: Destroy failed attempting to list remaining resources")
 				if options.LastTestTerraformOutputs != nil {
 					// Check if resource_group_id or resource_group_ids are in the outputs
@@ -556,7 +556,12 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 			// Copy the current code (from PR branch) to the PR temp directory with the filter
 			errCopy := common.CopyDirectory(gitRoot, prTempDir, func(path string) bool {
-				if files.PathContainsTerraformStateOrVars(path) {
+				// Skip terraform state files or .terraform directories
+				// Or terraform lock files
+				// Do not skip .git directories as we need them for the upgrade test
+				if files.PathContainsTerraformStateOrVars(path) ||
+					files.PathIsTerraformLockFile(path) ||
+					common.StringContainsIgnoreCase(path, ".terraform") {
 					return false
 				}
 
