@@ -54,7 +54,7 @@ func (infoSvc *CloudInfoService) ListResourcesByGroupName(resourceGroupName stri
 // ListResourcesByGroupID will retrieve all service instances in a resource group.
 func (infoSvc *CloudInfoService) ListResourcesByGroupID(resourceGroupId string) ([]resourcecontrollerv2.ResourceInstance, error) {
 	listOptions := infoSvc.resourceControllerService.NewListResourceInstancesOptions()
-	listOptions.SetType("service_instance")
+	listOptions.SetType("resource_instance")
 	listOptions.SetLimit(int64(100))
 	listOptions.SetResourceGroupID(resourceGroupId)
 
