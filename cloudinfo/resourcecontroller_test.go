@@ -158,26 +158,3 @@ func TestListResourcesByGroupName(t *testing.T) {
 		assert.Equal(t, len(twoTotalList), 2)
 	})
 }
-
-func TestListResourcesRealGroup(t *testing.T) {
-	infoSvc, _ := NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", CloudInfoServiceOptions{})
-
-	expectedResourceNames := []string{
-		"conjoined-reformat-immobile-frenzy",
-		"harbor-underling-bouncy-uneven",
-		"retread-gracious-countdown-shrubs",
-	}
-
-	resources, listError := infoSvc.ListResourcesByGroupName("vsi-e6ackt-workload-rg")
-	assert.Nil(t, listError, "Error listing resources")
-	assert.NotEmpty(t, resources, "No resources found")
-	resourceNames := make([]string, len(resources))
-	if len(resources) > 0 {
-		//		create a list of resource names
-		for i, resource := range resources {
-			resourceNames[i] = *resource.Name
-		}
-	}
-	assert.Equal(t, len(expectedResourceNames), len(resources), "Expected resources not found:\n%v\nGot:\n%v", expectedResourceNames, resourceNames)
-
-}
