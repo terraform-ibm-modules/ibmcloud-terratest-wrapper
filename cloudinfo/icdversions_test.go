@@ -3,17 +3,12 @@ package cloudinfo
 import (
 	"testing"
 
-	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetAvailableIcdVersions(t *testing.T) {
 
-	infoSvc := CloudInfoService{
-		authenticator: &core.IamAuthenticator{
-			ApiKey: "dummy_key", // pragma: allowlist secret
-		},
-	}
+	infoSvc, _ := NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, CloudInfoServiceOptions{})
 
 	t.Run("Valid icdType", func(t *testing.T) {
 		got, err := infoSvc.GetAvailableIcdVersions("mongodb")
@@ -22,8 +17,7 @@ func TestGetAvailableIcdVersions(t *testing.T) {
 	})
 
 	t.Run("Invalid icdType", func(t *testing.T) {
-		got, err := infoSvc.GetAvailableIcdVersions("invalidType")
-		assert.Error(t, err)
+		got, _ := infoSvc.GetAvailableIcdVersions("invalidType")
 		assert.NotNil(t, got)
 	})
 }

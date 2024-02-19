@@ -3,6 +3,10 @@ package cloudinfo
 
 import (
 	"errors"
+	"log"
+	"os"
+	"sync"
+
 	"github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
@@ -14,10 +18,9 @@ import (
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
-	"log"
-	"os"
-	"sync"
 )
+
+const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
 // It contains references to other important services and data structures needed to perform these methods.
