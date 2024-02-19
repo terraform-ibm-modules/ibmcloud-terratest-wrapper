@@ -11,7 +11,7 @@ func TestGetAvailableIcdVersions(t *testing.T) {
 
 	infoSvc := CloudInfoService{
 		authenticator: &core.IamAuthenticator{
-			ApiKey: "dummy_key",
+			ApiKey: "dummy_key", // pragma: allowlist secret
 		},
 	}
 

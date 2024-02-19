@@ -26,7 +26,7 @@ type Data struct {
 func (infoSvc *CloudInfoService) GetAvailableIcdVersions(icdType string) ([]string, error) {
 
 	authenticator := &core.IamAuthenticator{
-		ApiKey: infoSvc.authenticator.ApiKey,
+		ApiKey: infoSvc.authenticator.ApiKey, //pragma: allowlist secret
 	}
 	newOptions := &clouddatabasesv5.CloudDatabasesV5Options{
 		Authenticator: authenticator,
