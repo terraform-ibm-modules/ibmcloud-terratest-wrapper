@@ -11,6 +11,7 @@ import (
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
+	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
@@ -36,6 +37,7 @@ type CloudInfoService struct {
 	containerClient           containerClient
 	regionsData               []RegionData
 	lock                      sync.Mutex
+	ListDeployablesResponse   *clouddatabasesv5.ListDeployablesResponse
 }
 
 // interface for the cloudinfo service (can be mocked in tests)

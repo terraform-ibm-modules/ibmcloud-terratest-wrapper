@@ -23,7 +23,7 @@ type Data struct {
 	Deployables []Deployable `json:"deployables"`
 }
 
-func (infoSvc *CloudInfoService) GetAvailableIcdVersions(icdType string) ([]string, error) {
+func (infoSvc *CloudInfoService) ListDeployables() (*clouddatabasesv5.ListDeployablesResponse, error) {
 
 	authenticator := &core.IamAuthenticator{
 		ApiKey: infoSvc.authenticator.ApiKey, //pragma: allowlist secret
@@ -40,19 +40,24 @@ func (infoSvc *CloudInfoService) GetAvailableIcdVersions(icdType string) ([]stri
 
 	// List deployables
 	listDeployablesOptions := service.NewListDeployablesOptions() // Hypothetical method
-	listDeployablesResponse, _, err := service.ListDeployables(listDeployablesOptions)
+	infoSvc.ListDeployablesResponse, _, err = service.ListDeployables(listDeployablesOptions)
 	if err != nil {
 		panic(err)
 	}
-	response, _ := json.MarshalIndent(listDeployablesResponse, "", "  ")
+	return infoSvc.ListDeployablesResponse, nil
+}
 
+func (infoSvc *CloudInfoService) GetAvailableIcdVersions(icdType string) ([]string, error) {
+
+	response, _ := infoSvc.ListDeployables()
+	jsonBody, _ := json.MarshalIndent(response, "", "  ")
 	// Parse the response body
-	jsonData := string(response)
+	jsonData := string(jsonBody)
 	var data Data
 	err2 := json.Unmarshal([]byte(jsonData), &data)
-	if err != nil {
+	if err2 != nil {
 		fmt.Println(err2)
-		return nil, err
+		return nil, err2
 	}
 	versions := []string{}
 	for _, deployable := range data.Deployables {
