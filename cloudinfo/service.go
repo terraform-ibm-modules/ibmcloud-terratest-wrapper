@@ -21,8 +21,6 @@ import (
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 )
 
-const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
-
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
 // It contains references to other important services and data structures needed to perform these methods.
 type CloudInfoService struct {
