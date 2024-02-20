@@ -23,7 +23,7 @@ type Data struct {
 	Deployables []Deployable `json:"deployables"`
 }
 
-func (infoSvc *CloudInfoService) ListDeployables() (*clouddatabasesv5.ListDeployablesResponse, error) {
+func (infoSvc *CloudInfoService) GetAvailableIcdVersions(icdType string) ([]string, error) {
 
 	authenticator := &core.IamAuthenticator{
 		ApiKey: infoSvc.authenticator.ApiKey, //pragma: allowlist secret
@@ -44,12 +44,15 @@ func (infoSvc *CloudInfoService) ListDeployables() (*clouddatabasesv5.ListDeploy
 	if err != nil {
 		panic(err)
 	}
-	return infoSvc.ListDeployablesResponse, nil
+	// return infoSvc.ListDeployablesResponse, nil
+	versions, _ := infoSvc.GetVersionsList(icdType)
+
+	return versions, nil
 }
 
-func (infoSvc *CloudInfoService) GetAvailableIcdVersions(icdType string) ([]string, error) {
+func (infoSvc *CloudInfoService) GetVersionsList(icdType string) ([]string, error) {
 
-	response, _ := infoSvc.ListDeployables()
+	response := infoSvc.ListDeployablesResponse
 	jsonBody, _ := json.MarshalIndent(response, "", "  ")
 	// Parse the response body
 	jsonData := string(jsonBody)
