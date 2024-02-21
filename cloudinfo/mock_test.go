@@ -243,23 +243,14 @@ func (m *ClustersMock) DisableImageSecurityEnforcement(name string, target conta
 }
 
 // ICD Versions mock
-type icdVersionsServiceMock struct {
+type icdServiceMock struct {
 	mockListDeployablesResponse *clouddatabasesv5.ListDeployablesResponse
-	icdVersions                 map[string][]string // map of icd versions
 }
 
-func (s *icdVersionsServiceMock) NewListDeployablesOptions() *clouddatabasesv5.ListDeployablesOptions {
+func (s *icdServiceMock) NewListDeployablesOptions() *clouddatabasesv5.ListDeployablesOptions {
 	return &clouddatabasesv5.ListDeployablesOptions{}
 }
 
-func (s *icdVersionsServiceMock) ListDeployables(*clouddatabasesv5.ListDeployablesOptions) (*clouddatabasesv5.ListDeployablesResponse, *core.DetailedResponse, error) {
+func (s *icdServiceMock) ListDeployables(*clouddatabasesv5.ListDeployablesOptions) (*clouddatabasesv5.ListDeployablesResponse, *core.DetailedResponse, error) {
 	return s.mockListDeployablesResponse, nil, nil
-}
-
-func (s *icdVersionsServiceMock) GetAvailableIcdVersions(icdType string) ([]string, error) {
-	versions, ok := s.icdVersions[icdType]
-	if !ok {
-		return nil, fmt.Errorf("ICD Type %s not found", icdType)
-	}
-	return versions, nil
 }
