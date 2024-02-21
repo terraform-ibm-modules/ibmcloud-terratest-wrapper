@@ -1,76 +1,32 @@
 package cloudinfo
 
 import (
-	"encoding/json"
 	"fmt"
-	"log"
-
-	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
-	"github.com/IBM/go-sdk-core/v5/core"
 )
 
-type Deployable struct {
-	Type     string    `json:"type"`
-	Versions []Version `json:"versions"`
-}
-
-type Version struct {
-	Version string `json:"version"`
-	Status  string `json:"status"`
-}
-
-type Data struct {
-	Deployables []Deployable `json:"deployables"`
-}
-
+// GetAvailableIcdVersions will retrieve the available versions of a specified ICD type.
+// icdType is the type of the ICD
+// returns a list of stable versions of a specified ICD type.
 func (infoSvc *CloudInfoService) GetAvailableIcdVersions(icdType string) ([]string, error) {
-
-	authenticator := &core.IamAuthenticator{
-		ApiKey: infoSvc.authenticator.ApiKey, //pragma: allowlist secret
-	}
-	newOptions := &clouddatabasesv5.CloudDatabasesV5Options{
-		Authenticator: authenticator,
-	}
-
-	// Create the service client
-	service, err := clouddatabasesv5.NewCloudDatabasesV5(newOptions)
+	listDeployablesOptions := infoSvc.icdService.NewListDeployablesOptions()
+	icdVersions, _, err := infoSvc.icdService.ListDeployables(listDeployablesOptions)
 	if err != nil {
-		log.Fatalf("Failed to create Cloud Databases service client: %v", err)
+		return nil, fmt.Errorf("error listing icd versions: %w", err)
 	}
 
-	// List deployables
-	listDeployablesOptions := service.NewListDeployablesOptions() // Hypothetical method
-	infoSvc.ListDeployablesResponse, _, err = service.ListDeployables(listDeployablesOptions)
-	if err != nil {
-		panic(err)
-	}
-	// return infoSvc.ListDeployablesResponse, nil
-	versions, _ := infoSvc.GetVersionsList(icdType)
-
-	return versions, nil
-}
-
-func (infoSvc *CloudInfoService) GetVersionsList(icdType string) ([]string, error) {
-
-	response := infoSvc.ListDeployablesResponse
-	jsonBody, _ := json.MarshalIndent(response, "", "  ")
-	// Parse the response body
-	jsonData := string(jsonBody)
-	var data Data
-	err2 := json.Unmarshal([]byte(jsonData), &data)
-	if err2 != nil {
-		fmt.Println(err2)
-		return nil, err2
-	}
 	versions := []string{}
-	for _, deployable := range data.Deployables {
-		if deployable.Type == icdType {
+	for _, deployable := range icdVersions.Deployables {
+		if *deployable.Type == icdType {
 			for _, version := range deployable.Versions {
-				if version.Status == "stable" {
-					versions = append(versions, version.Version)
+				if *version.Status == "stable" {
+					versions = append(versions, *version.Version)
 				}
 			}
 		}
 	}
-	return versions, nil
+
+	if len(versions) != 0 {
+		return versions, nil
+	}
+	return nil, fmt.Errorf("version for ICD type %s not found", icdType)
 }

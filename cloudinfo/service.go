@@ -35,7 +35,7 @@ type CloudInfoService struct {
 	containerClient           containerClient
 	regionsData               []RegionData
 	lock                      sync.Mutex
-	ListDeployablesResponse   *clouddatabasesv5.ListDeployablesResponse
+	icdService                icdService
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -61,6 +61,7 @@ type CloudInfoServiceOptions struct {
 	CbrService                cbrService
 	ContainerClient           containerClient
 	RegionPrefs               []RegionData
+	IcdService                icdService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -119,6 +120,12 @@ type cbrService interface {
 	GetRule(*contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	ReplaceRule(*contextbasedrestrictionsv1.ReplaceRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	GetZone(*contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
+}
+
+// icdService for external Cloud Database V5 Service API. Used for mocking.
+type icdService interface {
+	NewListDeployablesOptions() *clouddatabasesv5.ListDeployablesOptions
+	ListDeployables(*clouddatabasesv5.ListDeployablesOptions) (*clouddatabasesv5.ListDeployablesResponse, *core.DetailedResponse, error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -293,6 +300,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.resourceManagerService = managerClient
+	}
+
+	// if icdService is not supplied use new external
+	if options.IcdService != nil {
+		infoSvc.icdService = options.IcdService
+	} else {
+		icdClient, icdMgrErr := clouddatabasesv5.NewCloudDatabasesV5(&clouddatabasesv5.CloudDatabasesV5Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if icdMgrErr != nil {
+			log.Println("Error creating clouddatabasesv5 client:", icdMgrErr)
+			return nil, icdMgrErr
+		}
+
+		infoSvc.icdService = icdClient
 	}
 
 	return infoSvc, nil

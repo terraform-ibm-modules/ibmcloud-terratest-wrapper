@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
+	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
@@ -239,4 +240,26 @@ func (m *ClustersMock) EnableImageSecurityEnforcement(name string, target contai
 func (m *ClustersMock) DisableImageSecurityEnforcement(name string, target containerv2.ClusterTargetHeader) error {
 	args := m.Called(name, target)
 	return args.Error(0)
+}
+
+// ICD Versions mock
+type icdVersionsServiceMock struct {
+	mockListDeployablesResponse *clouddatabasesv5.ListDeployablesResponse
+	icdVersions                 map[string][]string // map of icd versions
+}
+
+func (s *icdVersionsServiceMock) NewListDeployablesOptions() *clouddatabasesv5.ListDeployablesOptions {
+	return &clouddatabasesv5.ListDeployablesOptions{}
+}
+
+func (s *icdVersionsServiceMock) ListDeployables(*clouddatabasesv5.ListDeployablesOptions) (*clouddatabasesv5.ListDeployablesResponse, *core.DetailedResponse, error) {
+	return s.mockListDeployablesResponse, nil, nil
+}
+
+func (s *icdVersionsServiceMock) GetAvailableIcdVersions(icdType string) ([]string, error) {
+	versions, ok := s.icdVersions[icdType]
+	if !ok {
+		return nil, fmt.Errorf("ICD Type %s not found", icdType)
+	}
+	return versions, nil
 }

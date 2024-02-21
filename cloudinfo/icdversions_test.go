@@ -4,43 +4,68 @@ import (
 	"testing"
 
 	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
-	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestGetAvailableIcdVersions(t *testing.T) {
-
-	mockType := "icd"
-	mockVersion1 := "1.0.0"
-	mackStable := "stable"
-	mockVersion2 := "2.0.0"
-	mackBeta := "stable"
-
-	// Create a mock ListDeployables method to return a pre-defined response
 	infoSvc := CloudInfoService{
-		authenticator: &core.IamAuthenticator{},
+		icdService: &icdVersionsServiceMock{},
 	}
-	infoSvc.ListDeployablesResponse = &clouddatabasesv5.ListDeployablesResponse{
-		Deployables: []clouddatabasesv5.Deployables{
-			{
-				Type: &mockType,
-				Versions: []clouddatabasesv5.DeployablesVersionsItem{
+
+	var mockType = "icd"
+	var mockVersion1 = "1.0.0"
+	var mockStable = "stable"
+	var mockVersion2 = "2.0.0"
+	var mockBeta = "stable"
+
+	// first test, icd type does not exist
+	t.Run("ICDTypeDoesNotExist", func(t *testing.T) {
+		infoSvc.icdService = &icdVersionsServiceMock{
+			mockListDeployablesResponse: &clouddatabasesv5.ListDeployablesResponse{
+				Deployables: []clouddatabasesv5.Deployables{
 					{
-						Version: &mockVersion1,
-						Status:  &mackStable,
-					},
-					{
-						Version: &mockVersion2,
-						Status:  &mackBeta,
+						Type: &mockType,
+						Versions: []clouddatabasesv5.DeployablesVersionsItem{
+							{
+								Version: &mockVersion1,
+								Status:  &mockStable,
+							},
+							{
+								Version: &mockVersion2,
+								Status:  &mockBeta,
+							},
+						},
 					},
 				},
 			},
-		},
-	}
+		}
+		_, err := infoSvc.GetAvailableIcdVersions("non-existing-icd")
+		assert.NotNil(t, err)
+	})
 
-	// Call the GetAvailableIcdVersions method with a valid input and expect it to return the correct response
-	expectedResponse := []string{"1.0.0", "2.0.0"}
-	actualResponse, err := infoSvc.GetVersionsList("icd")
-	assert.NoError(t, err)
-	assert.EqualValues(t, expectedResponse, actualResponse)
+	// second test, icd type exists
+	t.Run("ICDTypeExists", func(t *testing.T) {
+		infoSvc.icdService = &icdVersionsServiceMock{
+			mockListDeployablesResponse: &clouddatabasesv5.ListDeployablesResponse{
+				Deployables: []clouddatabasesv5.Deployables{
+					{
+						Type: &mockType,
+						Versions: []clouddatabasesv5.DeployablesVersionsItem{
+							{
+								Version: &mockVersion1,
+								Status:  &mockStable,
+							},
+							{
+								Version: &mockVersion2,
+								Status:  &mockBeta,
+							},
+						},
+					},
+				},
+			},
+		}
+		versions, err := infoSvc.GetAvailableIcdVersions(mockType)
+		assert.Nil(t, err)
+		assert.Equal(t, []string{"1.0.0", "2.0.0"}, versions)
+	})
 }
