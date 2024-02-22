@@ -9,6 +9,7 @@ require (
 	github.com/IBM/platform-services-go-sdk v0.59.0
 	github.com/IBM/schematics-go-sdk v0.2.3
 	github.com/IBM/vpc-go-sdk v0.48.0
+	github.com/IBM/cloud-databases-go-sdk v0.5.0
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/go-openapi/errors v0.21.0
 	github.com/go-openapi/strfmt v0.22.0

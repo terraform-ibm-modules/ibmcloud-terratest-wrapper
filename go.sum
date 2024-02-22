@@ -193,6 +193,8 @@ github.com/IBM-Cloud/bluemix-go v0.0.0-20240212062122-3386b538a495 h1:lGKFLp41fo
 github.com/IBM-Cloud/bluemix-go v0.0.0-20240212062122-3386b538a495/go.mod h1:/7hMjdZA6fEpd/dQAOEABxKEwN0t72P3PlpEDu0Y7bE=
 github.com/IBM-Cloud/power-go-client v1.5.9 h1:WRsw55lRdASGAqk9jzI0H2WJ3j7Pr9mc5o3ssBTj/iA=
 github.com/IBM-Cloud/power-go-client v1.5.9/go.mod h1:ZJXBj6/gc5tszHMZMzm3MjPy79ahj/IuJTBXL2RcGz4=
+github.com/IBM/cloud-databases-go-sdk v0.5.0 h1:Bie6MnT1jLchQmtKVA20HHETTPdlOR+i11P2kJ55viM=
+github.com/IBM/cloud-databases-go-sdk v0.5.0/go.mod h1:nCIVfeZnhBYIiwByT959dFP4VWUeNLxomDYy63tTC6M=
 github.com/IBM/go-sdk-core/v5 v5.10.2/go.mod h1:WZPFasUzsKab/2mzt29xPcfruSk5js2ywAPwW4VJjdI=
 github.com/IBM/go-sdk-core/v5 v5.15.1 h1:XOzNZbBgnlxOGK1JMMBtZJYSVguK4TFPJiYutuzFmdA=
 github.com/IBM/go-sdk-core/v5 v5.15.1/go.mod h1:so2mbdIgSp6X8Zm/qLV+whdchTGgi04c3j4xFMsqlCc=

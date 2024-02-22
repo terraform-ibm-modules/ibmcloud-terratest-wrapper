@@ -3,10 +3,15 @@ package cloudinfo
 
 import (
 	"errors"
+	"log"
+	"os"
+	"sync"
+
 	"github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
+	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
@@ -14,9 +19,6 @@ import (
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
-	"log"
-	"os"
-	"sync"
 )
 
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
@@ -33,6 +35,7 @@ type CloudInfoService struct {
 	containerClient           containerClient
 	regionsData               []RegionData
 	lock                      sync.Mutex
+	icdService                icdService
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -58,6 +61,7 @@ type CloudInfoServiceOptions struct {
 	CbrService                cbrService
 	ContainerClient           containerClient
 	RegionPrefs               []RegionData
+	IcdService                icdService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -116,6 +120,12 @@ type cbrService interface {
 	GetRule(*contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	ReplaceRule(*contextbasedrestrictionsv1.ReplaceRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	GetZone(*contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
+}
+
+// icdService for external Cloud Database V5 Service API. Used for mocking.
+type icdService interface {
+	NewListDeployablesOptions() *clouddatabasesv5.ListDeployablesOptions
+	ListDeployables(*clouddatabasesv5.ListDeployablesOptions) (*clouddatabasesv5.ListDeployablesResponse, *core.DetailedResponse, error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -290,6 +300,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.resourceManagerService = managerClient
+	}
+
+	// if icdService is not supplied use new external
+	if options.IcdService != nil {
+		infoSvc.icdService = options.IcdService
+	} else {
+		icdClient, icdMgrErr := clouddatabasesv5.NewCloudDatabasesV5(&clouddatabasesv5.CloudDatabasesV5Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if icdMgrErr != nil {
+			log.Println("Error creating clouddatabasesv5 client:", icdMgrErr)
+			return nil, icdMgrErr
+		}
+
+		infoSvc.icdService = icdClient
 	}
 
 	return infoSvc, nil
