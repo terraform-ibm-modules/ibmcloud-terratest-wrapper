@@ -5,11 +5,11 @@ go 1.21
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240212062122-3386b538a495
 	github.com/IBM-Cloud/power-go-client v1.5.9
-	github.com/IBM/go-sdk-core/v5 v5.15.1
-	github.com/IBM/platform-services-go-sdk v0.59.0
+	github.com/IBM/cloud-databases-go-sdk v0.5.0
+	github.com/IBM/go-sdk-core/v5 v5.15.2
+	github.com/IBM/platform-services-go-sdk v0.59.1
 	github.com/IBM/schematics-go-sdk v0.2.3
 	github.com/IBM/vpc-go-sdk v0.48.0
-	github.com/IBM/cloud-databases-go-sdk v0.5.0
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/go-openapi/errors v0.21.0
 	github.com/go-openapi/strfmt v0.22.0
