@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
+	tfjson "github.com/hashicorp/terraform-json"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 	"testing"
-
-	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 
@@ -25,11 +24,18 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
-func skipUpgradeTest(source_repo string, branch string) bool {
+func (options *TestOptions) skipUpgradeTest(source_repo string, branch string) bool {
+
+	// Set upstream to the source repo
+	_, err := exec.Command("/bin/sh", "-c", "git remote add upstream "+source_repo).Output()
+	if err != nil {
+		logger.Log(options.Testing, "Error adding upstream remote: ", err)
+		return false
+	}
 	// Get all the commit messages from the PR branch
 	// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
 	// clone even if the default branch has not been checked out or pulled.
-	cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("git log %s/master..", source_repo), branch)
+	cmd := exec.Command("/bin/sh", "-c", "git log upstream/master..", branch)
 	out, _ := cmd.CombinedOutput()
 
 	fmt.Printf("Commit Messages (master): \n%s", string(out))
@@ -41,7 +47,7 @@ func skipUpgradeTest(source_repo string, branch string) bool {
 	if !doNotRunUpgradeTest {
 		// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
 		// clone even if the default branch has not been checked out or pulled.
-		cmd = exec.Command("/bin/sh", "-c", fmt.Sprintf("git log %s/main..", source_repo), branch)
+		cmd = exec.Command("/bin/sh", "-c", "git log upstream/main..", branch)
 		out, _ = cmd.CombinedOutput()
 
 		fmt.Printf("Commit messages (main): \n%s", string(out))
@@ -497,7 +503,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Base Branch:", baseBranch)
 	}
 
-	if skipUpgradeTest(baseRepo, prBranch) {
+	if options.skipUpgradeTest(baseRepo, prBranch) {
 		options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
 	} else {
 		skipped = false
