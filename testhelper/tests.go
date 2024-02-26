@@ -32,7 +32,7 @@ func skipUpgradeTest(branch string) bool {
 	cmd := exec.Command("/bin/sh", "-c", "git log origin/master..", branch)
 	out, _ := cmd.CombinedOutput()
 
-	fmt.Sprintf("Commit Messages (master): \n%s", string(out))
+	fmt.Printf("Commit Messages (master): \n%s", string(out))
 	// Skip upgrade Test if BREAKING CHANGE OR SKIP UPGRADE TEST string found in commit messages
 	doNotRunUpgradeTest := false
 	if (strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST")) && !strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
@@ -44,7 +44,7 @@ func skipUpgradeTest(branch string) bool {
 		cmd = exec.Command("/bin/sh", "-c", "git log origin/main..", branch)
 		out, _ = cmd.CombinedOutput()
 
-		fmt.Sprintf("Commit messages (main): \n%s", string(out))
+		fmt.Printf("Commit messages (main): \n%s", string(out))
 		if (strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST")) && !strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
 			doNotRunUpgradeTest = true
 		}
