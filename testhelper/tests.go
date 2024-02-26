@@ -25,11 +25,11 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
-func skipUpgradeTest(branch string) bool {
+func skipUpgradeTest(source_repo string, branch string) bool {
 	// Get all the commit messages from the PR branch
 	// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
 	// clone even if the default branch has not been checked out or pulled.
-	cmd := exec.Command("/bin/sh", "-c", "git log origin/master..", branch)
+	cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("git log %s/master..", source_repo), branch)
 	out, _ := cmd.CombinedOutput()
 
 	fmt.Printf("Commit Messages (master): \n%s", string(out))
@@ -41,7 +41,7 @@ func skipUpgradeTest(branch string) bool {
 	if !doNotRunUpgradeTest {
 		// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
 		// clone even if the default branch has not been checked out or pulled.
-		cmd = exec.Command("/bin/sh", "-c", "git log origin/main..", branch)
+		cmd = exec.Command("/bin/sh", "-c", fmt.Sprintf("git log %s/main..", source_repo), branch)
 		out, _ = cmd.CombinedOutput()
 
 		fmt.Printf("Commit messages (main): \n%s", string(out))
@@ -488,7 +488,16 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "PR Branch:", prBranch)
 	}
 
-	if skipUpgradeTest(prBranch) {
+	baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
+	if baseBranch == "" || baseRepo == "" {
+		// No need to tearDown as nothing was created
+		return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
+	} else {
+		logger.Log(options.Testing, "Base Repo:", baseRepo)
+		logger.Log(options.Testing, "Base Branch:", baseBranch)
+	}
+
+	if skipUpgradeTest(baseRepo, prBranch) {
 		options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
 	} else {
 		skipped = false
@@ -588,14 +597,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			if !options.SkipTestTearDown {
 				defer os.RemoveAll(baseTempDir) // clean up
 			}
-		}
-		baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
-		if baseBranch == "" || baseRepo == "" {
-			// No need to tearDown as nothing was created
-			return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
-		} else {
-			logger.Log(options.Testing, "Base Repo:", baseRepo)
-			logger.Log(options.Testing, "Base Branch:", baseBranch)
 		}
 
 		authMethod, err := common.DetermineAuthMethod(baseRepo)
