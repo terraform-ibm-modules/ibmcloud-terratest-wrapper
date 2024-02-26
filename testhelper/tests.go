@@ -32,6 +32,12 @@ func (options *TestOptions) skipUpgradeTest(source_repo string, branch string) b
 		logger.Log(options.Testing, "Error adding upstream remote: ", err)
 		return false
 	}
+	// Fetch the source repo
+	_, err = exec.Command("/bin/sh", "-c", "git fetch upstream").Output()
+	if err != nil {
+		logger.Log(options.Testing, "Error fetching upstream: ", err)
+		return false
+	}
 	// Get all the commit messages from the PR branch
 	// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
 	// clone even if the default branch has not been checked out or pulled.
