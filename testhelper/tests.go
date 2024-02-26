@@ -29,16 +29,15 @@ func (options *TestOptions) skipUpgradeTest(source_repo string, branch string) b
 	// Set upstream to the source repo
 	remote_out, remote_err := exec.Command("/bin/sh", "-c", "git remote add upstream "+source_repo).Output()
 	if remote_err != nil {
+		logger.Log(options.Testing, "Add remote output:\n", remote_out)
 		logger.Log(options.Testing, "Error adding upstream remote:\n", remote_err)
 		return false
-	} else {
-		logger.Log(options.Testing, "Add remote output:\n", remote_out)
 	}
 	// Fetch the source repo
-	fetch_out, fetch_err := exec.Command("/bin/sh", "-c", "git fetch upstream").Output()
+	fetch_out, fetch_err := exec.Command("/bin/sh", "-c", "git fetch upstream -f").Output()
 	if fetch_err != nil {
+		logger.Log(options.Testing, "Fetch output:\n", fetch_out)
 		logger.Log(options.Testing, "Error fetching upstream:\n", fetch_err)
-		return false
 	} else {
 		logger.Log(options.Testing, "Fetch output:\n", fetch_out)
 	}
