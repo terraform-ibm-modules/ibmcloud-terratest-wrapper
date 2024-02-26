@@ -27,16 +27,20 @@ import (
 func (options *TestOptions) skipUpgradeTest(source_repo string, branch string) bool {
 
 	// Set upstream to the source repo
-	_, err := exec.Command("/bin/sh", "-c", "git remote add upstream "+source_repo).Output()
-	if err != nil {
-		logger.Log(options.Testing, "Error adding upstream remote: ", err)
+	remote_out, remote_err := exec.Command("/bin/sh", "-c", "git remote add upstream "+source_repo).Output()
+	if remote_err != nil {
+		logger.Log(options.Testing, "Error adding upstream remote:\n", remote_err)
 		return false
+	} else {
+		logger.Log(options.Testing, "Add remote output:\n", remote_out)
 	}
 	// Fetch the source repo
-	_, err = exec.Command("/bin/sh", "-c", "git fetch upstream").Output()
-	if err != nil {
-		logger.Log(options.Testing, "Error fetching upstream: ", err)
+	fetch_out, fetch_err := exec.Command("/bin/sh", "-c", "git fetch upstream").Output()
+	if fetch_err != nil {
+		logger.Log(options.Testing, "Error fetching upstream:\n", fetch_err)
 		return false
+	} else {
+		logger.Log(options.Testing, "Fetch output:\n", fetch_out)
 	}
 	// Get all the commit messages from the PR branch
 	// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
