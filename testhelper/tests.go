@@ -42,6 +42,7 @@ func (options *TestOptions) skipUpgradeTest(source_repo string, source_branch st
 	if fetch_err != nil {
 		logger.Log(options.Testing, "Fetch output:\n", fetch_out)
 		logger.Log(options.Testing, "Error fetching upstream:\n", fetch_err)
+		return false
 	} else {
 		logger.Log(options.Testing, "Fetch output:\n", fetch_out)
 	}
