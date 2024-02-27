@@ -25,7 +25,7 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
-func (options *TestOptions) skipUpgradeTest(source_repo string, branch string) bool {
+func (options *TestOptions) skipUpgradeTest(source_repo string, source_branch string, branch string) bool {
 
 	// random string to use in remote name
 	remote := fmt.Sprintf("upstream-%s", strings.ToLower(random.UniqueId()))
@@ -48,26 +48,16 @@ func (options *TestOptions) skipUpgradeTest(source_repo string, branch string) b
 	// Get all the commit messages from the PR branch
 	// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
 	// clone even if the default branch has not been checked out or pulled.
-	cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("git log %s/master..%s", remote, branch))
+	cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("git log %s/%s..%s", remote, source_branch, branch))
 	out, _ := cmd.CombinedOutput()
 
-	fmt.Printf("Commit Messages (master): \n%s", string(out))
+	fmt.Printf("Commit Messages (%s): \n%s", source_branch, string(out))
 	// Skip upgrade Test if BREAKING CHANGE OR SKIP UPGRADE TEST string found in commit messages
 	doNotRunUpgradeTest := false
 	if (strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST")) && !strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
 		doNotRunUpgradeTest = true
 	}
-	if !doNotRunUpgradeTest {
-		// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
-		// clone even if the default branch has not been checked out or pulled.
-		cmd = exec.Command("/bin/sh", "-c", fmt.Sprintf("git log %s/main..%s", remote, branch))
-		out, _ = cmd.CombinedOutput()
 
-		fmt.Printf("Commit messages (main): \n%s", string(out))
-		if (strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST")) && !strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
-			doNotRunUpgradeTest = true
-		}
-	}
 	return doNotRunUpgradeTest
 }
 
@@ -516,7 +506,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Base Branch:", baseBranch)
 	}
 
-	if options.skipUpgradeTest(baseRepo, prBranch) {
+	if options.skipUpgradeTest(baseRepo, baseBranch, prBranch) {
 		options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
 	} else {
 		skipped = false
