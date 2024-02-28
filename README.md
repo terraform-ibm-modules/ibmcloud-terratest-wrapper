@@ -166,7 +166,7 @@ If this fails in your environment, you can manually set the base repo and branch
 **Authentication**
 
 If authentication is required to access the base repo, the code tries to automatically figure it out, by default it will try unauthenticated for HTTPS repositories and trie use the default SSH key located at ~/.ssh/id_rsa for SSH repositories.
-If this fails it will try unauthenticated. You can manually set the `SSH_PRIVATE_KEY` environment variable to the path to your SSH private key. For HTTPS repositories, set the `GIT_TOKEN` environment variable to your Personal Access Token (PAT).
+If this fails it will try unauthenticated. You can manually set the `SSH_PRIVATE_KEY` environment variable to the value of your SSH private key. For HTTPS repositories, set the `GIT_TOKEN` environment variable to your Personal Access Token (PAT).
 ___
 ### More examples
 
