@@ -82,7 +82,7 @@ type TestOptions struct {
 	//
 	// For repositories that require authentication:
 	// - For HTTPS repositories, set the GIT_TOKEN environment variable to your Personal Access Token (PAT).
-	// - For SSH repositories, set the SSH_PRIVATE_KEY environment variable to your SSH private key.
+	// - For SSH repositories, set the SSH_PRIVATE_KEY environment variable to your SSH private key path.
 	//   If the SSH_PRIVATE_KEY environment variable is not set, the default SSH key located at ~/.ssh/id_rsa will be used.
 	//   Ensure that the appropriate public key is added to the repository's list of authorized keys.
 	//
