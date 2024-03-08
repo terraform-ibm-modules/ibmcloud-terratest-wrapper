@@ -88,6 +88,21 @@ func TestRunBasic(t *testing.T) {
 ```
 ___
 
+### Example to check an output value in the test
+
+The following example checks if the output exists and contains certain value.
+
+```go
+outputs := options.LastTestTerraformOutputs
+expectedOutputs := []string{"output1", "output2"}
+_, outputErr := testhelper.ValidateTerraformOutputs(outputs, expectedOutputs...)
+if assert.NoErrorf(t, outputErr, "Some outputs not found or nil.") {
+    assert.Equal(t, outputs["output1"].(string), "output 1")
+    assert.Equal(t, outputs["output2"].(string), "output 2")
+}
+```
+
+
 ### Run in IBM Cloud Schematics
 
 The code to run a test inside IBM Schematics is similar to the [basic example](#testrunbasic), but uses the `testschematic` package.
