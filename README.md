@@ -88,11 +88,11 @@ func TestRunBasic(t *testing.T) {
 ```
 ___
 
-### Example to check an output value in the test
-
-The following example checks if the output exists and contains a certain value.
+### Example Handling Terraform Outputs
 
 After the test completes and teardown occurs, the state file will no longer contain the outputs. To handle this the last test to execute stores its outputs in `LastTestTerraformOutputs`. There is also a helper function to validate that the outputs exist called `ValidateTerraformOutputs` this returns a list of output keys that are missing and an error message with details of the missing keys.
+
+The following example checks if the output exists and contains a certain value.
 
 ```go
 outputs := options.LastTestTerraformOutputs
