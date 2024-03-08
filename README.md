@@ -90,7 +90,7 @@ ___
 
 ### Example to check an output value in the test
 
-The following example checks if the output exists and contains certain value.
+The following example checks if the output exists and contains a certain value.
 
 ```go
 outputs := options.LastTestTerraformOutputs
@@ -101,7 +101,7 @@ if assert.NoErrorf(t, outputErr, "Some outputs not found or nil.") {
     assert.Equal(t, outputs["output2"].(string), "output 2")
 }
 ```
-
+___
 
 ### Run in IBM Cloud Schematics
 
