@@ -92,6 +92,8 @@ ___
 
 The following example checks if the output exists and contains a certain value.
 
+After the test completes and teardown occurs, the state file will no longer contain the outputs. To handle this the last test to execute stores its outputs in `LastTestTerraformOutputs`. There is also a helper function to validate that the outputs exist called `ValidateTerraformOutputs` this returns a list of output keys that are missing and an error message with details of the missing keys.
+
 ```go
 outputs := options.LastTestTerraformOutputs
 expectedOutputs := []string{"output1", "output2"}
