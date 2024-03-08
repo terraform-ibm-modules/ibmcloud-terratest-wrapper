@@ -90,7 +90,7 @@ ___
 
 ### Example Handling Terraform Outputs
 
-After the test completes and teardown occurs, the state file will no longer contain the outputs. To handle this the last test to execute stores its outputs in `LastTestTerraformOutputs`. There is also a helper function to validate that the outputs exist called `ValidateTerraformOutputs` this returns a list of output keys that are missing and an error message with details of the missing keys.
+After the test completes and teardown occurs, the state file no longer contains the outputs. To handle this situation, the last test to execute stores its outputs in `LastTestTerraformOutputs`. Use the helper function called `ValidateTerraformOutputs` to validate that the outputs exist. The function returns a list of output keys that are missing and an error message with details.
 
 The following example checks if the output exists and contains a certain value.
 
