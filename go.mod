@@ -7,18 +7,18 @@ require (
 	github.com/IBM-Cloud/power-go-client v1.5.9
 	github.com/IBM/cloud-databases-go-sdk v0.5.0
 	github.com/IBM/go-sdk-core/v5 v5.15.3
-	github.com/IBM/platform-services-go-sdk v0.59.3
+	github.com/IBM/platform-services-go-sdk v0.60.0
 	github.com/IBM/schematics-go-sdk v0.2.3
 	github.com/IBM/vpc-go-sdk v0.48.0
 	github.com/go-git/go-git/v5 v5.11.0
-	github.com/go-openapi/errors v0.21.0
-	github.com/go-openapi/strfmt v0.22.1
+	github.com/go-openapi/errors v0.21.1
+	github.com/go-openapi/strfmt v0.22.2
 	github.com/google/go-cmp v0.6.0
 	github.com/gruntwork-io/terratest v0.46.11
 	github.com/hashicorp/terraform-json v0.21.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.9.0
-	golang.org/x/crypto v0.20.0
+	golang.org/x/crypto v0.21.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -104,7 +104,7 @@ require (
 	golang.org/x/net v0.21.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
 	golang.org/x/sync v0.5.0 // indirect
-	golang.org/x/sys v0.17.0 // indirect
+	golang.org/x/sys v0.18.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.16.1 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
