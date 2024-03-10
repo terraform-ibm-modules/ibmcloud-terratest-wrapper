@@ -88,6 +88,23 @@ func TestRunBasic(t *testing.T) {
 ```
 ___
 
+### Example Handling Terraform Outputs
+
+After the test completes and teardown occurs, the state file no longer contains the outputs. To handle this situation, the last test to execute stores its outputs in `LastTestTerraformOutputs`. Use the helper function called `ValidateTerraformOutputs` to validate that the outputs exist. The function returns a list of output keys that are missing and an error message with details.
+
+The following example checks if the output exists and contains a certain value.
+
+```go
+outputs := options.LastTestTerraformOutputs
+expectedOutputs := []string{"output1", "output2"}
+_, outputErr := testhelper.ValidateTerraformOutputs(outputs, expectedOutputs...)
+if assert.NoErrorf(t, outputErr, "Some outputs not found or nil.") {
+    assert.Equal(t, outputs["output1"].(string), "output 1")
+    assert.Equal(t, outputs["output2"].(string), "output 2")
+}
+```
+___
+
 ### Run in IBM Cloud Schematics
 
 The code to run a test inside IBM Schematics is similar to the [basic example](#testrunbasic), but uses the `testschematic` package.
