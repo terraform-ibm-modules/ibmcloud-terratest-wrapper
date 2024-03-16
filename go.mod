@@ -4,10 +4,10 @@ go 1.21
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240212062122-3386b538a495
-	github.com/IBM-Cloud/power-go-client v1.5.9
+	github.com/IBM-Cloud/power-go-client v1.6.0
 	github.com/IBM/cloud-databases-go-sdk v0.5.0
-	github.com/IBM/go-sdk-core/v5 v5.15.3
-	github.com/IBM/platform-services-go-sdk v0.60.0
+	github.com/IBM/go-sdk-core/v5 v5.16.1
+	github.com/IBM/platform-services-go-sdk v0.61.2
 	github.com/IBM/schematics-go-sdk v0.2.3
 	github.com/IBM/vpc-go-sdk v0.48.0
 	github.com/go-git/go-git/v5 v5.11.0
@@ -57,7 +57,7 @@ require (
 	github.com/go-openapi/validate v0.22.4 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.17.0 // indirect
+	github.com/go-playground/validator/v10 v10.18.0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/s2a-go v0.1.4 // indirect
@@ -77,7 +77,7 @@ require (
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/klauspost/compress v1.16.5 // indirect
-	github.com/leodido/go-urn v1.3.0 // indirect
+	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-zglob v0.0.4 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
