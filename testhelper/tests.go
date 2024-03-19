@@ -229,8 +229,9 @@ func (options *TestOptions) testSetup() {
 			// retryable errors in terraform testing.
 			options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
 				// Set the path to the Terraform code that will be tested.
-				TerraformDir: options.TerraformDir,
-				Vars:         options.TerraformVars,
+				TerraformDir:    options.TerraformDir,
+				TerraformBinary: options.TerraformBinary,
+				Vars:            options.TerraformVars,
 				// Set Upgrade to true to ensure the latest version of providers and modules are used by terratest.
 				// This is the same as setting the -upgrade=true flag with terraform.
 				Upgrade: true,
