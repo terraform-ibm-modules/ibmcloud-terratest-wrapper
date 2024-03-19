@@ -107,7 +107,7 @@ if assert.NoErrorf(t, outputErr, "Some outputs not found or nil.") {
 
 ### OpenTofu
 
-Enable open Tofu with the TerraformOptions and OpenTofu on the systems path will be used for the test.
+Enable OpenTofu with the TestOptions, then OpenTofu on the systems path will be used for the test.
 ```go
 func TestRunBasicTofu(t *testing.T) {
 	t.Parallel()
