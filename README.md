@@ -103,6 +103,38 @@ if assert.NoErrorf(t, outputErr, "Some outputs not found or nil.") {
     assert.Equal(t, outputs["output2"].(string), "output 2")
 }
 ```
+---
+
+### OpenTofu
+
+Enable open Tofu with the TerraformOptions and OpenTofu on the systems path will be used for the test.
+```go
+func TestRunBasicTofu(t *testing.T) {
+	t.Parallel()
+
+	options := testhelper.TestOptionsDefault(&testhelper.TestOptions{
+        Testing:            t,                      // the test object for unit test
+        EnableOpenTofu:     true,                   // enable open Tofu
+        TerraformDir:       "examples/basic",       // location of example to test
+        Prefix:             "my-test",              // will have 6 char random string appended
+        BestRegionYAMLPath: "location/of/yaml.yml", // YAML file to configure dynamic region selection
+        // Region: "us-south", // if you set Region, dynamic selection will be skipped
+    })
+
+    options.TerraformVars = map[string]interface{}{
+        "variable_1":   "foo",
+        "resource_prefix": options.Prefix,
+        "ibm_region": options.Region,
+    }
+
+    // idempotent test
+    output, err := options.RunTestConsistency()
+    assert.Nil(t, err, "This should not have errored")
+    assert.NotNil(t, output, "Expected some output")
+}
+
+```
+
 ___
 
 ### Run in IBM Cloud Schematics
