@@ -328,7 +328,7 @@ func (options *TestOptions) testTearDown() {
 			for _, address := range options.ImplicitDestroy {
 				// TODO: is this the correct path to the state file? and/or does it need to be updated upstream to a relative path(temp dir)?
 				statefile := fmt.Sprintf("%s/terraform.tfstate", options.WorkspacePath)
-				out, err := RemoveFromStateFile(statefile, address)
+				out, err := RemoveFromStateFileV2(statefile, address, options.TerraformBinary)
 				if options.ImplicitRequired && err != nil {
 					logger.Log(options.Testing, out)
 					assert.Nil(options.Testing, err, "Could not remove from state file")

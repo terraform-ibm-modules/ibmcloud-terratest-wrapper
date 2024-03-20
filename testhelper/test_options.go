@@ -75,7 +75,8 @@ type TestOptions struct {
 	// Use OpenTofu binary on the system path. This is used to enable the OpenTofu binary to be used for testing.
 	// If OpenTofu is not installed, the test will fail.
 	// If TerraformOptions is passed with the value for TerraformBinary set, this value will be ignored.
-	EnableOpenTofu  bool
+	EnableOpenTofu bool
+	// Use this to specify the path to the Terraform binary to use for testing. This is exclusive with EnableOpenTofu.
 	TerraformBinary string
 
 	// Use these options to have terratest execute using a terraform "workspace".
