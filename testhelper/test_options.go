@@ -234,6 +234,8 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 			if err == nil {
 				newOptions.TerraformBinary = "tofu"
 			}
+		} else {
+			newOptions.TerraformBinary = "terraform"
 		}
 	}
 
