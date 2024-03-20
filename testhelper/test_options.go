@@ -226,18 +226,14 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 	if newOptions.TerraformOptions == nil {
 		newOptions.TerraformOptions = &terraform.Options{}
 	}
-	if newOptions.TerraformOptions.TerraformBinary == "" {
-		// check tofu exists on system
+	if newOptions.TerraformBinary == "" {
 		if newOptions.EnableOpenTofu {
 			_, err := exec.LookPath("tofu")
 			require.NoError(newOptions.Testing, err, "tofu binary not found on system, please install tofu or set TerraformBinary in TestOptions.")
 			if err == nil {
-				newOptions.TerraformOptions.TerraformBinary = "tofu"
 				newOptions.TerraformBinary = "tofu"
 			}
 		}
-	} else {
-		newOptions.TerraformBinary = newOptions.TerraformOptions.TerraformBinary
 	}
 
 	if newOptions.Region == "" {
