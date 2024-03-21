@@ -224,9 +224,6 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 	newOptions.UseTerraformWorkspace = false
 
 	// if originalOptions has TerraformBinary set, use that value. Otherwise, use OpenTofu
-	if newOptions.TerraformOptions == nil {
-		newOptions.TerraformOptions = &terraform.Options{}
-	}
 	if newOptions.TerraformBinary == "" {
 		if newOptions.EnableOpenTofu {
 			_, err := exec.LookPath("tofu")

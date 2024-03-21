@@ -25,6 +25,9 @@ func RemoveFromStateFile(stateFile string, resourceAddress string) (string, erro
 // tfBinary: The path to the terraform binary
 func RemoveFromStateFileV2(stateFile string, resourceAddress string, tfBinary string) (string, error) {
 	var errorMsg string
+	if tfBinary == "" {
+		tfBinary = "terraform"
+	}
 	if files.PathContainsTerraformState(stateFile) {
 		stateDir := filepath.Dir(stateFile)
 		log.Printf("Removing %s from Statefile %s\n", resourceAddress, stateFile)
