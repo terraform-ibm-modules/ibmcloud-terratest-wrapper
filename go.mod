@@ -5,16 +5,16 @@ go 1.21
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240212062122-3386b538a495
 	github.com/IBM-Cloud/power-go-client v1.6.0
-	github.com/IBM/cloud-databases-go-sdk v0.5.0
-	github.com/IBM/go-sdk-core/v5 v5.16.1
-	github.com/IBM/platform-services-go-sdk v0.61.2
+	github.com/IBM/cloud-databases-go-sdk v0.6.0
+	github.com/IBM/go-sdk-core/v5 v5.16.3
+	github.com/IBM/platform-services-go-sdk v0.61.3
 	github.com/IBM/schematics-go-sdk v0.2.3
-	github.com/IBM/vpc-go-sdk v0.48.0
+	github.com/IBM/vpc-go-sdk v0.49.1
 	github.com/go-git/go-git/v5 v5.11.0
 	github.com/go-openapi/errors v0.22.0
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/google/go-cmp v0.6.0
-	github.com/gruntwork-io/terratest v0.46.11
+	github.com/gruntwork-io/terratest v0.46.13
 	github.com/hashicorp/terraform-json v0.21.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.9.0
@@ -114,7 +114,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20230711160842-782d3b101e98 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230711160842-782d3b101e98 // indirect
 	google.golang.org/grpc v1.58.3 // indirect
-	google.golang.org/protobuf v1.31.0 // indirect
+	google.golang.org/protobuf v1.33.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
