@@ -16,11 +16,22 @@ import (
 
 // RemoveFromStateFile Attempts to remove resource from state file
 func RemoveFromStateFile(stateFile string, resourceAddress string) (string, error) {
+	return RemoveFromStateFileV2(stateFile, resourceAddress, "terraform")
+}
+
+// RemoveFromStateFileV2 Attempts to remove resource from state file
+// stateFile: The path to the state file
+// resourceAddress: The address of the resource to remove
+// tfBinary: The path to the terraform binary
+func RemoveFromStateFileV2(stateFile string, resourceAddress string, tfBinary string) (string, error) {
 	var errorMsg string
+	if tfBinary == "" {
+		tfBinary = "terraform"
+	}
 	if files.PathContainsTerraformState(stateFile) {
 		stateDir := filepath.Dir(stateFile)
 		log.Printf("Removing %s from Statefile %s\n", resourceAddress, stateFile)
-		command := fmt.Sprintf("terraform state rm %s", resourceAddress)
+		command := fmt.Sprintf("%s state rm %s", tfBinary, resourceAddress)
 		log.Printf("Executing: %s", command)
 		cmd := exec.Command("/bin/sh", "-c", command)
 		cmd.Dir = stateDir

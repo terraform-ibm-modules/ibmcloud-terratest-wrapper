@@ -229,8 +229,9 @@ func (options *TestOptions) testSetup() {
 			// retryable errors in terraform testing.
 			options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
 				// Set the path to the Terraform code that will be tested.
-				TerraformDir: options.TerraformDir,
-				Vars:         options.TerraformVars,
+				TerraformDir:    options.TerraformDir,
+				TerraformBinary: options.TerraformBinary,
+				Vars:            options.TerraformVars,
 				// Set Upgrade to true to ensure the latest version of providers and modules are used by terratest.
 				// This is the same as setting the -upgrade=true flag with terraform.
 				Upgrade: true,
@@ -327,7 +328,7 @@ func (options *TestOptions) testTearDown() {
 			for _, address := range options.ImplicitDestroy {
 				// TODO: is this the correct path to the state file? and/or does it need to be updated upstream to a relative path(temp dir)?
 				statefile := fmt.Sprintf("%s/terraform.tfstate", options.WorkspacePath)
-				out, err := RemoveFromStateFile(statefile, address)
+				out, err := RemoveFromStateFileV2(statefile, address, options.TerraformBinary)
 				if options.ImplicitRequired && err != nil {
 					logger.Log(options.Testing, out)
 					assert.Nil(options.Testing, err, "Could not remove from state file")

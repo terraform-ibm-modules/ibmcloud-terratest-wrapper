@@ -42,6 +42,27 @@ func TestRunTest(t *testing.T) {
 
 }
 
+func TestRunTestTofu(t *testing.T) {
+	t.Parallel()
+	os.Setenv("TF_VAR_ibmcloud_api_key", "12345")
+	options := TestOptionsDefaultWithVars(&TestOptions{
+		Testing:        t,
+		TerraformDir:   sample1,
+		Prefix:         "testRun",
+		ResourceGroup:  "test-rg",
+		Region:         "us-south",
+		TerraformVars:  terraformVars,
+		EnableOpenTofu: true,
+	})
+	output, err := options.RunTest()
+	assert.Nil(t, err, "This should not have errored")
+	assert.NotNil(t, output, "Expected some output")
+	assert.Contains(t, output, "OpenTofu used")
+	assert.NotNil(t, options.LastTestTerraformOutputs, "Expected some Terraform outputs")
+	_, outErr := ValidateTerraformOutputs(options.LastTestTerraformOutputs, sample1ExpectedOutputs...)
+	assert.Nil(t, outErr, outErr)
+
+}
 func TestRunTestContainsScript(t *testing.T) {
 	t.Parallel()
 	os.Setenv("TF_VAR_ibmcloud_api_key", "12345")
