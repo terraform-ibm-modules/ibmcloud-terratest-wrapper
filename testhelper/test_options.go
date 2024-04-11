@@ -14,7 +14,7 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
-const defaultRegion = "eu-gb"
+const defaultRegion = "us-south"
 const defaultRegionYaml = "../common-dev-assets/common-go-assets/cloudinfo-region-vpc-gen2-prefs.yaml"
 const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 
