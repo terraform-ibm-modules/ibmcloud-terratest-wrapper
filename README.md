@@ -88,6 +88,81 @@ func TestRunBasic(t *testing.T) {
 ```
 ___
 
+### Example Handling Terraform Outputs
+
+After the test completes and teardown occurs, the state file no longer contains the outputs. To handle this situation, the last test to execute stores its outputs in `LastTestTerraformOutputs`. Use the helper function called `ValidateTerraformOutputs` to validate that the outputs exist. The function returns a list of output keys that are missing and an error message with details.
+
+The following example checks if the output exists and contains a certain value.
+
+```go
+outputs := options.LastTestTerraformOutputs
+expectedOutputs := []string{"output1", "output2"}
+_, outputErr := testhelper.ValidateTerraformOutputs(outputs, expectedOutputs...)
+if assert.NoErrorf(t, outputErr, "Some outputs not found or nil.") {
+    assert.Equal(t, outputs["output1"].(string), "output 1")
+    assert.Equal(t, outputs["output2"].(string), "output 2")
+}
+```
+---
+
+### OpenTofu
+
+Enable OpenTofu with the TestOptions, then OpenTofu on the systems path will be used for the test.
+```go
+func TestRunBasicTofu(t *testing.T) {
+	t.Parallel()
+
+	options := testhelper.TestOptionsDefault(&testhelper.TestOptions{
+        Testing:            t,                      // the test object for unit test
+        EnableOpenTofu:     true,                   // enable open Tofu
+        TerraformDir:       "examples/basic",       // location of example to test
+        Prefix:             "my-test",              // will have 6 char random string appended
+        BestRegionYAMLPath: "location/of/yaml.yml", // YAML file to configure dynamic region selection
+        // Region: "us-south", // if you set Region, dynamic selection will be skipped
+    })
+
+    options.TerraformVars = map[string]interface{}{
+        "variable_1":   "foo",
+        "resource_prefix": options.Prefix,
+        "ibm_region": options.Region,
+    }
+
+    // idempotent test
+    output, err := options.RunTestConsistency()
+    assert.Nil(t, err, "This should not have errored")
+    assert.NotNil(t, output, "Expected some output")
+}
+
+```
+The `TerraformBinary` can also be set directly if Terrform/OpenTofu is not in the system path. If this is set the `EnableOpenTofu` option will be ignored.
+```go
+func TestRunBasicTerraformBinary(t *testing.T) {
+	t.Parallel()
+
+	options := testhelper.TestOptionsDefault(&testhelper.TestOptions{
+        Testing:            t,                      // the test object for unit test
+        TerraformBinary:    "/custom/path/tofu",    // set the path to the Terraform binary
+        TerraformDir:       "examples/basic",       // location of example to test
+        Prefix:             "my-test",              // will have 6 char random string appended
+        BestRegionYAMLPath: "location/of/yaml.yml", // YAML file to configure dynamic region selection
+        // Region: "us-south", // if you set Region, dynamic selection will be skipped
+    })
+
+    options.TerraformVars = map[string]interface{}{
+        "variable_1":   "foo",
+        "resource_prefix": options.Prefix,
+        "ibm_region": options.Region,
+    }
+
+    // idempotent test
+    output, err := options.RunTestConsistency()
+    assert.Nil(t, err, "This should not have errored")
+    assert.NotNil(t, output, "Expected some output")
+}
+
+```
+___
+
 ### Run in IBM Cloud Schematics
 
 The code to run a test inside IBM Schematics is similar to the [basic example](#testrunbasic), but uses the `testschematic` package.

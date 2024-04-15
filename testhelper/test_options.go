@@ -2,6 +2,7 @@ package testhelper
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
-const defaultRegion = "eu-gb"
+const defaultRegion = "us-south"
 const defaultRegionYaml = "../common-dev-assets/common-go-assets/cloudinfo-region-vpc-gen2-prefs.yaml"
 const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 
@@ -70,6 +71,13 @@ type TestOptions struct {
 	// Specify additional Terraform Options for Terratest using this variable.
 	// see: https://pkg.go.dev/github.com/gruntwork-io/terratest/modules/terraform#Options
 	TerraformOptions *terraform.Options `copier:"-"`
+
+	// Use OpenTofu binary on the system path. This is used to enable the OpenTofu binary to be used for testing.
+	// If OpenTofu is not installed, the test will fail.
+	// If TerraformOptions is passed with the value for TerraformBinary set, this value will be ignored.
+	EnableOpenTofu bool
+	// Use this to specify the path to the Terraform binary to use for testing. This is exclusive with EnableOpenTofu.
+	TerraformBinary string
 
 	// Use these options to have terratest execute using a terraform "workspace".
 	UseTerraformWorkspace bool
@@ -214,6 +222,19 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 	newOptions.RequiredEnvironmentVars = common.GetRequiredEnvVars(newOptions.Testing, checkVariables)
 
 	newOptions.UseTerraformWorkspace = false
+
+	// if originalOptions has TerraformBinary set, use that value. Otherwise, use OpenTofu
+	if newOptions.TerraformBinary == "" {
+		if newOptions.EnableOpenTofu {
+			_, err := exec.LookPath("tofu")
+			require.NoError(newOptions.Testing, err, "tofu binary not found on system, please install tofu or set TerraformBinary in TestOptions.")
+			if err == nil {
+				newOptions.TerraformBinary = "tofu"
+			}
+		} else {
+			newOptions.TerraformBinary = "terraform"
+		}
+	}
 
 	if newOptions.Region == "" {
 		// Get the best region

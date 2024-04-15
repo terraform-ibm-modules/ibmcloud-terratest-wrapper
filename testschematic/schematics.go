@@ -552,7 +552,7 @@ func (svc *SchematicsTestService) DeleteWorkspace() (string, error) {
 func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, error) {
 
 	// create unique tar filename
-	target := fmt.Sprintf("%sschematic-test-%s.tar", os.TempDir(), strings.ToLower(random.UniqueId()))
+	target := filepath.Join(os.TempDir(), fmt.Sprintf("schematic-test-%s.tar", strings.ToLower(random.UniqueId())))
 
 	// set up tarfile on filesystem
 	tarfile, fileErr := os.Create(target)
