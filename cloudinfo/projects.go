@@ -188,26 +188,28 @@ func (infoSvc *CloudInfoService) AddStackFromConfig(projectID string, configID s
 	return infoSvc.projectsService.CreateStackDefinition(createStackDefinitionOptions)
 }
 
-func (infoSvc *CloudInfoService) CreateNewStack(projectID string, stackName string, stackDescription string, stackConfig *project.StackDefinitionBlockPrototype, stackMembers []project.StackConfigMember) (result *project.ProjectConfig, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) CreateNewStack(projectID string, stackName string, stackDescription string, stackConfig *project.StackDefinitionBlockPrototype, stackMembers []project.StackConfigMember) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 
-	//convert inputs to map[string]interface{}
-	var stackInputs = make(map[string]interface{})
-	for _, input := range stackConfig.Inputs {
-		stackInputs[*input.Name] = input.Default
-	}
-
-	createStackDefinitionOptions := &project.ProjectConfigDefinitionPrototypeStackConfigDefinitionProperties{
+	// Create a project config first
+	createProjectConfigDefinitionOptions := &project.ProjectConfigDefinitionPrototypeStackConfigDefinitionProperties{
 		Description: &stackDescription,
 		Name:        &stackName,
-		Inputs:      stackInputs,
 		Members:     stackMembers,
 	}
 	createConfigOptions := infoSvc.projectsService.NewCreateConfigOptions(
 		projectID,
-		createStackDefinitionOptions,
+		createProjectConfigDefinitionOptions,
 	)
+	config, configResp, configErr := infoSvc.projectsService.CreateConfig(createConfigOptions)
+	if configErr != nil {
+		return nil, configResp, configErr
+	}
 
-	return infoSvc.projectsService.CreateConfig(createConfigOptions)
+	// Then apply the stack definition
+	stackDefOptions := infoSvc.projectsService.NewCreateStackDefinitionOptions(projectID, *config.ID, stackConfig)
+
+	return infoSvc.projectsService.CreateStackDefinition(stackDefOptions)
+
 }
 func (infoSvc *CloudInfoService) UpdateStackFromConfig(projectID string, configID string, stackConfig *project.StackDefinitionBlockPrototype) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 
@@ -310,7 +312,11 @@ func (infoSvc *CloudInfoService) DeployConfig(projectID string, configID string)
 	return infoSvc.projectsService.DeployConfig(deployConfigOptions)
 }
 
-func (infoSvc *CloudInfoService) CreateStackFromConfigFile(projectID string, stackConfigPath string, catalogJsonPath string) (result *project.ProjectConfig, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) CreateStackFromConfigFile(projectID string, stackConfigPath string, catalogJsonPath string) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
+	return infoSvc.CreateStackFromConfigFileWithInputs(projectID, stackConfigPath, catalogJsonPath, nil)
+}
+
+func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID string, stackConfigPath string, catalogJsonPath string, stackInputs map[string]interface{}) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 	// create configs from members
 	// Read the config JSON file
 	jsonFile, err := os.ReadFile(stackConfigPath)
@@ -354,32 +360,51 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(projectID string, sta
 				Name: &name,
 			})
 		}
+		memberName := member.Name
 		// create stack member
 		daConfigMembers = append(daConfigMembers, project.StackDefinitionMemberPrototype{
 			Inputs: inputPrototypes,
-			Name:   &member.Name,
+			Name:   &memberName,
 		})
 		daStackMembers = append(daStackMembers, project.StackConfigMember{
-			Name:     &member.Name,
+			Name:     &memberName,
 			ConfigID: daProjectConfig.ID,
 		})
 	}
 
 	// convert stackConfig inputs to []StackDefinitionInputVariable
-	var stackInputs []project.StackDefinitionInputVariable
+	var stackInputsDef []project.StackDefinitionInputVariable
 	for _, input := range stackConfig.Inputs {
-		// Assuming StackDefinitionInputVariablePrototype has fields Name and Description
-		// create stack input
-		stackInputs = append(stackInputs, project.StackDefinitionInputVariable{
-			Name:    &input.Name,
-			Type:    core.StringPtr(GetProjectInputType(input.Value)),
-			Default: input.Value,
+		// Create new variables this avoids the issue of the same address being used for all the variables
+		name := input.Name
+		inputType := input.Type
+		required := input.Required
+		var inputDefault interface{}
+		if stackInputs != nil {
+			if val, ok := stackInputs[input.Name]; ok {
+				inputDefault = val
+			}
+		}
+		if inputDefault == nil {
+			inputDefault = input.Default
+		}
+		description := input.Description
+		hidden := input.Hidden
+
+		// Use the addresses of the new variables
+		stackInputsDef = append(stackInputsDef, project.StackDefinitionInputVariable{
+			Name:        &name,
+			Type:        &inputType,
+			Required:    &required,
+			Default:     &inputDefault,
+			Description: &description,
+			Hidden:      &hidden,
 		})
 	}
 
 	// create stack and add da configs as members
 	stackDefinitionBlockPrototype := &project.StackDefinitionBlockPrototype{
-		Inputs:  stackInputs,
+		Inputs:  stackInputsDef,
 		Members: daConfigMembers,
 	}
 

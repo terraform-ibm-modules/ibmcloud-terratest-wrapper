@@ -54,7 +54,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 			options.Testing.Log("[PROJECTS] Deploying Test Stack")
 			var stackResp *core.DetailedResponse
 			var stackErr error
-			options.currentStack, stackResp, stackErr = cloudInfoSvc.CreateStackFromConfigFile(*options.currentProject.ID, options.StackConfigurationPath, options.StackCatalogJsonPath)
+			options.currentStack, stackResp, stackErr = cloudInfoSvc.CreateStackFromConfigFileWithInputs(*options.currentProject.ID, options.StackConfigurationPath, options.StackCatalogJsonPath, options.StackInputs)
 
 			if assert.NoError(options.Testing, stackErr) {
 				if assert.Equal(options.Testing, stackResp.StatusCode, 201) {
@@ -87,8 +87,8 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 									*def.Authorizations.Method == "" ||
 									(*def.Authorizations.ApiKey == "" && *def.Authorizations.TrustedProfileID == "") {
 									var patchInputs map[string]interface{}
-									if options.StackInputs != nil {
-										patchInputs = options.StackInputs[configName]
+									if options.StackMemberInputs != nil {
+										patchInputs = options.StackMemberInputs[configName]
 									}
 									patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
 										Authorizations: &project.ProjectConfigAuth{
@@ -99,8 +99,8 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 									}
 								} else {
 									var patchInputs map[string]interface{}
-									if options.StackInputs != nil {
-										patchInputs = options.StackInputs[configName]
+									if options.StackMemberInputs != nil {
+										patchInputs = options.StackMemberInputs[configName]
 									}
 									patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
 										Inputs: patchInputs,
@@ -122,8 +122,8 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 									*def.Authorizations.Method == "" ||
 									(*def.Authorizations.ApiKey == "" && *def.Authorizations.TrustedProfileID == "") {
 									var patchInputs map[string]interface{}
-									if options.StackInputs != nil {
-										patchInputs = options.StackInputs[configName]
+									if options.StackMemberInputs != nil {
+										patchInputs = options.StackMemberInputs[configName]
 									}
 									patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
 										Authorizations: &project.ProjectConfigAuth{
@@ -134,8 +134,8 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 									}
 								} else {
 									var patchInputs map[string]interface{}
-									if options.StackInputs != nil {
-										patchInputs = options.StackInputs[configName]
+									if options.StackMemberInputs != nil {
+										patchInputs = options.StackMemberInputs[configName]
 									}
 									patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
 										Inputs: patchInputs,
@@ -157,8 +157,8 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 									*def.Authorizations.Method == "" ||
 									(*def.Authorizations.ApiKey == "" && *def.Authorizations.TrustedProfileID == "") {
 									var patchInputs map[string]interface{}
-									if options.StackInputs != nil {
-										patchInputs = options.StackInputs[configName]
+									if options.StackMemberInputs != nil {
+										patchInputs = options.StackMemberInputs[configName]
 									}
 									patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
 										Authorizations: &project.ProjectConfigAuth{
@@ -169,8 +169,8 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 									}
 								} else {
 									var patchInputs map[string]interface{}
-									if options.StackInputs != nil {
-										patchInputs = options.StackInputs[configName]
+									if options.StackMemberInputs != nil {
+										patchInputs = options.StackMemberInputs[configName]
 									}
 									patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
 										Inputs: patchInputs,
@@ -210,7 +210,12 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 									}
 								}
 								if *validateConfig.State != VALIDATED {
-									// TODO: lookup the plan and output
+									schematicsCrn := validateConfig.Schematics.WorkspaceCrn
+									if schematicsCrn != nil {
+										// TODO: lookup the plan and output
+										// lookup the schematics workspace
+										// get the plan and output
+									}
 									return fmt.Errorf("validation failed for configuration %s last state: %s", configName, *validateConfig.State)
 								} else {
 									// Approve the configuration
