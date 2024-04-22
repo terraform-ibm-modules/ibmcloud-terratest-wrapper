@@ -250,6 +250,10 @@ For more customization, see the `ibmcloud-terratest-wrapper` reference at pkg.go
 - [Terratest examples](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#pkg-overview)
 - [IBM Schematics Workspace examples](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic#pkg-overview)
 
+---
+## IBM Cloud Projects
+IBM Cloud Projects support has been added but should be considered alpha. It is using pre-release APIs and may change in the future.
+It is not recommended to use this feature. Breaking changes are expected and upgrade paths are not guaranteed.
 ___
 ## Contributing
 
