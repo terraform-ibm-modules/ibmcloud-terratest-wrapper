@@ -213,7 +213,6 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 									schematicsCrn := validateConfig.Schematics.WorkspaceCrn
 									if schematicsCrn != nil {
 										// TODO: lookup the plan and output
-										options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed validation, schematics workspace: %s", configName, *schematicsCrn))
 										// lookup the schematics workspace
 										// get the plan and output
 									}
