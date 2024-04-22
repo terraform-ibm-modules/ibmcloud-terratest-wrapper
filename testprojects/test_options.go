@@ -53,8 +53,10 @@ type TestProjectsOptions struct {
 	StackLocatorID          string
 	StackCatalogJsonPath    string
 	StackConfigurationOrder []string
-	// StackInputs [ "stack-template-primary-da": {["input1": "value1", "input2": 2]}, "stack-template-secondary-da": {["input1": "value1", "input2": 2]}]
-	StackInputs map[string]map[string]interface{}
+	// StackMemberInputs [ "primary-da": {["input1": "value1", "input2": 2]}, "secondary-da": {["input1": "value1", "input2": 2]}]
+	StackMemberInputs map[string]map[string]interface{}
+	// StackInputs {"input1": "value1", "input2": 2}
+	StackInputs map[string]interface{}
 
 	ValidationTimeoutMinutes int
 	DeployTimeoutMinutes     int
@@ -64,7 +66,7 @@ type TestProjectsOptions struct {
 
 	// internal use
 	currentProject *project.Project
-	currentStack   *project.ProjectConfig
+	currentStack   *project.StackDefinition
 }
 
 // TestProjectOptionsDefault Default constructor for TestProjectsOptions
