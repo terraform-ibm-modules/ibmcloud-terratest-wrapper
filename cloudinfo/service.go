@@ -3,6 +3,7 @@ package cloudinfo
 
 import (
 	"errors"
+	projects "github.com/IBM/project-go-sdk/projectv1"
 	"log"
 	"os"
 	"sync"
@@ -36,6 +37,8 @@ type CloudInfoService struct {
 	regionsData               []RegionData
 	lock                      sync.Mutex
 	icdService                icdService
+	projectsService           projectsService
+	ApiKey                    string
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -62,6 +65,7 @@ type CloudInfoServiceOptions struct {
 	ContainerClient           containerClient
 	RegionPrefs               []RegionData
 	IcdService                icdService
+	ProjectsService           projectsService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -128,6 +132,32 @@ type icdService interface {
 	ListDeployables(*clouddatabasesv5.ListDeployablesOptions) (*clouddatabasesv5.ListDeployablesResponse, *core.DetailedResponse, error)
 }
 
+// projectsService for external Projects V1 Service API. Used for mocking.
+type projectsService interface {
+	CreateProject(createProjectOptions *projects.CreateProjectOptions) (result *projects.Project, response *core.DetailedResponse, err error)
+	GetProject(getProjectOptions *projects.GetProjectOptions) (result *projects.Project, response *core.DetailedResponse, err error)
+	UpdateProject(updateProjectOptions *projects.UpdateProjectOptions) (result *projects.Project, response *core.DetailedResponse, err error)
+	DeleteProject(deleteProjectOptions *projects.DeleteProjectOptions) (result *projects.ProjectDeleteResponse, response *core.DetailedResponse, err error)
+
+	NewCreateConfigOptions(projectID string, definition projects.ProjectConfigDefinitionPrototypeIntf) *projects.CreateConfigOptions
+	NewConfigsPager(listConfigsOptions *projects.ListConfigsOptions) (*projects.ConfigsPager, error)
+	NewGetConfigVersionOptions(projectID string, id string, version int64) *projects.GetConfigVersionOptions
+	GetConfigVersion(getConfigVersionOptions *projects.GetConfigVersionOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+
+	CreateConfig(createConfigOptions *projects.CreateConfigOptions) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	UpdateConfig(updateConfigOptions *projects.UpdateConfigOptions) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	GetConfig(getConfigOptions *projects.GetConfigOptions) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	DeleteConfig(deleteConfigOptions *projects.DeleteConfigOptions) (result *projects.ProjectConfigDelete, response *core.DetailedResponse, err error)
+
+	CreateStackDefinition(createStackDefinitionOptions *projects.CreateStackDefinitionOptions) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
+	NewCreateStackDefinitionOptions(projectID string, id string, stackDefinition *projects.StackDefinitionBlockPrototype) *projects.CreateStackDefinitionOptions
+	UpdateStackDefinition(updateStackDefinitionOptions *projects.UpdateStackDefinitionOptions) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
+	GetStackDefinition(getStackDefinitionOptions *projects.GetStackDefinitionOptions) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
+	ValidateConfig(validateConfigOptions *projects.ValidateConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	Approve(approveOptions *projects.ApproveOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	DeployConfig(deployConfigOptions *projects.DeployConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+}
+
 // ReplaceCBRRule replaces a CBR rule using the provided options.
 // updatedExistingRule is the rule to be replaced with the changes already made.
 // eTag is the eTag of the existing rule that is being replaced.
@@ -188,7 +218,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 			ApiKey: options.ApiKey,
 		}
 	}
-
+	infoSvc.ApiKey = options.ApiKey
 	// if IamIdentity is not supplied, use default external service
 	if options.IamIdentityService != nil {
 		infoSvc.iamIdentityService = options.IamIdentityService
@@ -317,6 +347,20 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.icdService = icdClient
 	}
 
+	if options.ProjectsService != nil {
+		infoSvc.projectsService = options.ProjectsService
+	} else {
+		projectsClient, projectsErr := projects.NewProjectV1(&projects.ProjectV1Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if projectsErr != nil {
+			log.Println("Error creating projects client:", projectsErr)
+			return nil, projectsErr
+		}
+
+		infoSvc.projectsService = projectsClient
+
+	}
 	return infoSvc, nil
 }
 
