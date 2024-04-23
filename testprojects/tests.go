@@ -212,10 +212,8 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 								if *validateConfig.State != VALIDATED {
 									schematicsCrn := validateConfig.Schematics.WorkspaceCrn
 									if schematicsCrn != nil {
-										// TODO: lookup the plan and output
 										options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed validation, schematics workspace: %s", configName, *schematicsCrn))
-										// lookup the schematics workspace
-										// get the plan and output
+										options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *validateConfig.LastValidated.Result))
 									}
 									return fmt.Errorf("validation failed for configuration %s last state: %s", configName, *validateConfig.State)
 								} else {
@@ -248,6 +246,11 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 														}
 													}
 													if *deployConfig.State != DEPLOYED {
+														schematicsCrn := deployConfig.Schematics.WorkspaceCrn
+														if schematicsCrn != nil {
+															options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed deploy, schematics workspace: %s", configName, *schematicsCrn))
+															options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *deployConfig.LastDeployed.Result))
+														}
 														return fmt.Errorf("deploy failed for configuration %s last state: %s", configName, *deployConfig.State)
 													}
 													if *deployConfig.State == DEPLOYED {
@@ -256,19 +259,23 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 												}
 											}
 										} else {
+											options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed to approve", configName))
 											return fmt.Errorf("error approving configuration %s", configName)
 										}
 									} else {
+										options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed to approve", configName))
 										return approveErr
 									}
 
 								}
 							}
 						} else {
+							options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is not in validating state", configName))
 							return validateErr
 						}
 					}
 				} else {
+					options.Testing.Log("[PROJECTS] Failed to deploy Test Stack")
 					return fmt.Errorf("error deploying stack statuscode %d details: %s", stackResp.StatusCode, stackResp.String())
 				}
 			} else {

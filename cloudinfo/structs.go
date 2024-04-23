@@ -18,17 +18,17 @@ type CatalogJson struct {
 
 type Stack struct {
 	Inputs []struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Required    bool   `json:"required"`
-		Type        string `json:"type"`
-		Hidden      bool   `json:"hidden"`
-		Default     string `json:"default"`
+		Name        string      `json:"name"`
+		Description string      `json:"description"`
+		Required    bool        `json:"required"`
+		Type        string      `json:"type"`
+		Hidden      bool        `json:"hidden"`
+		Default     interface{} `json:"default"`
 	} `json:"inputs"`
 	Members []struct {
 		Inputs []struct {
-			Name  string `json:"name"`
-			Value string `json:"value"`
+			Name  string      `json:"name"`
+			Value interface{} `json:"value"`
 		} `json:"inputs"`
 		Name           string `json:"name"`
 		VersionLocator string `json:"version_locator"`

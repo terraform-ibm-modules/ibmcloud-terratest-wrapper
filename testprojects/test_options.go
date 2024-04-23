@@ -26,6 +26,7 @@ type TestProjectsOptions struct {
 	RequiredEnvironmentVars map[string]string
 
 	// Only required if using the WithVars constructor, as this value will then populate the `resource_group` input variable.
+	// This resource group will be used to create the project and stack.
 	ResourceGroup string
 
 	// REQUIRED: the string prefix that will be prepended to all resource names, typically sent in as terraform input variable.
