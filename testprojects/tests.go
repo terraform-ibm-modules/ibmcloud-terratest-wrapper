@@ -279,11 +279,13 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 					return fmt.Errorf("error deploying stack statuscode %d details: %s", stackResp.StatusCode, stackResp.String())
 				}
 			} else {
+				options.Testing.Log("[PROJECTS] Failed to deploy Test Stack")
 				return stackErr
 			}
 
 		}
 	} else {
+		options.Testing.Log("[PROJECTS] Failed to create Test Project")
 		return err
 	}
 

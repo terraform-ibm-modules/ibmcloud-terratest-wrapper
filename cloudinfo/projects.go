@@ -350,8 +350,8 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 		}, inputs, nil)
 
 		if createDaErr != nil {
-			log.Println("Error creating config from catalog JSON:", err)
-			return nil, nil, err
+			log.Println("Error creating config from JSON:", createDaErr)
+			return nil, nil, createDaErr
 		}
 		// Assuming StackDefinitionMemberInputPrototype has fields Name and Value
 		inputPrototypes := make([]project.StackDefinitionMemberInputPrototype, 0, len(inputs))
