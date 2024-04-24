@@ -63,6 +63,12 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 					if !assert.NoError(options.Testing, configErr) {
 						return configErr
 					}
+					// ensure all stack members in the current stack are in the stack configuration order failing if not
+					for _, stackMember := range options.currentStack.StackDefinition.Members {
+						if !assert.Contains(options.Testing, options.StackConfigurationOrder, *stackMember.Name) {
+							return fmt.Errorf("stack member %s not in configuration order", *stackMember.Name)
+						}
+					}
 					// Validate each configuration in the stack loop through the stack configuration order options.StackConfigurationOrder
 					for _, configName := range options.StackConfigurationOrder {
 
