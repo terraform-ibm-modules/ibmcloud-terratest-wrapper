@@ -214,6 +214,9 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 									if schematicsCrn != nil {
 										options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed validation, schematics workspace: %s", configName, *schematicsCrn))
 										options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *validateConfig.LastValidated.Result))
+										for _, planErr := range validateConfig.LastValidated.Job.Summary.PlanMessages.ErrorMessages {
+											options.Testing.Log(fmt.Sprintf("[PROJECTS] Plan Error: %s", planErr))
+										}
 									}
 									return fmt.Errorf("validation failed for configuration %s last state: %s", configName, *validateConfig.State)
 								} else {
@@ -250,6 +253,9 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 														if schematicsCrn != nil {
 															options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed deploy, schematics workspace: %s", configName, *schematicsCrn))
 															options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *deployConfig.LastDeployed.Result))
+															for _, applyErr := range deployConfig.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages {
+																options.Testing.Log(fmt.Sprintf("[PROJECTS] Apply Error: %s", applyErr))
+															}
 														}
 														return fmt.Errorf("deploy failed for configuration %s last state: %s", configName, *deployConfig.State)
 													}
