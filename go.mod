@@ -7,15 +7,15 @@ require (
 	github.com/IBM-Cloud/power-go-client v1.6.0
 	github.com/IBM/cloud-databases-go-sdk v0.6.0
 	github.com/IBM/go-sdk-core/v5 v5.17.0
-	github.com/IBM/platform-services-go-sdk v0.62.6
-	github.com/IBM/project-go-sdk v0.2.9
+	github.com/IBM/platform-services-go-sdk v0.62.10
+	github.com/IBM/project-go-sdk v0.3.0
 	github.com/IBM/schematics-go-sdk v0.2.3
 	github.com/IBM/vpc-go-sdk v0.50.0
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/go-openapi/errors v0.22.0
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/google/go-cmp v0.6.0
-	github.com/gruntwork-io/terratest v0.46.13
+	github.com/gruntwork-io/terratest v0.46.14
 	github.com/hashicorp/terraform-json v0.21.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.9.0
@@ -67,7 +67,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.11.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	github.com/hashicorp/go-getter v1.7.1 // indirect
+	github.com/hashicorp/go-getter v1.7.4 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.5 // indirect
 	github.com/hashicorp/go-safetemp v1.0.0 // indirect
