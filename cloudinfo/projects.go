@@ -341,7 +341,8 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 	for _, member := range stackConfig.Members {
 		inputs := make(map[string]interface{})
 		for _, input := range member.Inputs {
-			inputs[input.Name] = input.Value
+			val := input.Value
+			inputs[input.Name] = val
 		}
 
 		daProjectConfig, _, createDaErr := infoSvc.CreateDaConfig(projectID, member.VersionLocator, member.Name, member.Name, project.ProjectConfigAuth{
@@ -361,18 +362,25 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 		// Assuming StackDefinitionMemberInputPrototype has fields Name and Value
 		inputPrototypes := make([]project.StackDefinitionMemberInputPrototype, 0, len(inputs))
 		for name, _ := range inputs {
+			curInputNameVar := name
+			curInputName := &curInputNameVar
 			inputPrototypes = append(inputPrototypes, project.StackDefinitionMemberInputPrototype{
-				Name: &name,
+				Name: curInputName,
 			})
 		}
+
+		curMemberNameVar := member.Name
+		curMemberName := &curMemberNameVar
+
+		curDaProjectConfig := daProjectConfig.ID
 		// create stack member
 		daConfigMembers = append(daConfigMembers, project.StackDefinitionMemberPrototype{
 			Inputs: inputPrototypes,
-			Name:   &member.Name,
+			Name:   curMemberName,
 		})
 		daStackMembers = append(daStackMembers, project.StackConfigMember{
-			Name:     &member.Name,
-			ConfigID: daProjectConfig.ID,
+			Name:     curMemberName,
+			ConfigID: curDaProjectConfig,
 		})
 	}
 
@@ -380,9 +388,12 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 	var stackInputsDef []project.StackDefinitionInputVariable
 	for _, input := range stackConfig.Inputs {
 		// Create new variables this avoids the issue of the same address being used for all the variables
-		name := input.Name
-		inputType := input.Type
-		required := input.Required
+		nameVar := input.Name
+		name := &nameVar
+		inputTypeVar := input.Type
+		inputType := &inputTypeVar
+		requiredVar := input.Required
+		required := &requiredVar
 		var inputDefault interface{}
 		if stackInputs != nil {
 			if val, ok := stackInputs[input.Name]; ok {
@@ -390,26 +401,30 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 			}
 		}
 		if inputDefault == nil {
-			inputDefault = input.Default
+			inputDefaultVar := input.Default
+			inputDefault = &inputDefaultVar
 		}
-		description := input.Description
-		hidden := input.Hidden
-
+		descriptionVar := input.Description
+		description := &descriptionVar
+		hiddenVar := input.Hidden
+		hidden := &hiddenVar
 		// Use the addresses of the new variables
 		stackInputsDef = append(stackInputsDef, project.StackDefinitionInputVariable{
-			Name:        &name,
-			Type:        &inputType,
-			Required:    &required,
-			Default:     &inputDefault,
-			Description: &description,
-			Hidden:      &hidden,
+			Name:        name,
+			Type:        inputType,
+			Required:    required,
+			Default:     inputDefault,
+			Description: description,
+			Hidden:      hidden,
 		})
 	}
+	curStackInputsDef := stackInputsDef
+	curDaMembers := daConfigMembers
 
 	// create stack and add da configs as members
 	stackDefinitionBlockPrototype := &project.StackDefinitionBlockPrototype{
-		Inputs:  stackInputsDef,
-		Members: daConfigMembers,
+		Inputs:  curStackInputsDef,
+		Members: curDaMembers,
 	}
 
 	// load catalog json to get stack name and description
