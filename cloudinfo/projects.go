@@ -330,7 +330,7 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 	// Unmarshal the JSON data into the config variable
 	err = json.Unmarshal(jsonFile, &stackConfig)
 	if err != nil {
-		log.Println("Error unmarshaling JSON:", err)
+		log.Println("Error unmarshalling JSON:", err)
 		return nil, nil, err
 	}
 
@@ -351,6 +351,11 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 
 		if createDaErr != nil {
 			log.Println("Error creating config from JSON:", createDaErr)
+			// log current member details in pretty format
+			log.Printf("Current Member Name: %s\n", member.Name)
+			log.Printf("Current Member description: %s\n", member.Name)
+			log.Printf("Current Member VersionLocator: %s\n", member.VersionLocator)
+			log.Printf("Current Member Inputs: %v\n", inputs)
 			return nil, nil, createDaErr
 		}
 		// Assuming StackDefinitionMemberInputPrototype has fields Name and Value
