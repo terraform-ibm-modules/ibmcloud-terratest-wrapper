@@ -378,13 +378,15 @@ func (options *TestProjectsOptions) UnDeployStack() error {
 	if !assert.NoError(options.Testing, configErr) {
 		return configErr
 	}
-	// loop through the stack configuration in revers order options.StackConfigurationOrder and undeploy
+	// loop through the stack configuration in reverse order options.StackConfigurationOrder and undeploy
 	for i := len(options.StackConfigurationOrder) - 1; i >= 0; i-- {
 		configName := options.StackConfigurationOrder[i]
 
 		currentConfig, currConfigErr := getConfigFromName(configName, allConfigurations)
-		if !assert.NoError(options.Testing, currConfigErr) {
-			return currConfigErr
+		// skip if configuration not found
+		if currConfigErr != nil {
+			options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s not found skipping", configName))
+			continue
 		}
 		// Only undeploy if the configuration is deployed
 		if *currentConfig.State == DEPLOYED {
@@ -413,6 +415,8 @@ func (options *TestProjectsOptions) UnDeployStack() error {
 					options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeployed Configuration %s", configName))
 				}
 			}
+		} else {
+			options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is not deployed skipping undeploy", configName))
 		}
 	}
 	return nil
