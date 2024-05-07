@@ -365,14 +365,13 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 				Name: &name,
 			})
 		}
-		memberName := member.Name
 		// create stack member
 		daConfigMembers = append(daConfigMembers, project.StackDefinitionMemberPrototype{
 			Inputs: inputPrototypes,
-			Name:   &memberName,
+			Name:   &member.Name,
 		})
 		daStackMembers = append(daStackMembers, project.StackConfigMember{
-			Name:     &memberName,
+			Name:     &member.Name,
 			ConfigID: daProjectConfig.ID,
 		})
 	}
