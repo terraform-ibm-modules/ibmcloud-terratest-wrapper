@@ -6,6 +6,8 @@ import (
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -43,6 +45,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 	if err != nil {
 		return err
 	}
+
 	// Create a new project
 	options.Testing.Log("[PROJECTS] Creating Test Project")
 	prj, resp, err := cloudInfoSvc.CreateDefaultProject(options.ProjectName, options.ProjectDescription, options.ResourceGroup)
@@ -315,15 +318,104 @@ func (options *TestProjectsOptions) TestTearDown() {
 		options.Testing.Errorf("Error creating CloudInfoService: %s", err)
 		return
 	}
-	// Delete the project
-	// TODO: Wait until all validation is complete before deleting the project
-	//       Delete will fail while jobs are running
-	options.Testing.Log("[PROJECTS] Deleting Test Project")
-	_, resp, err := cloudInfoSvc.DeleteProject(*options.currentProject.ID)
-	if assert.NoError(options.Testing, err) {
-		assert.Equal(options.Testing, 202, resp.StatusCode)
-		options.Testing.Log("[PROJECTS] Deleted Test Project")
+	// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
+	envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
+
+	// Do not destroy if tests failed and "DO_NOT_DESTROY_ON_FAILURE" is true
+	if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+		fmt.Println("DO_NOT_DESTROY_ON_FAILURE enabled")
+		fmt.Println("Terratest failed. Debug the Test and delete project manually.")
+		return
+
+	} else {
+		if options.UndeployStack {
+			undeployErr := options.UnDeployStack()
+			if !assert.NoError(options.Testing, undeployErr) {
+				options.Testing.Errorf("Error undeploying stack: %s", undeployErr)
+				return
+			}
+		}
+		// Delete the project
+		allConfigurations, configErr := cloudInfoSvc.GetProjectConfigs(*options.currentProject.ID)
+		if assert.NoError(options.Testing, configErr) {
+			// Check no configurations are running jobs and wait for them to finish
+			for _, config := range allConfigurations {
+				timeoutEndTime := time.Now().Add(time.Duration(options.UndeployTimeoutMinutes) * time.Minute)
+				currentConfig, _, stateErr := cloudInfoSvc.GetConfig(*options.currentProject.ID, *config.ID)
+				if !assert.NoError(options.Testing, stateErr) {
+					currentState := *currentConfig.State
+					if currentState == DEPLOYING || currentState == UNDEPLOYING || currentState == VALIDATING || currentState == DELETING {
+						options.Testing.Log(fmt.Sprintf("[PROJECTS] Waiting for configuration %s to finish current job: %s", *config.Definition.Name, currentState))
+						time.Sleep(30 * time.Second)
+						if time.Now().After(timeoutEndTime) {
+							options.Testing.Errorf("timeout waiting for configuration %s to finish current job: %s", *config.Definition.Name, currentState)
+							return
+						}
+					}
+				}
+			}
+			options.Testing.Log("[PROJECTS] Deleting Test Project")
+			_, resp, delPrjErr := cloudInfoSvc.DeleteProject(*options.currentProject.ID)
+			if assert.NoError(options.Testing, delPrjErr) {
+				assert.Equal(options.Testing, 202, resp.StatusCode)
+				options.Testing.Log("[PROJECTS] Deleted Test Project")
+			}
+		}
 	}
+}
+
+func (options *TestProjectsOptions) UnDeployStack() error {
+	if options.currentProject == nil {
+		options.Testing.Log("[PROJECTS] No project to undeploy")
+		return nil
+	}
+	cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
+	if err != nil {
+		return err
+	}
+
+	allConfigurations, configErr := cloudInfoSvc.GetProjectConfigs(*options.currentProject.ID)
+	if !assert.NoError(options.Testing, configErr) {
+		return configErr
+	}
+	// loop through the stack configuration in revers order options.StackConfigurationOrder and undeploy
+	for i := len(options.StackConfigurationOrder) - 1; i >= 0; i-- {
+		configName := options.StackConfigurationOrder[i]
+
+		currentConfig, currConfigErr := getConfigFromName(configName, allConfigurations)
+		if !assert.NoError(options.Testing, currConfigErr) {
+			return currConfigErr
+		}
+		// Only undeploy if the configuration is deployed
+		if *currentConfig.State == DEPLOYED {
+			undeployConfig, _, undeployErr := cloudInfoSvc.UndeployConfig(*options.currentProject.ID, *currentConfig.ID)
+			if assert.NoError(options.Testing, undeployErr) {
+				// Set end time
+				undeployEndTime := time.Now().Add(time.Duration(options.UndeployTimeoutMinutes) * time.Minute)
+
+				if *undeployConfig.State != DEPLOYED {
+					// Wait for the configuration to finish undeploying
+					for *undeployConfig.State == UNDEPLOYING {
+						// if the time is greater than the timeout
+						// return an error
+						if time.Now().After(undeployEndTime) {
+							options.Testing.Errorf("undeploy timeout for configuration %s", configName)
+							return fmt.Errorf("undeploy timeout for configuration %s", configName)
+						}
+						options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is still undeploying", configName))
+						time.Sleep(30 * time.Second)
+						undeployConfig, _, undeployErr = cloudInfoSvc.GetConfigVersion(*options.currentProject.ID, *currentConfig.ID, *currentConfig.Version)
+						if !assert.NoError(options.Testing, undeployErr) {
+							return undeployErr
+						}
+					}
+
+					options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeployed Configuration %s", configName))
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func getConfigFromName(configName string, allConfigs []project.ProjectConfigSummary) (*project.ProjectConfigSummary, error) {

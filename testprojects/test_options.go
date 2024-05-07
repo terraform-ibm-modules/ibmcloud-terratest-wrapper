@@ -59,8 +59,13 @@ type TestProjectsOptions struct {
 	// StackInputs {"input1": "value1", "input2": 2}
 	StackInputs map[string]interface{}
 
+	// If you want to undeploy in reverse order enable this flag
+	// Without this flag the project will be deleted and all configurations will be deleted in parallel
+	UndeployStack bool
+
 	ValidationTimeoutMinutes int
 	DeployTimeoutMinutes     int
+	UndeployTimeoutMinutes   int
 
 	// If you want to skip teardown use this flag
 	SkipTestTearDown bool
@@ -98,7 +103,7 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	if newOptions.ResourceGroup == "" {
 		newOptions.ResourceGroup = "Default"
 	}
-	// TODO: default stack configuration path and catalog path to repo root stack_definition.json and ibm_catalog.json
+
 	repoRoot, repoErr := common.GitRootPath(".")
 	if repoErr != nil {
 		repoRoot = "."
@@ -115,6 +120,11 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	if newOptions.DeployTimeoutMinutes == 0 {
 		newOptions.DeployTimeoutMinutes = 6 * 60
 	}
+	if newOptions.UndeployTimeoutMinutes == 0 {
+		newOptions.UndeployTimeoutMinutes = 6 * 60
+	}
+	newOptions.UndeployStack = true
+
 	return newOptions
 }
 

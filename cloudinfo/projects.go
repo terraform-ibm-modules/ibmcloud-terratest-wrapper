@@ -7,7 +7,6 @@ import (
 	"log"
 	"math/rand"
 	"os"
-	"strconv"
 )
 
 // CreateDefaultProject creates a default project with the given name and description
@@ -312,6 +311,14 @@ func (infoSvc *CloudInfoService) DeployConfig(projectID string, configID string)
 	return infoSvc.projectsService.DeployConfig(deployConfigOptions)
 }
 
+func (infoSvc *CloudInfoService) UndeployConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+	deployConfigOptions := &project.UndeployConfigOptions{
+		ProjectID: &projectID,
+		ID:        &configID,
+	}
+	return infoSvc.projectsService.UndeployConfig(deployConfigOptions)
+}
+
 func (infoSvc *CloudInfoService) CreateStackFromConfigFile(projectID string, stackConfigPath string, catalogJsonPath string) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 	return infoSvc.CreateStackFromConfigFileWithInputs(projectID, stackConfigPath, catalogJsonPath, nil)
 }
@@ -424,30 +431,4 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 	}
 
 	return infoSvc.CreateNewStack(projectID, catalogConfig.Products[0].Name, catalogConfig.Products[0].Name, stackDefinitionBlockPrototype, daStackMembers)
-}
-
-func GetProjectInputType(input string) (inputType string) {
-	// infer the type of the input array,boolean,float,int,number,string,object
-	if input == "true" || input == "false" {
-		return "boolean"
-	}
-	// if input starts with { and ends with } then it is an object
-	if input[0] == '{' && input[len(input)-1] == '}' {
-		return "object"
-	}
-	// if input starts with [ and ends with ] then it is an array
-	if input[0] == '[' && input[len(input)-1] == ']' {
-		return "array"
-	}
-	// if input is a float then it is a float
-	if _, err := strconv.ParseFloat(input, 64); err == nil {
-		return "float"
-	}
-	// if input is integer then it is an int
-	if _, err := strconv.ParseInt(input, 10, 64); err == nil {
-		return "int"
-	}
-
-	// default to string
-	return "string"
 }
