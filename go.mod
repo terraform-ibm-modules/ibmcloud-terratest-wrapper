@@ -6,7 +6,7 @@ require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240423071914-9e96525baef4
 	github.com/IBM-Cloud/power-go-client v1.6.0
 	github.com/IBM/cloud-databases-go-sdk v0.7.0
-	github.com/IBM/go-sdk-core/v5 v5.17.1
+	github.com/IBM/go-sdk-core/v5 v5.17.2
 	github.com/IBM/platform-services-go-sdk v0.62.11
 	github.com/IBM/project-go-sdk v0.3.0
 	github.com/IBM/schematics-go-sdk v0.2.3
