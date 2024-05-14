@@ -1,11 +1,13 @@
 package testprojects
 
 import (
+	"errors"
 	"fmt"
 	"github.com/IBM/go-sdk-core/v5/core"
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+	"strings"
 	"time"
 )
 
@@ -65,6 +67,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 					}
 					// ensure all stack members in the current stack are in the stack configuration order failing if not
 					for _, stackMember := range options.currentStack.StackDefinition.Members {
+						// check if the stack member is in the configuration order
 						if !assert.Contains(options.Testing, options.StackConfigurationOrder, *stackMember.Name) {
 							return fmt.Errorf("stack member %s not in configuration order", *stackMember.Name)
 						}
@@ -292,6 +295,14 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 				}
 			} else {
 				options.Testing.Log("[PROJECTS] Failed to deploy Test Stack")
+				var sdkProblem *core.SDKProblem
+				if errors.As(stackErr, &sdkProblem) {
+					if strings.Contains(sdkProblem.Summary, "A stack definition member input") &&
+						strings.Contains(sdkProblem.Summary, "was not found in the configuration") {
+						sdkProblem.Summary = fmt.Sprintf("%s Input name possibly removed or renamed", sdkProblem.Summary)
+						return sdkProblem
+					}
+				}
 				return stackErr
 			}
 
