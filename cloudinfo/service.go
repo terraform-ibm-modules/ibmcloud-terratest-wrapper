@@ -52,6 +52,7 @@ type CloudInfoServiceI interface {
 	HasRegionData() bool
 	RemoveRegionForTest(string)
 	GetThreadLock() *sync.Mutex
+	GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.

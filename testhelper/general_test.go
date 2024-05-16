@@ -2,6 +2,7 @@ package testhelper
 
 import (
 	"errors"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	"os"
 	"sync"
 	"testing"
@@ -96,6 +97,9 @@ func (mock *cloudInfoServiceMock) RemoveRegionForTest(regionID string) {
 
 func (mock *cloudInfoServiceMock) GetThreadLock() *sync.Mutex {
 	return &mock.lock
+}
+func (mock *cloudInfoServiceMock) GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error) {
+	return nil, nil
 }
 
 /**** END MOCK CloudInfoService ****/
