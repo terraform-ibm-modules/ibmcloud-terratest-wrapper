@@ -311,7 +311,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 							return sdkProblem
 						}
 						// get inputs for the member config of version
-						version, vererr := cloudInfoSvc.GetVersion(versionLocator)
+						version, vererr := cloudInfoSvc.GetCatalogVersionByLocator(versionLocator)
 						if !assert.NoError(options.Testing, vererr) {
 							options.Testing.Error("Error getting offering")
 							return sdkProblem

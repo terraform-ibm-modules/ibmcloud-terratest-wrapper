@@ -5,8 +5,8 @@ import (
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 )
 
-func (infoSvc *CloudInfoService) GetVersion(versionLocator string) (*catalogmanagementv1.Version, error) {
-	// Call the GetVersion method with the version locator and the context
+func (infoSvc *CloudInfoService) GetCatalogVersionByLocator(versionLocator string) (*catalogmanagementv1.Version, error) {
+	// Call the GetCatalogVersionByLocator method with the version locator and the context
 	getVersionOptions := &catalogmanagementv1.GetVersionOptions{
 		VersionLocID: &versionLocator,
 	}
