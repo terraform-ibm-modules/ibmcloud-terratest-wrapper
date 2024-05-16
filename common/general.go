@@ -2,11 +2,16 @@
 package common
 
 import (
+	"bytes"
+	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/crypto/openpgp"
+	"golang.org/x/crypto/openpgp/packet"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 	"io"
@@ -214,6 +219,39 @@ func GenerateSshRsaPublicKey() (string, error) {
 	pubKeyStrTrim := strings.TrimSpace(pubKeyStr)
 
 	return pubKeyStrTrim, nil
+}
+
+// GenerateTempGPGKeyPairBase64 generates a temporary GPG key pair and returns the private and public keys in base64 format.
+// The function first creates a new pair of keys using the openpgp.NewEntity function with a SHA256 hash configuration.
+// It then serializes the private and public keys into bytes.Buffer variables.
+// If any error occurs during the creation or serialization of the keys, the function returns the error.
+// Finally, the function encodes the serialized private and public keys into base64 format and returns them as strings.
+// The function returns two strings: the first is the base64-encoded private key and the second is the base64-encoded public key.
+func GenerateTempGPGKeyPairBase64() (string, string, error) {
+	// Create a new pair of keys
+	config := &packet.Config{DefaultHash: crypto.SHA256}
+	entity, err := openpgp.NewEntity("Test", "TempKey from test", "test@test.com", config)
+	if err != nil {
+		return "", "", fmt.Errorf("error creating entity: %w", err)
+	}
+
+	// Encode the private key to base64
+	var private bytes.Buffer
+	err = entity.SerializePrivate(&private, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("error encoding private key: %w", err)
+	}
+
+	// Encode the public key to base64
+	var public bytes.Buffer
+	err = entity.Serialize(&public)
+	if err != nil {
+		return "", "", fmt.Errorf("error encoding public key: %w", err)
+	}
+
+	privateKeyBase64 := base64.StdEncoding.EncodeToString(private.Bytes())
+	publicKeyBase64 := base64.StdEncoding.EncodeToString(public.Bytes())
+	return privateKeyBase64, publicKeyBase64, nil
 }
 
 // CopyFile copies a file from source to destination.

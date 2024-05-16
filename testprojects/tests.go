@@ -7,6 +7,7 @@ import (
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+	"os"
 	"strings"
 	"time"
 )
@@ -300,6 +301,29 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 					if strings.Contains(sdkProblem.Summary, "A stack definition member input") &&
 						strings.Contains(sdkProblem.Summary, "was not found in the configuration") {
 						sdkProblem.Summary = fmt.Sprintf("%s Input name possibly removed or renamed", sdkProblem.Summary)
+						// A stack definition member input resource_tag was not found in the configuration primary-da.
+						// extract the member config name, get the member config version, get all inputs for this version
+						member_name := strings.Split(sdkProblem.Summary, "was not found in the configuration ")[1]
+						member_name = strings.Split(member_name, ".")[0]
+						versionLocator, vlErr := GetVersionLocatorFromStackDefinitionForMemberName(options.StackConfigurationPath, member_name)
+						if !assert.NoError(options.Testing, vlErr) {
+							options.Testing.Error("Error getting version locator from stack definition")
+							return sdkProblem
+						}
+						// get inputs for the member config of version
+						version, vererr := cloudInfoSvc.GetCatalogVersionByLocator(versionLocator)
+						if !assert.NoError(options.Testing, vererr) {
+							options.Testing.Error("Error getting offering")
+							return sdkProblem
+						}
+						// version.configurations[x].name append all configuration names to validInputs
+						validInputs := "Valid Inputs:\n"
+
+						for _, configuration := range version.Configuration {
+							validInputs += fmt.Sprintf("\t%s\n", *configuration.Key)
+						}
+
+						sdkProblem.Summary = fmt.Sprintf("%s Inputs possibly removed or renamed.\n%s", sdkProblem.Summary, validInputs)
 						return sdkProblem
 					}
 				}
@@ -320,20 +344,31 @@ func (options *TestProjectsOptions) TestTearDown() {
 		options.Testing.Log("[PROJECTS] No project to delete")
 		return
 	}
-	// TODO: Is there a better way to handle this?
-	cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
-	if err != nil {
-		options.Testing.Errorf("Error creating CloudInfoService: %s", err)
-		return
-	}
-	// Delete the project
-	// TODO: Wait until all validation is complete before deleting the project
-	//       Delete will fail while jobs are running
-	options.Testing.Log("[PROJECTS] Deleting Test Project")
-	_, resp, err := cloudInfoSvc.DeleteProject(*options.currentProject.ID)
-	if assert.NoError(options.Testing, err) {
-		assert.Equal(options.Testing, 202, resp.StatusCode)
-		options.Testing.Log("[PROJECTS] Deleted Test Project")
+	if !options.SkipTestTearDown {
+		// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
+		envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
+
+		// Do not destroy if tests failed and "DO_NOT_DESTROY_ON_FAILURE" is true
+		if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+			fmt.Println("Terratest failed. Debug the Test and delete resources manually.")
+		} else {
+
+			// TODO: Is there a better way to handle this?
+			cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
+			if err != nil {
+				options.Testing.Errorf("Error creating CloudInfoService: %s", err)
+				return
+			}
+			// Delete the project
+			// TODO: Wait until all validation is complete before deleting the project
+			//       Delete will fail while jobs are running
+			options.Testing.Log("[PROJECTS] Deleting Test Project")
+			_, resp, err := cloudInfoSvc.DeleteProject(*options.currentProject.ID)
+			if assert.NoError(options.Testing, err) {
+				assert.Equal(options.Testing, 202, resp.StatusCode)
+				options.Testing.Log("[PROJECTS] Deleted Test Project")
+			}
+		}
 	}
 }
 

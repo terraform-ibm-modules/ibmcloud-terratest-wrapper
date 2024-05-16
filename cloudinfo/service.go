@@ -3,6 +3,7 @@ package cloudinfo
 
 import (
 	"errors"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	projects "github.com/IBM/project-go-sdk/projectv1"
 	"log"
 	"os"
@@ -34,6 +35,7 @@ type CloudInfoService struct {
 	resourceManagerService    resourceManagerService
 	cbrService                cbrService
 	containerClient           containerClient
+	catalogService            catalogService
 	regionsData               []RegionData
 	lock                      sync.Mutex
 	icdService                icdService
@@ -50,6 +52,7 @@ type CloudInfoServiceI interface {
 	HasRegionData() bool
 	RemoveRegionForTest(string)
 	GetThreadLock() *sync.Mutex
+	GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -66,6 +69,7 @@ type CloudInfoServiceOptions struct {
 	RegionPrefs               []RegionData
 	IcdService                icdService
 	ProjectsService           projectsService
+	CatalogService            catalogService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -156,6 +160,11 @@ type projectsService interface {
 	ValidateConfig(validateConfigOptions *projects.ValidateConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
 	Approve(approveOptions *projects.ApproveOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
 	DeployConfig(deployConfigOptions *projects.DeployConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+}
+
+// catalogService for external Data Catalog V1 Service API. Used for mocking.
+type catalogService interface {
+	GetVersion(getVersionOptions *catalogmanagementv1.GetVersionOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -359,6 +368,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.projectsService = projectsClient
+
+	}
+
+	if options.CatalogService != nil {
+		infoSvc.catalogService = options.CatalogService
+	} else {
+		catalogClient, catalogErr := catalogmanagementv1.NewCatalogManagementV1(&catalogmanagementv1.CatalogManagementV1Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if catalogErr != nil {
+			log.Println("Error creating catalog client:", catalogErr)
+			return nil, catalogErr
+		}
+
+		infoSvc.catalogService = catalogClient
 
 	}
 	return infoSvc, nil
