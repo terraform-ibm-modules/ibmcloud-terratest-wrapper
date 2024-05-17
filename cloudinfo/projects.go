@@ -401,8 +401,13 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 			}
 		}
 		if inputDefault == nil {
-			inputDefaultVar := input.Default
-			inputDefault = &inputDefaultVar
+			// if input.Default is nil, set inputDefault to "__NULL__" so it evaluates correctly by the time it reaches Terraform
+			if input.Default == nil {
+				inputDefault = "__NULL__"
+			} else {
+				inputDefaultVar := input.Default
+				inputDefault = &inputDefaultVar
+			}
 		}
 		descriptionVar := input.Description
 		description := &descriptionVar
