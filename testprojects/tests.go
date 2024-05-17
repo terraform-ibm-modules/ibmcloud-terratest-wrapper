@@ -219,7 +219,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 										return validateErr
 									}
 								}
-								if *validateConfig.State != VALIDATED {
+								if !assert.Equal(options.Testing, *validateConfig.State, VALIDATED) {
 									schematicsCrn := validateConfig.Schematics.WorkspaceCrn
 									if schematicsCrn != nil {
 										options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed validation, schematics workspace: %s", configName, *schematicsCrn))
@@ -258,7 +258,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 															return deployErr
 														}
 													}
-													if *deployConfig.State != DEPLOYED {
+													if !assert.Equal(options.Testing, *deployConfig.State, DEPLOYED) {
 														schematicsCrn := deployConfig.Schematics.WorkspaceCrn
 														if schematicsCrn != nil {
 															options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed deploy, schematics workspace: %s", configName, *schematicsCrn))
@@ -269,9 +269,8 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 														}
 														return fmt.Errorf("deploy failed for configuration %s last state: %s", configName, *deployConfig.State)
 													}
-													if *deployConfig.State == DEPLOYED {
-														options.Testing.Log(fmt.Sprintf("[PROJECTS] Deployed Configuration %s", configName))
-													}
+
+													options.Testing.Log(fmt.Sprintf("[PROJECTS] Deployed Configuration %s", configName))
 												}
 											}
 										} else {
