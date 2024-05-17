@@ -50,7 +50,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 	options.Testing.Log("[PROJECTS] Creating Test Project")
 	prj, resp, err := cloudInfoSvc.CreateDefaultProject(options.ProjectName, options.ProjectDescription, options.ResourceGroup)
 	if assert.NoError(options.Testing, err) {
-		if assert.Equal(options.Testing, resp.StatusCode, 201) {
+		if assert.Equal(options.Testing, 201, resp.StatusCode) {
 			options.Testing.Log(fmt.Sprintf("[PROJECTS] Created Test Project - %s", *prj.Definition.Name))
 			options.currentProject = prj
 			// Deploy the configuration
@@ -60,7 +60,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 			options.currentStack, stackResp, stackErr = cloudInfoSvc.CreateStackFromConfigFileWithInputs(*options.currentProject.ID, options.StackConfigurationPath, options.StackCatalogJsonPath, options.StackInputs)
 
 			if assert.NoError(options.Testing, stackErr) {
-				if assert.Equal(options.Testing, stackResp.StatusCode, 201) {
+				if assert.Equal(options.Testing, 201, stackResp.StatusCode) {
 					options.Testing.Log("[PROJECTS] Deployed Test Stack")
 					allConfigurations, configErr := cloudInfoSvc.GetProjectConfigs(*options.currentProject.ID)
 					if !assert.NoError(options.Testing, configErr) {
@@ -120,7 +120,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 								if !assert.NoError(options.Testing, updateErr) {
 									return updateErr
 								}
-								if !assert.Equal(options.Testing, updateResponse.StatusCode, 200) {
+								if !assert.Equal(options.Testing, 200, updateResponse.StatusCode) {
 									return fmt.Errorf("error updating configuration %s", configName)
 								}
 
@@ -155,7 +155,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 								if !assert.NoError(options.Testing, updateErr) {
 									return updateErr
 								}
-								if !assert.Equal(options.Testing, updateResponse.StatusCode, 200) {
+								if !assert.Equal(options.Testing, 200, updateResponse.StatusCode) {
 									return fmt.Errorf("error updating configuration %s", configName)
 								}
 
@@ -190,7 +190,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 								if !assert.NoError(options.Testing, updateErr) {
 									return updateErr
 								}
-								if !assert.Equal(options.Testing, updateResponse.StatusCode, 200) {
+								if !assert.Equal(options.Testing, 200, updateResponse.StatusCode) {
 									return fmt.Errorf("error updating configuration %s", configName)
 								}
 
@@ -219,7 +219,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 										return validateErr
 									}
 								}
-								if *validateConfig.State != VALIDATED {
+								if !assert.Equal(options.Testing, VALIDATED, *validateConfig.State) {
 									schematicsCrn := validateConfig.Schematics.WorkspaceCrn
 									if schematicsCrn != nil {
 										options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed validation, schematics workspace: %s", configName, *schematicsCrn))
@@ -234,7 +234,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 									options.Testing.Log(fmt.Sprintf("[PROJECTS] Approving Configuration %s", configName))
 									approveConfig, _, approveErr := cloudInfoSvc.ApproveConfig(*options.currentProject.ID, *currentConfig.ID)
 									if assert.NoError(options.Testing, approveErr) {
-										if assert.Equal(options.Testing, *approveConfig.State, APPROVED) {
+										if assert.Equal(options.Testing, APPROVED, *approveConfig.State) {
 											options.Testing.Log(fmt.Sprintf("[PROJECTS] Approved Configuration %s", configName))
 											// Deploy the configuration
 											options.Testing.Log(fmt.Sprintf("[PROJECTS] Deploying Configuration %s", configName))
@@ -258,7 +258,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 															return deployErr
 														}
 													}
-													if *deployConfig.State != DEPLOYED {
+													if !assert.Equal(options.Testing, DEPLOYED, *deployConfig.State) {
 														schematicsCrn := deployConfig.Schematics.WorkspaceCrn
 														if schematicsCrn != nil {
 															options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed deploy, schematics workspace: %s", configName, *schematicsCrn))
@@ -269,9 +269,8 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 														}
 														return fmt.Errorf("deploy failed for configuration %s last state: %s", configName, *deployConfig.State)
 													}
-													if *deployConfig.State == DEPLOYED {
-														options.Testing.Log(fmt.Sprintf("[PROJECTS] Deployed Configuration %s", configName))
-													}
+
+													options.Testing.Log(fmt.Sprintf("[PROJECTS] Deployed Configuration %s", configName))
 												}
 											}
 										} else {

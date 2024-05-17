@@ -227,7 +227,7 @@ func GenerateSshRsaPublicKey() (string, error) {
 // If any error occurs during the creation or serialization of the keys, the function returns the error.
 // Finally, the function encodes the serialized private and public keys into base64 format and returns them as strings.
 // The function returns two strings: the first is the base64-encoded private key and the second is the base64-encoded public key.
-func GenerateTempGPGKeyPairBase64() (string, string, error) {
+func GenerateTempGPGKeyPairBase64() (privateKeyBase64 string, publicKeyBase64 string, err error) {
 	// Create a new pair of keys
 	config := &packet.Config{DefaultHash: crypto.SHA256}
 	entity, err := openpgp.NewEntity("Test", "TempKey from test", "test@test.com", config)
@@ -249,8 +249,8 @@ func GenerateTempGPGKeyPairBase64() (string, string, error) {
 		return "", "", fmt.Errorf("error encoding public key: %w", err)
 	}
 
-	privateKeyBase64 := base64.StdEncoding.EncodeToString(private.Bytes())
-	publicKeyBase64 := base64.StdEncoding.EncodeToString(public.Bytes())
+	privateKeyBase64 = base64.StdEncoding.EncodeToString(private.Bytes())
+	publicKeyBase64 = base64.StdEncoding.EncodeToString(public.Bytes())
 	return privateKeyBase64, publicKeyBase64, nil
 }
 
