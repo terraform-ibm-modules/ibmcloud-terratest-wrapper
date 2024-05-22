@@ -245,7 +245,7 @@ func (options *TestProjectsOptions) DeployConfig(configName string) error {
 				schematicsCrn := deployConfig.Schematics.WorkspaceCrn
 				if schematicsCrn != nil {
 					options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed deploy, schematics workspace: %s", configName, *schematicsCrn))
-					options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", deployConfig.LastDeployed.Result))
+					options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *deployConfig.LastDeployed.Result))
 					if deployConfig.LastDeployed != nil && deployConfig.LastDeployed.Job != nil && deployConfig.LastDeployed.Job.Summary != nil {
 						if deployConfig.LastDeployed.Job.Summary.PlanMessages != nil && deployConfig.LastDeployed.Job.Summary.PlanMessages.ErrorMessages != nil {
 							for _, planErr := range deployConfig.LastDeployed.Job.Summary.PlanMessages.ErrorMessages {
@@ -414,7 +414,7 @@ func (options *TestProjectsOptions) ParallelDeployConfigurations() []error {
 				defer wg.Done()
 				options.Testing.Log(fmt.Sprintf("[PROJECTS] Deploying Configuration %s", name)) // Add configuration name to the log
 				if err := options.ValidateApproveDeploy(name); err != nil {
-					options.Testing.Log("Error deploying configuration %s: %s", name, err)
+					options.Testing.Log(fmt.Sprintf("Error deploying configuration %s: %s", name, err))
 					errChan <- err // send error to the error channel
 				} else {
 					// If deployment is successful, add the configuration to the deployed configurations list
@@ -558,14 +558,14 @@ func (options *TestProjectsOptions) TestTearDown() {
 									// Get all configurations
 									allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
 									if !assert.NoError(options.Testing, cfgErr) {
-										options.Testing.Log("Error getting configurations: %s", cfgErr)
+										options.Testing.Log(fmt.Sprintf("Error getting configurations: %s", cfgErr))
 										errChan <- cfgErr
 										return
 									}
 									// Get the configuration
 									config, configErr := getConfigFromName(name, allConfigurations)
 									if !assert.NoError(options.Testing, configErr) {
-										options.Testing.Log("Error getting configuration %s: %s", name, configErr)
+										options.Testing.Log(fmt.Sprintf("Error getting configuration %s: %s", name, configErr))
 										errChan <- configErr
 										return
 									}
@@ -573,7 +573,7 @@ func (options *TestProjectsOptions) TestTearDown() {
 									undeployConfig, _, undeployErr := options.CloudInfoService.UndeployConfig(*options.currentProject.ID, *config.ID)
 									if assert.NoError(options.Testing, undeployErr) {
 										if !assert.Equal(options.Testing, cloudinfo.UNDEPLOYING, *undeployConfig.State) {
-											options.Testing.Log("Error undeploying configuration %s", name)
+											options.Testing.Log(fmt.Sprintf("Error undeploying configuration %s", name))
 											errChan <- fmt.Errorf("error undeploying configuration %s", name)
 										} else {
 											options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploy Configuration %s started", name))
