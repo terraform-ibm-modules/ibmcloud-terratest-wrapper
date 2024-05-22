@@ -167,8 +167,12 @@ func (options *TestProjectsOptions) ValidateConfig(configName string) error {
 				if schematicsCrn != nil {
 					options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed validation, schematics workspace: %s", configName, *schematicsCrn))
 					options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *validateConfig.LastValidated.Result))
-					for _, planErr := range validateConfig.LastValidated.Job.Summary.PlanMessages.ErrorMessages {
-						options.Testing.Log(fmt.Sprintf("[PROJECTS] Plan Error: %s", planErr))
+					if validateConfig.LastValidated.Job.Summary.PlanMessages != nil && validateConfig.LastValidated.Job.Summary.PlanMessages.ErrorMessages != nil {
+						for _, planErr := range validateConfig.LastValidated.Job.Summary.PlanMessages.ErrorMessages {
+							options.Testing.Log(fmt.Sprintf("[PROJECTS] Plan Error: %s", planErr))
+						}
+					} else {
+						options.Testing.Log(fmt.Sprintf("[PROJECTS] No plan error messages found for configuration %s", configName))
 					}
 				}
 				return fmt.Errorf("validation failed for configuration %s last state: %s", configName, *validateConfig.State)
@@ -241,10 +245,26 @@ func (options *TestProjectsOptions) DeployConfig(configName string) error {
 				schematicsCrn := deployConfig.Schematics.WorkspaceCrn
 				if schematicsCrn != nil {
 					options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed deploy, schematics workspace: %s", configName, *schematicsCrn))
-					options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *deployConfig.LastDeployed.Result))
-					for _, applyErr := range deployConfig.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages {
-						options.Testing.Log(fmt.Sprintf("[PROJECTS] Apply Error: %s", applyErr))
+					options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", deployConfig.LastDeployed.Result))
+					if deployConfig.LastDeployed != nil && deployConfig.LastDeployed.Job != nil && deployConfig.LastDeployed.Job.Summary != nil {
+						if deployConfig.LastDeployed.Job.Summary.PlanMessages != nil && deployConfig.LastDeployed.Job.Summary.PlanMessages.ErrorMessages != nil {
+							for _, planErr := range deployConfig.LastDeployed.Job.Summary.PlanMessages.ErrorMessages {
+								options.Testing.Log(fmt.Sprintf("[PROJECTS] Plan Error: %s", planErr))
+							}
+						} else {
+							options.Testing.Log(fmt.Sprintf("[PROJECTS] No plan error messages found for configuration %s", configName))
+						}
+						if deployConfig.LastDeployed.Job.Summary.ApplyMessages != nil && deployConfig.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages != nil {
+							for _, applyErr := range deployConfig.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages {
+								options.Testing.Log(fmt.Sprintf("[PROJECTS] Apply Error: %s", applyErr))
+							}
+						} else {
+							options.Testing.Log(fmt.Sprintf("[PROJECTS] No apply error messages found for configuration %s", configName))
+						}
+					} else {
+						options.Testing.Log(fmt.Sprintf("[PROJECTS] No messages found for configuration %s", configName))
 					}
+
 				}
 				return fmt.Errorf("deploy failed for configuration %s last state: %s", configName, *deployConfig.State)
 			}
@@ -275,13 +295,13 @@ func (options *TestProjectsOptions) ConfigureTestStack() error {
 				member_name = strings.Split(member_name, ".")[0]
 				versionLocator, vlErr := GetVersionLocatorFromStackDefinitionForMemberName(options.StackConfigurationPath, member_name)
 				if !assert.NoError(options.Testing, vlErr) {
-					options.Testing.Error("Error getting version locator from stack definition")
+					options.Testing.Log("Error getting version locator from stack definition")
 					return sdkProblem
 				}
 				// get inputs for the member config of version
 				version, vererr := options.CloudInfoService.GetCatalogVersionByLocator(versionLocator)
 				if !assert.NoError(options.Testing, vererr) {
-					options.Testing.Error("Error getting offering")
+					options.Testing.Log("Error getting offering")
 					return sdkProblem
 				}
 				// version.configurations[x].name append all configuration names to validInputs
@@ -308,7 +328,10 @@ func (options *TestProjectsOptions) SerialDeployConfigurations() error {
 
 	// Loop through the StackConfigurationOrder
 	for _, configName := range options.StackConfigurationOrder {
-		return options.ValidateApproveDeploy(configName)
+		err := options.ValidateApproveDeploy(configName)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -323,6 +346,7 @@ func (options *TestProjectsOptions) ValidateApproveDeploy(configName string) err
 	if err := options.DeployConfig(configName); err != nil {
 		return err
 	}
+
 	return nil
 
 }
@@ -365,10 +389,10 @@ func (options *TestProjectsOptions) ParallelDeployConfigurations() []error {
 				}
 			}
 		}
-		// if there are no configurations to deploy, break the loop
-		if len(currentDeployGroup) == 0 {
-			break
-		}
+		//// if there are no configurations to deploy, break the loop
+		//if len(currentDeployGroup) == 0 {
+		//	break
+		//}
 		// Check if there are configurations to deploy
 		// 'currentDeployGroup' is a slice that contains the configurations to be deployed
 		if len(currentDeployGroup) > 0 {
@@ -381,6 +405,7 @@ func (options *TestProjectsOptions) ParallelDeployConfigurations() []error {
 			// This effectively adds 'currentDeployGroup' to the start of 'stackUndeployGroups'
 			options.stackUndeployGroups = append([][]string{currentDeployGroup}, options.stackUndeployGroups...)
 		}
+		options.Testing.Log(fmt.Sprintf("[Projects] Deploying group %d/X", len(options.stackUndeployGroups)))
 		// deploy all currentDeployGroup configurations in parallel, and wait for all deployments to complete
 		var wg sync.WaitGroup
 		for _, configName := range currentDeployGroup {
@@ -389,7 +414,7 @@ func (options *TestProjectsOptions) ParallelDeployConfigurations() []error {
 				defer wg.Done()
 				options.Testing.Log(fmt.Sprintf("[PROJECTS] Deploying Configuration %s", name)) // Add configuration name to the log
 				if err := options.ValidateApproveDeploy(name); err != nil {
-					options.Testing.Errorf("Error deploying configuration %s: %s", name, err)
+					options.Testing.Log("Error deploying configuration %s: %s", name, err)
 					errChan <- err // send error to the error channel
 				} else {
 					// If deployment is successful, add the configuration to the deployed configurations list
@@ -464,7 +489,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 						return fmt.Errorf("error deploying configurations")
 					}
 				}
-
+				options.Testing.Log("[PROJECTS] All configurations deployed successfully")
 				return nil
 			}
 		}
@@ -533,14 +558,14 @@ func (options *TestProjectsOptions) TestTearDown() {
 									// Get all configurations
 									allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
 									if !assert.NoError(options.Testing, cfgErr) {
-										options.Testing.Errorf("Error getting configurations: %s", cfgErr)
+										options.Testing.Log("Error getting configurations: %s", cfgErr)
 										errChan <- cfgErr
 										return
 									}
 									// Get the configuration
 									config, configErr := getConfigFromName(name, allConfigurations)
 									if !assert.NoError(options.Testing, configErr) {
-										options.Testing.Errorf("Error getting configuration %s: %s", name, configErr)
+										options.Testing.Log("Error getting configuration %s: %s", name, configErr)
 										errChan <- configErr
 										return
 									}
@@ -548,7 +573,7 @@ func (options *TestProjectsOptions) TestTearDown() {
 									undeployConfig, _, undeployErr := options.CloudInfoService.UndeployConfig(*options.currentProject.ID, *config.ID)
 									if assert.NoError(options.Testing, undeployErr) {
 										if !assert.Equal(options.Testing, cloudinfo.UNDEPLOYING, *undeployConfig.State) {
-											options.Testing.Errorf("Error undeploying configuration %s", name)
+											options.Testing.Log("Error undeploying configuration %s", name)
 											errChan <- fmt.Errorf("error undeploying configuration %s", name)
 										} else {
 											options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploy Configuration %s started", name))
