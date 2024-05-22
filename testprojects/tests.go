@@ -167,6 +167,17 @@ func (options *TestProjectsOptions) ValidateConfig(configName string) error {
 				if schematicsCrn != nil {
 					options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed validation, schematics workspace: %s", configName, *schematicsCrn))
 					options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *validateConfig.LastValidated.Result))
+					// if the last validated job is nil, wait 30 seconds and check again
+					if validateConfig.LastValidated == nil ||
+						validateConfig.LastValidated.Job == nil ||
+						validateConfig.LastValidated.Job.Summary == nil ||
+						validateConfig.LastValidated.Job.Summary.PlanMessages == nil {
+						time.Sleep(30 * time.Second)
+						validateConfig, _, validateErr = options.CloudInfoService.GetProjectConfigVersion(*options.currentProject.ID, *currentConfig.ID, *currentConfig.Version)
+						if !assert.NoError(options.Testing, validateErr) {
+							return validateErr
+						}
+					}
 					if validateConfig.LastValidated.Job.Summary.PlanMessages != nil && validateConfig.LastValidated.Job.Summary.PlanMessages.ErrorMessages != nil {
 						for _, planErr := range validateConfig.LastValidated.Job.Summary.PlanMessages.ErrorMessages {
 							options.Testing.Log(fmt.Sprintf("[PROJECTS] Plan Error: %s", planErr))
@@ -246,6 +257,18 @@ func (options *TestProjectsOptions) DeployConfig(configName string) error {
 				if schematicsCrn != nil {
 					options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed deploy, schematics workspace: %s", configName, *schematicsCrn))
 					options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *deployConfig.LastDeployed.Result))
+					// if the last deployed job is nil, wait 30 seconds and check again
+					if deployConfig.LastDeployed == nil ||
+						deployConfig.LastDeployed.Job == nil ||
+						deployConfig.LastDeployed.Job.Summary == nil ||
+						deployConfig.LastDeployed.Job.Summary.ApplyMessages == nil {
+						// wait 30 seconds and check again
+						time.Sleep(30 * time.Second)
+						deployConfig, _, deployErr = options.CloudInfoService.GetProjectConfigVersion(*options.currentProject.ID, *currentConfig.ID, *currentConfig.Version)
+						if !assert.NoError(options.Testing, deployErr) {
+							return deployErr
+						}
+					}
 					if deployConfig.LastDeployed != nil && deployConfig.LastDeployed.Job != nil && deployConfig.LastDeployed.Job.Summary != nil {
 						if deployConfig.LastDeployed.Job.Summary.PlanMessages != nil && deployConfig.LastDeployed.Job.Summary.PlanMessages.ErrorMessages != nil {
 							for _, planErr := range deployConfig.LastDeployed.Job.Summary.PlanMessages.ErrorMessages {
@@ -365,8 +388,13 @@ func (options *TestProjectsOptions) ParallelDeployConfigurations() []error {
 	// create a channel to collect errors from goroutines
 	errChan := make(chan error, len(allConfigurations)-1) // -1 to account for the stack configuration
 
+	hasError := false
 	// while all configurations are not deployed
 	for len(deployedConfigurations) != len(allConfigurations)-1 {
+		if hasError {
+			options.Testing.Log("[PROJECTS] Error deploying configurations, terminating deployment.")
+			break
+		}
 		// Loop through the StackConfigurationOrder identify any configurations that are already deployed
 		currentDeployGroup := make([]string, 0)
 		for _, currentConfig := range allConfigurations {
@@ -376,7 +404,7 @@ func (options *TestProjectsOptions) ParallelDeployConfigurations() []error {
 			cfg, _, _ := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
 
 			// Ignore the stack configuration
-			if *currentConfig.DeploymentModel != "stack" && *currentConfig.State == cloudinfo.DRAFT && *cfg.StateCode != cloudinfo.AWAITING_PREREQUISITE {
+			if *currentConfig.DeploymentModel != "stack" && *currentConfig.State == cloudinfo.DRAFT && (cfg.StateCode == nil || *cfg.StateCode != cloudinfo.AWAITING_PREREQUISITE) {
 				currentDeployGroup = append(currentDeployGroup, *currentConfig.Definition.Name)
 				// if setundeploy order and config not in undeploy order, add to undeploy order
 				if setUndeployOrder && !common.StrArrayContains(options.StackUndeployOrder, *currentConfig.Definition.Name) {
@@ -416,6 +444,7 @@ func (options *TestProjectsOptions) ParallelDeployConfigurations() []error {
 				if err := options.ValidateApproveDeploy(name); err != nil {
 					options.Testing.Log(fmt.Sprintf("Error deploying configuration %s: %s", name, err))
 					errChan <- err // send error to the error channel
+					hasError = true
 				} else {
 					// If deployment is successful, add the configuration to the deployed configurations list
 					deployedConfigurations = append(deployedConfigurations, name)
