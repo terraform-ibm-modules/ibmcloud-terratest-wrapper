@@ -160,6 +160,16 @@ type TestOptions struct {
 	IsUpgradeTest      bool // Identifies if current test is an UPGRADE test, used for special processing
 	UpgradeTestSkipped bool // Informs the calling test that conditions were met to skip the upgrade test
 
+	// Hooks These allow us to inject custom code into the test process
+	// example to set a hook:
+	// options.PreApplyHook = func(options *TestOptions) error {
+	//     // do something
+	//     return nil
+	// }
+	PreApplyHook    func(options *TestOptions) error // In upgrade tests, this hook will be called before the base apply
+	PostApplyHook   func(options *TestOptions) error // In upgrade tests, this hook will be called after the base apply
+	PreDestroyHook  func(options *TestOptions) error // If this fails, the destroy will continue
+	PostDestroyHook func(options *TestOptions) error
 }
 
 // Default constructor for TestOptions struct. This constructor takes in an existing TestOptions object with minimal values set, and returns
