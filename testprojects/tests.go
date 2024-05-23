@@ -364,7 +364,7 @@ func (options *TestProjectsOptions) ValidateApproveDeploy(configName string) err
 		return err
 	}
 	if err := options.DeployConfig(configName); err != nil {
-		options.Testing.Log(fmt.Sprintf("Error deploying configuration %s: %s", configName))
+		options.Testing.Log(fmt.Sprintf("Error deploying configuration %s: %s", configName, err))
 		return err
 	}
 
