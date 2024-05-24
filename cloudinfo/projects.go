@@ -10,36 +10,6 @@ import (
 	"os"
 )
 
-// Configurations States
-const APPROVED = "approved"
-const DELETED = "deleted"
-const DELETING = "deleting"
-const DELETING_FAILED = "deleting_failed"
-const DISCARDED = "discarded"
-const DRAFT = "draft"
-const DEPLOYED = "deployed"
-const DEPLOYING_FAILED = "deploying_failed"
-const DEPLOYING = "deploying"
-const SUPERSEDED = "superseded"
-const UNDEPLOYING = "undeploying"
-const UNDEPLOYING_FAILED = "undeploying_failed"
-const VALIDATED = "validated"
-const VALIDATING = "validating"
-const VALIDATING_FAILED = "validating_failed"
-const APPLIED = "applied"
-const APPLY_FAILED = "apply_failed"
-
-// StateCodes
-const AWAITING_VALIDATION = "awaiting_validation"
-const AWAITING_PREREQUISITE = "awaiting_prerequisite"
-const AWAITING_INPUT = "awaiting_input"
-const AWAITING_MEMBER_DEPLOYMENT = "awaiting_member_deployment"
-const AWAITING_STACK_SETUP = "awaiting_stack_setup"
-const AWAITING_APPROVAL = "awaiting_approval"
-const AWAITING_DEPLOYMENT = "awaiting_deployment"
-const AWAITING_DELETION = "awaiting_deletion"
-const AWAITING_UNDEPLOYMENT = "awaiting_undeployment"
-
 // CreateDefaultProject creates a default project with the given name and description
 // name: the name of the project
 // description: the description of the project
@@ -311,7 +281,7 @@ func (infoSvc *CloudInfoService) IsConfigValidated(projectID string, configID st
 	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
 	if config != nil {
 		if config.State != nil {
-			if *config.State == VALIDATED {
+			if *config.State == project.ProjectConfig_State_Validated {
 
 				return configVersion, true
 			} else {
@@ -384,7 +354,7 @@ func (infoSvc *CloudInfoService) IsConfigApproved(projectID string, configID str
 	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
 	if config != nil {
 		if config.State != nil {
-			if *config.State == APPROVED {
+			if *config.State == project.ProjectConfig_State_Approved {
 
 				return configVersion, true
 			} else {
@@ -421,7 +391,7 @@ func (infoSvc *CloudInfoService) IsConfigDeployed(projectID string, configID str
 	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
 	if config != nil {
 		if config.State != nil {
-			if *config.State == DEPLOYED {
+			if *config.State == project.ProjectConfig_State_Deployed {
 
 				return configVersion, true
 			} else {
@@ -445,7 +415,7 @@ func (infoSvc *CloudInfoService) IsUndeploying(projectID string, configID string
 	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
 	if config != nil {
 		if config.State != nil {
-			if *config.State == UNDEPLOYING {
+			if *config.State == project.ProjectConfig_State_Undeploying {
 				return configVersion, true
 			} else {
 				return configVersion, false
