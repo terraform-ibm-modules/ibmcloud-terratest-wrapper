@@ -51,19 +51,28 @@ type TestProjectsOptions struct {
 	ConfigrationPath string
 	// StackConfigurationPath Path to the configuration file that will be used to create the stack.
 	StackConfigurationPath  string
-	StackLocatorID          string
 	StackCatalogJsonPath    string
 	StackConfigurationOrder []string
+	StackUndeployOrder      []string
+	stackUndeployGroups     [][]string
+
 	// StackMemberInputs [ "primary-da": {["input1": "value1", "input2": 2]}, "secondary-da": {["input1": "value1", "input2": 2]}]
 	StackMemberInputs map[string]map[string]interface{}
 	// StackInputs {"input1": "value1", "input2": 2}
 	StackInputs map[string]interface{}
 
+	// ParallelDeploy If set to true, the test will deploy the stack in parallel.
+	// This will deploy the stack in batches of whatever is not waiting on a prerequisite to be deployed.
+	// Note Undeploy will still be in serial.
+	ParallelDeploy bool
+
 	ValidationTimeoutMinutes int
 	DeployTimeoutMinutes     int
 
 	// If you want to skip teardown use this flag
-	SkipTestTearDown bool
+	SkipTestTearDown  bool
+	SkipUndeploy      bool
+	SkipProjectDelete bool
 
 	// internal use
 	currentProject *project.Project
@@ -115,6 +124,14 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	if newOptions.DeployTimeoutMinutes == 0 {
 		newOptions.DeployTimeoutMinutes = 6 * 60
 	}
+	if !newOptions.ParallelDeploy {
+		//	set un-deploy order to be the reverse of deploy order
+		newOptions.StackUndeployOrder = make([]string, len(newOptions.StackConfigurationOrder))
+		for i, j := 0, len(newOptions.StackConfigurationOrder)-1; i < len(newOptions.StackConfigurationOrder); i, j = i+1, j-1 {
+			newOptions.StackUndeployOrder[i] = newOptions.StackConfigurationOrder[j]
+		}
+	}
+
 	return newOptions
 }
 

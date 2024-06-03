@@ -2,12 +2,12 @@ package cloudinfo
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/IBM/go-sdk-core/v5/core"
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"log"
 	"math/rand"
 	"os"
-	"strconv"
 )
 
 // CreateDefaultProject creates a default project with the given name and description
@@ -259,7 +259,7 @@ func (infoSvc *CloudInfoService) AddStackFromFile(projectID string, configFilePa
 
 }
 
-func (infoSvc *CloudInfoService) ValidateConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) ForceValidateProjectConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 	validateConfigOptions := &project.ValidateConfigOptions{
 		ProjectID: &projectID,
 		ID:        &configID,
@@ -267,7 +267,33 @@ func (infoSvc *CloudInfoService) ValidateConfig(projectID string, configID strin
 	return infoSvc.projectsService.ValidateConfig(validateConfigOptions)
 }
 
-func (infoSvc *CloudInfoService) GetConfigVersion(projectID string, configID string, version int64) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) ValidateProjectConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+	configVersion, isDeployed := infoSvc.IsConfigDeployed(projectID, configID)
+	if !isDeployed {
+		return infoSvc.ForceValidateProjectConfig(projectID, configID)
+	} else {
+		return configVersion, nil, nil
+	}
+}
+
+func (infoSvc *CloudInfoService) IsConfigValidated(projectID string, configID string) (projectConfig *project.ProjectConfigVersion, isValidated bool) {
+	config, _, _ := infoSvc.GetConfig(projectID, configID)
+	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
+	if config != nil {
+		if config.State != nil {
+			if *config.State == project.ProjectConfig_State_Validated {
+
+				return configVersion, true
+			} else {
+				return configVersion, false
+			}
+		}
+	}
+	return configVersion, false
+
+}
+
+func (infoSvc *CloudInfoService) GetProjectConfigVersion(projectID string, configID string, version int64) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 
 	getConfigOptions := infoSvc.projectsService.NewGetConfigVersionOptions(projectID, configID, version)
 	return infoSvc.projectsService.GetConfigVersion(getConfigOptions)
@@ -295,21 +321,108 @@ func (infoSvc *CloudInfoService) UpdateConfigWithHeaders(projectID string, confi
 	return infoSvc.projectsService.UpdateConfig(updateConfigOptions)
 }
 
-func (infoSvc *CloudInfoService) ApproveConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) ForceApproveConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+
 	approveOptions := &project.ApproveOptions{
 		ProjectID: &projectID,
 		ID:        &configID,
 	}
 	approveOptions.SetComment("Approving the changes by test wrapper")
 	return infoSvc.projectsService.Approve(approveOptions)
+
 }
 
+func (infoSvc *CloudInfoService) ApproveConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+	// if is validated then approve
+	_, isValidated := infoSvc.IsConfigValidated(projectID, configID)
+	configVersion, isApproved := infoSvc.IsConfigApproved(projectID, configID)
+	if isValidated {
+		if !isApproved {
+			return infoSvc.ForceApproveConfig(projectID, configID)
+		} else {
+			return configVersion, nil, nil
+		}
+	} else {
+		return nil, nil, fmt.Errorf("Config is not validated, cannot approve")
+
+	}
+}
+
+// IsConfigApproved checks if the config is approved
+func (infoSvc *CloudInfoService) IsConfigApproved(projectID string, configID string) (projectConfig *project.ProjectConfigVersion, isApproved bool) {
+	config, _, _ := infoSvc.GetConfig(projectID, configID)
+	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
+	if config != nil {
+		if config.State != nil {
+			if *config.State == project.ProjectConfig_State_Approved {
+
+				return configVersion, true
+			} else {
+				return configVersion, false
+			}
+		}
+	}
+	return configVersion, false
+}
+
+// DeployConfig deploy if not already deployed
 func (infoSvc *CloudInfoService) DeployConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+	configVersion, isDeployed := infoSvc.IsConfigDeployed(projectID, configID)
+	if !isDeployed {
+		return infoSvc.ForceDeployConfig(projectID, configID)
+	} else {
+		return configVersion, nil, nil
+
+	}
+}
+
+// ForceDeployConfig force deploy even if already deployed
+func (infoSvc *CloudInfoService) ForceDeployConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 	deployConfigOptions := &project.DeployConfigOptions{
 		ProjectID: &projectID,
 		ID:        &configID,
 	}
 	return infoSvc.projectsService.DeployConfig(deployConfigOptions)
+}
+
+// IsConfigDeployed checks if the config is deployed
+func (infoSvc *CloudInfoService) IsConfigDeployed(projectID string, configID string) (projectConfig *project.ProjectConfigVersion, isDeployed bool) {
+	config, _, _ := infoSvc.GetConfig(projectID, configID)
+	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
+	if config != nil {
+		if config.State != nil {
+			if *config.State == project.ProjectConfig_State_Deployed {
+
+				return configVersion, true
+			} else {
+				return configVersion, false
+			}
+		}
+	}
+	return configVersion, false
+}
+
+func (infoSvc *CloudInfoService) UndeployConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+	undeployConfigOptions := &project.UndeployConfigOptions{
+		ProjectID: &projectID,
+		ID:        &configID,
+	}
+	return infoSvc.projectsService.UndeployConfig(undeployConfigOptions)
+}
+
+func (infoSvc *CloudInfoService) IsUndeploying(projectID string, configID string) (projectConfig *project.ProjectConfigVersion, isUndeploying bool) {
+	config, _, _ := infoSvc.GetConfig(projectID, configID)
+	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
+	if config != nil {
+		if config.State != nil {
+			if *config.State == project.ProjectConfig_State_Undeploying {
+				return configVersion, true
+			} else {
+				return configVersion, false
+			}
+		}
+	}
+	return configVersion, false
 }
 
 func (infoSvc *CloudInfoService) CreateStackFromConfigFile(projectID string, stackConfigPath string, catalogJsonPath string) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
@@ -361,7 +474,7 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 		}
 		// Assuming StackDefinitionMemberInputPrototype has fields Name and Value
 		inputPrototypes := make([]project.StackDefinitionMemberInputPrototype, 0, len(inputs))
-		for name, _ := range inputs {
+		for name := range inputs {
 			curInputNameVar := name
 			curInputName := &curInputNameVar
 			inputPrototypes = append(inputPrototypes, project.StackDefinitionMemberInputPrototype{
@@ -448,30 +561,4 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 	}
 
 	return infoSvc.CreateNewStack(projectID, catalogConfig.Products[0].Name, catalogConfig.Products[0].Name, stackDefinitionBlockPrototype, daStackMembers)
-}
-
-func GetProjectInputType(input string) (inputType string) {
-	// infer the type of the input array,boolean,float,int,number,string,object
-	if input == "true" || input == "false" {
-		return "boolean"
-	}
-	// if input starts with { and ends with } then it is an object
-	if input[0] == '{' && input[len(input)-1] == '}' {
-		return "object"
-	}
-	// if input starts with [ and ends with ] then it is an array
-	if input[0] == '[' && input[len(input)-1] == ']' {
-		return "array"
-	}
-	// if input is a float then it is a float
-	if _, err := strconv.ParseFloat(input, 64); err == nil {
-		return "float"
-	}
-	// if input is integer then it is an int
-	if _, err := strconv.ParseInt(input, 10, 64); err == nil {
-		return "int"
-	}
-
-	// default to string
-	return "string"
 }
