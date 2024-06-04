@@ -361,6 +361,17 @@ func (options *TestOptions) testTearDown() {
 					logger.Log(options.Testing, fmt.Sprintf("Error output containg CBRRuleList %s not found in Statefile, skipping CBR Rule disable", options.CBRRuleListOutputVariable))
 				}
 			}
+			if options.PreDestroyHook != nil {
+				logger.Log(options.Testing, "START: PreDestroyHook")
+				hookErr := options.PreDestroyHook(options)
+				if hookErr != nil {
+					logger.Log(options.Testing, "Error running PreDestroyHook")
+					logger.Log(options.Testing, hookErr)
+					logger.Log(options.Testing, "END: PreDestroyHook, continuing with destroy")
+				} else {
+					logger.Log(options.Testing, "END: PreDestroyHook")
+				}
+			}
 			logger.Log(options.Testing, "START: Destroy")
 			destroyOutput, destroyError := terraform.DestroyE(options.Testing, options.TerraformOptions)
 			if assert.NoError(options.Testing, destroyError) == false {
@@ -432,7 +443,17 @@ func (options *TestOptions) testTearDown() {
 				terraform.WorkspaceDelete(options.Testing, options.TerraformOptions, options.Prefix)
 			}
 			logger.Log(options.Testing, "END: Destroy")
-
+			if options.PostDestroyHook != nil {
+				logger.Log(options.Testing, "START: PostDestroyHook")
+				hookErr := options.PostDestroyHook(options)
+				if hookErr != nil {
+					logger.Log(options.Testing, "Error running PostDestroyHook")
+					logger.Log(options.Testing, hookErr)
+					logger.Log(options.Testing, "END: PostDestroyHook")
+				} else {
+					logger.Log(options.Testing, "END: PostDestroyHook")
+				}
+			}
 			//Clean up terraform files
 			CleanTerraformDir(options.TerraformDir)
 		}
@@ -673,6 +694,16 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Set TerraformDir to the appropriate directory within baseTempDir
 		options.setTerraformDir(path.Join(baseTempDir, relativeTestSampleDir))
 
+		if options.PreApplyHook != nil {
+			logger.Log(options.Testing, "Running PreApplyHook")
+			hookErr := options.PreApplyHook(options)
+			if hookErr != nil {
+				assert.Nilf(options.Testing, hookErr, "PreApplyHook failed")
+				options.testTearDown()
+				return nil, hookErr
+			}
+			logger.Log(options.Testing, "PreApplyHook completed successfully")
+		}
 		logger.Log(options.Testing, "Init / Apply on Base repo:", baseRepo)
 		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
 		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
@@ -682,6 +713,17 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
 			options.testTearDown()
 			return nil, resultErr
+		}
+
+		if options.PostApplyHook != nil {
+			logger.Log(options.Testing, "Running PostApplyHook")
+			hookErr := options.PostApplyHook(options)
+			if hookErr != nil {
+				assert.Nilf(options.Testing, hookErr, "PostApplyHook failed")
+				options.testTearDown()
+				return nil, hookErr
+			}
+			logger.Log(options.Testing, "PostApplyHook completed successfully")
 		}
 		// Get the path to the state file in baseTempDir
 		baseStatePath := path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate")
@@ -822,11 +864,27 @@ func (options *TestOptions) RunTest() (string, error) {
 // runTest Runs Test and returns the output as a string for assertions for internal use no setup or teardown
 func (options *TestOptions) runTest() (string, error) {
 
+	if options.PreApplyHook != nil {
+		logger.Log(options.Testing, "Running PreApplyHook")
+		hook_err := options.PreApplyHook(options)
+		if hook_err != nil {
+			return "", hook_err
+		}
+		logger.Log(options.Testing, "Finished PreApplyHook")
+	}
 	logger.Log(options.Testing, "START: Init / Apply")
 	output, err := terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 	assert.Nil(options.Testing, err, "Failed", err)
 	logger.Log(options.Testing, "FINISHED: Init / Apply")
 
+	if err == nil && options.PostApplyHook != nil {
+		logger.Log(options.Testing, "Running PostApplyHook")
+		hook_err := options.PostApplyHook(options)
+		if hook_err != nil {
+			return "", hook_err
+		}
+		logger.Log(options.Testing, "Finished PostApplyHook")
+	}
 	return output, err
 }
 
