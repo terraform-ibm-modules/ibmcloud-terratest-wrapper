@@ -357,14 +357,35 @@ func (options *TestProjectsOptions) SerialDeployConfigurations() error {
 func (options *TestProjectsOptions) ValidateApproveDeploy(configName string) error {
 	if err := options.ValidateConfig(configName); err != nil {
 		options.Testing.Log(fmt.Sprintf("Error validating configuration %s: %s", configName, err))
+		options.Testing.Fail()
 		return err
 	}
 	if err := options.ApproveConfig(configName); err != nil {
 		options.Testing.Log(fmt.Sprintf("Error approving configuration %s: %s", configName, err))
+		options.Testing.Fail()
 		return err
 	}
 	if err := options.DeployConfig(configName); err != nil {
 		options.Testing.Log(fmt.Sprintf("Error deploying configuration %s: %s", configName, err))
+		options.Testing.Fail()
+		allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
+		if !assert.NoError(options.Testing, cfgErr) {
+			options.Testing.Log("[PROJECTS] Failed to get configurations")
+			return cfgErr
+		}
+		currentConfig, currConfigErr := getConfigFromName(configName, allConfigurations)
+		if currConfigErr != nil {
+			return currConfigErr
+		}
+		currentCfg, _, curCfgErr := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
+		if assert.NoError(options.Testing, curCfgErr) {
+			if currentCfg.LastDeployed.Job.Summary.ApplyMessages != nil && currentCfg.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages != nil {
+				for _, applyErr := range currentCfg.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages {
+					options.Testing.Log(fmt.Sprintf("[PROJECTS] Apply Error: %s", applyErr))
+				}
+			}
+		}
+
 		return err
 	}
 
