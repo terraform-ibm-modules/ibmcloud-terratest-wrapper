@@ -70,6 +70,9 @@ type TestSchematicOptions struct {
 	// This array will be used to construct a valid `Variablestore` configuration for the Schematics Workspace Template
 	TerraformVars []TestSchematicTerraformVar
 
+	// If you want to skip teardown use these
+	SkipTestTearDown bool
+
 	// This value will set the `folder` attribute in the Schematics template, and will be used as the execution folder for terraform.
 	// Defaults to root directory of source, "." if not supplied.
 	//
@@ -110,7 +113,7 @@ type TestSchematicOptions struct {
 
 	CloudInfoService  cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 	SchematicsApiSvc  SchematicsApiSvcI           // OPTIONAL: service pointer for interacting with external schematics api
-	schematicsTestSvc *SchematicsTestService      // internal property to specify pointer to test service, used for test mocking
+	SchematicsTestSvc *SchematicsTestService      // internal property to specify pointer to test service, used for test mocking
 
 	// These optional fields can be used to override the default retry settings for making Schematics API calls.
 	// If SDK/API calls to Schematics result in errors, such as retrieving existing workspace details,

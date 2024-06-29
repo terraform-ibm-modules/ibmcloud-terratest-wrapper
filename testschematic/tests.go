@@ -27,10 +27,10 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 
 	// create new schematic service with authenticator, set pointer of service in options for use later
 	var svc *SchematicsTestService
-	if options.schematicsTestSvc == nil {
+	if options.SchematicsTestSvc == nil {
 		svc = &SchematicsTestService{}
 	} else {
-		svc = options.schematicsTestSvc
+		svc = options.SchematicsTestSvc
 	}
 	svc.TestOptions = options
 	svc.TerraformTestStarted = false
@@ -77,7 +77,7 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	workspaceNameString := fmt.Sprintf("[ %s (%s) ]", svc.WorkspaceName, svc.WorkspaceID)
 
 	// since workspace is now created, always call the teardown to remove
-	defer testTearDown(svc, options)
+	defer testTearDownWorkspace(options)
 
 	// upload the terraform code
 	options.Testing.Log("[SCHEMATICS] Uploading TAR file")
@@ -142,46 +142,71 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 			}
 		}
 	}
-
-	// ------ DESTROY ------
-	// only run destroy if we had potentially created resources
-	if svc.TerraformResourcesCreated {
-		// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
-		envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
-		if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
-			options.Testing.Log("[SCHEMATICS] Schematics APPLY failed. Debug the Test and delete resources manually.")
-		} else {
-			destroyResponse, destroyErr := svc.CreateDestroyJob()
-			if assert.NoErrorf(options.Testing, destroyErr, "error creating DESTROY - %s", workspaceNameString) {
-				options.Testing.Log("[SCHEMATICS] Starting DESTROY job ...")
-				destroyJobStatus, destroyStatusErr := svc.WaitForFinalJobStatus(*destroyResponse.Activityid)
-				if assert.NoErrorf(options.Testing, destroyStatusErr, "error waiting for DESTROY to finish - %s", workspaceNameString) {
-					assert.Equalf(options.Testing, SchematicsJobStatusCompleted, destroyJobStatus, "DESTROY has failed with status %s - %s", destroyJobStatus, workspaceNameString)
-				}
-			}
-		}
-	}
+	options.SchematicsTestSvc = svc
+	options.testTearDownResources()
 
 	return nil
+}
+
+// Function to destroy all resources. Resources are not destroyed if tests failed and "DO_NOT_DESTROY_ON_FAILURE" environment variable is true.
+// If options.ImplicitDestroy is set then these resources from the State file are removed to allow implicit destroy.
+func (options *TestSchematicOptions) TestTearDown() {
+	options.SkipTestTearDown = false
+	options.testTearDownResources()
+	defer testTearDownWorkspace(options)
 }
 
 // testTearDown is a helper function, typically called via golang "defer", that will clean up and remove any existing resources that were
 // created for the test.
 // The removal of some resources may be influenced by certain conditions or optional settings.
-func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
+func (options *TestSchematicOptions) testTearDownResources() {
+	svc := options.SchematicsTestSvc
+
+	// ------ DELETE RESOURCES ------
+	if !options.SkipTestTearDown {
+		workspaceNameString := fmt.Sprintf("[ %s (%s) ]", svc.WorkspaceName, svc.WorkspaceID)
+		// ------ DESTROY ------
+		// only run destroy if we had potentially created resources
+		if svc.TerraformResourcesCreated {
+			// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
+			envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
+			if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+				options.Testing.Log("[SCHEMATICS] Schematics APPLY failed. Debug the Test and delete resources manually.")
+			} else {
+				destroyResponse, destroyErr := svc.CreateDestroyJob()
+				if assert.NoErrorf(options.Testing, destroyErr, "error creating DESTROY - %s", workspaceNameString) {
+					options.Testing.Log("[SCHEMATICS] Starting DESTROY job ...")
+					destroyJobStatus, destroyStatusErr := svc.WaitForFinalJobStatus(*destroyResponse.Activityid)
+					if assert.NoErrorf(options.Testing, destroyStatusErr, "error waiting for DESTROY to finish - %s", workspaceNameString) {
+						assert.Equalf(options.Testing, SchematicsJobStatusCompleted, destroyJobStatus, "DESTROY has failed with status %s - %s", destroyJobStatus, workspaceNameString)
+					}
+				}
+			}
+		}
+	} else {
+		options.Testing.Log("Skipping automatic Test Resources Teardown")
+	}
+}
+
+func testTearDownWorkspace(options *TestSchematicOptions) {
+	svc := options.SchematicsTestSvc
+
 	// ------ DELETE WORKSPACE ------
 	// only delete workspace if one of these is true:
 	// * terraform hasn't been started yet
 	// * no failures
 	// * failed and DeleteWorkspaceOnFail is true
-	if !svc.TerraformTestStarted ||
-		!options.Testing.Failed() ||
-		(options.Testing.Failed() && options.DeleteWorkspaceOnFail) {
-
-		options.Testing.Log("[SCHEMATICS] Deleting Workspace")
-		_, deleteWsErr := svc.DeleteWorkspace()
-		if deleteWsErr != nil {
-			options.Testing.Logf("[SCHEMATICS] WARNING: Schematics WORKSPACE DELETE failed! Remove manually if required. Name: %s (%s)", svc.WorkspaceName, svc.WorkspaceID)
+	if !options.SkipTestTearDown {
+		if !svc.TerraformTestStarted ||
+			!options.Testing.Failed() ||
+			(options.Testing.Failed() && options.DeleteWorkspaceOnFail) {
+			options.Testing.Log("[SCHEMATICS] Deleting Workspace")
+			_, deleteWsErr := svc.DeleteWorkspace()
+			if deleteWsErr != nil {
+				options.Testing.Logf("[SCHEMATICS] WARNING: Schematics WORKSPACE DELETE failed! Remove manually if required. Name: %s (%s)", svc.WorkspaceName, svc.WorkspaceID)
+			}
 		}
+	} else {
+		options.Testing.Log("Skipping automatic Test Workspace Teardown")
 	}
 }
