@@ -552,125 +552,125 @@ func (options *TestProjectsOptions) TestTearDown() {
 	if !options.SkipTestTearDown {
 		// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
 		envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
+		if !options.SkipUndeploy {
+			// Undeploy the configuration in stack undeploy order
+			if options.StackUndeployOrder != nil {
+				if !options.ParallelDeploy {
+					// Serial undeploy
+					// Get all configurations
+					allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
+					if !assert.NoError(options.Testing, cfgErr) {
+						options.Testing.Log("[PROJECTS] Failed to get configurations during undeploy, skipping undeploy")
+					} else {
+						options.Testing.Log("[PROJECTS] Undeploying Configurations in Stack Undeploy Order")
+						for _, configName := range options.StackUndeployOrder {
 
-		// Do not destroy if tests failed and "DO_NOT_DESTROY_ON_FAILURE" is true
-		if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
-			fmt.Println("Terratest failed. Debug the Test and delete resources manually.")
-		} else {
-			if !options.SkipUndeploy {
-				// Undeploy the configuration in stack undeploy order
-				if options.StackUndeployOrder != nil {
-					if !options.ParallelDeploy {
-						// Serial undeploy
-						// Get all configurations
-						allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
-						if !assert.NoError(options.Testing, cfgErr) {
-							options.Testing.Log("[PROJECTS] Failed to get configurations during undeploy, skipping undeploy")
-						} else {
-							options.Testing.Log("[PROJECTS] Undeploying Configurations in Stack Undeploy Order")
-							for _, configName := range options.StackUndeployOrder {
+							// Get the configuration
+							config, configErr := getConfigFromName(configName, allConfigurations)
+							if !assert.NoError(options.Testing, configErr) {
+								options.Testing.Errorf("Error getting configuration %s: %s", configName, configErr)
+								continue
+							}
+							// Undeploy the configuration
+							options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying Configuration %s", configName))
+							undeployConfig, _, undeployErr := options.CloudInfoService.UndeployConfig(*options.currentProject.ID, *config.ID)
+							if assert.NoError(options.Testing, undeployErr) {
+								if !assert.Equal(options.Testing, project.ProjectConfig_State_Undeploying, *undeployConfig.State) {
+									options.Testing.Errorf("Error undeploying configuration %s", configName)
+								}
+								options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeployed Configuration %s", configName))
+							}
+						}
+					}
+				} else {
+					// parallel undeploy
+					//	undeploy the each group in undeploygroups in parallel one set of groups at a time until all groups are undeployed
+					for index, currentUndeployGroup := range options.stackUndeployGroups {
+						options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying In Parallel group %d/%d", index+1, len(options.stackUndeployGroups)))
+						// create a channel to collect errors from goroutines
+						errChan := make(chan error, len(currentUndeployGroup))
 
+						// undeploy all currentUndeployGroup configurations in parallel, and wait for all undeployments to complete
+						var wg sync.WaitGroup
+						for _, configName := range currentUndeployGroup {
+							wg.Add(1)
+							go func(name string) {
+								defer wg.Done()
+								options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying Configuration %s", name)) // Add configuration name to the log
+								// Get all configurations
+								allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
+								if !assert.NoError(options.Testing, cfgErr) {
+									options.Testing.Log(fmt.Sprintf("Error getting configurations: %s", cfgErr))
+									errChan <- cfgErr
+									return
+								}
 								// Get the configuration
-								config, configErr := getConfigFromName(configName, allConfigurations)
+								config, configErr := getConfigFromName(name, allConfigurations)
 								if !assert.NoError(options.Testing, configErr) {
-									options.Testing.Errorf("Error getting configuration %s: %s", configName, configErr)
-									continue
+									options.Testing.Log(fmt.Sprintf("Error getting configuration %s: %s", name, configErr))
+									errChan <- configErr
+									return
 								}
 								// Undeploy the configuration
-								options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying Configuration %s", configName))
 								undeployConfig, _, undeployErr := options.CloudInfoService.UndeployConfig(*options.currentProject.ID, *config.ID)
 								if assert.NoError(options.Testing, undeployErr) {
 									if !assert.Equal(options.Testing, project.ProjectConfig_State_Undeploying, *undeployConfig.State) {
-										options.Testing.Errorf("Error undeploying configuration %s", configName)
-									}
-									options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeployed Configuration %s", configName))
-								}
-							}
-						}
-					} else {
-						// parallel undeploy
-						//	undeploy the each group in undeploygroups in parallel one set of groups at a time until all groups are undeployed
-						for index, currentUndeployGroup := range options.stackUndeployGroups {
-							options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying In Parallel group %d/%d", index+1, len(options.stackUndeployGroups)))
-							// create a channel to collect errors from goroutines
-							errChan := make(chan error, len(currentUndeployGroup))
-
-							// undeploy all currentUndeployGroup configurations in parallel, and wait for all undeployments to complete
-							var wg sync.WaitGroup
-							for _, configName := range currentUndeployGroup {
-								wg.Add(1)
-								go func(name string) {
-									defer wg.Done()
-									options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying Configuration %s", name)) // Add configuration name to the log
-									// Get all configurations
-									allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
-									if !assert.NoError(options.Testing, cfgErr) {
-										options.Testing.Log(fmt.Sprintf("Error getting configurations: %s", cfgErr))
-										errChan <- cfgErr
-										return
-									}
-									// Get the configuration
-									config, configErr := getConfigFromName(name, allConfigurations)
-									if !assert.NoError(options.Testing, configErr) {
-										options.Testing.Log(fmt.Sprintf("Error getting configuration %s: %s", name, configErr))
-										errChan <- configErr
-										return
-									}
-									// Undeploy the configuration
-									undeployConfig, _, undeployErr := options.CloudInfoService.UndeployConfig(*options.currentProject.ID, *config.ID)
-									if assert.NoError(options.Testing, undeployErr) {
-										if !assert.Equal(options.Testing, project.ProjectConfig_State_Undeploying, *undeployConfig.State) {
-											options.Testing.Log(fmt.Sprintf("Error undeploying configuration %s", name))
-											errChan <- fmt.Errorf("error undeploying configuration %s", name)
-										} else {
-											options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploy Configuration %s started", name))
-										}
+										options.Testing.Log(fmt.Sprintf("Error undeploying configuration %s", name))
+										errChan <- fmt.Errorf("error undeploying configuration %s", name)
 									} else {
-										errChan <- undeployErr
+										options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploy Configuration %s started", name))
 									}
-
-									// wait for undeployment to complete or timeout
-									// Set end time
-									undeployEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
-									for {
-										_, isUndeploying := options.CloudInfoService.IsUndeploying(*options.currentProject.ID, *config.ID)
-
-										if !isUndeploying {
-											break
-										}
-
-										// if the time is greater than the timeout
-										// return an error
-										if time.Now().After(undeployEndTime) {
-											errChan <- fmt.Errorf("undeploy timeout for configuration %s", name)
-											return
-										}
-										options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is still undeploying", name))
-										time.Sleep(30 * time.Second)
-									}
-									if *config.State != project.ProjectConfig_State_Undeploying && *config.State != project.ProjectConfig_State_UndeployingFailed {
-										options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying Configuration %s complete", name))
-									}
-								}(configName)
-							}
-							wg.Wait()
-							close(errChan) // close the error channel
-
-							// Check if there were any errors during the undeployments
-							var errs []error
-							for err := range errChan {
-								errs = append(errs, err)
-							}
-							if len(errs) > 0 {
-								// print all errors and return a single error
-								for _, uerr := range errs {
-									options.Testing.Log(uerr)
+								} else {
+									errChan <- undeployErr
 								}
+
+								// wait for undeployment to complete or timeout
+								// Set end time
+								undeployEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
+								for {
+									_, isUndeploying := options.CloudInfoService.IsUndeploying(*options.currentProject.ID, *config.ID)
+
+									if !isUndeploying {
+										break
+									}
+
+									// if the time is greater than the timeout
+									// return an error
+									if time.Now().After(undeployEndTime) {
+										errChan <- fmt.Errorf("undeploy timeout for configuration %s", name)
+										return
+									}
+									options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is still undeploying", name))
+									time.Sleep(30 * time.Second)
+								}
+								if *config.State != project.ProjectConfig_State_Undeploying && *config.State != project.ProjectConfig_State_UndeployingFailed {
+									options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying Configuration %s complete", name))
+								}
+							}(configName)
+						}
+						wg.Wait()
+						close(errChan) // close the error channel
+
+						// Check if there were any errors during the undeployments
+						var errs []error
+						for err := range errChan {
+							errs = append(errs, err)
+						}
+						if len(errs) > 0 {
+							// print all errors and return a single error
+							for _, uerr := range errs {
+								options.Testing.Log(uerr)
 							}
 						}
 					}
 				}
 			}
+		}
+
+		// Do not destroy if tests failed and "DO_NOT_DESTROY_ON_FAILURE" is true
+		if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+			fmt.Println("Terratest failed. Debug the Test and delete resources manually.")
+		} else {
 			if !options.SkipProjectDelete {
 				// Delete the project
 
