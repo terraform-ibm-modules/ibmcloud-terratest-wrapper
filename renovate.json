@@ -9,13 +9,13 @@
     },
     {
       "matchUpdateTypes": ["major"],
-      "matchPackageNames": ["github.com/ibm/vpc-go-sdk"],
+      "matchPackageNames": ["github.com/IBM/vpc-go-sdk"],
       "enabled": false,
       "description": "Temporarily disable major version updates of vpc-go-sdk (see https://github.com/IBM/vpc-go-sdk/issues/49)"
     },
     {
       "matchUpdateTypes": ["major", "minor", "patch"],
-      "matchPackageNames": ["github.com/ibm/project-go-sdk"],
+      "matchPackageNames": ["github.com/IBM/project-go-sdk"],
       "enabled": false,
       "description": "Temporarily disable version updates of project-go-sdk (see https://github.ibm.com/GoldenEye/issues/issues/9475)"
     }
