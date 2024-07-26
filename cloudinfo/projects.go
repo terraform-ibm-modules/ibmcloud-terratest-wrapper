@@ -8,6 +8,8 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"reflect"
+	"strings"
 )
 
 // CreateDefaultProject creates a default project with the given name and description
@@ -518,8 +520,22 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 			if input.Default == nil {
 				inputDefault = "__NULL__"
 			} else {
-				inputDefaultVar := input.Default
-				inputDefault = &inputDefaultVar
+				inputDefault = input.Default
+			}
+		}
+		// Check if input.Default is a slice and if it is empty
+		if reflect.TypeOf(inputDefault).Kind() == reflect.Slice {
+			if reflect.ValueOf(inputDefault).Len() == 0 {
+				inputDefault = "[]"
+			} else {
+				// the slice needs to be converted to a string in the format '["value1", "value2"]'
+				slice := reflect.ValueOf(inputDefault)
+				elements := make([]string, slice.Len())
+				for i := 0; i < slice.Len(); i++ {
+					elements[i] = fmt.Sprintf("\"%v\"", slice.Index(i))
+				}
+				inputDefault = fmt.Sprintf("[%s]", strings.Join(elements, ", "))
+				print(inputDefault)
 			}
 		}
 		descriptionVar := input.Description
