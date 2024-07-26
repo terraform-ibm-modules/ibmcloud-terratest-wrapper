@@ -49,68 +49,15 @@ func (infoSvc *CloudInfoService) GetClusterConfigPath(clusterId string, basePath
 	return configDetails.FilePath, nil
 }
 
-// GetAlbState retrieves the details of State corresponding to ALB ID
-// albId: the ID of the ALB
-// Returns the State for an ALB ID.
-func (infoSvc *CloudInfoService) GetAlbState(albId string) (string, error) {
-	albConfig, _, err := infoSvc.kubeService.GetClusterALB(infoSvc.kubeService.NewGetClusterALBOptions(albId))
-	if err != nil {
-		return "", fmt.Errorf("failed to get Cluster ALB details for ALB ID: %s \nError: %w", albId, err)
-	}
-
-	// If any specific operation to perform for a state(healthy, critical, pending) is requried.
-	/*	if *albConfig.State == "healthy" {
-		} else if *albConfig.State == "critical" {
-		} else {
-		}
-	*/
-	return *albConfig.State, nil
-}
-
-// GetAlbIds retrieves the list of all ALBs in a cluster
+// GetClusterIngressStatus retrieves ingress status of the cluster
 // clusterId: the ID or name of the cluster
-// Returns a list all ALB IDs in a cluster. If no ALB IDs are returned, then the cluster does not have a portable subnet.
-func (infoSvc *CloudInfoService) GetAlbIds(clusterId string) ([]string, error) {
-	clusterAlbs, _, err := infoSvc.kubeService.GetClusterALBs(infoSvc.kubeService.NewGetClusterALBsOptions(clusterId))
+// Returns the ingress status of the cluster
+func (infoSvc *CloudInfoService) GetClusterIngressStatus(clusterId string) (string, error) {
+
+	containerClient := infoSvc.containerClient
+	ingressDetails, err := containerClient.Alb().GetIngressStatus(clusterId, containerv2.ClusterTargetHeader{})
 	if err != nil {
-		return []string{}, fmt.Errorf("failed to get ALB IDs for cluster: %s \nError: %w", clusterId, err)
+		return "", fmt.Errorf("failed to get cluster ingress status: %v", err)
 	}
-
-	// don't bother looping if empty
-	if len(clusterAlbs) == 0 {
-		return []string{}, nil
-	}
-
-	ids := []string{}
-
-	// loop through clusterAlbs to get albIds
-	for _, clusterAlb := range clusterAlbs {
-		ids = append(ids, *clusterAlb.ID)
-	}
-	return ids, nil
-}
-
-// GetIngressState retrieves the state of each albIds in a cluster
-// clusterId: the ID or name of the cluster
-// Returns a map with albId as key and corresponding state as value
-func (infoSvc *CloudInfoService) GetIngressState(clusterId string) (map[string]string, error) {
-	state := make(map[string]string)
-	albIds, err := infoSvc.GetAlbIds(clusterId)
-	if err != nil {
-		return state, fmt.Errorf("failed to get Ingress State \nError: %w", err)
-	}
-
-	// don't bother looping if empty
-	if len(albIds) == 0 {
-		return state, nil
-	}
-
-	for _, albId := range albIds {
-		albState, err := infoSvc.GetAlbState(albId)
-		if err != nil {
-			state[albId] = ""
-		}
-		state[albId] = albState
-	}
-	return state, nil
+	return ingressDetails.Status, nil
 }

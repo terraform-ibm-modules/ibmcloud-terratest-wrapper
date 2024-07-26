@@ -4,6 +4,7 @@ go 1.21
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240423071914-9e96525baef4
+	github.com/IBM-Cloud/container-services-go-sdk v0.0.0-20240725064144-454a2ae23113
 	github.com/IBM-Cloud/power-go-client v1.6.0
 	github.com/IBM/cloud-databases-go-sdk v0.7.0
 	github.com/IBM/go-sdk-core/v5 v5.17.3
@@ -21,7 +22,6 @@ require (
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/crypto v0.24.0
 	gopkg.in/yaml.v3 v3.0.1
-  github.com/IBM-Cloud/container-services-go-sdk v0.0.0-20231207111718-a3b74cc935fa
 )
 
 require (

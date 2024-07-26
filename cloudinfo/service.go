@@ -3,16 +3,16 @@ package cloudinfo
 
 import (
 	"errors"
-	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
-	projects "github.com/IBM/project-go-sdk/projectv1"
 	"log"
 	"os"
 	"sync"
 
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
+	projects "github.com/IBM/project-go-sdk/projectv1"
+
 	"github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
-	ksapi "github.com/IBM-Cloud/container-services-go-sdk/kubernetesserviceapiv1"
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
@@ -40,7 +40,6 @@ type CloudInfoService struct {
 	catalogService            catalogService
 	regionsData               []RegionData
 	lock                      sync.Mutex
-	kubeService               kubeService
 	icdService                icdService
 	projectsService           projectsService
 	ApiKey                    string
@@ -89,7 +88,6 @@ type CloudInfoServiceOptions struct {
 	CbrService                cbrService
 	ContainerClient           containerClient
 	RegionPrefs               []RegionData
-	KubeService               kubeService
 	IcdService                icdService
 	ProjectsService           projectsService
 	CatalogService            catalogService
@@ -144,6 +142,7 @@ type ibmPICloudConnectionClient interface {
 // containerClient interface for external Kubernetes Cluster Service API. Used for mocking.
 type containerClient interface {
 	Clusters() containerv2.Clusters
+	Alb() containerv2.Alb
 }
 
 // cbrService interface for external Context Based Restrictions Service API. Used for mocking.
@@ -152,14 +151,6 @@ type cbrService interface {
 	ReplaceRule(*contextbasedrestrictionsv1.ReplaceRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	GetZone(*contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
 }
-
-
-// kubeService interface for external Kubernetes Service API V1. Used for mocking.
-type kubeService interface {
-	GetClusterALB(*ksapi.GetClusterALBOptions) (*ksapi.ALBConfig, *core.DetailedResponse, error)
-	NewGetClusterALBOptions(string) *ksapi.GetClusterALBOptions
-	NewGetClusterALBsOptions(string) *ksapi.GetClusterALBsOptions
-	GetClusterALBs(*ksapi.GetClusterALBsOptions) ([]ksapi.ClusterALB, *core.DetailedResponse, error)
 
 // icdService for external Cloud Database V5 Service API. Used for mocking.
 type icdService interface {
@@ -356,24 +347,6 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.resourceControllerService = controllerClient
-	}
-
-
-	// if kubeService is not supplied, use default of external service
-	if options.KubeService != nil {
-		infoSvc.kubeService = options.KubeService
-	} else {
-		// Instantiate the service with an API key based IAM authenticator
-		kubeService, kubeErr := ksapi.NewKubernetesServiceApiV1(&ksapi.KubernetesServiceApiV1Options{
-			Authenticator: infoSvc.authenticator,
-		})
-
-		if kubeErr != nil {
-			log.Println("ERROR: Could not create NewKubernetesServiceApiV1 service:", kubeErr)
-			return nil, kubeErr
-		}
-
-		infoSvc.kubeService = kubeService
 	}
 
 	// if resourceManagerService is not supplied use new external
