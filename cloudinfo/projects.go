@@ -523,20 +523,8 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 				inputDefault = input.Default
 			}
 		}
-		// Check if inputDefault is a slice and if it is empty
-		if reflect.TypeOf(inputDefault).Kind() == reflect.Slice {
-			if reflect.ValueOf(inputDefault).Len() == 0 {
-				inputDefault = "[]"
-			} else {
-				// the slice needs to be converted to a string in the format '["value1", "value2"]'
-				slice := reflect.ValueOf(inputDefault)
-				elements := make([]string, slice.Len())
-				for i := 0; i < slice.Len(); i++ {
-					elements[i] = fmt.Sprintf("\"%v\"", slice.Index(i))
-				}
-				inputDefault = fmt.Sprintf("[%s]", strings.Join(elements, ", "))
-			}
-		}
+		inputDefault = convertSliceToString(inputDefault)
+
 		descriptionVar := input.Description
 		description := &descriptionVar
 		hiddenVar := input.Hidden
@@ -576,4 +564,36 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 	}
 
 	return infoSvc.CreateNewStack(projectID, catalogConfig.Products[0].Name, catalogConfig.Products[0].Name, stackDefinitionBlockPrototype, daStackMembers)
+}
+
+// convertSliceToString
+// The `convertSliceToString` function takes an input of any type and checks if it is a slice.
+// If the input is a slice, it recursively converts each element of the slice to a string.
+// If any element within the slice is itself a slice, the function will recursively convert that nested slice to a string as well.
+// The function returns a string representation of the slice, with each element enclosed in double quotes and separated by commas.
+// If the input is not a slice, it returns the input as is.
+//
+// Parameters:
+// - `input` (interface\{\}): The input value to be converted. This can be of any type.
+//
+// Returns:
+// - `interface\{\}`: A string representation of the input if it is a slice, otherwise the input itself.
+func convertSliceToString(input interface{}) interface{} {
+	if reflect.TypeOf(input).Kind() == reflect.Slice {
+		slice := reflect.ValueOf(input)
+		if slice.Len() == 0 {
+			return "[]"
+		}
+		elements := make([]string, slice.Len())
+		for i := 0; i < slice.Len(); i++ {
+			element := slice.Index(i).Interface()
+			if reflect.TypeOf(element).Kind() == reflect.Slice {
+				elements[i] = fmt.Sprintf("%v", convertSliceToString(element))
+			} else {
+				elements[i] = fmt.Sprintf("\"%v\"", element)
+			}
+		}
+		return fmt.Sprintf("[%s]", strings.Join(elements, ", "))
+	}
+	return input
 }
