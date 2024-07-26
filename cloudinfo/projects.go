@@ -523,7 +523,7 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 				inputDefault = input.Default
 			}
 		}
-		// Check if input.Default is a slice and if it is empty
+		// Check if inputDefault is a slice and if it is empty
 		if reflect.TypeOf(inputDefault).Kind() == reflect.Slice {
 			if reflect.ValueOf(inputDefault).Len() == 0 {
 				inputDefault = "[]"
@@ -535,7 +535,6 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 					elements[i] = fmt.Sprintf("\"%v\"", slice.Index(i))
 				}
 				inputDefault = fmt.Sprintf("[%s]", strings.Join(elements, ", "))
-				print(inputDefault)
 			}
 		}
 		descriptionVar := input.Description
