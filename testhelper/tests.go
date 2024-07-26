@@ -3,13 +3,14 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
+	"github.com/gruntwork-io/terratest/modules/random"
+	tfjson "github.com/hashicorp/terraform-json"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 	"testing"
-
-	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 
@@ -24,28 +25,40 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
-func skipUpgradeTest(branch string) bool {
+func (options *TestOptions) skipUpgradeTest(source_repo string, source_branch string, branch string) bool {
+
+	// random string to use in remote name
+	remote := fmt.Sprintf("upstream-%s", strings.ToLower(random.UniqueId()))
+	logger.Log(options.Testing, "Remote name:", remote)
+	// Set upstream to the source repo
+	remote_out, remote_err := exec.Command("/bin/sh", "-c", fmt.Sprintf("git remote add %s %s", remote, source_repo)).Output()
+	if remote_err != nil {
+		logger.Log(options.Testing, "Add remote output:\n", remote_out)
+		logger.Log(options.Testing, "Error adding upstream remote:\n", remote_err)
+		return false
+	}
+	// Fetch the source repo
+	fetch_out, fetch_err := exec.Command("/bin/sh", "-c", fmt.Sprintf("git fetch %s -f", remote)).Output()
+	if fetch_err != nil {
+		logger.Log(options.Testing, "Fetch output:\n", fetch_out)
+		logger.Log(options.Testing, "Error fetching upstream:\n", fetch_err)
+		return false
+	} else {
+		logger.Log(options.Testing, "Fetch output:\n", fetch_out)
+	}
 	// Get all the commit messages from the PR branch
 	// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
 	// clone even if the default branch has not been checked out or pulled.
-	cmd := exec.Command("/bin/sh", "-c", "git log origin/master..", branch)
+	cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("git log %s/%s..%s", remote, source_branch, branch))
 	out, _ := cmd.CombinedOutput()
 
+	fmt.Printf("Commit Messages (%s): \n%s", source_branch, string(out))
 	// Skip upgrade Test if BREAKING CHANGE OR SKIP UPGRADE TEST string found in commit messages
 	doNotRunUpgradeTest := false
 	if (strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST")) && !strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
 		doNotRunUpgradeTest = true
 	}
-	if !doNotRunUpgradeTest {
-		// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
-		// clone even if the default branch has not been checked out or pulled.
-		cmd = exec.Command("/bin/sh", "-c", "git log origin/main..", branch)
-		out, _ = cmd.CombinedOutput()
 
-		if (strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST")) && !strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
-			doNotRunUpgradeTest = true
-		}
-	}
 	return doNotRunUpgradeTest
 }
 
@@ -216,8 +229,9 @@ func (options *TestOptions) testSetup() {
 			// retryable errors in terraform testing.
 			options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
 				// Set the path to the Terraform code that will be tested.
-				TerraformDir: options.TerraformDir,
-				Vars:         options.TerraformVars,
+				TerraformDir:    options.TerraformDir,
+				TerraformBinary: options.TerraformBinary,
+				Vars:            options.TerraformVars,
 				// Set Upgrade to true to ensure the latest version of providers and modules are used by terratest.
 				// This is the same as setting the -upgrade=true flag with terraform.
 				Upgrade: true,
@@ -245,7 +259,7 @@ func (options *TestOptions) testSetup() {
 					if !options.IsUpgradeTest && files.PathContainsHiddenFileOrFolder(path) {
 						return false
 					}
-					if files.PathContainsTerraformStateOrVars(path) {
+					if files.PathContainsTerraformStateOrVars(path) || files.PathIsTerraformLockFile(path) {
 						return false
 					}
 
@@ -314,7 +328,7 @@ func (options *TestOptions) testTearDown() {
 			for _, address := range options.ImplicitDestroy {
 				// TODO: is this the correct path to the state file? and/or does it need to be updated upstream to a relative path(temp dir)?
 				statefile := fmt.Sprintf("%s/terraform.tfstate", options.WorkspacePath)
-				out, err := RemoveFromStateFile(statefile, address)
+				out, err := RemoveFromStateFileV2(statefile, address, options.TerraformBinary)
 				if options.ImplicitRequired && err != nil {
 					logger.Log(options.Testing, out)
 					assert.Nil(options.Testing, err, "Could not remove from state file")
@@ -347,19 +361,120 @@ func (options *TestOptions) testTearDown() {
 					logger.Log(options.Testing, fmt.Sprintf("Error output containg CBRRuleList %s not found in Statefile, skipping CBR Rule disable", options.CBRRuleListOutputVariable))
 				}
 			}
+			if options.PreDestroyHook != nil {
+				logger.Log(options.Testing, "START: PreDestroyHook")
+				hookErr := options.PreDestroyHook(options)
+				if hookErr != nil {
+					logger.Log(options.Testing, "Error running PreDestroyHook")
+					logger.Log(options.Testing, hookErr)
+					logger.Log(options.Testing, "END: PreDestroyHook, continuing with destroy")
+				} else {
+					logger.Log(options.Testing, "END: PreDestroyHook")
+				}
+			}
 			logger.Log(options.Testing, "START: Destroy")
-			terraform.Destroy(options.Testing, options.TerraformOptions)
+			destroyOutput, destroyError := terraform.DestroyE(options.Testing, options.TerraformOptions)
+			if assert.NoError(options.Testing, destroyError) == false {
+				logger.Log(options.Testing, destroyError)
+				// On destroy resource group failure, list remaining resources
+				if common.StringContainsIgnoreCase(destroyError.Error(), "Error Deleting resource group") {
+					logger.Log(options.Testing, "ERROR: Destroy failed attempting to list remaining resources")
+					if options.LastTestTerraformOutputs != nil {
+						// Check if resource_group_id or resource_group_ids are in the outputs
+						expectedOutputs := []string{"resource_group_id", "resource_group_ids", "resource_group_name", "resource_group_names"}
+						missingOutputs, _ := ValidateTerraformOutputs(options.LastTestTerraformOutputs, expectedOutputs...)
+						actualOutputs := []string{}
+						if missingOutputs != nil {
+							// loop through expected outputs and if they are not in missing outputs then add them to actual outputs
+							for _, expectedOutput := range expectedOutputs {
+								if !common.StrArrayContains(missingOutputs, expectedOutput) {
+									actualOutputs = append(actualOutputs, expectedOutput)
+								}
+							}
+						} else {
+							actualOutputs = append(actualOutputs, expectedOutputs...)
+						}
+						// If resource_group_id or resource_group_ids are in the outputs then list resources in the resource group
+						if len(actualOutputs) > 0 {
+							cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, cloudinfo.CloudInfoServiceOptions{})
+							if err != nil {
+								logger.Log(options.Testing, "Error creating CloudInfoService for testhelper, skipping resource listing")
+							} else {
+								if common.StrArrayContains(actualOutputs, "resource_group_id") {
+									resourceGroupID := options.LastTestTerraformOutputs["resource_group_id"].(string)
+									logger.Log(options.Testing, fmt.Sprintf("Resource Group %s", resourceGroupID))
+									// Get all resources in resource group
+									resources, err := cloudInfoSvc.ListResourcesByGroupID(resourceGroupID)
+									print_resources(options.Testing, resourceGroupID, resources, err)
+								}
+								if common.StrArrayContains(actualOutputs, "resource_group_ids") {
+									resourceGroupIDs := options.LastTestTerraformOutputs["resource_group_ids"].([]interface{})
+									for _, resourceGroupID := range resourceGroupIDs {
+										// Get all resources in resource group
+										logger.Log(options.Testing, fmt.Sprintf("Resource Group %s", resourceGroupID.(string)))
+										resources, err := cloudInfoSvc.ListResourcesByGroupID(resourceGroupID.(string))
+										print_resources(options.Testing, resourceGroupID.(string), resources, err)
+									}
+								}
+								if common.StrArrayContains(actualOutputs, "resource_group_name") {
+									resourceGroup := options.LastTestTerraformOutputs["resource_group_name"].(string)
+									logger.Log(options.Testing, fmt.Sprintf("Resource Group %s", resourceGroup))
+									// Get all resources in resource group
+									resources, err := cloudInfoSvc.ListResourcesByGroupName(resourceGroup)
+									print_resources(options.Testing, resourceGroup, resources, err)
+								}
+								if common.StrArrayContains(actualOutputs, "resource_group_names") {
+									resourceGroups := options.LastTestTerraformOutputs["resource_group_names"].([]interface{})
+									for _, resourceGroup := range resourceGroups {
+										// Get all resources in resource group
+										logger.Log(options.Testing, fmt.Sprintf("Resource Group %s", resourceGroup.(string)))
+										resources, err := cloudInfoSvc.ListResourcesByGroupName(resourceGroup.(string))
+										print_resources(options.Testing, resourceGroup.(string), resources, err)
+									}
+								}
+							}
+						}
+					}
+				}
+			} else {
+				logger.Log(options.Testing, destroyOutput)
+			}
 			if options.UseTerraformWorkspace {
 				terraform.WorkspaceDelete(options.Testing, options.TerraformOptions, options.Prefix)
 			}
 			logger.Log(options.Testing, "END: Destroy")
-
+			if options.PostDestroyHook != nil {
+				logger.Log(options.Testing, "START: PostDestroyHook")
+				hookErr := options.PostDestroyHook(options)
+				if hookErr != nil {
+					logger.Log(options.Testing, "Error running PostDestroyHook")
+					logger.Log(options.Testing, hookErr)
+					logger.Log(options.Testing, "END: PostDestroyHook")
+				} else {
+					logger.Log(options.Testing, "END: PostDestroyHook")
+				}
+			}
 			//Clean up terraform files
 			CleanTerraformDir(options.TerraformDir)
 		}
 	} else {
 		logger.Log(options.Testing, "Skipping automatic Test Teardown")
 	}
+}
+
+// print_resources internal helper function that prints the resources in the resource group
+func print_resources(t *testing.T, resourceGroup string, resources []resourcecontrollerv2.ResourceInstance, err error) {
+	logger.Log(t, fmt.Sprintf("---------------------------"))
+	if err != nil {
+		logger.Log(t, fmt.Sprintf("Error listing resources in Resource Group %s, %s\n"+
+			"Is this Resource Group already deleted?", resourceGroup, err))
+	} else if len(resources) == 0 {
+		logger.Log(t, fmt.Sprintf("No resources found in Resource Group %s", resourceGroup))
+	} else {
+		logger.Log(t, fmt.Sprintf("Resources in Resource Group %s:", resourceGroup))
+		cloudinfo.PrintResources(resources)
+	}
+	logger.Log(t, fmt.Sprintf("---------------------------"))
 }
 
 // RunTestUpgrade runs the upgrade test to ensure that the Terraform configurations being tested
@@ -405,7 +520,16 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "PR Branch:", prBranch)
 	}
 
-	if skipUpgradeTest(prBranch) {
+	baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
+	if baseBranch == "" || baseRepo == "" {
+		// No need to tearDown as nothing was created
+		return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
+	} else {
+		logger.Log(options.Testing, "Base Repo:", baseRepo)
+		logger.Log(options.Testing, "Base Branch:", baseBranch)
+	}
+
+	if options.skipUpgradeTest(baseRepo, baseBranch, prBranch) {
 		options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
 	} else {
 		skipped = false
@@ -475,7 +599,12 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 			// Copy the current code (from PR branch) to the PR temp directory with the filter
 			errCopy := common.CopyDirectory(gitRoot, prTempDir, func(path string) bool {
-				if files.PathContainsTerraformStateOrVars(path) {
+				// Skip terraform state files or .terraform directories
+				// Or terraform lock files
+				// Do not skip .git directories as we need them for the upgrade test
+				if files.PathContainsTerraformStateOrVars(path) ||
+					files.PathIsTerraformLockFile(path) ||
+					common.StringContainsIgnoreCase(path, ".terraform") {
 					return false
 				}
 
@@ -500,14 +629,6 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			if !options.SkipTestTearDown {
 				defer os.RemoveAll(baseTempDir) // clean up
 			}
-		}
-		baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
-		if baseBranch == "" || baseRepo == "" {
-			// No need to tearDown as nothing was created
-			return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
-		} else {
-			logger.Log(options.Testing, "Base Repo:", baseRepo)
-			logger.Log(options.Testing, "Base Branch:", baseBranch)
 		}
 
 		authMethod, err := common.DetermineAuthMethod(baseRepo)
@@ -573,6 +694,16 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Set TerraformDir to the appropriate directory within baseTempDir
 		options.setTerraformDir(path.Join(baseTempDir, relativeTestSampleDir))
 
+		if options.PreApplyHook != nil {
+			logger.Log(options.Testing, "Running PreApplyHook")
+			hookErr := options.PreApplyHook(options)
+			if hookErr != nil {
+				assert.Nilf(options.Testing, hookErr, "PreApplyHook failed")
+				options.testTearDown()
+				return nil, hookErr
+			}
+			logger.Log(options.Testing, "PreApplyHook completed successfully")
+		}
 		logger.Log(options.Testing, "Init / Apply on Base repo:", baseRepo)
 		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
 		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
@@ -582,6 +713,17 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
 			options.testTearDown()
 			return nil, resultErr
+		}
+
+		if options.PostApplyHook != nil {
+			logger.Log(options.Testing, "Running PostApplyHook")
+			hookErr := options.PostApplyHook(options)
+			if hookErr != nil {
+				assert.Nilf(options.Testing, hookErr, "PostApplyHook failed")
+				options.testTearDown()
+				return nil, hookErr
+			}
+			logger.Log(options.Testing, "PostApplyHook completed successfully")
 		}
 		// Get the path to the state file in baseTempDir
 		baseStatePath := path.Join(options.TerraformOptions.TerraformDir, "terraform.tfstate")
@@ -722,11 +864,27 @@ func (options *TestOptions) RunTest() (string, error) {
 // runTest Runs Test and returns the output as a string for assertions for internal use no setup or teardown
 func (options *TestOptions) runTest() (string, error) {
 
+	if options.PreApplyHook != nil {
+		logger.Log(options.Testing, "Running PreApplyHook")
+		hook_err := options.PreApplyHook(options)
+		if hook_err != nil {
+			return "", hook_err
+		}
+		logger.Log(options.Testing, "Finished PreApplyHook")
+	}
 	logger.Log(options.Testing, "START: Init / Apply")
 	output, err := terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 	assert.Nil(options.Testing, err, "Failed", err)
 	logger.Log(options.Testing, "FINISHED: Init / Apply")
 
+	if err == nil && options.PostApplyHook != nil {
+		logger.Log(options.Testing, "Running PostApplyHook")
+		hook_err := options.PostApplyHook(options)
+		if hook_err != nil {
+			return "", hook_err
+		}
+		logger.Log(options.Testing, "Finished PostApplyHook")
+	}
 	return output, err
 }
 

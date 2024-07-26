@@ -3,6 +3,8 @@ package cloudinfo
 
 import (
 	"errors"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
+	projects "github.com/IBM/project-go-sdk/projectv1"
 	"log"
 	"os"
 	"sync"
@@ -12,11 +14,14 @@ import (
 	"github.com/IBM-Cloud/bluemix-go/session"
 	ksapi "github.com/IBM-Cloud/container-services-go-sdk/kubernetesserviceapiv1"
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
+	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
+	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
+
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 )
 
@@ -29,11 +34,16 @@ type CloudInfoService struct {
 	iamIdentityService        iamIdentityService
 	iamPolicyService          iamPolicyService
 	resourceControllerService resourceControllerService
+	resourceManagerService    resourceManagerService
 	cbrService                cbrService
 	containerClient           containerClient
+	catalogService            catalogService
 	regionsData               []RegionData
 	lock                      sync.Mutex
 	kubeService               kubeService
+	icdService                icdService
+	projectsService           projectsService
+	ApiKey                    string
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -45,6 +55,26 @@ type CloudInfoServiceI interface {
 	HasRegionData() bool
 	RemoveRegionForTest(string)
 	GetThreadLock() *sync.Mutex
+	GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error)
+	CreateDefaultProject(string, string, string) (*projects.Project, *core.DetailedResponse, error)
+	GetProject(projectID string) (*projects.Project, *core.DetailedResponse, error)
+	GetProjectConfigs(projectID string) ([]projects.ProjectConfigSummary, error)
+	GetConfig(projectID string, configID string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	DeleteProject(projectID string) (*projects.ProjectDeleteResponse, *core.DetailedResponse, error)
+	CreateConfig(projectID string, name string, description string, stackLocatorID string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	CreateDaConfig(projectID string, locatorID string, name string, description string, authorizations projects.ProjectConfigAuth, inputs map[string]interface{}, settings map[string]interface{}) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	CreateConfigFromCatalogJson(projectID string, catalogJsonPath string, stackLocatorID string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	UpdateConfig(projectID string, configID string, configuration projects.ProjectConfigDefinitionPatchIntf) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	ApproveConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	IsConfigApproved(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isApproved bool)
+	ValidateProjectConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	IsConfigValidated(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isValidated bool)
+	DeployConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	IsConfigDeployed(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isDeployed bool)
+	UndeployConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	IsUndeploying(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isUndeploying bool)
+	CreateStackFromConfigFileWithInputs(projectID string, stackConfigPath string, catalogJsonPath string, stackInputs map[string]interface{}) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
+	GetProjectConfigVersion(projectID string, configID string, version int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -53,12 +83,16 @@ type CloudInfoServiceOptions struct {
 	Authenticator             *core.IamAuthenticator
 	VpcService                vpcService
 	ResourceControllerService resourceControllerService
+	ResourceManagerService    resourceManagerService
 	IamIdentityService        iamIdentityService
 	IamPolicyService          iamPolicyService
 	CbrService                cbrService
 	ContainerClient           containerClient
 	RegionPrefs               []RegionData
 	KubeService               kubeService
+	IcdService                icdService
+	ProjectsService           projectsService
+	CatalogService            catalogService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -96,6 +130,12 @@ type resourceControllerService interface {
 	ListResourceInstances(*resourcecontrollerv2.ListResourceInstancesOptions) (*resourcecontrollerv2.ResourceInstancesList, *core.DetailedResponse, error)
 }
 
+// resourceManagerService for external Resource Manager V2 Service API. Used for mocking.
+type resourceManagerService interface {
+	NewListResourceGroupsOptions() *resourcemanagerv2.ListResourceGroupsOptions
+	ListResourceGroups(*resourcemanagerv2.ListResourceGroupsOptions) (*resourcemanagerv2.ResourceGroupList, *core.DetailedResponse, error)
+}
+
 // ibmPowerService for external IBM Powercloud Service API. Used for mocking.
 type ibmPICloudConnectionClient interface {
 	GetAll() (*ibmpimodels.CloudConnections, error)
@@ -113,12 +153,50 @@ type cbrService interface {
 	GetZone(*contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
 }
 
+
 // kubeService interface for external Kubernetes Service API V1. Used for mocking.
 type kubeService interface {
 	GetClusterALB(*ksapi.GetClusterALBOptions) (*ksapi.ALBConfig, *core.DetailedResponse, error)
 	NewGetClusterALBOptions(string) *ksapi.GetClusterALBOptions
 	NewGetClusterALBsOptions(string) *ksapi.GetClusterALBsOptions
 	GetClusterALBs(*ksapi.GetClusterALBsOptions) ([]ksapi.ClusterALB, *core.DetailedResponse, error)
+
+// icdService for external Cloud Database V5 Service API. Used for mocking.
+type icdService interface {
+	NewListDeployablesOptions() *clouddatabasesv5.ListDeployablesOptions
+	ListDeployables(*clouddatabasesv5.ListDeployablesOptions) (*clouddatabasesv5.ListDeployablesResponse, *core.DetailedResponse, error)
+}
+
+// projectsService for external Projects V1 Service API. Used for mocking.
+type projectsService interface {
+	CreateProject(createProjectOptions *projects.CreateProjectOptions) (result *projects.Project, response *core.DetailedResponse, err error)
+	GetProject(getProjectOptions *projects.GetProjectOptions) (result *projects.Project, response *core.DetailedResponse, err error)
+	UpdateProject(updateProjectOptions *projects.UpdateProjectOptions) (result *projects.Project, response *core.DetailedResponse, err error)
+	DeleteProject(deleteProjectOptions *projects.DeleteProjectOptions) (result *projects.ProjectDeleteResponse, response *core.DetailedResponse, err error)
+
+	NewCreateConfigOptions(projectID string, definition projects.ProjectConfigDefinitionPrototypeIntf) *projects.CreateConfigOptions
+	NewConfigsPager(listConfigsOptions *projects.ListConfigsOptions) (*projects.ConfigsPager, error)
+	NewGetConfigVersionOptions(projectID string, id string, version int64) *projects.GetConfigVersionOptions
+	GetConfigVersion(getConfigVersionOptions *projects.GetConfigVersionOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+
+	CreateConfig(createConfigOptions *projects.CreateConfigOptions) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	UpdateConfig(updateConfigOptions *projects.UpdateConfigOptions) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	GetConfig(getConfigOptions *projects.GetConfigOptions) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	DeleteConfig(deleteConfigOptions *projects.DeleteConfigOptions) (result *projects.ProjectConfigDelete, response *core.DetailedResponse, err error)
+
+	CreateStackDefinition(createStackDefinitionOptions *projects.CreateStackDefinitionOptions) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
+	NewCreateStackDefinitionOptions(projectID string, id string, stackDefinition *projects.StackDefinitionBlockPrototype) *projects.CreateStackDefinitionOptions
+	UpdateStackDefinition(updateStackDefinitionOptions *projects.UpdateStackDefinitionOptions) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
+	GetStackDefinition(getStackDefinitionOptions *projects.GetStackDefinitionOptions) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
+	ValidateConfig(validateConfigOptions *projects.ValidateConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	Approve(approveOptions *projects.ApproveOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	DeployConfig(deployConfigOptions *projects.DeployConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	UndeployConfig(unDeployConfigOptions *projects.UndeployConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+}
+
+// catalogService for external Data Catalog V1 Service API. Used for mocking.
+type catalogService interface {
+	GetVersion(getVersionOptions *catalogmanagementv1.GetVersionOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -181,7 +259,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 			ApiKey: options.ApiKey,
 		}
 	}
-
+	infoSvc.ApiKey = options.ApiKey
 	// if IamIdentity is not supplied, use default external service
 	if options.IamIdentityService != nil {
 		infoSvc.iamIdentityService = options.IamIdentityService
@@ -280,6 +358,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.resourceControllerService = controllerClient
 	}
 
+
 	// if kubeService is not supplied, use default of external service
 	if options.KubeService != nil {
 		infoSvc.kubeService = options.KubeService
@@ -297,6 +376,65 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.kubeService = kubeService
 	}
 
+	// if resourceManagerService is not supplied use new external
+	if options.ResourceControllerService != nil {
+		infoSvc.resourceManagerService = options.ResourceManagerService
+	} else {
+		managerClient, resMgrErr := resourcemanagerv2.NewResourceManagerV2(&resourcemanagerv2.ResourceManagerV2Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if resMgrErr != nil {
+			log.Println("Error creating resourcemanagerv2 client:", resMgrErr)
+			return nil, resMgrErr
+		}
+
+		infoSvc.resourceManagerService = managerClient
+	}
+
+	// if icdService is not supplied use new external
+	if options.IcdService != nil {
+		infoSvc.icdService = options.IcdService
+	} else {
+		icdClient, icdMgrErr := clouddatabasesv5.NewCloudDatabasesV5(&clouddatabasesv5.CloudDatabasesV5Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if icdMgrErr != nil {
+			log.Println("Error creating clouddatabasesv5 client:", icdMgrErr)
+			return nil, icdMgrErr
+		}
+
+		infoSvc.icdService = icdClient
+	}
+
+	if options.ProjectsService != nil {
+		infoSvc.projectsService = options.ProjectsService
+	} else {
+		projectsClient, projectsErr := projects.NewProjectV1(&projects.ProjectV1Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if projectsErr != nil {
+			log.Println("Error creating projects client:", projectsErr)
+			return nil, projectsErr
+		}
+
+		infoSvc.projectsService = projectsClient
+
+	}
+
+	if options.CatalogService != nil {
+		infoSvc.catalogService = options.CatalogService
+	} else {
+		catalogClient, catalogErr := catalogmanagementv1.NewCatalogManagementV1(&catalogmanagementv1.CatalogManagementV1Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if catalogErr != nil {
+			log.Println("Error creating catalog client:", catalogErr)
+			return nil, catalogErr
+		}
+
+		infoSvc.catalogService = catalogClient
+
+	}
 	return infoSvc, nil
 }
 

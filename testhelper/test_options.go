@@ -2,6 +2,7 @@ package testhelper
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
-const defaultRegion = "eu-gb"
+const defaultRegion = "us-south"
 const defaultRegionYaml = "../common-dev-assets/common-go-assets/cloudinfo-region-vpc-gen2-prefs.yaml"
 const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 
@@ -71,6 +72,13 @@ type TestOptions struct {
 	// see: https://pkg.go.dev/github.com/gruntwork-io/terratest/modules/terraform#Options
 	TerraformOptions *terraform.Options `copier:"-"`
 
+	// Use OpenTofu binary on the system path. This is used to enable the OpenTofu binary to be used for testing.
+	// If OpenTofu is not installed, the test will fail.
+	// If TerraformOptions is passed with the value for TerraformBinary set, this value will be ignored.
+	EnableOpenTofu bool
+	// Use this to specify the path to the Terraform binary to use for testing. This is exclusive with EnableOpenTofu.
+	TerraformBinary string
+
 	// Use these options to have terratest execute using a terraform "workspace".
 	UseTerraformWorkspace bool
 	WorkspaceName         string
@@ -82,7 +90,7 @@ type TestOptions struct {
 	//
 	// For repositories that require authentication:
 	// - For HTTPS repositories, set the GIT_TOKEN environment variable to your Personal Access Token (PAT).
-	// - For SSH repositories, set the SSH_PRIVATE_KEY environment variable to your SSH private key.
+	// - For SSH repositories, set the SSH_PRIVATE_KEY environment variable to your SSH private key value.
 	//   If the SSH_PRIVATE_KEY environment variable is not set, the default SSH key located at ~/.ssh/id_rsa will be used.
 	//   Ensure that the appropriate public key is added to the repository's list of authorized keys.
 	//
@@ -152,6 +160,16 @@ type TestOptions struct {
 	IsUpgradeTest      bool // Identifies if current test is an UPGRADE test, used for special processing
 	UpgradeTestSkipped bool // Informs the calling test that conditions were met to skip the upgrade test
 
+	// Hooks These allow us to inject custom code into the test process
+	// example to set a hook:
+	// options.PreApplyHook = func(options *TestOptions) error {
+	//     // do something
+	//     return nil
+	// }
+	PreApplyHook    func(options *TestOptions) error // In upgrade tests, this hook will be called before the base apply
+	PostApplyHook   func(options *TestOptions) error // In upgrade tests, this hook will be called after the base apply
+	PreDestroyHook  func(options *TestOptions) error // If this fails, the destroy will continue
+	PostDestroyHook func(options *TestOptions) error
 }
 
 // Default constructor for TestOptions struct. This constructor takes in an existing TestOptions object with minimal values set, and returns
@@ -214,6 +232,19 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 	newOptions.RequiredEnvironmentVars = common.GetRequiredEnvVars(newOptions.Testing, checkVariables)
 
 	newOptions.UseTerraformWorkspace = false
+
+	// if originalOptions has TerraformBinary set, use that value. Otherwise, use OpenTofu
+	if newOptions.TerraformBinary == "" {
+		if newOptions.EnableOpenTofu {
+			_, err := exec.LookPath("tofu")
+			require.NoError(newOptions.Testing, err, "tofu binary not found on system, please install tofu or set TerraformBinary in TestOptions.")
+			if err == nil {
+				newOptions.TerraformBinary = "tofu"
+			}
+		} else {
+			newOptions.TerraformBinary = "terraform"
+		}
+	}
 
 	if newOptions.Region == "" {
 		// Get the best region

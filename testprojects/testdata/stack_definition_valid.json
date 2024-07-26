@@ -1,0 +1,70 @@
+{
+  "inputs": [
+    {
+      "name": "ibmcloud_api_key",
+      "required": true,
+      "type": "password",
+      "hidden": false
+    },
+    {
+      "name": "resource_group_name",
+      "required": false,
+      "type": "string",
+      "hidden": false
+    }
+  ],
+  "members": [
+    {
+      "inputs": [
+        {
+          "name": "resource_group",
+          "value": "ref:../../inputs/resource_group_name"
+        },
+        {
+          "name": "resource_tags",
+          "value": "[]"
+        },
+        {
+          "name": "testing",
+          "value": "__NULL__"
+        },
+        {
+          "name": "prefix",
+          "value": "primary"
+        },
+        {
+          "name": "ibmcloud_api_key",
+          "value": "ref:../../inputs/ibmcloud_api_key"
+        }
+      ],
+      "name": "primary-da",
+      "version_locator": "7df1e4ca-d54c-4fd0-82ce-3d13247308cd.a8887a40-ff3f-4ee8-bcfe-bcfd55360074"
+    },
+    {
+      "inputs": [
+        {
+          "name": "resource_group",
+          "value": "ref:../../inputs/resource_group_name"
+        },
+        {
+          "name": "resource_tags",
+          "value": "[]"
+        },
+        {
+          "name": "testing",
+          "value": "__NULL__"
+        },
+        {
+          "name": "prefix",
+          "value": "secondary"
+        },
+        {
+          "name": "ibmcloud_api_key",
+          "value": "ref:../../inputs/ibmcloud_api_key"
+        }
+      ],
+      "name": "secondary-da",
+      "version_locator": "7df1e4ca-d54c-4fd0-82ce-3d13247308cd.a8887a40-ff3f-4ee8-bcfe-bcfd55360074"
+    }
+  ]
+}

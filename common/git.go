@@ -4,15 +4,16 @@ package common
 import (
 	"errors"
 	"fmt"
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
-	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
-	"golang.org/x/crypto/ssh"
 	"log"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"golang.org/x/crypto/ssh"
 )
 
 // gitOps is an interface that abstracts Git operations. This allows for easier testing
@@ -333,7 +334,7 @@ func DetermineAuthMethod(repoURL string) (transport.AuthMethod, error) {
 			}
 		}
 		if sshPrivateKey != "" {
-			key, err := ssh.ParseRawPrivateKey([]byte(sshPrivateKey))
+			key, err := RetrievePrivateKey(sshPrivateKey)
 			if err != nil {
 				return nil, err
 			}
@@ -345,4 +346,42 @@ func DetermineAuthMethod(repoURL string) (transport.AuthMethod, error) {
 		}
 	}
 	return nil, nil // No authentication
+}
+
+// RetrievePrivateKey is a function that takes a string sshPvtKey as input and returns an interface{} and error as output.
+// IF the SSH_PASSPHRASE environment variable is set:
+//  - It will parse the raw private key with passphrase using the ParseRawPrivateKeyWithPassphrase method of the ssh package.
+// IF the SSH_PASSPHRASE environment variable is NOT set or an empty string:
+//  - It will parse the raw private key without passphrase using the ParseRawPrivateKey method of the ssh package.
+// In both cases:
+// - If an error is returned, then return nil and error.
+// - Otherwise return the parsed key as interface{} and nil.
+
+// Parameters:
+// sshPvtKey: The raw ssh private key.
+
+// Returns:
+// - An interface{} that contains the parsed private key.
+// - An error (if any)
+
+func RetrievePrivateKey(sshPvtKey string) (interface{}, error) {
+	var sshPassphrase string
+	// Chek for SSH_PASSPHRASE environment variable
+	envSSHPassphrase, isPassphrase := os.LookupEnv("SSH_PASSPHRASE")
+	if isPassphrase {
+		sshPassphrase = envSSHPassphrase
+	}
+	if sshPassphrase != "" {
+		key, err := ssh.ParseRawPrivateKeyWithPassphrase([]byte(sshPvtKey), []byte(sshPassphrase))
+		if err != nil {
+			return nil, err
+		}
+		return key, err
+	}
+	// Use method without SSH PASSPHRASE IF NOT PROVIDED
+	key, err := ssh.ParseRawPrivateKey([]byte(sshPvtKey))
+	if err != nil {
+		return nil, err
+	}
+	return key, err
 }

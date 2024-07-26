@@ -2,13 +2,16 @@ package cloudinfo
 
 import (
 	"errors"
+	"fmt"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
+	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
+	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"github.com/stretchr/testify/mock"
 	"log"
@@ -142,6 +145,28 @@ func (mock *resourceControllerServiceMock) ListResourceInstances(options *resour
 	return retList, nil, nil
 }
 
+// Resource Manager mock
+type resourceManagerServiceMock struct {
+	mockResourceGroupList *resourcemanagerv2.ResourceGroupList
+	resourceGroups        map[string]string // map of resource group names to IDs
+}
+
+func (s *resourceManagerServiceMock) NewListResourceGroupsOptions() *resourcemanagerv2.ListResourceGroupsOptions {
+	return &resourcemanagerv2.ListResourceGroupsOptions{}
+}
+
+func (s *resourceManagerServiceMock) ListResourceGroups(*resourcemanagerv2.ListResourceGroupsOptions) (*resourcemanagerv2.ResourceGroupList, *core.DetailedResponse, error) {
+	return s.mockResourceGroupList, nil, nil
+}
+
+func (s *resourceManagerServiceMock) GetResourceGroupIDByName(name string) (string, error) {
+	id, ok := s.resourceGroups[name]
+	if !ok {
+		return "", fmt.Errorf("resource group %s not found", name)
+	}
+	return id, nil
+}
+
 // Mock CBR
 type cbrServiceMock struct {
 	mock.Mock
@@ -215,4 +240,17 @@ func (m *ClustersMock) EnableImageSecurityEnforcement(name string, target contai
 func (m *ClustersMock) DisableImageSecurityEnforcement(name string, target containerv2.ClusterTargetHeader) error {
 	args := m.Called(name, target)
 	return args.Error(0)
+}
+
+// ICD Versions mock
+type icdServiceMock struct {
+	mockListDeployablesResponse *clouddatabasesv5.ListDeployablesResponse
+}
+
+func (s *icdServiceMock) NewListDeployablesOptions() *clouddatabasesv5.ListDeployablesOptions {
+	return &clouddatabasesv5.ListDeployablesOptions{}
+}
+
+func (s *icdServiceMock) ListDeployables(*clouddatabasesv5.ListDeployablesOptions) (*clouddatabasesv5.ListDeployablesResponse, *core.DetailedResponse, error) {
+	return s.mockListDeployablesResponse, nil, nil
 }

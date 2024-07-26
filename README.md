@@ -53,7 +53,7 @@ To restrict the query and assign a priority to the regions, supply a YAML file t
   useForTest: true
   testPriority: 2
 ```
-
+___
 ## Examples
 
 <a name="testrunbasic"></a>
@@ -86,6 +86,82 @@ func TestRunBasic(t *testing.T) {
     assert.NotNil(t, output, "Expected some output")
 }
 ```
+___
+
+### Example Handling Terraform Outputs
+
+After the test completes and teardown occurs, the state file no longer contains the outputs. To handle this situation, the last test to execute stores its outputs in `LastTestTerraformOutputs`. Use the helper function called `ValidateTerraformOutputs` to validate that the outputs exist. The function returns a list of output keys that are missing and an error message with details.
+
+The following example checks if the output exists and contains a certain value.
+
+```go
+outputs := options.LastTestTerraformOutputs
+expectedOutputs := []string{"output1", "output2"}
+_, outputErr := testhelper.ValidateTerraformOutputs(outputs, expectedOutputs...)
+if assert.NoErrorf(t, outputErr, "Some outputs not found or nil.") {
+    assert.Equal(t, outputs["output1"].(string), "output 1")
+    assert.Equal(t, outputs["output2"].(string), "output 2")
+}
+```
+---
+
+### OpenTofu
+
+Enable OpenTofu with the TestOptions, then OpenTofu on the systems path will be used for the test.
+```go
+func TestRunBasicTofu(t *testing.T) {
+	t.Parallel()
+
+	options := testhelper.TestOptionsDefault(&testhelper.TestOptions{
+        Testing:            t,                      // the test object for unit test
+        EnableOpenTofu:     true,                   // enable open Tofu
+        TerraformDir:       "examples/basic",       // location of example to test
+        Prefix:             "my-test",              // will have 6 char random string appended
+        BestRegionYAMLPath: "location/of/yaml.yml", // YAML file to configure dynamic region selection
+        // Region: "us-south", // if you set Region, dynamic selection will be skipped
+    })
+
+    options.TerraformVars = map[string]interface{}{
+        "variable_1":   "foo",
+        "resource_prefix": options.Prefix,
+        "ibm_region": options.Region,
+    }
+
+    // idempotent test
+    output, err := options.RunTestConsistency()
+    assert.Nil(t, err, "This should not have errored")
+    assert.NotNil(t, output, "Expected some output")
+}
+
+```
+The `TerraformBinary` can also be set directly if Terrform/OpenTofu is not in the system path. If this is set the `EnableOpenTofu` option will be ignored.
+```go
+func TestRunBasicTerraformBinary(t *testing.T) {
+	t.Parallel()
+
+	options := testhelper.TestOptionsDefault(&testhelper.TestOptions{
+        Testing:            t,                      // the test object for unit test
+        TerraformBinary:    "/custom/path/tofu",    // set the path to the Terraform binary
+        TerraformDir:       "examples/basic",       // location of example to test
+        Prefix:             "my-test",              // will have 6 char random string appended
+        BestRegionYAMLPath: "location/of/yaml.yml", // YAML file to configure dynamic region selection
+        // Region: "us-south", // if you set Region, dynamic selection will be skipped
+    })
+
+    options.TerraformVars = map[string]interface{}{
+        "variable_1":   "foo",
+        "resource_prefix": options.Prefix,
+        "ibm_region": options.Region,
+    }
+
+    // idempotent test
+    output, err := options.RunTestConsistency()
+    assert.Nil(t, err, "This should not have errored")
+    assert.NotNil(t, output, "Expected some output")
+}
+
+```
+___
 
 ### Run in IBM Cloud Schematics
 
@@ -123,7 +199,7 @@ func TestRunBasicInSchematic(t *testing.T) {
 	assert.NotNil(t, output, "Expected some output")
 }
 ```
-
+___
 ### Test a module upgrade
 
 When a new version of your Terraform module is released, you can test whether the upgrade destroys resources. Consumers of your module might not want key resources deleted in an upgrade, even if the resources are replaced.
@@ -134,7 +210,7 @@ The `RunTestUpgrade()` method completes the following steps:
 
 1.  Copies the current project directory, including the hidden `.git` repository, into a temporary location.
 1.  Stores the Git references of the checked out branch (usually a PR merge branch).
-1.  Checks out the `main` branch.
+1.  Clones the `main` branch from the target base repository.
 1.  Runs `terraform apply` with a check to make sure that the module is idempotent.
 1.  Checks out the original branch from the stored Git reference (for example, the PR branch).
 1.  Runs `terraform plan`.
@@ -150,6 +226,24 @@ if !options.UpgradeTestSkipped {
 }
 ```
 
+
+#### Notes:
+**Skipping the test**
+
+The upgrade Test checks the current commit messages and if `BREAKING CHANGE` OR `SKIP UPGRADE TEST` string found in commit messages then it will skip the upgrade test.
+If the message `UNSKIP UPGRADE TEST` is found in the commit messages, it will not skip the upgrade test and will not be possible to skip the test again.
+
+**Base repo and branch**
+
+The upgrade test needs to pull the latest changes from the default branch of the base repo to apply them. If you are using a fork it will attempt to figure out the base repo and base branch.
+If this fails in your environment, you can manually set the base repo and branch by setting the environment variables `BASE_TERRAFORM_REPO` and `BASE_TERRAFORM_BRANCH`.
+
+**Authentication**
+
+If authentication is required to access the base repo, the code tries to automatically figure it out, by default it will try unauthenticated for HTTPS repositories and trie use the default SSH key located at `~/.ssh/id_rsa` for SSH repositories.
+If this fails it will try unauthenticated. You can manually set the `SSH_PRIVATE_KEY` environment variable to the value of your SSH private key. For HTTPS repositories, set the `GIT_TOKEN` environment variable to your Personal Access Token (PAT).
+If you are using a passphrase-protected SSH key, set the `SSH_PASSPHRASE` environment variable to the actual passphrase used to protect the SSH key..
+___
 ### More examples
 
 For more customization, see the `ibmcloud-terratest-wrapper` reference at pkg.go.dev, including the following examples:
@@ -157,6 +251,11 @@ For more customization, see the `ibmcloud-terratest-wrapper` reference at pkg.go
 - [Terratest examples](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#pkg-overview)
 - [IBM Schematics Workspace examples](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic#pkg-overview)
 
+---
+## IBM Cloud Projects
+IBM Cloud Projects support has been added but should be considered alpha. It is using pre-release APIs and may change in the future.
+It is not recommended to use this feature. Breaking changes are expected and upgrade paths are not guaranteed.
+___
 ## Contributing
 
 You can report issues and request features for this module in [issues](/issues/new/choose) in this repo. Changes that are accepted and merged are published to the pkg.go.dev reference by the merge pipeline and semantic versioning automation, which creates a new GitHub release.
@@ -180,25 +279,3 @@ go test -v ./cloudinfo
 # run all packages tests, skipping template tests that exist in common-dev-assets
 go test -v $(go list ./... | grep -v /common-dev-assets/)
 ```
-
-<!-- BEGINNING OF PRE-COMMIT-TERRAFORM DOCS HOOK -->
-### Requirements
-
-No requirements.
-
-### Modules
-
-No modules.
-
-### Resources
-
-No resources.
-
-### Inputs
-
-No inputs.
-
-### Outputs
-
-No outputs.
-<!-- END OF PRE-COMMIT-TERRAFORM DOCS HOOK -->
