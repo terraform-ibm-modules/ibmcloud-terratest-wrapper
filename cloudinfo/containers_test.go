@@ -2,10 +2,12 @@ package cloudinfo
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
+	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"testing"
 )
 
 func TestGetClusterConfigPath(t *testing.T) {
@@ -66,4 +68,42 @@ func TestGetClusterConfigPath(t *testing.T) {
 			mockContainerClient.AssertExpectations(t)
 		})
 	}
+}
+
+func TestGetClusterIngressStatus(t *testing.T) {
+	mockClusterId := "test-cluster"
+	mockError := fmt.Errorf("error getting cluster ingress status")
+
+	testCases := []struct {
+		name           string
+		expectedError  error
+		mockError      error
+		expectedStatus string
+	}{
+		{
+			name:           "Success case",
+			expectedError:  nil,
+			mockError:      nil,
+			expectedStatus: "Healthy",
+		},
+		{
+			name:           "Failure case",
+			expectedError:  fmt.Errorf("failed to get cluster ingress status: %s", mockError),
+			mockError:      mockError,
+			expectedStatus: "",
+		},
+		// Add more cases as needed
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockContainerClient := &containerClientMock{}
+			mockAlb := &AlbMock{}
+
+			mockContainerClient.On("Alb").Return(mockAlb)
+			mockAlb.On("GetIngressStatus", mockClusterId, mock.AnythingOfType("containerv2.ClusterTargetHeader")).Return(containerv2.IngressStatus{Status: tc.expectedStatus}, tc.mockError)
+
+		})
+	}
+
 }

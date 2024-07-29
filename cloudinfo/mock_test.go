@@ -3,6 +3,10 @@ package cloudinfo
 import (
 	"errors"
 	"fmt"
+	"log"
+	"strconv"
+	"strings"
+
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
@@ -14,9 +18,6 @@ import (
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"github.com/stretchr/testify/mock"
-	"log"
-	"strconv"
-	"strings"
 )
 
 // VPC SERVICE INTERFACE MOCK
@@ -240,6 +241,20 @@ func (m *ClustersMock) EnableImageSecurityEnforcement(name string, target contai
 func (m *ClustersMock) DisableImageSecurityEnforcement(name string, target containerv2.ClusterTargetHeader) error {
 	args := m.Called(name, target)
 	return args.Error(0)
+}
+
+func (mock *containerClientMock) Alb() containerv2.Alb {
+	args := mock.Called()
+	return args.Get(0).(containerv2.Alb) // Cast to the expected return type
+}
+
+type AlbMock struct {
+	mock.Mock
+}
+
+func (m *AlbMock) GetIngressStatus(clusterNameOrID string, target containerv2.ClusterTargetHeader) (containerv2.IngressStatus, error) {
+	args := m.Called(clusterNameOrID, target)
+	return args.Get(0).(containerv2.IngressStatus), args.Error(1)
 }
 
 // ICD Versions mock
