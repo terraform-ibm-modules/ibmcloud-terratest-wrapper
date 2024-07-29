@@ -142,7 +142,7 @@ type ibmPICloudConnectionClient interface {
 // containerClient interface for external Kubernetes Cluster Service API. Used for mocking.
 type containerClient interface {
 	Clusters() containerv2.Clusters
-	Alb() containerv2.Alb
+	Albs() containerv2.Alb
 }
 
 // cbrService interface for external Context Based Restrictions Service API. Used for mocking.

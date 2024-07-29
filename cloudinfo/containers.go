@@ -55,7 +55,7 @@ func (infoSvc *CloudInfoService) GetClusterConfigPath(clusterId string, basePath
 func (infoSvc *CloudInfoService) GetClusterIngressStatus(clusterId string) (string, error) {
 
 	containerClient := infoSvc.containerClient
-	ingressDetails, err := containerClient.Alb().GetIngressStatus(clusterId, containerv2.ClusterTargetHeader{})
+	ingressDetails, err := containerClient.Albs().GetIngressStatus(clusterId, containerv2.ClusterTargetHeader{})
 	if err != nil {
 		return "", fmt.Errorf("failed to get cluster ingress status: %v", err)
 	}

@@ -243,16 +243,16 @@ func (m *ClustersMock) DisableImageSecurityEnforcement(name string, target conta
 	return args.Error(0)
 }
 
-func (mock *containerClientMock) Alb() containerv2.Alb {
+func (mock *containerClientMock) Albs() containerv2.Alb {
 	args := mock.Called()
 	return args.Get(0).(containerv2.Alb) // Cast to the expected return type
 }
 
-type AlbMock struct {
+type AlbsMock struct {
 	mock.Mock
 }
 
-func (m *AlbMock) GetIngressStatus(clusterNameOrID string, target containerv2.ClusterTargetHeader) (containerv2.IngressStatus, error) {
+func (m *AlbsMock) GetIngressStatus(clusterNameOrID string, target containerv2.ClusterTargetHeader) (containerv2.IngressStatus, error) {
 	args := m.Called(clusterNameOrID, target)
 	return args.Get(0).(containerv2.IngressStatus), args.Error(1)
 }

@@ -101,11 +101,11 @@ func TestGetClusterIngressStatus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create mock objects
 			mockContainerClient := &containerClientMock{}
-			mockAlb := &AlbMock{}
+			mockAlbs := &AlbsMock{}
 
 			// Setup mock method responses
-			mockContainerClient.On("Alb").Return(mockAlb)
-			mockAlb.On("GetIngressStatus", mockClusterId, mock.AnythingOfType("containerv2.ClusterTargetHeader")).Return(containerv2.IngressStatus{Status: tc.expectedStatus}, tc.mockError)
+			mockContainerClient.On("Albs").Return(mockAlbs)
+			mockAlbs.On("GetIngressStatus", mockClusterId, mock.AnythingOfType("containerv2.ClusterTargetHeader")).Return(containerv2.IngressStatus{Status: tc.expectedStatus}, tc.mockError)
 
 			// Initialize service with mock container client
 			infoSvc := CloudInfoService{containerClient: mockContainerClient}
@@ -123,7 +123,7 @@ func TestGetClusterIngressStatus(t *testing.T) {
 			}
 
 			// Verify expectations
-			mockAlb.AssertExpectations(t)
+			mockAlbs.AssertExpectations(t)
 			mockContainerClient.AssertExpectations(t)
 
 		})
