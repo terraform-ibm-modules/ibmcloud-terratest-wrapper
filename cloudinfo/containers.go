@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"fmt"
+
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 )
 
@@ -46,4 +47,17 @@ func (infoSvc *CloudInfoService) GetClusterConfigPath(clusterId string, basePath
 	}
 
 	return configDetails.FilePath, nil
+}
+
+// GetClusterIngressStatus retrieves ingress status of the cluster
+// clusterId: the ID or name of the cluster
+// Returns the ingress status of the cluster
+func (infoSvc *CloudInfoService) GetClusterIngressStatus(clusterId string) (string, error) {
+
+	containerClient := infoSvc.containerClient
+	ingressDetails, err := containerClient.Albs().GetIngressStatus(clusterId, containerv2.ClusterTargetHeader{})
+	if err != nil {
+		return "", fmt.Errorf("failed to get cluster ingress status: %v", err)
+	}
+	return ingressDetails.Status, nil
 }

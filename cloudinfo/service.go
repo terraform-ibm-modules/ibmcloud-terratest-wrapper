@@ -3,11 +3,12 @@ package cloudinfo
 
 import (
 	"errors"
-	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
-	projects "github.com/IBM/project-go-sdk/projectv1"
 	"log"
 	"os"
 	"sync"
+
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
+	projects "github.com/IBM/project-go-sdk/projectv1"
 
 	"github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
@@ -73,6 +74,7 @@ type CloudInfoServiceI interface {
 	IsUndeploying(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isUndeploying bool)
 	CreateStackFromConfigFileWithInputs(projectID string, stackConfigPath string, catalogJsonPath string, stackInputs map[string]interface{}) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
 	GetProjectConfigVersion(projectID string, configID string, version int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	GetClusterIngressStatus(clusterId string) (string, error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -141,6 +143,7 @@ type ibmPICloudConnectionClient interface {
 // containerClient interface for external Kubernetes Cluster Service API. Used for mocking.
 type containerClient interface {
 	Clusters() containerv2.Clusters
+	Albs() containerv2.Alb
 }
 
 // cbrService interface for external Context Based Restrictions Service API. Used for mocking.
