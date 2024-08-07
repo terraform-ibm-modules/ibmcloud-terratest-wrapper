@@ -3,15 +3,16 @@ package testprojects
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/IBM/go-sdk-core/v5/core"
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
-	"os"
-	"strings"
-	"sync"
-	"time"
 )
 
 func (options *TestProjectsOptions) ValidateConfig(configName string) error {
@@ -550,9 +551,7 @@ func (options *TestProjectsOptions) TestTearDown() {
 		return
 	}
 	if !options.SkipTestTearDown {
-		// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
-		envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
-		if !options.SkipUndeploy {
+		if options.executeResourceTearDown() {
 			// Undeploy the configuration in stack undeploy order
 			if options.StackUndeployOrder != nil {
 				if !options.ParallelDeploy {
@@ -667,56 +666,51 @@ func (options *TestProjectsOptions) TestTearDown() {
 			}
 		}
 
-		// Do not destroy if tests failed and "DO_NOT_DESTROY_ON_FAILURE" is true
-		if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
-			fmt.Println("Terratest failed. Debug the Test and delete resources manually.")
-		} else {
-			if !options.SkipProjectDelete {
-				// Delete the project
+		if options.executeProjectTearDown() {
+			// Delete the project
 
-				// Check if any configurations are still validating, or deploying or undeploying, if so wait, timeout after 10 minutes
-				// Set end time
-				validationEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
+			// Check if any configurations are still validating, or deploying or undeploying, if so wait, timeout after 10 minutes
+			// Set end time
+			validationEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
 
-				for {
-					// Get all configurations
-					allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
-					if cfgErr != nil {
-						options.Testing.Log("[PROJECTS] Failed to get configurations during project delete, attempting blind delete")
-						break
-					}
-
-					// Check if any configuration is still in VALIDATING, DEPLOYING, or UNDEPLOYING state
-					isAnyConfigInProcess := false
-					for _, config := range allConfigurations {
-						if *config.State == project.ProjectConfig_State_Validating || *config.State == project.ProjectConfig_State_Deploying || *config.State == project.ProjectConfig_State_Undeploying {
-							isAnyConfigInProcess = true
-							options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is still %s", *config.Definition.Name, *config.State))
-							break
-						}
-					}
-
-					// If no configuration is in VALIDATING, DEPLOYING, or UNDEPLOYING state, break the loop
-					if !isAnyConfigInProcess {
-						break
-					}
-
-					// If the time is greater than the timeout, return an error
-					if time.Now().After(validationEndTime) {
-						options.Testing.Log("validation timeout for configurations")
-					}
-
-					// Sleep for 30 seconds before the next check
-					time.Sleep(30 * time.Second)
-
+			for {
+				// Get all configurations
+				allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
+				if cfgErr != nil {
+					options.Testing.Log("[PROJECTS] Failed to get configurations during project delete, attempting blind delete")
+					break
 				}
 
-				options.Testing.Log("[PROJECTS] Deleting Test Project")
-				_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
-				if assert.NoError(options.Testing, err) {
-					assert.Equal(options.Testing, 202, resp.StatusCode)
-					options.Testing.Log("[PROJECTS] Deleted Test Project")
+				// Check if any configuration is still in VALIDATING, DEPLOYING, or UNDEPLOYING state
+				isAnyConfigInProcess := false
+				for _, config := range allConfigurations {
+					if *config.State == project.ProjectConfig_State_Validating || *config.State == project.ProjectConfig_State_Deploying || *config.State == project.ProjectConfig_State_Undeploying {
+						isAnyConfigInProcess = true
+						options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is still %s", *config.Definition.Name, *config.State))
+						break
+					}
 				}
+
+				// If no configuration is in VALIDATING, DEPLOYING, or UNDEPLOYING state, break the loop
+				if !isAnyConfigInProcess {
+					break
+				}
+
+				// If the time is greater than the timeout, return an error
+				if time.Now().After(validationEndTime) {
+					options.Testing.Log("validation timeout for configurations")
+				}
+
+				// Sleep for 30 seconds before the next check
+				time.Sleep(30 * time.Second)
+
+			}
+
+			options.Testing.Log("[PROJECTS] Deleting Test Project")
+			_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
+			if assert.NoError(options.Testing, err) {
+				assert.Equal(options.Testing, 202, resp.StatusCode)
+				options.Testing.Log("[PROJECTS] Deleted Test Project")
 			}
 		}
 	}
@@ -729,4 +723,60 @@ func getConfigFromName(configName string, allConfigs []project.ProjectConfigSumm
 		}
 	}
 	return nil, fmt.Errorf("configuration %s not found", configName)
+}
+
+// Function to determine if test resources should be destroyed
+//
+// Conditions for teardown:
+// - The `SkipUndeploy` option is false (if true will override everything else)
+// - Test failed and DO_NOT_DESTROY_ON_FAILURE was not set or false
+// - Test completed with success (and `SkipUndeploy` was false)
+func (options *TestProjectsOptions) executeResourceTearDown() bool {
+
+	// assume we will execute
+	execute := true
+
+	// if skipundeploy is true, short circuit we are done
+	if options.SkipUndeploy {
+		execute = false
+	}
+
+	envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
+
+	if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+		execute = false
+	}
+
+	// if test failed and we are not executing, add a log line stating this
+	if options.Testing.Failed() && !execute {
+		options.Testing.Log("Terratest failed. Debug the Test and delete resources manually.")
+	}
+
+	return execute
+}
+
+// Function to determine if the project or stack steps (and their schematics workspaces) should be destroyed
+//
+// Conditions for teardown:
+// - Test completed with success and `SkipProjectDelete` is false
+func (options *TestProjectsOptions) executeProjectTearDown() bool {
+
+	// assume we will execute
+	execute := true
+
+	// if SkipProjectDelete then short circuit we are done
+	if options.SkipProjectDelete {
+		execute = false
+	}
+
+	if options.Testing.Failed() {
+		execute = false
+	}
+
+	// if test failed and we are not executing, add a log line stating this
+	if options.Testing.Failed() && !execute {
+		options.Testing.Log("Terratest failed. Debug the Test and delete the project manually.")
+	}
+
+	return execute
 }
