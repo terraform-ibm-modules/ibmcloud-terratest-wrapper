@@ -74,7 +74,6 @@ type CloudInfoServiceI interface {
 	IsUndeploying(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isUndeploying bool)
 	CreateStackFromConfigFileWithInputs(projectID string, stackConfigPath string, catalogJsonPath string, stackInputs map[string]interface{}) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
 	GetProjectConfigVersion(projectID string, configID string, version int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	GetClusterIngressStatus(clusterId string) (string, error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.

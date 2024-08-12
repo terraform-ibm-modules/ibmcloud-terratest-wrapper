@@ -83,10 +83,16 @@ func TestGetClusterIngressStatus(t *testing.T) {
 		expectedStatus string
 	}{
 		{
-			name:           "Success case",
+			name:           "Success case 1",
 			expectedError:  nil,
 			mockError:      nil,
 			expectedStatus: "Healthy",
+		},
+		{
+			name:           "Success case 2",
+			expectedError:  nil,
+			mockError:      nil,
+			expectedStatus: "Critical",
 		},
 		{
 			name:           "Failure case",

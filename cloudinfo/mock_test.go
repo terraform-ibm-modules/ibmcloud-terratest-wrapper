@@ -252,9 +252,99 @@ type AlbsMock struct {
 	mock.Mock
 }
 
+func (m *AlbsMock) AddIgnoredIngressStatusErrors(ignoredErrorsReq containerv2.IgnoredIngressStatusErrors, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(ignoredErrorsReq, target)
+	return args.Error(0)
+}
+
+func (m *AlbsMock) CreateAlb(albCreateReq containerv2.AlbCreateReq, target containerv2.ClusterTargetHeader) (containerv2.AlbCreateResp, error) {
+	args := m.Called(albCreateReq, target)
+	return args.Get(0).(containerv2.AlbCreateResp), args.Error(1)
+}
+
+func (m *AlbsMock) DisableAlb(disableAlbReq containerv2.AlbConfig, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(disableAlbReq, target)
+	return args.Error(0)
+}
+
+func (m *AlbsMock) EnableAlb(enableAlbReq containerv2.AlbConfig, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(enableAlbReq, target)
+	return args.Error(0)
+}
+
+func (m *AlbsMock) GetALBAutoscaleConfiguration(clusterNameOrID, albID string, target containerv2.ClusterTargetHeader) (containerv2.AutoscaleDetails, error) {
+	args := m.Called(clusterNameOrID, albID, target)
+	return args.Get(0).(containerv2.AutoscaleDetails), args.Error(1)
+}
+
+func (m *AlbsMock) GetAlb(albid string, target containerv2.ClusterTargetHeader) (containerv2.AlbConfig, error) {
+	args := m.Called(albid, target)
+	return args.Get(0).(containerv2.AlbConfig), args.Error(1)
+}
+
+func (m *AlbsMock) GetAlbClusterHealthCheckConfig(clusterNameOrID string, target containerv2.ClusterTargetHeader) (containerv2.ALBClusterHealthCheckConfig, error) {
+	args := m.Called(clusterNameOrID, target)
+	return args.Get(0).(containerv2.ALBClusterHealthCheckConfig), args.Error(1)
+}
+
+func (m *AlbsMock) GetIgnoredIngressStatusErrors(clusterNameOrID string, target containerv2.ClusterTargetHeader) (containerv2.IgnoredIngressStatusErrors, error) {
+	args := m.Called(clusterNameOrID, target)
+	return args.Get(0).(containerv2.IgnoredIngressStatusErrors), args.Error(1)
+}
+
+func (m *AlbsMock) GetIngressLoadBalancerConfig(clusterNameOrID, lbType string, target containerv2.ClusterTargetHeader) (containerv2.ALBLBConfig, error) {
+	args := m.Called(clusterNameOrID, lbType, target)
+	return args.Get(0).(containerv2.ALBLBConfig), args.Error(1)
+}
+
 func (m *AlbsMock) GetIngressStatus(clusterNameOrID string, target containerv2.ClusterTargetHeader) (containerv2.IngressStatus, error) {
 	args := m.Called(clusterNameOrID, target)
 	return args.Get(0).(containerv2.IngressStatus), args.Error(1)
+}
+
+func (m *AlbsMock) ListAlbImages(target containerv2.ClusterTargetHeader) (containerv2.AlbImageVersions, error) {
+	args := m.Called(target)
+	return args.Get(0).(containerv2.AlbImageVersions), args.Error(1)
+}
+
+func (m *AlbsMock) ListClusterAlbs(clusterNameOrID string, target containerv2.ClusterTargetHeader) ([]containerv2.AlbConfig, error) {
+	args := m.Called(clusterNameOrID, target)
+	return args.Get(0).([]containerv2.AlbConfig), args.Error(1)
+}
+
+func (m *AlbsMock) RemoveALBAutoscaleConfiguration(clusterNameOrID, albID string, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(clusterNameOrID, albID, target)
+	return args.Error(0)
+}
+
+func (m *AlbsMock) RemoveIgnoredIngressStatusErrors(ignoredErrorsReq containerv2.IgnoredIngressStatusErrors, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(ignoredErrorsReq, target)
+	return args.Error(0)
+}
+
+func (m *AlbsMock) SetALBAutoscaleConfiguration(clusterNameOrID, albID string, autoscaleDetails containerv2.AutoscaleDetails, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(clusterNameOrID, albID, autoscaleDetails, target)
+	return args.Error(0)
+}
+
+func (m *AlbsMock) SetAlbClusterHealthCheckConfig(albHealthCheckReq containerv2.ALBClusterHealthCheckConfig, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(albHealthCheckReq, target)
+	return args.Error(0)
+}
+
+func (m *AlbsMock) SetIngressStatusState(ingressStatusStateReq containerv2.IngressStatusState, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(ingressStatusStateReq, target)
+	return args.Error(0)
+}
+
+func (m *AlbsMock) UpdateAlb(updateAlbReq containerv2.UpdateALBReq, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(updateAlbReq, target)
+	return args.Error(0)
+}
+
+func (m *AlbsMock) UpdateIngressLoadBalancerConfig(lbConfig containerv2.ALBLBConfig, target containerv2.ClusterTargetHeader) error {
+	args := m.Called(lbConfig, target)
+	return args.Error(0)
 }
 
 // ICD Versions mock
