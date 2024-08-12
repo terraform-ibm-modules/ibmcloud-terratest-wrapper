@@ -288,12 +288,3 @@ func (options *TestOptions) Clone() (*TestOptions, error) {
 
 	return newOptions, nil
 }
-
-/* TODO-3:
-Add new TestOptions:
-	ClusterIngressWaitTime with default to "x" seconds: Required for retrying the function call in tests.go
-	CheckIngressValidation with default to False: Required because the function in tests.go will only be required in cluster based modules
-
-	The TestOptions is called during pr_test.go and these values with
-	default value set will check the ingress status.
-*/

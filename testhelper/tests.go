@@ -3,14 +3,16 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
-	"github.com/gruntwork-io/terratest/modules/random"
-	tfjson "github.com/hashicorp/terraform-json"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
+	"github.com/gruntwork-io/terratest/modules/random"
+	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 
@@ -896,8 +898,42 @@ func (options *TestOptions) setTerraformDir(tempDir string) {
 	options.WorkspacePath = tempDir
 }
 
-/*
-TODO-2: Add a function to write logic to call the function GetIngressState in containers.go
-Loop on the function till we get healthy state for all ALBs and
-if threshold is reached then report the non-healthy status of respective ALB
-*/
+// CheckClusterIngressHealthyDefaultTimeout checks cluster ingress is healthy with given clusterCheckTimeout and clusterCheckdelay
+// clusterId: the ID or name of the cluster
+func (options *TestOptions) CheckClusterIngressHealthyDefaultTimeout(clusterId string) {
+	options.CheckClusterIngressHealthy(clusterId, 10, 1)
+}
+
+// CheckClusterIngressHealthy checks the ingress status of the cluster and returns a boolean based on the status.
+// If the status is "Healthy", the test passes. If the status is "Critical" or there is an error, it retries until a timeout is reached.
+// The user can customize the timeout and delay.
+// clusterId: the ID or name of the cluster
+// clusterCheckTimeout: the time until which the ingress status can be checked (in minutes)
+// clusterCheckdelay: the time duration to wait (in minutes)
+func (options *TestOptions) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeout int, clusterCheckdelay int) {
+
+	testHelperOptions := &TesthelperTerraformOptions{
+		CloudInfoService: options.CloudInfoService,
+	}
+	cloudInfoSvc, svcErr := configureCloudInfoService(options.RequiredEnvironmentVars[ibmcloudApiKeyVar], options.BestRegionYAMLPath, *testHelperOptions)
+	if !assert.NoError(options.Testing, svcErr) {
+		return
+	}
+
+	startTime := time.Now()
+	healthy := false
+	for {
+		ingressStatus, err := cloudInfoSvc.GetClusterIngressStatus(clusterId)
+		if ingressStatus == "Healthy" {
+			healthy = true
+			break
+		} else if ingressStatus == "Critical" || err != nil {
+			if time.Since(startTime) > time.Duration(clusterCheckTimeout)*time.Minute {
+				break
+			}
+			logger.Log(options.Testing, "Cluster Ingress is Critical, retrying after delay...")
+			time.Sleep(time.Duration(clusterCheckdelay) * time.Minute)
+		}
+	}
+	assert.True(options.Testing, healthy, "Cluster Ingress failed to become healthy")
+}

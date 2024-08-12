@@ -2,12 +2,13 @@ package testhelper
 
 import (
 	"errors"
-	"github.com/IBM/go-sdk-core/v5/core"
-	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
-	projects "github.com/IBM/project-go-sdk/projectv1"
 	"os"
 	"sync"
 	"testing"
+
+	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
+	projects "github.com/IBM/project-go-sdk/projectv1"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -161,6 +162,10 @@ func (mock *cloudInfoServiceMock) CreateStackFromConfigFileWithInputs(string, st
 }
 func (mock *cloudInfoServiceMock) GetProjectConfigVersion(string, string, int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
+}
+
+func (mock *cloudInfoServiceMock) GetClusterIngressStatus(clusterId string) (string, error) {
+	return "", nil
 }
 
 /**** END MOCK CloudInfoService ****/
