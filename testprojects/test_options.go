@@ -2,14 +2,15 @@ package testprojects
 
 import (
 	"fmt"
+	"strings"
+	"testing"
+
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/jinzhu/copier"
 	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
-	"strings"
-	"testing"
 )
 
 const defaultRegion = "us-south"
@@ -107,16 +108,12 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	if newOptions.ResourceGroup == "" {
 		newOptions.ResourceGroup = "Default"
 	}
-	// TODO: default stack configuration path and catalog path to repo root stack_definition.json and ibm_catalog.json
-	repoRoot, repoErr := common.GitRootPath(".")
-	if repoErr != nil {
-		repoRoot = "."
-	}
+
 	if newOptions.StackConfigurationPath == "" {
-		newOptions.StackConfigurationPath = fmt.Sprintf("%s/stack_definition.json", repoRoot)
+		newOptions.StackConfigurationPath = "stack_definition.json"
 	}
 	if newOptions.StackCatalogJsonPath == "" {
-		newOptions.StackCatalogJsonPath = fmt.Sprintf("%s/ibm_catalog.json", repoRoot)
+		newOptions.StackCatalogJsonPath = "ibm_catalog.json"
 	}
 	if newOptions.ValidationTimeoutMinutes == 0 {
 		newOptions.ValidationTimeoutMinutes = 60
