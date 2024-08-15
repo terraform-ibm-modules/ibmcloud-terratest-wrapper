@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -494,13 +495,11 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		defer options.TestTearDown()
 	}
 
-	if options.CloudInfoService == nil {
-		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
-		if err != nil {
-			return err
-		}
-		options.CloudInfoService = cloudInfoSvc
+	setupErr := options.testSetup()
+	if !assert.NoError(options.Testing, setupErr) {
+		return fmt.Errorf("test setup has failed:%w", setupErr)
 	}
+
 	// Create a new project
 	options.Testing.Log("[PROJECTS] Creating Test Project")
 	prj, resp, err := options.CloudInfoService.CreateDefaultProject(options.ProjectName, options.ProjectDescription, options.ResourceGroup)
@@ -779,4 +778,28 @@ func (options *TestProjectsOptions) executeProjectTearDown() bool {
 	}
 
 	return execute
+}
+
+// Perform required steps for new test
+func (options *TestProjectsOptions) testSetup() error {
+
+	// change relative paths of configuration files to full path based on git root
+	repoRoot, repoErr := common.GitRootPath(".")
+	if repoErr != nil {
+		repoRoot = "."
+	}
+	options.ConfigrationPath = path.Join(repoRoot, options.ConfigrationPath)
+	options.StackConfigurationPath = path.Join(repoRoot, options.StackConfigurationPath)
+	options.StackCatalogJsonPath = path.Join(repoRoot, options.StackCatalogJsonPath)
+
+	// create new CloudInfoService if not supplied
+	if options.CloudInfoService == nil {
+		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
+		if err != nil {
+			return err
+		}
+		options.CloudInfoService = cloudInfoSvc
+	}
+
+	return nil
 }
