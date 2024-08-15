@@ -905,12 +905,12 @@ func (options *TestOptions) CheckClusterIngressHealthyDefaultTimeout(clusterId s
 }
 
 // CheckClusterIngressHealthy checks the ingress status of the cluster and returns a boolean based on the status.
-// If the status is "Healthy", the test passes. If the status is "Critical" or there is an error, it retries until a timeout is reached.
+// If the status is "healthy", the test passes. If the status is "Critical" or there is an error, it retries until a timeout is reached.
 // The user can customize the timeout and delay.
 // clusterId: the ID or name of the cluster
 // clusterCheckTimeout: the time until which the ingress status can be checked (in minutes)
-// clusterCheckdelay: the time duration to wait (in minutes)
-func (options *TestOptions) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeout int, clusterCheckdelay int) {
+// clusterCheckDelay: the time duration to wait (in minutes)
+func (options *TestOptions) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeout int, clusterCheckDelay int) {
 
 	testHelperOptions := &TesthelperTerraformOptions{
 		CloudInfoService: options.CloudInfoService,
@@ -924,15 +924,15 @@ func (options *TestOptions) CheckClusterIngressHealthy(clusterId string, cluster
 	healthy := false
 	for {
 		ingressStatus, err := cloudInfoSvc.GetClusterIngressStatus(clusterId)
-		if ingressStatus == "Healthy" {
+		if ingressStatus == "healthy" {
 			healthy = true
 			break
-		} else if ingressStatus == "Critical" || err != nil {
+		} else if ingressStatus == "critical" || err != nil {
 			if time.Since(startTime) > time.Duration(clusterCheckTimeout)*time.Minute {
 				break
 			}
-			logger.Log(options.Testing, "Cluster Ingress is Critical, retrying after delay...")
-			time.Sleep(time.Duration(clusterCheckdelay) * time.Minute)
+			logger.Log(options.Testing, "Cluster Ingress is critical, retrying after delay...")
+			time.Sleep(time.Duration(clusterCheckDelay) * time.Minute)
 		}
 	}
 	assert.True(options.Testing, healthy, "Cluster Ingress failed to become healthy")
