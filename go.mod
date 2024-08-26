@@ -5,7 +5,6 @@ go 1.22
 toolchain go1.23.0
 
 require (
-	github.com/IBM-Cloud/container-services-go-sdk v0.0.0-20240725064144-454a2ae23113
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240719075425-078fcb3a55be
 	github.com/IBM-Cloud/power-go-client v1.7.1
 	github.com/IBM/cloud-databases-go-sdk v0.7.0
