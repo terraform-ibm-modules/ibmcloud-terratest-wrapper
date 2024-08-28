@@ -3,14 +3,16 @@ package testhelper
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
-	"github.com/gruntwork-io/terratest/modules/random"
-	tfjson "github.com/hashicorp/terraform-json"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
+	"github.com/gruntwork-io/terratest/modules/random"
+	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 
@@ -894,4 +896,52 @@ func (options *TestOptions) setTerraformDir(tempDir string) {
 	options.TerraformOptions.TerraformDir = tempDir
 	options.TerraformDir = tempDir
 	options.WorkspacePath = tempDir
+}
+
+// CheckClusterIngressHealthyDefaultTimeout checks the ingress status of the specified cluster using default clusterCheckTimeoutMinutes and clusterCheckDelayMinutes values of 10 minutes and a delay of 1 minute between status checks respectively.
+// This method is a convenience wrapper around the `CheckClusterIngressHealthy` method.
+// Parameters:
+// - clusterId: The ID or name of the cluster whose ingress status is to be checked.
+func (options *TestOptions) CheckClusterIngressHealthyDefaultTimeout(clusterId string) {
+	options.CheckClusterIngressHealthy(clusterId, 10, 1)
+}
+
+// CheckClusterIngressHealthy checks the ingress status of the specified cluster and asserts that it becomes healthy within a specified timeout period.
+// This method performs the following steps:
+// 1. Continuously checks the ingress status of the cluster identified by `clusterId`.
+// 2. If the ingress status is "healthy", the method sets the result as healthy and exits the loop.
+// 3. If the ingress status is "critical" or an error occurs, the method retries the check after a delay, continuing until either the status becomes "healthy" or the specified timeout is reached.
+// 4. If the timeout is reached and the status is still "critical" or an error persists, the method exits the loop.
+// Parameters:
+// - clusterId: The ID or name of the cluster whose ingress status is to be checked.
+// - clusterCheckTimeoutMinutes: The maximum time allowed for checking the ingress status, in minutes.
+// - clusterCheckDelayMinutes: The duration to wait between status checks, in minutes.
+// Assertions:
+// - The method asserts that the ingress status of the cluster becomes healthy within the specified timeout. If the status does not become healthy within the timeout, the assertion fails.
+func (options *TestOptions) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutMinutes int, clusterCheckDelayMinutes int) {
+
+	testHelperOptions := &TesthelperTerraformOptions{
+		CloudInfoService: options.CloudInfoService,
+	}
+	cloudInfoSvc, svcErr := configureCloudInfoService(options.RequiredEnvironmentVars[ibmcloudApiKeyVar], options.BestRegionYAMLPath, *testHelperOptions)
+	if !assert.NoError(options.Testing, svcErr) {
+		return
+	}
+
+	startTime := time.Now()
+	healthy := false
+	for {
+		ingressStatus, err := cloudInfoSvc.GetClusterIngressStatus(clusterId)
+		if ingressStatus == "healthy" {
+			healthy = true
+			break
+		} else if ingressStatus == "critical" || err != nil {
+			if time.Since(startTime) > time.Duration(clusterCheckTimeoutMinutes)*time.Minute {
+				break
+			}
+			logger.Log(options.Testing, "Cluster Ingress is critical, retrying after delay...")
+			time.Sleep(time.Duration(clusterCheckDelayMinutes) * time.Minute)
+		}
+	}
+	assert.True(options.Testing, healthy, "Cluster Ingress failed to become healthy")
 }
