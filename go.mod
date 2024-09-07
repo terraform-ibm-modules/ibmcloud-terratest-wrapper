@@ -2,14 +2,14 @@ module github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper
 
 go 1.22
 
-toolchain go1.23.0
+toolchain go1.23.1
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240719075425-078fcb3a55be
 	github.com/IBM-Cloud/power-go-client v1.7.1
 	github.com/IBM/cloud-databases-go-sdk v0.7.0
-	github.com/IBM/go-sdk-core/v5 v5.17.4
-	github.com/IBM/platform-services-go-sdk v0.68.1
+	github.com/IBM/go-sdk-core/v5 v5.17.5
+	github.com/IBM/platform-services-go-sdk v0.69.0
 	github.com/IBM/project-go-sdk v0.3.0
 	github.com/IBM/schematics-go-sdk v0.3.0
 	github.com/IBM/vpc-go-sdk v0.57.0
@@ -21,7 +21,7 @@ require (
 	github.com/hashicorp/terraform-json v0.22.1
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.9.0
-	golang.org/x/crypto v0.26.0
+	golang.org/x/crypto v0.27.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -107,8 +107,8 @@ require (
 	golang.org/x/net v0.25.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/sys v0.23.0 // indirect
-	golang.org/x/text v0.17.0 // indirect
+	golang.org/x/sys v0.25.0 // indirect
+	golang.org/x/text v0.18.0 // indirect
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/api v0.127.0 // indirect
