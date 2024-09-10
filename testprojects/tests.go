@@ -299,7 +299,7 @@ func (options *TestProjectsOptions) ConfigureTestStack() error {
 	options.Testing.Log("[PROJECTS] Configuring Test Stack")
 	var stackResp *core.DetailedResponse
 	var stackErr error
-	options.currentStack, stackResp, stackErr = options.CloudInfoService.CreateStackFromConfigFile(cloudinfo.ConfigDetails{}, options.StackConfigurationPath, options.StackCatalogJsonPath)
+	options.currentStack, stackResp, stackErr = options.CloudInfoService.CreateStackFromConfigFile(cloudinfo.ConfigDetails{ProjectID: *options.currentProject.ID}, options.StackConfigurationPath, options.StackCatalogJsonPath)
 	if !assert.NoError(options.Testing, stackErr) {
 		options.Testing.Log("[PROJECTS] Failed to configure Test Stack")
 		var sdkProblem *core.SDKProblem
