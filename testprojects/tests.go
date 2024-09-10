@@ -6,7 +6,6 @@ import (
 	"os"
 	"path"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
@@ -16,291 +15,291 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
-func (options *TestProjectsOptions) ValidateConfig(configName string) error {
-	// Get all configurations
-	allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
-	if !assert.NoError(options.Testing, cfgErr) {
-		options.Testing.Log("[PROJECTS] Failed to get configurations")
-		return cfgErr
-	}
-	currentConfig, currConfigErr := getConfigFromName(configName, allConfigurations)
-	if currConfigErr != nil {
-		return currConfigErr
-	}
-
-	// set authenticator for current member(configuration)
-	tempConfig, _, tempConfigErr := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
-	if tempConfigErr != nil {
-		return tempConfigErr
-	}
-
-	// We need to do this so the correct type is cast without errors will be present
-	switch def := tempConfig.Definition.(type) {
-	case *project.ProjectConfigDefinitionResponseDAConfigDefinitionPropertiesResponse:
-		if def != nil {
-			var patchConfig *project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch
-			if def.Authorizations.Method == nil ||
-				*def.Authorizations.Method == "" ||
-				(*def.Authorizations.ApiKey == "" && *def.Authorizations.TrustedProfileID == "") {
-				var patchInputs map[string]interface{}
-				if options.StackMemberInputs != nil {
-					patchInputs = options.StackMemberInputs[configName]
-				}
-				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
-					Authorizations: &project.ProjectConfigAuth{
-						Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
-						ApiKey: &options.CloudInfoService.(*cloudinfo.CloudInfoService).ApiKey,
-					},
-					Inputs: patchInputs,
-				}
-			} else {
-				var patchInputs map[string]interface{}
-				if options.StackMemberInputs != nil {
-					patchInputs = options.StackMemberInputs[configName]
-				}
-				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
-					Inputs: patchInputs,
-				}
-			}
-			_, updateResponse, updateErr := options.CloudInfoService.UpdateConfig(*options.currentProject.ID, *currentConfig.ID, patchConfig)
-			if updateErr != nil {
-				return updateErr
-			}
-			if updateResponse.StatusCode != 200 {
-				return fmt.Errorf("error updating configuration %s", configName)
-			}
-		}
-	case *project.ProjectConfigDefinitionResponse:
-		if def != nil {
-			var patchConfig *project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch
-			if def.Authorizations.Method == nil ||
-				*def.Authorizations.Method == "" ||
-				(*def.Authorizations.ApiKey == "" && *def.Authorizations.TrustedProfileID == "") {
-				var patchInputs map[string]interface{}
-				if options.StackMemberInputs != nil {
-					patchInputs = options.StackMemberInputs[configName]
-				}
-				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
-					Authorizations: &project.ProjectConfigAuth{
-						Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
-						ApiKey: &options.CloudInfoService.(*cloudinfo.CloudInfoService).ApiKey,
-					},
-					Inputs: patchInputs,
-				}
-			} else {
-				var patchInputs map[string]interface{}
-				if options.StackMemberInputs != nil {
-					patchInputs = options.StackMemberInputs[configName]
-				}
-				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
-					Inputs: patchInputs,
-				}
-			}
-			_, updateResponse, updateErr := options.CloudInfoService.UpdateConfig(*options.currentProject.ID, *currentConfig.ID, patchConfig)
-			if updateErr != nil {
-				return updateErr
-			}
-			if updateResponse.StatusCode != 200 {
-				return fmt.Errorf("error updating configuration %s", configName)
-			}
-
-		}
-	case *project.ProjectConfigDefinitionResponseResourceConfigDefinitionPropertiesResponse:
-		if def != nil {
-			var patchConfig *project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch
-			if def.Authorizations.Method == nil ||
-				*def.Authorizations.Method == "" ||
-				(*def.Authorizations.ApiKey == "" && *def.Authorizations.TrustedProfileID == "") {
-				var patchInputs map[string]interface{}
-				if options.StackMemberInputs != nil {
-					patchInputs = options.StackMemberInputs[configName]
-				}
-				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
-					Authorizations: &project.ProjectConfigAuth{
-						Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
-						ApiKey: &options.CloudInfoService.(*cloudinfo.CloudInfoService).ApiKey,
-					},
-					Inputs: patchInputs,
-				}
-			} else {
-				var patchInputs map[string]interface{}
-				if options.StackMemberInputs != nil {
-					patchInputs = options.StackMemberInputs[configName]
-				}
-				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
-					Inputs: patchInputs,
-				}
-			}
-			_, updateResponse, updateErr := options.CloudInfoService.UpdateConfig(*options.currentProject.ID, *currentConfig.ID, patchConfig)
-			if updateErr != nil {
-				return updateErr
-			}
-			if updateResponse.StatusCode != 200 {
-				return fmt.Errorf("error updating configuration %s", configName)
-			}
-
-		}
-	default:
-		options.Testing.Log(fmt.Sprintf("[WARNING] Configuration %s is not supported for setting authorization", configName))
-	}
-
-	options.Testing.Log(fmt.Sprintf("[PROJECTS] Validating Configuration %s", configName))
-	_, _, validateErr := options.CloudInfoService.ValidateProjectConfig(*options.currentProject.ID, *currentConfig.ID)
-	if assert.NoError(options.Testing, validateErr) {
-		validateConfig, _, valConfErr := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
-		if assert.NoError(options.Testing, valConfErr) {
-			// Set end time
-			approvalEndTime := time.Now().Add(time.Duration(options.ValidationTimeoutMinutes) * time.Minute)
-
-			if *validateConfig.State == project.ProjectConfig_State_Validating {
-				// Wait for the configuration to finish validating
-				for *validateConfig.State == project.ProjectConfig_State_Validating {
-					// if the time is greater than the timeout
-					// return an error
-					if time.Now().After(approvalEndTime) {
-						return fmt.Errorf("validation timeout for configuration %s", configName)
-					}
-					options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is still validating", configName))
-					time.Sleep(30 * time.Second)
-					validateConfig, _, validateErr = options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
-					if !assert.NoError(options.Testing, validateErr) {
-						return validateErr
-					}
-				}
-				if !assert.Equal(options.Testing, project.ProjectConfig_State_Validated, *validateConfig.State) {
-					schematicsCrn := validateConfig.Schematics.WorkspaceCrn
-					if schematicsCrn != nil {
-						options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed validation, schematics workspace: %s", configName, *schematicsCrn))
-						options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *validateConfig.LastValidated.Result))
-
-						if validateConfig.LastValidated.Job.Summary.PlanMessages != nil && validateConfig.LastValidated.Job.Summary.PlanMessages.ErrorMessages != nil {
-							for _, planErr := range validateConfig.LastValidated.Job.Summary.PlanMessages.ErrorMessages {
-								options.Testing.Log(fmt.Sprintf("[PROJECTS] Plan Error: %s", planErr))
-							}
-						} else {
-							options.Testing.Log(fmt.Sprintf("[PROJECTS] No plan error messages found for configuration %s", configName))
-						}
-					}
-					return fmt.Errorf("validation failed for configuration %s last state: %s", configName, *validateConfig.State)
-				}
-			}
-		} else {
-			return valConfErr
-		}
-	} else {
-		return validateErr
-	}
-	return nil
-}
-
-func (options *TestProjectsOptions) ApproveConfig(configName string) error {
-	// Get all configurations
-	allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
-	if !assert.NoError(options.Testing, cfgErr) {
-		options.Testing.Log("[PROJECTS] Failed to get configurations")
-		return cfgErr
-	}
-	currentConfig, currConfigErr := getConfigFromName(configName, allConfigurations)
-	if currConfigErr != nil {
-		return currConfigErr
-	}
-
-	// Approve the configuration
-	options.Testing.Log(fmt.Sprintf("[PROJECTS] Approving Configuration %s", configName))
-	approveConfig, _, approveErr := options.CloudInfoService.ApproveConfig(*options.currentProject.ID, *currentConfig.ID)
-	if assert.NoError(options.Testing, approveErr) {
-		if !assert.Equal(options.Testing, project.ProjectConfig_State_Approved, *approveConfig.State) {
-			options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed to approve", configName))
-			return fmt.Errorf("error approving configuration %s", configName)
-		}
-		options.Testing.Log(fmt.Sprintf("[PROJECTS] Approved Configuration %s", configName))
-	}
-	return nil
-}
-
-func (options *TestProjectsOptions) DeployConfig(configName string) error {
-	// Get all configurations
-	allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
-	if !assert.NoError(options.Testing, cfgErr) {
-		options.Testing.Log("[PROJECTS] Failed to get configurations")
-		return cfgErr
-	}
-	currentConfig, currConfigErr := getConfigFromName(configName, allConfigurations)
-	if currConfigErr != nil {
-		return currConfigErr
-	}
-
-	// Deploy the configuration
-	options.Testing.Log(fmt.Sprintf("[PROJECTS] Deploying Configuration %s", configName))
-	_, _, deployErr := options.CloudInfoService.DeployConfig(*options.currentProject.ID, *currentConfig.ID)
-
-	if assert.NoError(options.Testing, deployErr) {
-		currentCfg, _, curCfgErr := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
-		if assert.NoError(options.Testing, curCfgErr) {
-			// Set end time
-			deployEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
-
-			if *currentCfg.State == project.ProjectConfig_State_Deploying {
-				// Wait for the configuration to finish deploying
-				for *currentCfg.State == project.ProjectConfig_State_Deploying {
-					// if the time is greater than the timeout
-					// return an error
-					if time.Now().After(deployEndTime) {
-						return fmt.Errorf("deploy timeout for configuration %s", configName)
-					}
-					options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is still deploying", configName))
-					time.Sleep(30 * time.Second)
-					currentCfg, _, curCfgErr = options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
-					if !assert.NoError(options.Testing, curCfgErr) {
-						return curCfgErr
-					}
-				}
-				if !assert.Equal(options.Testing, project.ProjectConfig_State_Deployed, *currentCfg.State) {
-					schematicsCrn := currentCfg.Schematics.WorkspaceCrn
-					if schematicsCrn != nil {
-						options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed deploy, schematics workspace: %s", configName, *schematicsCrn))
-						options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *currentCfg.LastDeployed.Result))
-
-						if currentCfg.LastDeployed != nil && currentCfg.LastDeployed.Job != nil && currentCfg.LastDeployed.Job.Summary != nil {
-							if currentCfg.LastDeployed.Job.Summary.PlanMessages != nil && currentCfg.LastDeployed.Job.Summary.PlanMessages.ErrorMessages != nil {
-								for _, planErr := range currentCfg.LastDeployed.Job.Summary.PlanMessages.ErrorMessages {
-									options.Testing.Log(fmt.Sprintf("[PROJECTS] Plan Error: %s", planErr))
-								}
-							} else {
-								options.Testing.Log(fmt.Sprintf("[PROJECTS] No plan error messages found for configuration %s", configName))
-							}
-							if currentCfg.LastDeployed.Job.Summary.ApplyMessages != nil && currentCfg.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages != nil {
-								for _, applyErr := range currentCfg.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages {
-									options.Testing.Log(fmt.Sprintf("[PROJECTS] Apply Error: %s", applyErr))
-								}
-							} else {
-								options.Testing.Log(fmt.Sprintf("[PROJECTS] No apply error messages found for configuration %s", configName))
-							}
-						} else {
-							options.Testing.Log(fmt.Sprintf("[PROJECTS] No messages found for configuration %s", configName))
-						}
-
-					}
-					return fmt.Errorf("deploy failed for configuration %s last state: %s", configName, *currentCfg.State)
-				}
-
-				options.Testing.Log(fmt.Sprintf("[PROJECTS] Deployed Configuration %s", configName))
-			}
-		} else {
-			return curCfgErr
-		}
-	} else {
-		return deployErr
-	}
-	return nil
-}
+//func (options *TestProjectsOptions) ValidateConfig(configName string) error {
+//	// Get all configurations
+//	allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
+//	if !assert.NoError(options.Testing, cfgErr) {
+//		options.Testing.Log("[PROJECTS] Failed to get configurations")
+//		return cfgErr
+//	}
+//	currentConfig, currConfigErr := getConfigFromName(configName, allConfigurations)
+//	if currConfigErr != nil {
+//		return currConfigErr
+//	}
+//
+//	// set authenticator for current member(configuration)
+//	tempConfig, _, tempConfigErr := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
+//	if tempConfigErr != nil {
+//		return tempConfigErr
+//	}
+//
+//	// We need to do this so the correct type is cast without errors will be present
+//	switch def := tempConfig.Definition.(type) {
+//	case *project.ProjectConfigDefinitionResponseDAConfigDefinitionPropertiesResponse:
+//		if def != nil {
+//			var patchConfig *project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch
+//			if def.Authorizations.Method == nil ||
+//				*def.Authorizations.Method == "" ||
+//				(*def.Authorizations.ApiKey == "" && *def.Authorizations.TrustedProfileID == "") {
+//				var patchInputs map[string]interface{}
+//				if options.StackMemberInputs != nil {
+//					patchInputs = options.StackMemberInputs[configName]
+//				}
+//				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
+//					Authorizations: &project.ProjectConfigAuth{
+//						Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
+//						ApiKey: &options.CloudInfoService.(*cloudinfo.CloudInfoService).ApiKey,
+//					},
+//					Inputs: patchInputs,
+//				}
+//			} else {
+//				var patchInputs map[string]interface{}
+//				if options.StackMemberInputs != nil {
+//					patchInputs = options.StackMemberInputs[configName]
+//				}
+//				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
+//					Inputs: patchInputs,
+//				}
+//			}
+//			_, updateResponse, updateErr := options.CloudInfoService.UpdateConfig(*options.currentProject.ID, *currentConfig.ID, patchConfig)
+//			if updateErr != nil {
+//				return updateErr
+//			}
+//			if updateResponse.StatusCode != 200 {
+//				return fmt.Errorf("error updating configuration %s", configName)
+//			}
+//		}
+//	case *project.ProjectConfigDefinitionResponse:
+//		if def != nil {
+//			var patchConfig *project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch
+//			if def.Authorizations.Method == nil ||
+//				*def.Authorizations.Method == "" ||
+//				(*def.Authorizations.ApiKey == "" && *def.Authorizations.TrustedProfileID == "") {
+//				var patchInputs map[string]interface{}
+//				if options.StackMemberInputs != nil {
+//					patchInputs = options.StackMemberInputs[configName]
+//				}
+//				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
+//					Authorizations: &project.ProjectConfigAuth{
+//						Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
+//						ApiKey: &options.CloudInfoService.(*cloudinfo.CloudInfoService).ApiKey,
+//					},
+//					Inputs: patchInputs,
+//				}
+//			} else {
+//				var patchInputs map[string]interface{}
+//				if options.StackMemberInputs != nil {
+//					patchInputs = options.StackMemberInputs[configName]
+//				}
+//				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
+//					Inputs: patchInputs,
+//				}
+//			}
+//			_, updateResponse, updateErr := options.CloudInfoService.UpdateConfig(*options.currentProject.ID, *currentConfig.ID, patchConfig)
+//			if updateErr != nil {
+//				return updateErr
+//			}
+//			if updateResponse.StatusCode != 200 {
+//				return fmt.Errorf("error updating configuration %s", configName)
+//			}
+//
+//		}
+//	case *project.ProjectConfigDefinitionResponseResourceConfigDefinitionPropertiesResponse:
+//		if def != nil {
+//			var patchConfig *project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch
+//			if def.Authorizations.Method == nil ||
+//				*def.Authorizations.Method == "" ||
+//				(*def.Authorizations.ApiKey == "" && *def.Authorizations.TrustedProfileID == "") {
+//				var patchInputs map[string]interface{}
+//				if options.StackMemberInputs != nil {
+//					patchInputs = options.StackMemberInputs[configName]
+//				}
+//				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
+//					Authorizations: &project.ProjectConfigAuth{
+//						Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
+//						ApiKey: &options.CloudInfoService.(*cloudinfo.CloudInfoService).ApiKey,
+//					},
+//					Inputs: patchInputs,
+//				}
+//			} else {
+//				var patchInputs map[string]interface{}
+//				if options.StackMemberInputs != nil {
+//					patchInputs = options.StackMemberInputs[configName]
+//				}
+//				patchConfig = &project.ProjectConfigDefinitionPatchResourceConfigDefinitionPropertiesPatch{
+//					Inputs: patchInputs,
+//				}
+//			}
+//			_, updateResponse, updateErr := options.CloudInfoService.UpdateConfig(*options.currentProject.ID, *currentConfig.ID, patchConfig)
+//			if updateErr != nil {
+//				return updateErr
+//			}
+//			if updateResponse.StatusCode != 200 {
+//				return fmt.Errorf("error updating configuration %s", configName)
+//			}
+//
+//		}
+//	default:
+//		options.Testing.Log(fmt.Sprintf("[WARNING] Configuration %s is not supported for setting authorization", configName))
+//	}
+//
+//	options.Testing.Log(fmt.Sprintf("[PROJECTS] Validating Configuration %s", configName))
+//	_, _, validateErr := options.CloudInfoService.ValidateProjectConfig(*options.currentProject.ID, *currentConfig.ID)
+//	if assert.NoError(options.Testing, validateErr) {
+//		validateConfig, _, valConfErr := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
+//		if assert.NoError(options.Testing, valConfErr) {
+//			// Set end time
+//			approvalEndTime := time.Now().Add(time.Duration(options.ValidationTimeoutMinutes) * time.Minute)
+//
+//			if *validateConfig.State == project.ProjectConfig_State_Validating {
+//				// Wait for the configuration to finish validating
+//				for *validateConfig.State == project.ProjectConfig_State_Validating {
+//					// if the time is greater than the timeout
+//					// return an error
+//					if time.Now().After(approvalEndTime) {
+//						return fmt.Errorf("validation timeout for configuration %s", configName)
+//					}
+//					options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is still validating", configName))
+//					time.Sleep(30 * time.Second)
+//					validateConfig, _, validateErr = options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
+//					if !assert.NoError(options.Testing, validateErr) {
+//						return validateErr
+//					}
+//				}
+//				if !assert.Equal(options.Testing, project.ProjectConfig_State_Validated, *validateConfig.State) {
+//					schematicsCrn := validateConfig.Schematics.WorkspaceCrn
+//					if schematicsCrn != nil {
+//						options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed validation, schematics workspace: %s", configName, *schematicsCrn))
+//						options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *validateConfig.LastValidated.Result))
+//
+//						if validateConfig.LastValidated.Job.Summary.PlanMessages != nil && validateConfig.LastValidated.Job.Summary.PlanMessages.ErrorMessages != nil {
+//							for _, planErr := range validateConfig.LastValidated.Job.Summary.PlanMessages.ErrorMessages {
+//								options.Testing.Log(fmt.Sprintf("[PROJECTS] Plan Error: %s", planErr))
+//							}
+//						} else {
+//							options.Testing.Log(fmt.Sprintf("[PROJECTS] No plan error messages found for configuration %s", configName))
+//						}
+//					}
+//					return fmt.Errorf("validation failed for configuration %s last state: %s", configName, *validateConfig.State)
+//				}
+//			}
+//		} else {
+//			return valConfErr
+//		}
+//	} else {
+//		return validateErr
+//	}
+//	return nil
+//}
+//
+//func (options *TestProjectsOptions) ApproveConfig(configName string) error {
+//	// Get all configurations
+//	allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
+//	if !assert.NoError(options.Testing, cfgErr) {
+//		options.Testing.Log("[PROJECTS] Failed to get configurations")
+//		return cfgErr
+//	}
+//	currentConfig, currConfigErr := getConfigFromName(configName, allConfigurations)
+//	if currConfigErr != nil {
+//		return currConfigErr
+//	}
+//
+//	// Approve the configuration
+//	options.Testing.Log(fmt.Sprintf("[PROJECTS] Approving Configuration %s", configName))
+//	approveConfig, _, approveErr := options.CloudInfoService.ApproveConfig(*options.currentProject.ID, *currentConfig.ID)
+//	if assert.NoError(options.Testing, approveErr) {
+//		if !assert.Equal(options.Testing, project.ProjectConfig_State_Approved, *approveConfig.State) {
+//			options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed to approve", configName))
+//			return fmt.Errorf("error approving configuration %s", configName)
+//		}
+//		options.Testing.Log(fmt.Sprintf("[PROJECTS] Approved Configuration %s", configName))
+//	}
+//	return nil
+//}
+//
+//func (options *TestProjectsOptions) DeployConfig(configName string) error {
+//	// Get all configurations
+//	allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
+//	if !assert.NoError(options.Testing, cfgErr) {
+//		options.Testing.Log("[PROJECTS] Failed to get configurations")
+//		return cfgErr
+//	}
+//	currentConfig, currConfigErr := getConfigFromName(configName, allConfigurations)
+//	if currConfigErr != nil {
+//		return currConfigErr
+//	}
+//
+//	// Deploy the configuration
+//	options.Testing.Log(fmt.Sprintf("[PROJECTS] Deploying Configuration %s", configName))
+//	_, _, deployErr := options.CloudInfoService.DeployConfig(*options.currentProject.ID, *currentConfig.ID)
+//
+//	if assert.NoError(options.Testing, deployErr) {
+//		currentCfg, _, curCfgErr := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
+//		if assert.NoError(options.Testing, curCfgErr) {
+//			// Set end time
+//			deployEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
+//
+//			if *currentCfg.State == project.ProjectConfig_State_Deploying {
+//				// Wait for the configuration to finish deploying
+//				for *currentCfg.State == project.ProjectConfig_State_Deploying {
+//					// if the time is greater than the timeout
+//					// return an error
+//					if time.Now().After(deployEndTime) {
+//						return fmt.Errorf("deploy timeout for configuration %s", configName)
+//					}
+//					options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is still deploying", configName))
+//					time.Sleep(30 * time.Second)
+//					currentCfg, _, curCfgErr = options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
+//					if !assert.NoError(options.Testing, curCfgErr) {
+//						return curCfgErr
+//					}
+//				}
+//				if !assert.Equal(options.Testing, project.ProjectConfig_State_Deployed, *currentCfg.State) {
+//					schematicsCrn := currentCfg.Schematics.WorkspaceCrn
+//					if schematicsCrn != nil {
+//						options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s failed deploy, schematics workspace: %s", configName, *schematicsCrn))
+//						options.Testing.Log(fmt.Sprintf("[PROJECTS] Result: %s", *currentCfg.LastDeployed.Result))
+//
+//						if currentCfg.LastDeployed != nil && currentCfg.LastDeployed.Job != nil && currentCfg.LastDeployed.Job.Summary != nil {
+//							if currentCfg.LastDeployed.Job.Summary.PlanMessages != nil && currentCfg.LastDeployed.Job.Summary.PlanMessages.ErrorMessages != nil {
+//								for _, planErr := range currentCfg.LastDeployed.Job.Summary.PlanMessages.ErrorMessages {
+//									options.Testing.Log(fmt.Sprintf("[PROJECTS] Plan Error: %s", planErr))
+//								}
+//							} else {
+//								options.Testing.Log(fmt.Sprintf("[PROJECTS] No plan error messages found for configuration %s", configName))
+//							}
+//							if currentCfg.LastDeployed.Job.Summary.ApplyMessages != nil && currentCfg.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages != nil {
+//								for _, applyErr := range currentCfg.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages {
+//									options.Testing.Log(fmt.Sprintf("[PROJECTS] Apply Error: %s", applyErr))
+//								}
+//							} else {
+//								options.Testing.Log(fmt.Sprintf("[PROJECTS] No apply error messages found for configuration %s", configName))
+//							}
+//						} else {
+//							options.Testing.Log(fmt.Sprintf("[PROJECTS] No messages found for configuration %s", configName))
+//						}
+//
+//					}
+//					return fmt.Errorf("deploy failed for configuration %s last state: %s", configName, *currentCfg.State)
+//				}
+//
+//				options.Testing.Log(fmt.Sprintf("[PROJECTS] Deployed Configuration %s", configName))
+//			}
+//		} else {
+//			return curCfgErr
+//		}
+//	} else {
+//		return deployErr
+//	}
+//	return nil
+//}
 
 func (options *TestProjectsOptions) ConfigureTestStack() error {
 	// Configure the test stack
 	options.Testing.Log("[PROJECTS] Configuring Test Stack")
 	var stackResp *core.DetailedResponse
 	var stackErr error
-	options.currentStack, stackResp, stackErr = options.CloudInfoService.CreateStackFromConfigFileWithInputs(*options.currentProject.ID, options.StackConfigurationPath, options.StackCatalogJsonPath, options.StackInputs)
+	options.currentStack, stackResp, stackErr = options.CloudInfoService.CreateStackFromConfigFile(cloudinfo.ConfigDetails{}, options.ConfigrationPath, options.StackCatalogJsonPath)
 	if !assert.NoError(options.Testing, stackErr) {
 		options.Testing.Log("[PROJECTS] Failed to configure Test Stack")
 		var sdkProblem *core.SDKProblem
@@ -344,145 +343,166 @@ func (options *TestProjectsOptions) ConfigureTestStack() error {
 	return nil
 }
 
-func (options *TestProjectsOptions) SerialDeployConfigurations() error {
+//
+//func (options *TestProjectsOptions) SerialDeployConfigurations() error {
+//
+//	// Loop through the StackConfigurationOrder
+//	for _, configName := range options.StackConfigurationOrder {
+//		err := options.ValidateApproveDeploy(configName)
+//		if err != nil {
+//			return err
+//		}
+//	}
+//	return nil
+//}
+//
+//func (options *TestProjectsOptions) ValidateApproveDeploy(configName string) error {
+//	if err := options.ValidateConfig(configName); err != nil {
+//		options.Testing.Log(fmt.Sprintf("Error validating configuration %s: %s", configName, err))
+//		options.Testing.Fail()
+//		return err
+//	}
+//	if err := options.ApproveConfig(configName); err != nil {
+//		options.Testing.Log(fmt.Sprintf("Error approving configuration %s: %s", configName, err))
+//		options.Testing.Fail()
+//		return err
+//	}
+//	if err := options.DeployConfig(configName); err != nil {
+//		options.Testing.Log(fmt.Sprintf("Error deploying configuration %s: %s", configName, err))
+//		options.Testing.Fail()
+//		allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
+//		if !assert.NoError(options.Testing, cfgErr) {
+//			options.Testing.Log("[PROJECTS] Failed to get configurations")
+//			return cfgErr
+//		}
+//		currentConfig, currConfigErr := getConfigFromName(configName, allConfigurations)
+//		if currConfigErr != nil {
+//			return currConfigErr
+//		}
+//		currentCfg, _, curCfgErr := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
+//		if assert.NoError(options.Testing, curCfgErr) {
+//			if currentCfg.LastDeployed.Job.Summary.ApplyMessages != nil && currentCfg.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages != nil {
+//				for _, applyErr := range currentCfg.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages {
+//					options.Testing.Log(fmt.Sprintf("[PROJECTS] Apply Error: %s", applyErr))
+//				}
+//			}
+//		}
+//
+//		return err
+//	}
+//
+//	return nil
+//
+//}
+//func (options *TestProjectsOptions) ParallelDeployConfigurations() []error {
+//	// Get all configurations
+//	allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
+//	if cfgErr != nil {
+//		return []error{cfgErr}
+//	}
+//	setUndeployOrder := false
+//	if options.StackUndeployOrder == nil {
+//		setUndeployOrder = true
+//	}
+//	// create a slice of strings to store the configurations that have been deployed
+//	deployedConfigurations := make([]string, 0)
+//	// create a channel to collect errors from goroutines
+//	errChan := make(chan error, len(allConfigurations)-1) // -1 to account for the stack configuration
+//
+//	hasError := false
+//	// while all configurations are not deployed
+//	for len(deployedConfigurations) != len(allConfigurations)-1 {
+//		if hasError {
+//			options.Testing.Log("[PROJECTS] Error deploying configurations, terminating deployment.")
+//			break
+//		}
+//		// Loop through the StackConfigurationOrder identify any configurations that are already deployed
+//		currentDeployGroup := make([]string, 0)
+//		for _, currentConfig := range allConfigurations {
+//			if common.StrArrayContains(deployedConfigurations, *currentConfig.Definition.Name) {
+//				continue
+//			}
+//			cfg, _, _ := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
+//
+//			// Ignore the stack configuration
+//			if *currentConfig.DeploymentModel != "stack" && *currentConfig.State == project.ProjectConfig_State_Draft && (cfg.StateCode == nil || *cfg.StateCode != project.ProjectConfig_StateCode_AwaitingPrerequisite) {
+//				currentDeployGroup = append(currentDeployGroup, *currentConfig.Definition.Name)
+//				// if setundeploy order and config not in undeploy order, add to undeploy order
+//				if setUndeployOrder && !common.StrArrayContains(options.StackUndeployOrder, *currentConfig.Definition.Name) {
+//					// Prepend the name of the current configuration to the StackUndeployOrder slice.
+//					// This is done by creating a new slice with the current configuration name as the only element,
+//					// and then appending the existing StackUndeployOrder slice to it.
+//					// The result is a new slice with the current configuration name at the beginning,
+//					// followed by the elements of the original StackUndeployOrder slice.
+//					options.StackUndeployOrder = append([]string{*currentConfig.Definition.Name}, options.StackUndeployOrder...)
+//				}
+//			}
+//		}
+//		//// if there are no configurations to deploy, break the loop
+//		//if len(currentDeployGroup) == 0 {
+//		//	break
+//		//}
+//		// Check if there are configurations to deploy
+//		// 'currentDeployGroup' is a slice that contains the configurations to be deployed
+//		if len(currentDeployGroup) > 0 {
+//			// If there are configurations to deploy, we need to add them to the 'stackUndeployGroups'
+//			// 'stackUndeployGroups' is a 2D slice where each element is a group of configurations that need to be undeployed
+//			// We want to add the current group of configurations to be deployed at the start of 'stackUndeployGroups'
+//			// This is because the configurations that are deployed last should be undeployed first
+//			// 'append' is a built-in function in Go that concatenates slices
+//			// Here, we are creating a new slice with 'currentDeployGroup' as the first element and the existing 'stackUndeployGroups' as the remaining elements
+//			// This effectively adds 'currentDeployGroup' to the start of 'stackUndeployGroups'
+//			options.stackUndeployGroups = append([][]string{currentDeployGroup}, options.stackUndeployGroups...)
+//		}
+//		options.Testing.Log(fmt.Sprintf("[Projects] Deploying group %d/X", len(options.stackUndeployGroups)))
+//		// deploy all currentDeployGroup configurations in parallel, and wait for all deployments to complete
+//		var wg sync.WaitGroup
+//		for _, configName := range currentDeployGroup {
+//			wg.Add(1)
+//			go func(name string) {
+//				defer wg.Done()
+//				options.Testing.Log(fmt.Sprintf("[PROJECTS] Starting Validate, Approve, Deploy of Configuration %s", name)) // Add configuration name to the log
+//				if err := options.ValidateApproveDeploy(name); err != nil {
+//					errChan <- err // send error to the error channel
+//					hasError = true
+//				} else {
+//					// If deployment is successful, add the configuration to the deployed configurations list
+//					deployedConfigurations = append(deployedConfigurations, name)
+//				}
+//			}(configName)
+//		}
+//		wg.Wait()
+//	}
+//
+//	close(errChan) // close the error channel
+//
+//	// Check if there were any errors during the deployments
+//	var errs []error
+//	for err := range errChan {
+//		errs = append(errs, err)
+//	}
+//
+//	return errs
+//}
 
-	// Loop through the StackConfigurationOrder
-	for _, configName := range options.StackConfigurationOrder {
-		err := options.ValidateApproveDeploy(configName)
-		if err != nil {
-			return err
-		}
-	}
+func (options *TestProjectsOptions) TriggerDeploy() error {
+
 	return nil
 }
 
-func (options *TestProjectsOptions) ValidateApproveDeploy(configName string) error {
-	if err := options.ValidateConfig(configName); err != nil {
-		options.Testing.Log(fmt.Sprintf("Error validating configuration %s: %s", configName, err))
-		options.Testing.Fail()
-		return err
-	}
-	if err := options.ApproveConfig(configName); err != nil {
-		options.Testing.Log(fmt.Sprintf("Error approving configuration %s: %s", configName, err))
-		options.Testing.Fail()
-		return err
-	}
-	if err := options.DeployConfig(configName); err != nil {
-		options.Testing.Log(fmt.Sprintf("Error deploying configuration %s: %s", configName, err))
-		options.Testing.Fail()
-		allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
-		if !assert.NoError(options.Testing, cfgErr) {
-			options.Testing.Log("[PROJECTS] Failed to get configurations")
-			return cfgErr
-		}
-		currentConfig, currConfigErr := getConfigFromName(configName, allConfigurations)
-		if currConfigErr != nil {
-			return currConfigErr
-		}
-		currentCfg, _, curCfgErr := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
-		if assert.NoError(options.Testing, curCfgErr) {
-			if currentCfg.LastDeployed.Job.Summary.ApplyMessages != nil && currentCfg.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages != nil {
-				for _, applyErr := range currentCfg.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages {
-					options.Testing.Log(fmt.Sprintf("[PROJECTS] Apply Error: %s", applyErr))
-				}
-			}
-		}
-
-		return err
-	}
+func (options *TestProjectsOptions) TriggerDeployAndWait() (errors []error) {
 
 	return nil
-
 }
-func (options *TestProjectsOptions) ParallelDeployConfigurations() []error {
-	// Get all configurations
-	allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
-	if cfgErr != nil {
-		return []error{cfgErr}
-	}
-	setUndeployOrder := false
-	if options.StackUndeployOrder == nil {
-		setUndeployOrder = true
-	}
-	// create a slice of strings to store the configurations that have been deployed
-	deployedConfigurations := make([]string, 0)
-	// create a channel to collect errors from goroutines
-	errChan := make(chan error, len(allConfigurations)-1) // -1 to account for the stack configuration
 
-	hasError := false
-	// while all configurations are not deployed
-	for len(deployedConfigurations) != len(allConfigurations)-1 {
-		if hasError {
-			options.Testing.Log("[PROJECTS] Error deploying configurations, terminating deployment.")
-			break
-		}
-		// Loop through the StackConfigurationOrder identify any configurations that are already deployed
-		currentDeployGroup := make([]string, 0)
-		for _, currentConfig := range allConfigurations {
-			if common.StrArrayContains(deployedConfigurations, *currentConfig.Definition.Name) {
-				continue
-			}
-			cfg, _, _ := options.CloudInfoService.GetConfig(*options.currentProject.ID, *currentConfig.ID)
+func (options *TestProjectsOptions) TriggerUnDeploy() error {
 
-			// Ignore the stack configuration
-			if *currentConfig.DeploymentModel != "stack" && *currentConfig.State == project.ProjectConfig_State_Draft && (cfg.StateCode == nil || *cfg.StateCode != project.ProjectConfig_StateCode_AwaitingPrerequisite) {
-				currentDeployGroup = append(currentDeployGroup, *currentConfig.Definition.Name)
-				// if setundeploy order and config not in undeploy order, add to undeploy order
-				if setUndeployOrder && !common.StrArrayContains(options.StackUndeployOrder, *currentConfig.Definition.Name) {
-					// Prepend the name of the current configuration to the StackUndeployOrder slice.
-					// This is done by creating a new slice with the current configuration name as the only element,
-					// and then appending the existing StackUndeployOrder slice to it.
-					// The result is a new slice with the current configuration name at the beginning,
-					// followed by the elements of the original StackUndeployOrder slice.
-					options.StackUndeployOrder = append([]string{*currentConfig.Definition.Name}, options.StackUndeployOrder...)
-				}
-			}
-		}
-		//// if there are no configurations to deploy, break the loop
-		//if len(currentDeployGroup) == 0 {
-		//	break
-		//}
-		// Check if there are configurations to deploy
-		// 'currentDeployGroup' is a slice that contains the configurations to be deployed
-		if len(currentDeployGroup) > 0 {
-			// If there are configurations to deploy, we need to add them to the 'stackUndeployGroups'
-			// 'stackUndeployGroups' is a 2D slice where each element is a group of configurations that need to be undeployed
-			// We want to add the current group of configurations to be deployed at the start of 'stackUndeployGroups'
-			// This is because the configurations that are deployed last should be undeployed first
-			// 'append' is a built-in function in Go that concatenates slices
-			// Here, we are creating a new slice with 'currentDeployGroup' as the first element and the existing 'stackUndeployGroups' as the remaining elements
-			// This effectively adds 'currentDeployGroup' to the start of 'stackUndeployGroups'
-			options.stackUndeployGroups = append([][]string{currentDeployGroup}, options.stackUndeployGroups...)
-		}
-		options.Testing.Log(fmt.Sprintf("[Projects] Deploying group %d/X", len(options.stackUndeployGroups)))
-		// deploy all currentDeployGroup configurations in parallel, and wait for all deployments to complete
-		var wg sync.WaitGroup
-		for _, configName := range currentDeployGroup {
-			wg.Add(1)
-			go func(name string) {
-				defer wg.Done()
-				options.Testing.Log(fmt.Sprintf("[PROJECTS] Starting Validate, Approve, Deploy of Configuration %s", name)) // Add configuration name to the log
-				if err := options.ValidateApproveDeploy(name); err != nil {
-					errChan <- err // send error to the error channel
-					hasError = true
-				} else {
-					// If deployment is successful, add the configuration to the deployed configurations list
-					deployedConfigurations = append(deployedConfigurations, name)
-				}
-			}(configName)
-		}
-		wg.Wait()
-	}
+	return nil
+}
 
-	close(errChan) // close the error channel
+func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errors []error) {
 
-	// Check if there were any errors during the deployments
-	var errs []error
-	for err := range errChan {
-		errs = append(errs, err)
-	}
-
-	return errs
+	return nil
 }
 
 // RunProjectsTest : Run the test for the projects service
@@ -502,40 +522,43 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 
 	// Create a new project
 	options.Testing.Log("[PROJECTS] Creating Test Project")
-	prj, resp, err := options.CloudInfoService.CreateDefaultProject(options.ProjectName, options.ProjectDescription, options.ResourceGroup)
+	if options.ProjectDestroyOnDelete == nil {
+		options.ProjectDestroyOnDelete = core.BoolPtr(true)
+	}
+	if options.ProjectAutoDeploy == nil {
+		options.ProjectAutoDeploy = core.BoolPtr(false)
+	}
+	if options.ProjectMonitoringEnabled == nil {
+		options.ProjectMonitoringEnabled = core.BoolPtr(false)
+	}
+	newProject := cloudinfo.ProjectsConfig{
+		Location:           options.ProjectLocation,
+		ProjectName:        options.ProjectName,
+		ProjectDescription: options.ProjectDescription,
+		ResourceGroup:      options.ResourceGroup,
+		DestroyOnDelete:    *options.ProjectDestroyOnDelete,
+		MonitoringEnabled:  *options.ProjectMonitoringEnabled,
+		AutoDeploy:         *options.ProjectAutoDeploy,
+		Environments:       options.ProjectEnvironments,
+		ComplianceProfile:  options.ProjectComplianceProfile,
+	}
+	prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(newProject)
 	if assert.NoError(options.Testing, err) {
 		if assert.Equal(options.Testing, 201, resp.StatusCode) {
 			options.Testing.Log(fmt.Sprintf("[PROJECTS] Created Test Project - %s", *prj.Definition.Name))
 			options.currentProject = prj
 
 			if assert.NoError(options.Testing, options.ConfigureTestStack()) {
-				// ensure all stack members in the current stack are in the stack configuration order failing if not
-				for _, stackMember := range options.currentStack.StackDefinition.Members {
-					// check if the stack member is in the configuration order if not nil
-					if options.StackConfigurationOrder != nil {
-						if !assert.Contains(options.Testing, options.StackConfigurationOrder, *stackMember.Name) {
-							return fmt.Errorf("stack member %s not in configuration order", *stackMember.Name)
-						}
+				// Deploy the configuration in parallel
+				deployErr := options.TriggerDeployAndWait()
+				if !assert.Empty(options.Testing, deployErr) {
+					// print all errors and return a single error
+					for _, derr := range deployErr {
+						options.Testing.Error(derr)
 					}
+					return fmt.Errorf("error deploying configurations")
 				}
 
-				if !options.ParallelDeploy {
-					// Deploy the configuration in stack order
-					deployErr := options.SerialDeployConfigurations()
-					if !assert.NoError(options.Testing, deployErr) {
-						return err
-					}
-				} else {
-					// Deploy the configuration in parallel
-					deployErr := options.ParallelDeployConfigurations()
-					if !assert.Empty(options.Testing, deployErr) {
-						// print all errors and return a single error
-						for _, derr := range deployErr {
-							options.Testing.Error(derr)
-						}
-						return fmt.Errorf("error deploying configurations")
-					}
-				}
 				options.Testing.Log("[PROJECTS] All configurations deployed successfully")
 				return nil
 			}
@@ -551,118 +574,7 @@ func (options *TestProjectsOptions) TestTearDown() {
 	}
 	if !options.SkipTestTearDown {
 		if options.executeResourceTearDown() {
-			// Undeploy the configuration in stack undeploy order
-			if options.StackUndeployOrder != nil {
-				if !options.ParallelDeploy {
-					// Serial undeploy
-					// Get all configurations
-					allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
-					if !assert.NoError(options.Testing, cfgErr) {
-						options.Testing.Log("[PROJECTS] Failed to get configurations during undeploy, skipping undeploy")
-					} else {
-						options.Testing.Log("[PROJECTS] Undeploying Configurations in Stack Undeploy Order")
-						for _, configName := range options.StackUndeployOrder {
-
-							// Get the configuration
-							config, configErr := getConfigFromName(configName, allConfigurations)
-							if !assert.NoError(options.Testing, configErr) {
-								options.Testing.Errorf("Error getting configuration %s: %s", configName, configErr)
-								continue
-							}
-							// Undeploy the configuration
-							options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying Configuration %s", configName))
-							undeployConfig, _, undeployErr := options.CloudInfoService.UndeployConfig(*options.currentProject.ID, *config.ID)
-							if assert.NoError(options.Testing, undeployErr) {
-								if !assert.Equal(options.Testing, project.ProjectConfig_State_Undeploying, *undeployConfig.State) {
-									options.Testing.Errorf("Error undeploying configuration %s", configName)
-								}
-								options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeployed Configuration %s", configName))
-							}
-						}
-					}
-				} else {
-					// parallel undeploy
-					//	undeploy the each group in undeploygroups in parallel one set of groups at a time until all groups are undeployed
-					for index, currentUndeployGroup := range options.stackUndeployGroups {
-						options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying In Parallel group %d/%d", index+1, len(options.stackUndeployGroups)))
-						// create a channel to collect errors from goroutines
-						errChan := make(chan error, len(currentUndeployGroup))
-
-						// undeploy all currentUndeployGroup configurations in parallel, and wait for all undeployments to complete
-						var wg sync.WaitGroup
-						for _, configName := range currentUndeployGroup {
-							wg.Add(1)
-							go func(name string) {
-								defer wg.Done()
-								options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying Configuration %s", name)) // Add configuration name to the log
-								// Get all configurations
-								allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
-								if !assert.NoError(options.Testing, cfgErr) {
-									options.Testing.Log(fmt.Sprintf("Error getting configurations: %s", cfgErr))
-									errChan <- cfgErr
-									return
-								}
-								// Get the configuration
-								config, configErr := getConfigFromName(name, allConfigurations)
-								if !assert.NoError(options.Testing, configErr) {
-									options.Testing.Log(fmt.Sprintf("Error getting configuration %s: %s", name, configErr))
-									errChan <- configErr
-									return
-								}
-								// Undeploy the configuration
-								undeployConfig, _, undeployErr := options.CloudInfoService.UndeployConfig(*options.currentProject.ID, *config.ID)
-								if assert.NoError(options.Testing, undeployErr) {
-									if !assert.Equal(options.Testing, project.ProjectConfig_State_Undeploying, *undeployConfig.State) {
-										options.Testing.Log(fmt.Sprintf("Error undeploying configuration %s", name))
-										errChan <- fmt.Errorf("error undeploying configuration %s", name)
-									} else {
-										options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploy Configuration %s started", name))
-									}
-								} else {
-									errChan <- undeployErr
-								}
-
-								// wait for undeployment to complete or timeout
-								// Set end time
-								undeployEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
-								for {
-									_, isUndeploying := options.CloudInfoService.IsUndeploying(*options.currentProject.ID, *config.ID)
-
-									if !isUndeploying {
-										break
-									}
-
-									// if the time is greater than the timeout
-									// return an error
-									if time.Now().After(undeployEndTime) {
-										errChan <- fmt.Errorf("undeploy timeout for configuration %s", name)
-										return
-									}
-									options.Testing.Log(fmt.Sprintf("[PROJECTS] Configuration %s is still undeploying", name))
-									time.Sleep(30 * time.Second)
-								}
-								if *config.State != project.ProjectConfig_State_Undeploying && *config.State != project.ProjectConfig_State_UndeployingFailed {
-									options.Testing.Log(fmt.Sprintf("[PROJECTS] Undeploying Configuration %s complete", name))
-								}
-							}(configName)
-						}
-						wg.Wait()
-						close(errChan) // close the error channel
-
-						// Check if there were any errors during the undeployments
-						var errs []error
-						for err := range errChan {
-							errs = append(errs, err)
-						}
-						if len(errs) > 0 {
-							// print all errors and return a single error
-							for _, uerr := range errs {
-								options.Testing.Log(uerr)
-							}
-						}
-					}
-				}
-			}
+			//		trigger undeploy
 		}
 
 		if options.executeProjectTearDown() {

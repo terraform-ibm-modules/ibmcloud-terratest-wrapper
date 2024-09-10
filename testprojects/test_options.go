@@ -2,6 +2,8 @@ package testprojects
 
 import (
 	"fmt"
+	"github.com/IBM/go-sdk-core/v5/core"
+	"os"
 	"strings"
 	"testing"
 
@@ -39,8 +41,14 @@ type TestProjectsOptions struct {
 	// After constructor = `my-test-xu5oby`
 	Prefix string
 
-	ProjectName        string
-	ProjectDescription string
+	ProjectName              string
+	ProjectDescription       string
+	ProjectLocation          string
+	ProjectDestroyOnDelete   *bool
+	ProjectMonitoringEnabled *bool
+	ProjectAutoDeploy        *bool
+	ProjectEnvironments      []project.EnvironmentPrototype
+	ProjectComplianceProfile *project.ProjectComplianceProfile
 
 	CloudInfoService cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 
@@ -51,11 +59,19 @@ type TestProjectsOptions struct {
 	// ConfigrationPath Path to the configuration file that will be used to create the project.
 	ConfigrationPath string
 	// StackConfigurationPath Path to the configuration file that will be used to create the stack.
-	StackConfigurationPath  string
-	StackCatalogJsonPath    string
+	StackConfigurationPath string
+	StackCatalogJsonPath   string
+	// Deprecated: Deploy order is now determined by the project.
 	StackConfigurationOrder []string
-	StackUndeployOrder      []string
-	stackUndeployGroups     [][]string
+	// Deprecated: Deploy groups are now determined by the project.
+	StackUndeployOrder []string
+	// Deprecated: Deploy groups are now determined by the project.
+	stackUndeployGroups [][]string
+
+	// StackAuthorizations The authorizations to use for the project.
+	// If not set, the default will be to use the TF_VAR_ibmcloud_api_key environment variable.
+	// Can be used to set Trusted Profile or API Key.
+	StackAuthorizations *project.ProjectConfigAuth
 
 	// StackMemberInputs [ "primary-da": {["input1": "value1", "input2": 2]}, "secondary-da": {["input1": "value1", "input2": 2]}]
 	StackMemberInputs map[string]map[string]interface{}
@@ -65,6 +81,7 @@ type TestProjectsOptions struct {
 	// ParallelDeploy If set to true, the test will deploy the stack in parallel.
 	// This will deploy the stack in batches of whatever is not waiting on a prerequisite to be deployed.
 	// Note Undeploy will still be in serial.
+	// Deprecated: All deploys are now parallel by default using projects built-in parallel deploy feature.
 	ParallelDeploy bool
 
 	ValidationTimeoutMinutes int
@@ -86,9 +103,6 @@ type TestProjectsOptions struct {
 // default values for any properties that were not set in the original options.
 // Summary of default values:
 // - Prefix: original prefix with a unique 6-digit random string appended
-// - DefaultRegion: if not set, will be determined by dynamic region selection
-// - Region: if not set, will be determined by dynamic region selection
-// - BestRegionYAMLPath: if not set, will use the default region YAML path
 func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjectsOptions {
 	newOptions, err := originalOptions.Clone()
 	require.NoError(originalOptions.Testing, err)
@@ -98,6 +112,7 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt
 	checkVariables := []string{ibmcloudApiKeyVar}
 	newOptions.RequiredEnvironmentVars = common.GetRequiredEnvVars(newOptions.Testing, checkVariables)
+
 	if newOptions.ProjectName == "" {
 		newOptions.ProjectName = fmt.Sprintf("project%s", newOptions.Prefix)
 	}
@@ -121,11 +136,22 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	if newOptions.DeployTimeoutMinutes == 0 {
 		newOptions.DeployTimeoutMinutes = 6 * 60
 	}
-	if !newOptions.ParallelDeploy {
-		//	set un-deploy order to be the reverse of deploy order
-		newOptions.StackUndeployOrder = make([]string, len(newOptions.StackConfigurationOrder))
-		for i, j := 0, len(newOptions.StackConfigurationOrder)-1; i < len(newOptions.StackConfigurationOrder); i, j = i+1, j-1 {
-			newOptions.StackUndeployOrder[i] = newOptions.StackConfigurationOrder[j]
+	if newOptions.ProjectDestroyOnDelete == nil {
+		newOptions.ProjectDestroyOnDelete = core.BoolPtr(true)
+	}
+	if newOptions.ProjectMonitoringEnabled == nil {
+		newOptions.ProjectMonitoringEnabled = core.BoolPtr(true)
+	}
+	if newOptions.ProjectAutoDeploy == nil {
+		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
+	}
+	// if newOptions.ProjectLocation == ""
+	// a random location will be selected at project creation time
+
+	if newOptions.StackAuthorizations == nil {
+		newOptions.StackAuthorizations = &project.ProjectConfigAuth{
+			ApiKey: core.StringPtr(os.Getenv(ibmcloudApiKeyVar)),
+			Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
 		}
 	}
 

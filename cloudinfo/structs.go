@@ -1,5 +1,7 @@
 package cloudinfo
 
+import project "github.com/IBM/project-go-sdk/projectv1"
+
 type CatalogJson struct {
 	Products []struct {
 		Label           string   `json:"label"`
@@ -25,6 +27,10 @@ type Stack struct {
 		Hidden      bool        `json:"hidden"`
 		Default     interface{} `json:"default"`
 	} `json:"inputs"`
+	Outputs []struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	} `json:"outputs"`
 	Members []struct {
 		Inputs []struct {
 			Name  string      `json:"name"`
@@ -33,4 +39,35 @@ type Stack struct {
 		Name           string `json:"name"`
 		VersionLocator string `json:"version_locator"`
 	} `json:"members"`
+}
+
+// ConfigDetails Config details for a config or stack
+type ConfigDetails struct {
+	ProjectID      string
+	Name           string
+	Description    string
+	ConfigID       string
+	Authorizations *project.ProjectConfigAuth
+	Inputs         map[string]interface{}
+	Settings       map[string]interface{}
+	// Stack specific
+	StackLocatorID  string
+	StackDefinition *project.StackDefinitionBlockPrototype
+	Members         []project.StackConfigMember
+}
+
+// ProjectsConfig Config for creating a project
+type ProjectsConfig struct {
+	Location           string                            `json:"location,omitempty"`
+	ProjectName        string                            `json:"project_name,omitempty"`
+	ProjectDescription string                            `json:"project_description,omitempty"`
+	ResourceGroup      string                            `json:"resource_group,omitempty"`
+	DestroyOnDelete    bool                              `json:"destroy_on_delete"`
+	MonitoringEnabled  bool                              `json:"monitoring_enabled"`
+	AutoDeploy         bool                              `json:"auto_deploy"`
+	Configs            []project.ProjectConfigPrototype  `json:"configs,omitempty"`
+	Environments       []project.EnvironmentPrototype    `json:"environments,omitempty"`
+	Headers            map[string]string                 `json:"headers,omitempty"`
+	Store              *project.ProjectDefinitionStore   `json:"store,omitempty"`
+	ComplianceProfile  *project.ProjectComplianceProfile `json:"compliance_profile,omitempty"`
 }

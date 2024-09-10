@@ -23,75 +23,128 @@ import (
 // Configs and environments are empty
 // Headers are empty
 func (infoSvc *CloudInfoService) CreateDefaultProject(name string, description string, resourceGroup string) (result *project.Project, response *core.DetailedResponse, err error) {
-	return infoSvc.CreateDefaultProjectWithConfigs(name, description, resourceGroup, []project.ProjectConfigPrototype{})
+	return infoSvc.CreateProjectFromConfig(ProjectsConfig{
+		ProjectName:        name,
+		ProjectDescription: description,
+		ResourceGroup:      resourceGroup,
+	})
 }
 
-// CreateDefaultProjectWithConfigs creates a default project with the given name and description and the given configs
-// name: the name of the project
-// description: the description of the project
-// resourceGroup: the resource group to use
-// configs: the project configs to use
+// CreateProjectFromConfig creates a project with the given config
+// config: the config to use
 // Returns an error if one occurs
-// Chooses a random location
-// Delete all resources on delete
-// Drift detection is enabled
-// Headers are empty
-func (infoSvc *CloudInfoService) CreateDefaultProjectWithConfigs(name string, description string, resourceGroup string, configs []project.ProjectConfigPrototype) (result *project.Project, response *core.DetailedResponse, err error) {
-	validRegions := []string{"us-south", "us-east", "eu-gb", "eu-de"}
+func (infoSvc *CloudInfoService) CreateProjectFromConfig(config ProjectsConfig) (result *project.Project, response *core.DetailedResponse, err error) {
+	// Use defaults if not provided
+	if config.Location == "" {
+		validRegions := []string{"us-south", "us-east", "eu-gb", "eu-de"}
+		randomIndex := rand.Intn(len(validRegions))
+		config.Location = validRegions[randomIndex]
+	}
+	if config.ProjectName == "" {
+		config.ProjectName = "Test Project"
+	}
+	if config.ProjectDescription == "" {
+		config.ProjectDescription = "Test project description"
+	}
+	if config.ResourceGroup == "" {
+		config.ResourceGroup = "Default"
+	}
+	if config.Configs == nil {
+		config.Configs = []project.ProjectConfigPrototype{}
+	}
+	if config.Environments == nil {
+		config.Environments = []project.EnvironmentPrototype{}
+	}
+	if config.Headers == nil {
+		config.Headers = map[string]string{}
+	}
 
-	// Generate a random index within the range of the slice
-	randomIndex := rand.Intn(len(validRegions))
-
-	// Select the location at the random index
-	location := validRegions[randomIndex]
 	projectOptions := &project.CreateProjectOptions{
 		Definition: &project.ProjectPrototypeDefinition{
-			Name:              &name,
-			DestroyOnDelete:   core.BoolPtr(true),
-			Description:       &description,
-			MonitoringEnabled: core.BoolPtr(true),
+			Name:              &config.ProjectName,
+			DestroyOnDelete:   core.BoolPtr(config.DestroyOnDelete),
+			Description:       &config.ProjectDescription,
+			Store:             config.Store,
+			MonitoringEnabled: core.BoolPtr(config.MonitoringEnabled),
+			AutoDeploy:        core.BoolPtr(config.AutoDeploy),
 		},
-		Location:      &location,
-		ResourceGroup: &resourceGroup,
-		Configs:       configs,
-		Environments:  []project.EnvironmentPrototype{},
-		Headers:       map[string]string{},
+		Location:      &config.Location,
+		ResourceGroup: &config.ResourceGroup,
+		Configs:       config.Configs,
+		Environments:  config.Environments,
+		Headers:       config.Headers,
 	}
 
 	return infoSvc.projectsService.CreateProject(projectOptions)
-
 }
 
-// CreateDefaultProjectWithConfigsFromFile creates a default project with the given name and description and the configs from the given file
-// name: the name of the project
-// description: the description of the project
-// resourceGroup: the resource group to use
-// configFile: the file containing the project configs
-// Returns an error if one occurs
-// Chooses a random location
-// Delete all resources on delete
-// Drift detection is enabled
-// Headers are empty
-func (infoSvc *CloudInfoService) CreateDefaultProjectWithConfigsFromFile(name string, description string, resourceGroup string, configFile string) (result *project.Project, response *core.DetailedResponse, err error) {
-	// Read the JSON file
-	jsonFile, err := os.ReadFile(configFile)
-	if err != nil {
-		log.Println("Error reading JSON file:", err)
-		return nil, nil, err
-	}
+//// CreateDefaultProjectWithConfigs creates a default project with the given name and description and the given configs
+//// name: the name of the project
+//// description: the description of the project
+//// resourceGroup: the resource group to use
+//// configs: the project configs to use
+//// Returns an error if one occurs
+//// Chooses a random location
+//// Delete all resources on delete
+//// Drift detection is enabled
+//// Headers are empty
+//func (infoSvc *CloudInfoService) CreateDefaultProjectWithConfigs(name string, description string, resourceGroup string, configs []project.ProjectConfigPrototype) (result *project.Project, response *core.DetailedResponse, err error) {
+//	validRegions := []string{"us-south", "us-east", "eu-gb", "eu-de"}
+//
+//	// Generate a random index within the range of the slice
+//	randomIndex := rand.Intn(len(validRegions))
+//
+//	// Select the location at the random index
+//	location := validRegions[randomIndex]
+//	projectOptions := &project.CreateProjectOptions{
+//		Definition: &project.ProjectPrototypeDefinition{
+//			Name:              &name,
+//			DestroyOnDelete:   core.BoolPtr(true),
+//			Description:       &description,
+//			MonitoringEnabled: core.BoolPtr(true),
+//		},
+//		Location:      &location,
+//		ResourceGroup: &resourceGroup,
+//		Configs:       configs,
+//		Environments:  []project.EnvironmentPrototype{},
+//		Headers:       map[string]string{},
+//	}
+//
+//	return infoSvc.projectsService.CreateProject(projectOptions)
+//
+//}
 
-	// Create a new variable of type ProjectConfigPrototype
-	var configs []project.ProjectConfigPrototype
-
-	// Unmarshal the JSON data into the config variable
-	err = json.Unmarshal(jsonFile, &configs)
-	if err != nil {
-		log.Println("Error unmarshaling JSON:", err)
-		return nil, nil, err
-	}
-
-	return infoSvc.CreateDefaultProjectWithConfigs(name, description, resourceGroup, configs)
-}
+// // CreateDefaultProjectWithConfigsFromFile creates a default project with the given name and description and the configs from the given file
+// // name: the name of the project
+// // description: the description of the project
+// // resourceGroup: the resource group to use
+// // configFile: the file containing the project configs
+// // Returns an error if one occurs
+// // Chooses a random location
+// // Delete all resources on delete
+// // Drift detection is enabled
+// // Headers are empty
+//
+//	func (infoSvc *CloudInfoService) CreateDefaultProjectWithConfigsFromFile(name string, description string, resourceGroup string, configFile string) (result *project.Project, response *core.DetailedResponse, err error) {
+//		// Read the JSON file
+//		jsonFile, err := os.ReadFile(configFile)
+//		if err != nil {
+//			log.Println("Error reading JSON file:", err)
+//			return nil, nil, err
+//		}
+//
+//		// Create a new variable of type ProjectConfigPrototype
+//		var configs []project.ProjectConfigPrototype
+//
+//		// Unmarshal the JSON data into the config variable
+//		err = json.Unmarshal(jsonFile, &configs)
+//		if err != nil {
+//			log.Println("Error unmarshaling JSON:", err)
+//			return nil, nil, err
+//		}
+//
+//		return infoSvc.CreateDefaultProjectWithConfigs(name, description, resourceGroup, configs)
+//	}
 func (infoSvc *CloudInfoService) GetProject(projectID string) (result *project.Project, response *core.DetailedResponse, err error) {
 	getProjectOptions := &project.GetProjectOptions{
 		ID: &projectID,
@@ -128,14 +181,14 @@ func (infoSvc *CloudInfoService) DeleteProject(projectID string) (result *projec
 	return infoSvc.projectsService.DeleteProject(deleteProjectOptions)
 }
 
-func (infoSvc *CloudInfoService) CreateConfig(projectID string, name string, description string, stackLocatorID string) (result *project.ProjectConfig, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) CreateConfig(configDetails ConfigDetails) (result *project.ProjectConfig, response *core.DetailedResponse, err error) {
 	authMethod := project.ProjectConfigAuth_Method_ApiKey
 	createConfigOptions := &project.CreateConfigOptions{
-		ProjectID: &projectID,
+		ProjectID: &configDetails.ProjectID,
 		Definition: &project.ProjectConfigDefinitionPrototype{
-			Description: &description,
-			Name:        &name,
-			LocatorID:   &stackLocatorID,
+			Description: &configDetails.Description,
+			Name:        &configDetails.Name,
+			LocatorID:   &configDetails.StackLocatorID,
 			Authorizations: &project.ProjectConfigAuth{
 				ApiKey: &infoSvc.authenticator.ApiKey,
 				Method: &authMethod,
@@ -145,22 +198,23 @@ func (infoSvc *CloudInfoService) CreateConfig(projectID string, name string, des
 	return infoSvc.projectsService.CreateConfig(createConfigOptions)
 }
 
-func (infoSvc *CloudInfoService) CreateDaConfig(projectID string, locatorID string, name string, description string, authorizations project.ProjectConfigAuth, inputs map[string]interface{}, settings map[string]interface{}) (result *project.ProjectConfig, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) CreateDaConfig(configDetails ConfigDetails) (result *project.ProjectConfig, response *core.DetailedResponse, err error) {
 	createConfigOptions := &project.CreateConfigOptions{
-		ProjectID: &projectID,
+		ProjectID: &configDetails.ProjectID,
 		Definition: &project.ProjectConfigDefinitionPrototype{
-			Description:    &description,
-			Name:           &name,
-			LocatorID:      &locatorID,
-			Authorizations: &authorizations,
-			Inputs:         inputs,
-			Settings:       settings,
+			Description:    &configDetails.Description,
+			Name:           &configDetails.Name,
+			LocatorID:      &configDetails.StackLocatorID,
+			Authorizations: configDetails.Authorizations,
+			Inputs:         configDetails.Inputs,
+			Settings:       configDetails.Settings,
 		},
 	}
 	return infoSvc.projectsService.CreateConfig(createConfigOptions)
 }
 
-func (infoSvc *CloudInfoService) CreateConfigFromCatalogJson(projectID string, catalogJsonPath string, stackLocatorID string) (result *project.ProjectConfig, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) CreateConfigFromCatalogJson(configDetails ConfigDetails, catalogJsonPath string) (result *project.ProjectConfig, response *core.DetailedResponse, err error) {
+	// TODO: Handle multiple products/flavors
 	// Read the catalog JSON file
 	jsonFile, err := os.ReadFile(catalogJsonPath)
 	if err != nil {
@@ -176,30 +230,33 @@ func (infoSvc *CloudInfoService) CreateConfigFromCatalogJson(projectID string, c
 		return nil, nil, err
 	}
 
-	return infoSvc.CreateConfig(projectID, catalogConfig.Products[0].Name, catalogConfig.Products[0].Label, stackLocatorID)
+	// TODO: override inputs with values from catalogConfig
+	configDetails.Name = catalogConfig.Products[0].Name
+	configDetails.Description = catalogConfig.Products[0].Label
+	return infoSvc.CreateConfig(configDetails)
 }
 
-func (infoSvc *CloudInfoService) AddStackFromConfig(projectID string, configID string, stackConfig *project.StackDefinitionBlockPrototype) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) AddStackFromConfig(configDetails ConfigDetails) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 
 	createStackDefinitionOptions := &project.CreateStackDefinitionOptions{
-		ProjectID:       &projectID,
-		ID:              &configID,
-		StackDefinition: stackConfig,
+		ProjectID:       &configDetails.ProjectID,
+		ID:              &configDetails.ConfigID,
+		StackDefinition: configDetails.StackDefinition,
 	}
 
 	return infoSvc.projectsService.CreateStackDefinition(createStackDefinitionOptions)
 }
 
-func (infoSvc *CloudInfoService) CreateNewStack(projectID string, stackName string, stackDescription string, stackConfig *project.StackDefinitionBlockPrototype, stackMembers []project.StackConfigMember) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) CreateNewStack(stackConfig ConfigDetails) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 
 	// Create a project config first
 	createProjectConfigDefinitionOptions := &project.ProjectConfigDefinitionPrototypeStackConfigDefinitionProperties{
-		Description: &stackDescription,
-		Name:        &stackName,
-		Members:     stackMembers,
+		Description: &stackConfig.Description,
+		Name:        &stackConfig.Name,
+		Members:     stackConfig.Members,
 	}
 	createConfigOptions := infoSvc.projectsService.NewCreateConfigOptions(
-		projectID,
+		stackConfig.ProjectID,
 		createProjectConfigDefinitionOptions,
 	)
 	config, configResp, configErr := infoSvc.projectsService.CreateConfig(createConfigOptions)
@@ -208,22 +265,22 @@ func (infoSvc *CloudInfoService) CreateNewStack(projectID string, stackName stri
 	}
 
 	// Then apply the stack definition
-	stackDefOptions := infoSvc.projectsService.NewCreateStackDefinitionOptions(projectID, *config.ID, stackConfig)
+	stackDefOptions := infoSvc.projectsService.NewCreateStackDefinitionOptions(stackConfig.ProjectID, *config.ID, stackConfig.StackDefinition)
 
 	return infoSvc.projectsService.CreateStackDefinition(stackDefOptions)
 
 }
-func (infoSvc *CloudInfoService) UpdateStackFromConfig(projectID string, configID string, stackConfig *project.StackDefinitionBlockPrototype) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) UpdateStackFromConfig(stackConfig ConfigDetails) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 
 	updateStackDefinitionOptions := &project.UpdateStackDefinitionOptions{
-		ProjectID:       &projectID,
-		ID:              &configID,
-		StackDefinition: stackConfig,
+		ProjectID:       &stackConfig.ProjectID,
+		ID:              &stackConfig.ConfigID,
+		StackDefinition: stackConfig.StackDefinition,
 	}
 	return infoSvc.projectsService.UpdateStackDefinition(updateStackDefinitionOptions)
 }
 
-func (infoSvc *CloudInfoService) AddStackFromFile(projectID string, configFilePath string, catalogJsonPath string, stackLocatorID string) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
+func (infoSvc *CloudInfoService) AddStackFromFile(stackConfig ConfigDetails, configFilePath string, catalogJsonPath string) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 	// Read the config JSON file
 	jsonFile, err := os.ReadFile(configFilePath)
 	if err != nil {
@@ -241,14 +298,16 @@ func (infoSvc *CloudInfoService) AddStackFromFile(projectID string, configFilePa
 		return nil, nil, err
 	}
 
-	projectConfig, _, configErr := infoSvc.CreateConfigFromCatalogJson(projectID, catalogJsonPath, stackLocatorID)
+	projectConfig, _, configErr := infoSvc.CreateConfigFromCatalogJson(stackConfig, catalogJsonPath)
 	if configErr != nil {
 		log.Println("Error creating config from catalog JSON:", configErr)
 		return nil, nil, configErr
 	}
 
-	// Create a new variable of type ProjectConfigPrototype
-	var stackConfig project.StackDefinitionBlockPrototype
+	stackConfig.ConfigID = *projectConfig.ID
+	if stackConfig.StackDefinition == nil {
+		stackConfig.StackDefinition = &project.StackDefinitionBlockPrototype{}
+	}
 
 	// Unmarshal the JSON data into the config variable
 	err = json.Unmarshal(jsonFile, &stackConfig)
@@ -257,7 +316,7 @@ func (infoSvc *CloudInfoService) AddStackFromFile(projectID string, configFilePa
 		return nil, nil, err
 	}
 
-	return infoSvc.UpdateStackFromConfig(projectID, *projectConfig.ID, &stackConfig)
+	return infoSvc.UpdateStackFromConfig(stackConfig)
 
 }
 
@@ -278,22 +337,22 @@ func (infoSvc *CloudInfoService) ValidateProjectConfig(projectID string, configI
 	}
 }
 
-func (infoSvc *CloudInfoService) IsConfigValidated(projectID string, configID string) (projectConfig *project.ProjectConfigVersion, isValidated bool) {
-	config, _, _ := infoSvc.GetConfig(projectID, configID)
-	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
-	if config != nil {
-		if config.State != nil {
-			if *config.State == project.ProjectConfig_State_Validated {
-
-				return configVersion, true
-			} else {
-				return configVersion, false
-			}
-		}
-	}
-	return configVersion, false
-
-}
+//func (infoSvc *CloudInfoService) IsConfigValidated(projectID string, configID string) (projectConfig *project.ProjectConfigVersion, isValidated bool) {
+//	config, _, _ := infoSvc.GetConfig(projectID, configID)
+//	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
+//	if config != nil {
+//		if config.State != nil {
+//			if *config.State == project.ProjectConfig_State_Validated {
+//
+//				return configVersion, true
+//			} else {
+//				return configVersion, false
+//			}
+//		}
+//	}
+//	return configVersion, false
+//
+//}
 
 func (infoSvc *CloudInfoService) GetProjectConfigVersion(projectID string, configID string, version int64) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 
@@ -323,49 +382,49 @@ func (infoSvc *CloudInfoService) UpdateConfigWithHeaders(projectID string, confi
 	return infoSvc.projectsService.UpdateConfig(updateConfigOptions)
 }
 
-func (infoSvc *CloudInfoService) ForceApproveConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+//func (infoSvc *CloudInfoService) ForceApproveConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+//
+//	approveOptions := &project.ApproveOptions{
+//		ProjectID: &projectID,
+//		ID:        &configID,
+//	}
+//	approveOptions.SetComment("Approving the changes by test wrapper")
+//	return infoSvc.projectsService.Approve(approveOptions)
+//
+//}
 
-	approveOptions := &project.ApproveOptions{
-		ProjectID: &projectID,
-		ID:        &configID,
-	}
-	approveOptions.SetComment("Approving the changes by test wrapper")
-	return infoSvc.projectsService.Approve(approveOptions)
+//func (infoSvc *CloudInfoService) ApproveConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+//	// if is validated then approve
+//	_, isValidated := infoSvc.IsConfigValidated(projectID, configID)
+//	configVersion, isApproved := infoSvc.IsConfigApproved(projectID, configID)
+//	if isValidated {
+//		if !isApproved {
+//			return infoSvc.ForceApproveConfig(projectID, configID)
+//		} else {
+//			return configVersion, nil, nil
+//		}
+//	} else {
+//		return nil, nil, fmt.Errorf("Config is not validated, cannot approve")
+//
+//	}
+//}
 
-}
-
-func (infoSvc *CloudInfoService) ApproveConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
-	// if is validated then approve
-	_, isValidated := infoSvc.IsConfigValidated(projectID, configID)
-	configVersion, isApproved := infoSvc.IsConfigApproved(projectID, configID)
-	if isValidated {
-		if !isApproved {
-			return infoSvc.ForceApproveConfig(projectID, configID)
-		} else {
-			return configVersion, nil, nil
-		}
-	} else {
-		return nil, nil, fmt.Errorf("Config is not validated, cannot approve")
-
-	}
-}
-
-// IsConfigApproved checks if the config is approved
-func (infoSvc *CloudInfoService) IsConfigApproved(projectID string, configID string) (projectConfig *project.ProjectConfigVersion, isApproved bool) {
-	config, _, _ := infoSvc.GetConfig(projectID, configID)
-	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
-	if config != nil {
-		if config.State != nil {
-			if *config.State == project.ProjectConfig_State_Approved {
-
-				return configVersion, true
-			} else {
-				return configVersion, false
-			}
-		}
-	}
-	return configVersion, false
-}
+//// IsConfigApproved checks if the config is approved
+//func (infoSvc *CloudInfoService) IsConfigApproved(projectID string, configID string) (projectConfig *project.ProjectConfigVersion, isApproved bool) {
+//	config, _, _ := infoSvc.GetConfig(projectID, configID)
+//	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
+//	if config != nil {
+//		if config.State != nil {
+//			if *config.State == project.ProjectConfig_State_Approved {
+//
+//				return configVersion, true
+//			} else {
+//				return configVersion, false
+//			}
+//		}
+//	}
+//	return configVersion, false
+//}
 
 // DeployConfig deploy if not already deployed
 func (infoSvc *CloudInfoService) DeployConfig(projectID string, configID string) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
@@ -389,8 +448,16 @@ func (infoSvc *CloudInfoService) ForceDeployConfig(projectID string, configID st
 
 // IsConfigDeployed checks if the config is deployed
 func (infoSvc *CloudInfoService) IsConfigDeployed(projectID string, configID string) (projectConfig *project.ProjectConfigVersion, isDeployed bool) {
-	config, _, _ := infoSvc.GetConfig(projectID, configID)
-	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
+	config, _, err := infoSvc.GetConfig(projectID, configID)
+	if err != nil {
+		log.Println("Error getting config:", err)
+		return nil, false
+	}
+	configVersion, _, err := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
+	if err != nil {
+		log.Println("Error getting config version:", err)
+		return nil, false
+	}
 	if config != nil {
 		if config.State != nil {
 			if *config.State == project.ProjectConfig_State_Deployed {
@@ -413,8 +480,17 @@ func (infoSvc *CloudInfoService) UndeployConfig(projectID string, configID strin
 }
 
 func (infoSvc *CloudInfoService) IsUndeploying(projectID string, configID string) (projectConfig *project.ProjectConfigVersion, isUndeploying bool) {
-	config, _, _ := infoSvc.GetConfig(projectID, configID)
-	configVersion, _, _ := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
+	config, _, err := infoSvc.GetConfig(projectID, configID)
+	if err != nil {
+		log.Println("Error getting config:", err)
+		return nil, false
+
+	}
+	configVersion, _, err := infoSvc.GetProjectConfigVersion(projectID, configID, *config.Version)
+	if err != nil {
+		log.Println("Error getting config version:", err)
+		return nil, false
+	}
 	if config != nil {
 		if config.State != nil {
 			if *config.State == project.ProjectConfig_State_Undeploying {
@@ -427,11 +503,15 @@ func (infoSvc *CloudInfoService) IsUndeploying(projectID string, configID string
 	return configVersion, false
 }
 
-func (infoSvc *CloudInfoService) CreateStackFromConfigFile(projectID string, stackConfigPath string, catalogJsonPath string) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
-	return infoSvc.CreateStackFromConfigFileWithInputs(projectID, stackConfigPath, catalogJsonPath, nil)
-}
+func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig ConfigDetails, stackConfigPath string, catalogJsonPath string) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 
-func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID string, stackConfigPath string, catalogJsonPath string, stackInputs map[string]interface{}) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
+	if stackConfig.Authorizations == nil {
+		stackConfig.Authorizations = &project.ProjectConfigAuth{
+			ApiKey: &infoSvc.authenticator.ApiKey,
+			Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
+		}
+	}
+
 	// create configs from members
 	// Read the config JSON file
 	jsonFile, err := os.ReadFile(stackConfigPath)
@@ -440,30 +520,32 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 		return nil, nil, err
 	}
 
-	var stackConfig Stack
+	var stackJson Stack
 
 	// Unmarshal the JSON data into the config variable
-	err = json.Unmarshal(jsonFile, &stackConfig)
+	err = json.Unmarshal(jsonFile, &stackJson)
 	if err != nil {
 		log.Println("Error unmarshalling JSON:", err)
 		return nil, nil, err
 	}
 
-	// variable to store da configs
-	var daConfigMembers []project.StackDefinitionMemberPrototype
-	var daStackMembers []project.StackConfigMember
 	// loop members in stackConfig and create config
-	for _, member := range stackConfig.Members {
+	for _, member := range stackJson.Members {
 		inputs := make(map[string]interface{})
 		for _, input := range member.Inputs {
 			val := input.Value
 			inputs[input.Name] = val
 		}
 
-		daProjectConfig, _, createDaErr := infoSvc.CreateDaConfig(projectID, member.VersionLocator, member.Name, member.Name, project.ProjectConfigAuth{
-			ApiKey: &infoSvc.authenticator.ApiKey,
-			Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
-		}, inputs, nil)
+		newConfig := ConfigDetails{
+			ProjectID:      stackConfig.ProjectID,
+			Name:           member.Name,
+			Description:    member.Name,
+			StackLocatorID: member.VersionLocator,
+			Inputs:         inputs,
+			Authorizations: stackConfig.Authorizations,
+		}
+		daProjectConfig, _, createDaErr := infoSvc.CreateDaConfig(newConfig)
 
 		if createDaErr != nil {
 			log.Println("Error creating config from JSON:", createDaErr)
@@ -474,26 +556,13 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 			log.Printf("Current Member Inputs: %v\n", inputs)
 			return nil, nil, createDaErr
 		}
-		// Assuming StackDefinitionMemberInputPrototype has fields Name and Value
-		inputPrototypes := make([]project.StackDefinitionMemberInputPrototype, 0, len(inputs))
-		for name := range inputs {
-			curInputNameVar := name
-			curInputName := &curInputNameVar
-			inputPrototypes = append(inputPrototypes, project.StackDefinitionMemberInputPrototype{
-				Name: curInputName,
-			})
-		}
 
 		curMemberNameVar := member.Name
 		curMemberName := &curMemberNameVar
 
 		curDaProjectConfig := daProjectConfig.ID
-		// create stack member
-		daConfigMembers = append(daConfigMembers, project.StackDefinitionMemberPrototype{
-			Inputs: inputPrototypes,
-			Name:   curMemberName,
-		})
-		daStackMembers = append(daStackMembers, project.StackConfigMember{
+
+		stackConfig.Members = append(stackConfig.Members, project.StackConfigMember{
 			Name:     curMemberName,
 			ConfigID: curDaProjectConfig,
 		})
@@ -501,7 +570,8 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 
 	// convert stackConfig inputs to []StackDefinitionInputVariable
 	var stackInputsDef []project.StackDefinitionInputVariable
-	for _, input := range stackConfig.Inputs {
+	var stackOutputsDef []project.StackDefinitionOutputVariable
+	for _, input := range stackJson.Inputs {
 		// Create new variables this avoids the issue of the same address being used for all the variables
 		nameVar := input.Name
 		name := &nameVar
@@ -510,8 +580,8 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 		requiredVar := input.Required
 		required := &requiredVar
 		var inputDefault interface{}
-		if stackInputs != nil {
-			if val, ok := stackInputs[input.Name]; ok {
+		if stackConfig.Inputs != nil {
+			if val, ok := stackConfig.Inputs[input.Name]; ok {
 				inputDefault = val
 			}
 		}
@@ -539,13 +609,26 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 			Hidden:      hidden,
 		})
 	}
-	curStackInputsDef := stackInputsDef
-	curDaMembers := daConfigMembers
 
-	// create stack and add da configs as members
-	stackDefinitionBlockPrototype := &project.StackDefinitionBlockPrototype{
+	for _, output := range stackJson.Outputs {
+		// Create new variables this avoids the issue of the same address being used for all the variables
+		nameVar := output.Name
+		name := &nameVar
+		valueVar := output.Value
+		value := &valueVar
+		// Use the addresses of the new variables
+		stackOutputsDef = append(stackOutputsDef, project.StackDefinitionOutputVariable{
+			Name:  name,
+			Value: value,
+		})
+	}
+
+	curStackInputsDef := stackInputsDef
+
+	// create stack
+	stackConfig.StackDefinition = &project.StackDefinitionBlockPrototype{
 		Inputs:  curStackInputsDef,
-		Members: curDaMembers,
+		Outputs: stackOutputsDef,
 	}
 
 	// load catalog json to get stack name and description
@@ -562,8 +645,11 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFileWithInputs(projectID s
 		log.Println("Error unmarshaling catalog JSON:", err)
 		return nil, nil, err
 	}
+	// TODO: handle multiple products/flavors
+	stackConfig.Name = catalogConfig.Products[0].Name
+	stackConfig.Description = catalogConfig.Products[0].Label
 
-	return infoSvc.CreateNewStack(projectID, catalogConfig.Products[0].Name, catalogConfig.Products[0].Name, stackDefinitionBlockPrototype, daStackMembers)
+	return infoSvc.CreateNewStack(stackConfig)
 }
 
 // convertSliceToString

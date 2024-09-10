@@ -9,6 +9,7 @@ import (
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	projects "github.com/IBM/project-go-sdk/projectv1"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -107,6 +108,9 @@ func (mock *cloudInfoServiceMock) GetCatalogVersionByLocator(string) (*catalogma
 func (mock *cloudInfoServiceMock) CreateDefaultProject(string, string, string) (*projects.Project, *core.DetailedResponse, error) {
 	return nil, nil, nil
 }
+func (mock *cloudInfoServiceMock) CreateProjectFromConfig(cloudinfo.ProjectsConfig) (*projects.Project, *core.DetailedResponse, error) {
+	return nil, nil, nil
+}
 func (mock *cloudInfoServiceMock) GetProject(string) (*projects.Project, *core.DetailedResponse, error) {
 	return nil, nil, nil
 }
@@ -119,29 +123,21 @@ func (mock *cloudInfoServiceMock) GetConfig(string, string) (result *projects.Pr
 func (mock *cloudInfoServiceMock) DeleteProject(string) (*projects.ProjectDeleteResponse, *core.DetailedResponse, error) {
 	return nil, nil, nil
 }
-func (mock *cloudInfoServiceMock) CreateConfig(string, string, string, string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
+func (mock *cloudInfoServiceMock) CreateConfig(configDetails cloudinfo.ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
-func (mock *cloudInfoServiceMock) CreateDaConfig(string, string, string, string, projects.ProjectConfigAuth, map[string]interface{}, map[string]interface{}) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
+func (mock *cloudInfoServiceMock) CreateDaConfig(configDetails cloudinfo.ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
-func (mock *cloudInfoServiceMock) CreateConfigFromCatalogJson(string, string, string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
+func (mock *cloudInfoServiceMock) CreateConfigFromCatalogJson(configDetails cloudinfo.ConfigDetails, catalogJson string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
 func (mock *cloudInfoServiceMock) UpdateConfig(string, string, projects.ProjectConfigDefinitionPatchIntf) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
-func (mock *cloudInfoServiceMock) ApproveConfig(string, string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
-	return nil, nil, nil
-}
-func (mock *cloudInfoServiceMock) IsConfigApproved(string, string) (projectConfig *projects.ProjectConfigVersion, isApproved bool) {
-	return nil, false
-}
+
 func (mock *cloudInfoServiceMock) ValidateProjectConfig(string, string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
-}
-func (mock *cloudInfoServiceMock) IsConfigValidated(string, string) (projectConfig *projects.ProjectConfigVersion, isValidated bool) {
-	return nil, false
 }
 func (mock *cloudInfoServiceMock) DeployConfig(string, string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
@@ -156,9 +152,8 @@ func (mock *cloudInfoServiceMock) IsUndeploying(string, string) (projectConfig *
 	return nil, false
 
 }
-func (mock *cloudInfoServiceMock) CreateStackFromConfigFileWithInputs(string, string, string, map[string]interface{}) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
+func (mock *cloudInfoServiceMock) CreateStackFromConfigFile(stackConfig cloudinfo.ConfigDetails, stackConfigPath string, catalogJsonPath string) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
-
 }
 func (mock *cloudInfoServiceMock) GetProjectConfigVersion(string, string, int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
