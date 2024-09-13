@@ -55,24 +55,25 @@ type CloudInfoServiceI interface {
 	RemoveRegionForTest(string)
 	GetThreadLock() *sync.Mutex
 	GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error)
-	CreateDefaultProject(string, string, string) (*projects.Project, *core.DetailedResponse, error)
-	CreateProjectFromConfig(config ProjectsConfig) (*projects.Project, *core.DetailedResponse, error)
+	CreateProjectFromConfig(config *ProjectsConfig) (*projects.Project, *core.DetailedResponse, error)
 	GetProject(projectID string) (*projects.Project, *core.DetailedResponse, error)
 	GetProjectConfigs(projectID string) ([]projects.ProjectConfigSummary, error)
-	GetConfig(projectID string, configID string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	GetConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
 	DeleteProject(projectID string) (*projects.ProjectDeleteResponse, *core.DetailedResponse, error)
-	CreateConfig(configDetails ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	CreateDaConfig(configDetails ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	CreateConfigFromCatalogJson(configDetails ConfigDetails, catalogJson string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	UpdateConfig(projectID string, configID string, configuration projects.ProjectConfigDefinitionPatchIntf) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	ValidateProjectConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	DeployConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	IsConfigDeployed(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isDeployed bool)
-	UndeployConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	IsUndeploying(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isUndeploying bool)
-	CreateStackFromConfigFile(stackConfig ConfigDetails, stackConfigPath string, catalogJsonPath string) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
-	GetProjectConfigVersion(projectID string, configID string, version int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	GetClusterIngressStatus(clusterId string) (string, error)
+	CreateConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	DeployConfig(configDetails *ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	CreateDaConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	CreateConfigFromCatalogJson(configDetails *ConfigDetails, catalogJson string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	UpdateConfig(configDetails *ConfigDetails, configuration projects.ProjectConfigDefinitionPatchIntf) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	ValidateProjectConfig(configDetails *ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	IsConfigDeployed(configDetails *ConfigDetails) (projectConfig *projects.ProjectConfigVersion, isDeployed bool)
+	UndeployConfig(details *ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	IsUndeploying(details *ConfigDetails) (projectConfig *projects.ProjectConfigVersion, isUndeploying bool)
+	CreateStackFromConfigFile(stackConfig *ConfigDetails, stackConfigPath string, catalogJsonPath string) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
+	GetProjectConfigVersion(configDetails *ConfigDetails, version int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	GetStackMembers(stackConfig *ConfigDetails) ([]*projects.ProjectConfig, error)
+	SyncConfig(projectID string, configID string) (response *core.DetailedResponse, err error)
+	LookupMemberNameByID(stackDetails *projects.ProjectConfig, memberID string) (string, error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -182,6 +183,8 @@ type projectsService interface {
 	Approve(approveOptions *projects.ApproveOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
 	DeployConfig(deployConfigOptions *projects.DeployConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
 	UndeployConfig(unDeployConfigOptions *projects.UndeployConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+
+	SyncConfig(syncConfigOptions *projects.SyncConfigOptions) (response *core.DetailedResponse, err error)
 }
 
 // catalogService for external Data Catalog V1 Service API. Used for mocking.

@@ -1,6 +1,8 @@
 package cloudinfo
 
-import project "github.com/IBM/project-go-sdk/projectv1"
+import (
+	project "github.com/IBM/project-go-sdk/projectv1"
+)
 
 type CatalogJson struct {
 	Products []struct {
@@ -48,16 +50,21 @@ type ConfigDetails struct {
 	Description    string
 	ConfigID       string
 	Authorizations *project.ProjectConfigAuth
-	Inputs         map[string]interface{}
-	Settings       map[string]interface{}
+	// Inputs used to override the default inputs
+	Inputs map[string]interface{}
+	// Settings used to override the default settings
+	Settings map[string]interface{}
 	// Stack specific
-	StackLocatorID  string
-	StackDefinition *project.StackDefinitionBlockPrototype
-	Members         []project.StackConfigMember
+	StackLocatorID    string
+	StackDefinition   *project.StackDefinitionBlockPrototype
+	EnvironmentID     *string
+	Members           []project.StackConfigMember
+	ComplianceProfile *project.ProjectComplianceProfile
 }
 
 // ProjectsConfig Config for creating a project
 type ProjectsConfig struct {
+	ProjectID          string                            `json:"project_id,omitempty"`
 	Location           string                            `json:"location,omitempty"`
 	ProjectName        string                            `json:"project_name,omitempty"`
 	ProjectDescription string                            `json:"project_description,omitempty"`

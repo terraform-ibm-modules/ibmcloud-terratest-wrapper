@@ -2,15 +2,14 @@ package testhelper
 
 import (
 	"errors"
+	"github.com/IBM/go-sdk-core/v5/core"
+	projects "github.com/IBM/project-go-sdk/projectv1"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"os"
 	"sync"
 	"testing"
 
-	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
-	projects "github.com/IBM/project-go-sdk/projectv1"
-	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -102,64 +101,87 @@ func (mock *cloudInfoServiceMock) RemoveRegionForTest(regionID string) {
 func (mock *cloudInfoServiceMock) GetThreadLock() *sync.Mutex {
 	return &mock.lock
 }
+
 func (mock *cloudInfoServiceMock) GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error) {
 	return nil, nil
 }
-func (mock *cloudInfoServiceMock) CreateDefaultProject(string, string, string) (*projects.Project, *core.DetailedResponse, error) {
+func (mock *cloudInfoServiceMock) CreateProjectFromConfig(*cloudinfo.ProjectsConfig) (*projects.Project, *core.DetailedResponse, error) {
 	return nil, nil, nil
 }
-func (mock *cloudInfoServiceMock) CreateProjectFromConfig(cloudinfo.ProjectsConfig) (*projects.Project, *core.DetailedResponse, error) {
-	return nil, nil, nil
-}
+
 func (mock *cloudInfoServiceMock) GetProject(string) (*projects.Project, *core.DetailedResponse, error) {
 	return nil, nil, nil
 }
+
 func (mock *cloudInfoServiceMock) GetProjectConfigs(string) ([]projects.ProjectConfigSummary, error) {
 	return nil, nil
 }
-func (mock *cloudInfoServiceMock) GetConfig(string, string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
+
+func (mock *cloudInfoServiceMock) GetConfig(*cloudinfo.ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
+
 func (mock *cloudInfoServiceMock) DeleteProject(string) (*projects.ProjectDeleteResponse, *core.DetailedResponse, error) {
 	return nil, nil, nil
 }
-func (mock *cloudInfoServiceMock) CreateConfig(configDetails cloudinfo.ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
-	return nil, nil, nil
-}
-func (mock *cloudInfoServiceMock) CreateDaConfig(configDetails cloudinfo.ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
-	return nil, nil, nil
-}
-func (mock *cloudInfoServiceMock) CreateConfigFromCatalogJson(configDetails cloudinfo.ConfigDetails, catalogJson string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
-	return nil, nil, nil
-}
-func (mock *cloudInfoServiceMock) UpdateConfig(string, string, projects.ProjectConfigDefinitionPatchIntf) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
+
+func (mock *cloudInfoServiceMock) CreateConfig(*cloudinfo.ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
 
-func (mock *cloudInfoServiceMock) ValidateProjectConfig(string, string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+func (mock *cloudInfoServiceMock) DeployConfig(*cloudinfo.ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
-func (mock *cloudInfoServiceMock) DeployConfig(string, string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+
+func (mock *cloudInfoServiceMock) CreateDaConfig(*cloudinfo.ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
-func (mock *cloudInfoServiceMock) IsConfigDeployed(string, string) (projectConfig *projects.ProjectConfigVersion, isDeployed bool) {
+
+func (mock *cloudInfoServiceMock) CreateConfigFromCatalogJson(*cloudinfo.ConfigDetails, string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
+	return nil, nil, nil
+}
+
+func (mock *cloudInfoServiceMock) UpdateConfig(*cloudinfo.ConfigDetails, projects.ProjectConfigDefinitionPatchIntf) (result *projects.ProjectConfig, response *core.DetailedResponse, err error) {
+	return nil, nil, nil
+}
+
+func (mock *cloudInfoServiceMock) ValidateProjectConfig(*cloudinfo.ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+	return nil, nil, nil
+}
+
+func (mock *cloudInfoServiceMock) IsConfigDeployed(*cloudinfo.ConfigDetails) (projectConfig *projects.ProjectConfigVersion, isDeployed bool) {
 	return nil, false
 }
-func (mock *cloudInfoServiceMock) UndeployConfig(string, string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+
+func (mock *cloudInfoServiceMock) UndeployConfig(*cloudinfo.ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
-func (mock *cloudInfoServiceMock) IsUndeploying(string, string) (projectConfig *projects.ProjectConfigVersion, isUndeploying bool) {
+
+func (mock *cloudInfoServiceMock) IsUndeploying(*cloudinfo.ConfigDetails) (projectConfig *projects.ProjectConfigVersion, isUndeploying bool) {
 	return nil, false
+}
 
-}
-func (mock *cloudInfoServiceMock) CreateStackFromConfigFile(stackConfig cloudinfo.ConfigDetails, stackConfigPath string, catalogJsonPath string) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
-	return nil, nil, nil
-}
-func (mock *cloudInfoServiceMock) GetProjectConfigVersion(string, string, int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+func (mock *cloudInfoServiceMock) CreateStackFromConfigFile(*cloudinfo.ConfigDetails, string, string) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
 
-func (mock *cloudInfoServiceMock) GetClusterIngressStatus(clusterId string) (string, error) {
+func (mock *cloudInfoServiceMock) GetProjectConfigVersion(*cloudinfo.ConfigDetails, int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error) {
+	return nil, nil, nil
+}
+
+func (mock *cloudInfoServiceMock) GetStackMembers(stackConfig *cloudinfo.ConfigDetails) ([]*projects.ProjectConfig, error) {
+	return nil, nil
+}
+
+func (mock *cloudInfoServiceMock) SyncConfig(projectID string, configID string) (response *core.DetailedResponse, err error) {
+	return nil, nil
+}
+
+func (mock *cloudInfoServiceMock) LookupMemberNameByID(stackDetails *projects.ProjectConfig, memberID string) (string, error) {
+	return "", nil
+}
+
+func (mock *cloudInfoServiceMock) GetClusterIngressStatus(string) (string, error) {
 	return "", nil
 }
 

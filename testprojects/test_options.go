@@ -84,8 +84,11 @@ type TestProjectsOptions struct {
 	// Deprecated: All deploys are now parallel by default using projects built-in parallel deploy feature.
 	ParallelDeploy bool
 
+	// ValidationTimeoutMinutes The number of minutes to wait for the project to validate.
+	// Deprecated: This is now handled by projects and we only use DeployTimeoutMinutes for the entire project.
 	ValidationTimeoutMinutes int
-	DeployTimeoutMinutes     int
+	// DeployTimeoutMinutes The number of minutes to wait for the project to deploy. Also used for undeploy.
+	DeployTimeoutMinutes int
 
 	// If you want to skip teardown use this flag
 	SkipTestTearDown  bool
@@ -93,8 +96,22 @@ type TestProjectsOptions struct {
 	SkipProjectDelete bool
 
 	// internal use
-	currentProject *project.Project
-	currentStack   *project.StackDefinition
+	currentProject       *project.Project
+	currentProjectConfig *cloudinfo.ProjectsConfig
+
+	currentStack       *project.StackDefinition
+	currentStackConfig *cloudinfo.ConfigDetails
+
+	// Hooks These allow us to inject custom code into the test process
+	// example to set a hook:
+	// options.PreDeployHook = func(options *TestProjectsOptions) error {
+	//     // do something
+	//     return nil
+	// }
+	PreDeployHook    func(options *TestProjectsOptions) error // In upgrade tests, this hook will be called before the deploy
+	PostDeployHook   func(options *TestProjectsOptions) error // In upgrade tests, this hook will be called after the deploy
+	PreUndeployHook  func(options *TestProjectsOptions) error // If this fails, the undeploy will continue
+	PostUndeployHook func(options *TestProjectsOptions) error
 }
 
 // TestProjectOptionsDefault Default constructor for TestProjectsOptions
