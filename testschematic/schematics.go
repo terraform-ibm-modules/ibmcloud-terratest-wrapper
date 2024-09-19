@@ -175,9 +175,9 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 	retries := 0
 	for {
 		workspace, resp, workspaceErr = svc.SchematicsApiSvc.CreateWorkspace(createWorkspaceOptions)
-		if svc.retryApiCall(workspaceErr, resp.StatusCode, retries) {
+		if svc.retryApiCall(workspaceErr, getDetailedResponseStatusCode(resp), retries) {
 			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY CreateWorkspace, status code: %d", resp.StatusCode)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY CreateWorkspace, status code: %d", getDetailedResponseStatusCode(resp))
 		} else {
 			break
 		}
@@ -233,9 +233,9 @@ func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTer
 	retries := 0
 	for {
 		_, resp, updateErr = svc.SchematicsApiSvc.ReplaceWorkspaceInputs(templateModel)
-		if svc.retryApiCall(updateErr, resp.StatusCode, retries) {
+		if svc.retryApiCall(updateErr, getDetailedResponseStatusCode(resp), retries) {
 			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ReplaceWorkspaceInputs, status code: %d", resp.StatusCode)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ReplaceWorkspaceInputs, status code: %d", getDetailedResponseStatusCode(resp))
 		} else {
 			break
 		}
@@ -269,9 +269,9 @@ func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
 	retries := 0
 	for {
 		_, resp, uploadErr = svc.SchematicsApiSvc.TemplateRepoUpload(uploadTarOptions)
-		if svc.retryApiCall(uploadErr, resp.StatusCode, retries) {
+		if svc.retryApiCall(uploadErr, getDetailedResponseStatusCode(resp), retries) {
 			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY TemplateRepoUpload, status code: %d", resp.StatusCode)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY TemplateRepoUpload, status code: %d", getDetailedResponseStatusCode(resp))
 		} else {
 			break
 		}
@@ -300,9 +300,9 @@ func (svc *SchematicsTestService) CreatePlanJob() (*schematics.WorkspaceActivity
 			WID:          core.StringPtr(svc.WorkspaceID),
 			RefreshToken: core.StringPtr(refreshToken),
 		})
-		if svc.retryApiCall(err, resp.StatusCode, retries) {
+		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
 			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY PlanWorkspaceCommand, status code: %d", resp.StatusCode)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY PlanWorkspaceCommand, status code: %d", getDetailedResponseStatusCode(resp))
 		} else {
 			break
 		}
@@ -331,9 +331,9 @@ func (svc *SchematicsTestService) CreateApplyJob() (*schematics.WorkspaceActivit
 			WID:          core.StringPtr(svc.WorkspaceID),
 			RefreshToken: core.StringPtr(refreshToken),
 		})
-		if svc.retryApiCall(err, resp.StatusCode, retries) {
+		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
 			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ApplyWorkspaceCommand, status code: %d", resp.StatusCode)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ApplyWorkspaceCommand, status code: %d", getDetailedResponseStatusCode(resp))
 		} else {
 			break
 		}
@@ -362,9 +362,9 @@ func (svc *SchematicsTestService) CreateDestroyJob() (*schematics.WorkspaceActiv
 			WID:          core.StringPtr(svc.WorkspaceID),
 			RefreshToken: core.StringPtr(refreshToken),
 		})
-		if svc.retryApiCall(err, resp.StatusCode, retries) {
+		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
 			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY DestroyWorkspaceCommand, status code: %d", resp.StatusCode)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY DestroyWorkspaceCommand, status code: %d", getDetailedResponseStatusCode(resp))
 		} else {
 			break
 		}
@@ -390,9 +390,9 @@ func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (
 		listResult, resp, listErr = svc.SchematicsApiSvc.ListWorkspaceActivities(&schematics.ListWorkspaceActivitiesOptions{
 			WID: core.StringPtr(svc.WorkspaceID),
 		})
-		if svc.retryApiCall(listErr, resp.StatusCode, retries) {
+		if svc.retryApiCall(listErr, getDetailedResponseStatusCode(resp), retries) {
 			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ListWorkspaceActivities, status code: %d", resp.StatusCode)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ListWorkspaceActivities, status code: %d", getDetailedResponseStatusCode(resp))
 		} else {
 			break
 		}
@@ -440,9 +440,9 @@ func (svc *SchematicsTestService) GetWorkspaceJobDetail(jobID string) (*schemati
 			WID:        core.StringPtr(svc.WorkspaceID),
 			ActivityID: core.StringPtr(jobID),
 		})
-		if svc.retryApiCall(err, resp.StatusCode, retries) {
+		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
 			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY GetWorkspaceActivity, status code: %d", resp.StatusCode)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY GetWorkspaceActivity, status code: %d", getDetailedResponseStatusCode(resp))
 		} else {
 			break
 		}
@@ -529,9 +529,9 @@ func (svc *SchematicsTestService) DeleteWorkspace() (string, error) {
 			RefreshToken:     core.StringPtr(refreshToken),
 			DestroyResources: core.StringPtr("false"),
 		})
-		if svc.retryApiCall(err, resp.StatusCode, retries) {
+		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
 			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY DeleteWorkspace, status code: %d", resp.StatusCode)
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY DeleteWorkspace, status code: %d", getDetailedResponseStatusCode(resp))
 		} else {
 			break
 		}
@@ -754,4 +754,15 @@ func (svc *SchematicsTestService) retryApiCall(apiError error, apiStatusCode int
 	// wait and retry
 	time.Sleep(time.Duration(maxWait) * time.Second)
 	return true
+}
+
+// helper function to return the HTTP status code from an IBM SDK reponse.
+// If the response itself is `nil`, assume this would be due to error and set
+// the code to "500"
+func getDetailedResponseStatusCode(resp *core.DetailedResponse) int {
+	if resp != nil {
+		return resp.StatusCode
+	} else {
+		return 500
+	}
 }
