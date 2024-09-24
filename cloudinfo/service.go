@@ -3,6 +3,7 @@ package cloudinfo
 
 import (
 	"errors"
+	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"log"
 	"os"
 	"sync"
@@ -42,6 +43,7 @@ type CloudInfoService struct {
 	lock                      sync.Mutex
 	icdService                icdService
 	projectsService           projectsService
+	schematicsService         schematicsService
 	ApiKey                    string
 }
 
@@ -74,6 +76,10 @@ type CloudInfoServiceI interface {
 	GetStackMembers(stackConfig *ConfigDetails) ([]*projects.ProjectConfig, error)
 	SyncConfig(projectID string, configID string) (response *core.DetailedResponse, err error)
 	LookupMemberNameByID(stackDetails *projects.ProjectConfig, memberID string) (string, error)
+	GetSchematicsJobLogs(jobID string) (result *schematics.JobLog, response *core.DetailedResponse, err error)
+	GetSchematicsJobLogsText(jobID string) (logs string, err error)
+	ArePipelineActionsRunning(stackConfig *ConfigDetails) (bool, error)
+	GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string) (string, string)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -91,6 +97,7 @@ type CloudInfoServiceOptions struct {
 	IcdService                icdService
 	ProjectsService           projectsService
 	CatalogService            catalogService
+	SchematicsService         schematicsService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -190,6 +197,11 @@ type projectsService interface {
 // catalogService for external Data Catalog V1 Service API. Used for mocking.
 type catalogService interface {
 	GetVersion(getVersionOptions *catalogmanagementv1.GetVersionOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
+}
+
+// schematicsService for external Schematics V1 Service API. Used for mocking.
+type schematicsService interface {
+	ListJobLogs(listJobLogsOptions *schematics.ListJobLogsOptions) (result *schematics.JobLog, response *core.DetailedResponse, err error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -410,6 +422,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.catalogService = catalogClient
 
 	}
+
+	if options.SchematicsService != nil {
+		infoSvc.schematicsService = options.SchematicsService
+	} else {
+		schematicsClient, schematicsErr := schematics.NewSchematicsV1(&schematics.SchematicsV1Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if schematicsErr != nil {
+			log.Println("Error creating schematics client:", schematicsErr)
+			return nil, schematicsErr
+		}
+
+		infoSvc.schematicsService = schematicsClient
+	}
+
 	return infoSvc, nil
 }
 

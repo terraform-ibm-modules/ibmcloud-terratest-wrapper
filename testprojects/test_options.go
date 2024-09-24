@@ -48,7 +48,6 @@ type TestProjectsOptions struct {
 	ProjectMonitoringEnabled *bool
 	ProjectAutoDeploy        *bool
 	ProjectEnvironments      []project.EnvironmentPrototype
-	ProjectComplianceProfile *project.ProjectComplianceProfile
 
 	CloudInfoService cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 
@@ -61,6 +60,12 @@ type TestProjectsOptions struct {
 	// StackConfigurationPath Path to the configuration file that will be used to create the stack.
 	StackConfigurationPath string
 	StackCatalogJsonPath   string
+
+	// StackAutoSync If set to true, when deploying or undeploying a member, a sync with Schematics will be executed if the member has not updated before the StackAutoSyncInterval.
+	StackAutoSync bool
+	// StackAutoSyncInterval The number of minutes to wait before syncing with Schematics if state has not updated. Default is 20 minutes.
+	StackAutoSyncInterval int
+
 	// Deprecated: Deploy order is now determined by the project.
 	StackConfigurationOrder []string
 	// Deprecated: Deploy groups are now determined by the project.
@@ -87,7 +92,7 @@ type TestProjectsOptions struct {
 	// ValidationTimeoutMinutes The number of minutes to wait for the project to validate.
 	// Deprecated: This is now handled by projects and we only use DeployTimeoutMinutes for the entire project.
 	ValidationTimeoutMinutes int
-	// DeployTimeoutMinutes The number of minutes to wait for the project to deploy. Also used for undeploy.
+	// DeployTimeoutMinutes The number of minutes to wait for the stack to deploy. Also used for undeploy. Default is 6 hours.
 	DeployTimeoutMinutes int
 
 	// If you want to skip teardown use this flag
@@ -162,8 +167,12 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	if newOptions.ProjectAutoDeploy == nil {
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
 	}
+
+	if newOptions.StackAutoSyncInterval == 0 {
+		newOptions.StackAutoSyncInterval = 20
+	}
 	// if newOptions.ProjectLocation == ""
-	// a random location will be selected at project creation time
+	// a random location will be selected at project creation time in CreateProjectFromConfig
 
 	if newOptions.StackAuthorizations == nil {
 		newOptions.StackAuthorizations = &project.ProjectConfigAuth{

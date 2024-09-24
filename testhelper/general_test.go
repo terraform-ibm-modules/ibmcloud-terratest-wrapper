@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/IBM/go-sdk-core/v5/core"
 	projects "github.com/IBM/project-go-sdk/projectv1"
+	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"os"
 	"sync"
@@ -183,6 +184,23 @@ func (mock *cloudInfoServiceMock) LookupMemberNameByID(stackDetails *projects.Pr
 
 func (mock *cloudInfoServiceMock) GetClusterIngressStatus(string) (string, error) {
 	return "", nil
+}
+
+func (mock *cloudInfoServiceMock) GetSchematicsJobLogs(string) (*schematics.JobLog, *core.DetailedResponse, error) {
+	return nil, nil, nil
+
+}
+func (mock *cloudInfoServiceMock) GetSchematicsJobLogsText(string) (string, error) {
+	return "", nil
+
+}
+
+func (mock *cloudInfoServiceMock) ArePipelineActionsRunning(stackConfig *cloudinfo.ConfigDetails) (bool, error) {
+	return false, nil
+}
+
+func (mock *cloudInfoServiceMock) GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string) (string, string) {
+	return "", ""
 }
 
 /**** END MOCK CloudInfoService ****/

@@ -22,7 +22,10 @@ func (options *TestProjectsOptions) ConfigureTestStack() error {
 	options.ProjectsLog("Configuring Test Stack")
 	var stackResp *core.DetailedResponse
 	var stackErr error
-	options.currentStackConfig = &cloudinfo.ConfigDetails{ProjectID: *options.currentProject.ID}
+	options.currentStackConfig = &cloudinfo.ConfigDetails{
+		ProjectID: *options.currentProject.ID,
+		Inputs:    options.StackInputs,
+	}
 	options.currentStack, stackResp, stackErr = options.CloudInfoService.CreateStackFromConfigFile(options.currentStackConfig, options.StackConfigurationPath, options.StackCatalogJsonPath)
 	if !assert.NoError(options.Testing, stackErr) {
 		options.ProjectsLog("Failed to configure Test Stack")
@@ -78,7 +81,7 @@ func (options *TestProjectsOptions) TriggerDeploy() error {
 	return nil
 }
 
-func (options *TestProjectsOptions) TriggerDeployAndWait() (errors []error) {
+func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 	err := options.TriggerDeploy()
 	if err != nil {
 		return []error{err}
@@ -93,6 +96,13 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errors []error) {
 	deployEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
 	deployComplete := false
 	failed := false
+
+	stackMembers, memErr := options.CloudInfoService.GetStackMembers(options.currentStackConfig)
+	if memErr != nil {
+		return []error{memErr}
+	}
+	totalMembers := len(stackMembers)
+
 	for !deployComplete && time.Now().Before(deployEndTime) && !failed {
 		options.ProjectsLog("Checking Stack Deploy Status")
 		stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
@@ -102,53 +112,41 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errors []error) {
 		if stackDetails == nil {
 			return []error{fmt.Errorf("stackDetails is nil")}
 		}
-		// Get the current state of all members in the stack
-		stackMembers, err := options.CloudInfoService.GetStackMembers(options.currentStackConfig)
-		if err != nil {
-			return []error{err}
+
+		currentMemberCount := 0
+		attempt := 0
+		// Sometimes not all members are returned by the api, so we need to retry. This is intermittent and infrequent
+		for currentMemberCount != totalMembers && attempt < 5 {
+			attempt++
+			stackMembers, memErr = options.CloudInfoService.GetStackMembers(options.currentStackConfig)
+			if memErr != nil {
+				return []error{memErr}
+			}
+			currentMemberCount = len(stackMembers)
 		}
 		// If the stack is not fully deployed and no members are in a state that can be deployed then we have an error
 		deployableState := false
-		memberStates := []string{}
+		var memberStates []string
+
+		// Track states and resync if needed
+		syncErrs := TrackAndResyncState(options, stackDetails, stackMembers, memberStateStartTime, &mu)
+		if len(syncErrs) > 0 {
+			return syncErrs
+		}
+
 		currentDeployStatus := fmt.Sprintf("[STACK - %s] Current Deploy Status:\n", options.currentStackConfig.Name)
 		// loop each member and check state
 		for _, member := range stackMembers {
 			if member.ID == nil {
 				return []error{fmt.Errorf("member ID is nil")}
 			}
-			memberName, err := options.CloudInfoService.LookupMemberNameByID(stackDetails, *member.ID)
-			if err != nil {
+			memberName, nameErr := options.CloudInfoService.LookupMemberNameByID(stackDetails, *member.ID)
+			if nameErr != nil {
 				memberName = fmt.Sprintf("Unknown name, ID: %s", *member.ID)
 			}
-			// Lock the mutex before accessing the map
-			mu.Lock()
-			// Check if the member's ID is in the map
-			// If it is, check if the member has been in the same state for more than 30 minutes
-			// If it has, trigger SyncConfig and reset the start time
-			// If it is not, store the start time for the member's current state
-			if startTime, exists := memberStateStartTime[*member.ID]; exists {
-				// Check if the member has been in the same state for more than 30 minutes
-				if time.Since(startTime) > 30*time.Minute {
-					if member.State == nil {
-						mu.Unlock()
-						return []error{fmt.Errorf("member state is nil")}
-					}
-					options.ProjectsLog(fmt.Sprintf("Member %s stuck in state %s for more than 30 minutes, triggering SyncConfig", memberName, *member.State))
-					_, syncErr := options.CloudInfoService.SyncConfig(options.currentStackConfig.ProjectID, *member.ID)
-					if syncErr != nil {
-						errors = append(errors, syncErr)
-					}
-					// Reset the start time after triggering SyncConfig
-					memberStateStartTime[*member.ID] = time.Now()
-				}
-			} else {
-				// Store the start time for the member's current state
-				memberStateStartTime[*member.ID] = time.Now()
-			}
-			mu.Unlock()
 
 			if member.State == nil {
-				memberStates = append(memberStates, fmt.Sprintf(" - member %s state is nil, skipping this time", memberName))
+				memberStates = append(memberStates, fmt.Sprintf(" - member: %s state is nil, skipping this time", memberName))
 				// assume deployable state
 				deployableState = true
 				continue
@@ -159,9 +157,13 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errors []error) {
 				stateCode = *member.StateCode
 			}
 			if *member.State == project.ProjectConfig_State_Deployed {
-				memberStates = append(memberStates, fmt.Sprintf(" - member %s current state: %s", memberName, *member.State))
+				memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s", memberName, *member.State))
 			} else {
-				memberStates = append(memberStates, fmt.Sprintf(" - member %s current state: %s and state code: %s", memberName, *member.State, stateCode))
+				memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s and state code: %s", memberName, *member.State, stateCode))
+				if stateCode == "Unknown" {
+					// assume blip and mark deployable
+					deployableState = true
+				}
 			}
 
 			if member.StateCode != nil && (*member.StateCode == project.ProjectConfig_StateCode_AwaitingMemberDeployment ||
@@ -169,53 +171,157 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errors []error) {
 				deployableState = true
 			}
 			if *member.State == project.ProjectConfig_State_Validating {
-				currentDeployStatus = fmt.Sprintf("%s - member %s is still validating\n", currentDeployStatus, memberName)
+				currentDeployStatus = fmt.Sprintf("%s - member: %s is still validating\n", currentDeployStatus, memberName)
 				deployableState = true
 			} else if *member.State == project.ProjectConfig_State_Deploying {
-				currentDeployStatus = fmt.Sprintf("%s - member %s is still deploying\n", currentDeployStatus, memberName)
+				currentDeployStatus = fmt.Sprintf("%s - member: %s is still deploying\n", currentDeployStatus, memberName)
 				deployableState = true
 			} else if *member.State == project.ProjectConfig_State_Deployed {
-				currentDeployStatus = fmt.Sprintf("%s - member %s is deployed\n", currentDeployStatus, memberName)
+				currentDeployStatus = fmt.Sprintf("%s - member: %s is deployed\n", currentDeployStatus, memberName)
+			} else if *member.State == project.ProjectConfig_State_Approved {
+				currentDeployStatus = fmt.Sprintf("%s - member: %s is approved\n", currentDeployStatus, memberName)
 			} else if member.StateCode != nil && *member.StateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite {
-				currentDeployStatus = fmt.Sprintf("%s - member %s is awaiting prerequisite\n", currentDeployStatus, memberName)
+				currentDeployStatus = fmt.Sprintf("%s - member: %s is awaiting prerequisite\n", currentDeployStatus, memberName)
+			} else if *member.State == project.ProjectConfig_State_ValidatingFailed {
+				// fail deployment and get the error
+				deployableState = false
+				failed = true
+				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName)
+				options.ProjectsLog(terraLogs)
+				errorList = append(errorList, fmt.Errorf(logMessage))
+			} else if *member.State == project.ProjectConfig_State_DeployingFailed {
+				deployableState = false
+				failed = true
+				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName)
+				options.ProjectsLog(terraLogs)
+				errorList = append(errorList, fmt.Errorf(logMessage))
+			} else if *member.State == project.ProjectConfig_State_Draft {
+				options.ProjectsLog(fmt.Sprintf("(member: %s state: %s stateCode: %s) Something unexpected happened on the backend attempting re-trigger deploy", memberName, *member.State, stateCode))
+				// Something happened re-trigger deploy
+				trigErrs := options.TriggerDeploy()
+				if trigErrs != nil {
+					var terr *core.SDKProblem
+					errors.As(trigErrs, &terr)
+					if terr.IBMProblem.Summary == "Not Modified" {
+						// continue assume still deploying
+						options.ProjectsLog(fmt.Sprintf("(member: %s state: %s stateCode: %s) Trigger Deploy returned Not Modified, continuing", memberName, *member.State, stateCode))
+						currentDeployStatus = fmt.Sprintf("%s - member: %s is in state %s, not triggered, no changes, continuing assuming still deploying\n", currentDeployStatus, memberName, *member.State)
+					} else {
+						options.ProjectsLog(fmt.Sprintf("(member: %s state: %s stateCode: %s) Something unexpected happened on the backend attempting re-trigger deploy failed, continuing assuming still deploying\n%s", memberName, *member.State, stateCode, trigErrs))
+						currentDeployStatus = fmt.Sprintf("%s - member: %s is in state %s, error triggering, continuing assuming still deploying\n", currentDeployStatus, memberName, *member.State)
+					}
+				} else {
+					currentDeployStatus = fmt.Sprintf("%s - member: %s is in state %s, attempting to re-trigger deploy\n", currentDeployStatus, memberName, *member.State)
+
+				}
 			} else {
-				currentDeployStatus = fmt.Sprintf("%s - member %s is in an unknown state\n", currentDeployStatus, memberName)
+				if member.State == nil {
+					currentDeployStatus = fmt.Sprintf("%s - member: %s is in an unknown state\n", currentDeployStatus, memberName)
+				} else {
+					currentDeployStatus = fmt.Sprintf("%s - member: %s is in state %s\n", currentDeployStatus, memberName, *member.State)
+				}
 			}
 		}
 
 		if !deployableState {
-			errorMessage := "Stack stuck in undeployable state:"
-			for _, memberState := range memberStates {
-				errorMessage = fmt.Sprintf("%s\n%s", errorMessage, memberState)
+			// check all members are deployed
+			allMembersDeployed := true
+			for _, member := range stackMembers {
+				if *member.State != project.ProjectConfig_State_Deployed {
+					allMembersDeployed = false
+					break
+				}
 			}
-			errors = append(errors, fmt.Errorf(errorMessage))
-			// TODO: Create function to resolve all the refs for the current stack and print an error message with the unresolved refs
-			failed = true
+			if allMembersDeployed {
+				deployComplete = true
+			} else if !failed {
+				// TODO: pause 30 second then check the member states one last time
+				// just incase there was a delay in updating the state
+				// Move members deployable check to its own function
+				time.Sleep(30 * time.Second)
+
+				var errorMessage strings.Builder
+				membersLatest, latestMemErr := options.CloudInfoService.GetStackMembers(options.currentStackConfig)
+				if latestMemErr == nil {
+					options.ProjectsLog("Checking if stuck...")
+
+					memberStates = []string{}
+					memberCount := len(membersLatest)
+					deployableMembers := 0
+					for _, member := range membersLatest {
+						memberName, nameErr := options.CloudInfoService.LookupMemberNameByID(stackDetails, *member.ID)
+						if nameErr != nil {
+							memberName = fmt.Sprintf("Unknown name, ID: %s", *member.ID)
+						}
+						stateCode := "Unknown"
+						if member.StateCode != nil {
+							stateCode = *member.StateCode
+						}
+						if cloudinfo.ProjectsMemberIsDeploying(member) || (*member.State == project.ProjectConfig_State_Draft && stateCode != project.ProjectConfig_StateCode_AwaitingPrerequisite) {
+							memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s and state code: %s", memberName, *member.State, stateCode))
+							deployableMembers++
+						} else if *member.State == project.ProjectConfig_State_Deployed {
+							memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s, current state code:%s", memberName, *member.State, stateCode))
+							deployableMembers++
+						} else {
+							memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s, current state code:%s", memberName, *member.State, stateCode))
+						}
+					}
+					if memberCount == deployableMembers {
+						var stackStatusMessage strings.Builder
+						stackStatusMessage.WriteString(fmt.Sprintf("Stack is still deploying, current state: %s and state code: %s", *stackDetails.State, *stackDetails.StateCode))
+						for _, memState := range memberStates {
+							stackStatusMessage.WriteString(memState)
+						}
+
+						options.ProjectsLog(stackStatusMessage.String())
+						time.Sleep(time.Duration(30) * time.Second)
+						continue
+					}
+				}
+				errorMessage.WriteString("Stack stuck in undeployable state:")
+				for _, memberState := range memberStates {
+					errorMessage.WriteString(fmt.Sprintf("\n%s", memberState))
+				}
+
+				stackRefStruc, refErr := common.CreateStackRefStruct(options.currentStack, stackMembers)
+				if refErr == nil {
+					common.ResolveReferences(stackRefStruc)
+					unResolvedRefs := common.GetAllUnresolvedRefsAsString(stackRefStruc)
+					if unResolvedRefs != "" {
+						errorMessage.WriteString(fmt.Sprintf("\nUnresolved References:\n%s", unResolvedRefs))
+					}
+				}
+				errorList = append(errorList, fmt.Errorf(errorMessage.String()))
+				failed = true
+			}
+
 		}
 		// fail fast if any error states
 		if stackDetails.State == nil {
-			errors = append(errors, fmt.Errorf("stackDetails state is nil"))
-			return errors
+			errorList = append(errorList, fmt.Errorf("stackDetails state is nil"))
+			return errorList
 		}
 		if *stackDetails.State == project.ProjectConfig_State_ApplyFailed {
-			// get the error message and add to errors
-			errors = append(errors, fmt.Errorf("Failed with state %s", *stackDetails.State))
+			// get the error message and add to errorList
+			errorList = append(errorList, fmt.Errorf("failed with state %s", *stackDetails.State))
+
 			failed = true
 		}
 		if *stackDetails.State == project.ProjectConfig_State_DeployingFailed {
-			// get the error message and add to errors
-			errors = append(errors, fmt.Errorf("Failed with state %s", *stackDetails.State))
+			// get the error message and add to errorList
+			errorList = append(errorList, fmt.Errorf("failed with state %s", *stackDetails.State))
 			failed = true
 		}
 		if *stackDetails.State == project.ProjectConfig_State_ValidatingFailed {
-			// get the error message and add to errors
-			errors = append(errors, fmt.Errorf("Failed with state %s", *stackDetails.State))
+			// get the error message and add to errorList
+			errorList = append(errorList, fmt.Errorf("failed with state %s", *stackDetails.State))
 			failed = true
 		}
 
 		if failed {
 			options.ProjectsLog(fmt.Sprintf("Stack Deploy Failed, current state: %s\n%s", *stackDetails.State, currentDeployStatus))
-			return errors
+			return errorList
 		}
 		if stackDetails.StateCode == nil {
 			options.ProjectsLog("Stack state code is nil, skipping this time")
@@ -228,6 +334,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errors []error) {
 			*stackDetails.StateCode != project.ProjectConfig_StateCode_AwaitingStackSetup &&
 			*stackDetails.StateCode != project.ProjectConfig_StateCode_AwaitingValidation {
 			deployComplete = true
+
 			options.ProjectsLog(fmt.Sprintf("Stack Deployed Successfully, current state: %s and state code: %s", *stackDetails.State, *stackDetails.StateCode))
 		} else {
 			options.ProjectsLog(fmt.Sprintf("Stack is still deploying, current state: %s and state code: %s\n%s", *stackDetails.State, *stackDetails.StateCode, currentDeployStatus))
@@ -243,36 +350,215 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errors []error) {
 		return []error{fmt.Errorf("deploy timeout for stack configuration %s", name)}
 	}
 
+	// print final state of the stack
+	stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
+	if err != nil {
+		return []error{err}
+	}
+	if stackDetails == nil {
+		return []error{fmt.Errorf("stackDetails is nil")}
+	}
+	stateCode := "Unknown"
+	if stackDetails.StateCode != nil {
+		stateCode = *stackDetails.StateCode
+	}
+	options.ProjectsLog(fmt.Sprintf("Stacks final state: %s, state code: %s", *stackDetails.State, stateCode))
+
 	return nil
 }
 
-func (options *TestProjectsOptions) TriggerUnDeploy() error {
+func (options *TestProjectsOptions) TriggerUnDeploy() []error {
 	if !options.SkipUndeploy {
-		_, _, err := options.CloudInfoService.UndeployConfig(options.currentStackConfig)
-		if err != nil {
-			return err
+		// Initialize the map to store the start time for each member's state
+		memberStateStartTime := make(map[string]time.Time)
+		// Mutex to ensure safe concurrent access to the map
+		var mu sync.Mutex
+
+		readyForUndeploy := false
+		timeoutEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
+
+		// while not ready for undeploy and timeout not reached, keep checking
+		for !readyForUndeploy && time.Now().Before(timeoutEndTime) {
+			readyForUndeploy = true
+
+			// Fetch the latest state of the members
+			stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
+			if err != nil {
+				return []error{err}
+			}
+			if stackDetails == nil {
+				return []error{fmt.Errorf("stackDetails is nil")}
+			}
+
+			stackMembers, err := options.CloudInfoService.GetStackMembers(options.currentStackConfig)
+			if err != nil {
+				return []error{err}
+			}
+
+			syncErrs := TrackAndResyncState(options, stackDetails, stackMembers, memberStateStartTime, &mu)
+			if len(syncErrs) > 0 {
+				return syncErrs
+			}
+
+			// Check if any configuration is still in VALIDATING, DEPLOYING, or UNDEPLOYING state
+			for _, member := range stackMembers {
+				if *member.State == project.ProjectConfig_State_Validating || *member.State == project.ProjectConfig_State_Deploying || *member.State == project.ProjectConfig_State_Undeploying {
+					readyForUndeploy = false
+					memberName, err := options.CloudInfoService.LookupMemberNameByID(stackDetails, *member.ID)
+					if err != nil {
+						memberName = fmt.Sprintf("Unknown name, ID: %s", *member.ID)
+					}
+					options.ProjectsLog(fmt.Sprintf("Member %s is still in state %s, waiting for all members to complete", memberName, *member.State))
+					time.Sleep(time.Duration(30) * time.Second)
+				}
+			}
+		}
+
+		if !readyForUndeploy {
+			return []error{fmt.Errorf("timeout waiting for all members to complete, could not trigger undeploy")}
+		}
+		_, _, errUndep := options.CloudInfoService.UndeployConfig(options.currentStackConfig)
+		if errUndep != nil {
+			if errUndep.Error() == "Not Modified" {
+				options.ProjectsLog("Nothing to undeploy")
+				return nil
+			}
+			return []error{errUndep}
 		}
 	}
 	return nil
 }
-
-func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errors []error) {
-
+func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error) {
 	if !options.SkipUndeploy {
 		err := options.TriggerUnDeploy()
 		if err != nil {
-			return []error{err}
+			return err
 		}
 
-		// check stack undeploy status
-		// setup timeout
 		undeployEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
 		undeployComplete := false
 		failed := false
-		for !undeployComplete && time.Now().Before(undeployEndTime) && !failed {
 
+		// Initialize the map to store the start time for each member's state
+		memberStateStartTime := make(map[string]time.Time)
+		// Mutex to ensure safe concurrent access to the map
+		var mu sync.Mutex
+		stackMembers, memErr := options.CloudInfoService.GetStackMembers(options.currentStackConfig)
+		if memErr != nil {
+			return []error{memErr}
 		}
+		totalMembers := len(stackMembers)
+		var undeployedCount int
+		for !undeployComplete && time.Now().Before(undeployEndTime) && !failed {
+			options.ProjectsLog("Checking Stack Undeploy Status")
+			stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
+			if err != nil {
+				return []error{err}
+			}
+			if stackDetails == nil {
+				return []error{fmt.Errorf("stackDetails is nil")}
+			}
+
+			currentMemberCount := 0
+			attempt := 0
+			// Sometimes not all members are returned by the API, so we need to retry. This is intermittent and infrequent
+			for currentMemberCount != totalMembers && attempt < 5 {
+				attempt++
+				stackMembers, memErr = options.CloudInfoService.GetStackMembers(options.currentStackConfig)
+				if memErr != nil {
+					return []error{memErr}
+				}
+				currentMemberCount = len(stackMembers)
+			}
+
+			if currentMemberCount != totalMembers {
+				return []error{fmt.Errorf("expected %d members, but got %d", totalMembers, currentMemberCount)}
+			}
+
+			syncErrs := TrackAndResyncState(options, stackDetails, stackMembers, memberStateStartTime, &mu)
+			if len(syncErrs) > 0 {
+				return syncErrs
+			}
+
+			undeployableState := true
+			var memberStates []string
+			currentUndeployStatus := fmt.Sprintf("[STACK - %s] Current Undeploy Status:\n", options.currentStackConfig.Name)
+			undeployedCount = 0
+
+			for _, member := range stackMembers {
+				if member.ID == nil {
+					return []error{fmt.Errorf("member ID is nil")}
+				}
+				memberName, err := options.CloudInfoService.LookupMemberNameByID(stackDetails, *member.ID)
+				if err != nil {
+					memberName = fmt.Sprintf("Unknown name, ID: %s", *member.ID)
+				}
+
+				if member.State == nil {
+					memberStates = append(memberStates, fmt.Sprintf(" - member: %s state is nil, skipping this time", memberName))
+					undeployableState = false
+					continue
+				}
+
+				if *member.State == project.ProjectConfig_State_Undeploying {
+					memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s", memberName, *member.State))
+				} else if *member.State == project.ProjectConfig_State_UndeployingFailed {
+					memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s", memberName, *member.State))
+					undeployableState = false
+					failed = true
+					logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName)
+					options.ProjectsLog(terraLogs)
+					errorList = append(errorList, fmt.Errorf("(%s) failed Undeployment\n%s", memberName, logMessage))
+				} else if cloudinfo.ProjectsMemberIsUndeployed(member) {
+					memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s", memberName, *member.State))
+					undeployedCount++
+				} else {
+					memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s", memberName, *member.State))
+					undeployableState = false
+				}
+			}
+
+			if undeployableState && undeployedCount == totalMembers {
+				undeployComplete = true
+			} else {
+				var stateCode string
+				if stackDetails.StateCode == nil {
+					stateCode = "Unknown"
+				} else {
+					stateCode = *stackDetails.StateCode
+				}
+				options.ProjectsLog(fmt.Sprintf("Stack is still undeploying, current state: %s and state code: %s\n%s", *stackDetails.State, stateCode, currentUndeployStatus+strings.Join(memberStates, "\n")))
+				time.Sleep(30 * time.Second)
+			}
+		}
+
+		if !undeployComplete {
+			if time.Now().After(undeployEndTime) {
+				return []error{fmt.Errorf("undeploy timeout for stack configuration %s", options.currentStackConfig.Name)}
+			} else if failed {
+				return errorList
+			} else {
+				return []error{fmt.Errorf("undeploy incomplete for unknown reasons for stack configuration %s", options.currentStackConfig.Name)}
+			}
+		}
+		// Log the final undeploy status
+		// print final state of the stack
+		stackDetails, _, cfgErr := options.CloudInfoService.GetConfig(options.currentStackConfig)
+		if err != nil {
+			return []error{cfgErr}
+		}
+		if stackDetails == nil {
+			return []error{fmt.Errorf("stackDetails is nil")}
+		}
+		stateCode := "Unknown"
+		if stackDetails.StateCode != nil {
+			stateCode = *stackDetails.StateCode
+		}
+		options.ProjectsLog(fmt.Sprintf("Stacks final state: %s, state code: %s", *stackDetails.State, stateCode))
+		options.ProjectsLog(fmt.Sprintf("%d/%d members undeployed", totalMembers, undeployedCount))
+		options.ProjectsLog("Undeploy completed successfully")
 	}
+
 	return nil
 }
 
@@ -283,7 +569,7 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errors []error) {
 // Deletes the project
 func (options *TestProjectsOptions) RunProjectsTest() error {
 	if !options.SkipTestTearDown {
-		// TODO: REMOVE AFTER TESTING
+		// ensure we always run the test tear down, even if a panic occurs
 		defer func() {
 			if r := recover(); r != nil {
 				options.ProjectsLog(fmt.Sprintf("Recovered from panic: %v", r))
@@ -294,6 +580,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 
 	setupErr := options.testSetup()
 	if !assert.NoError(options.Testing, setupErr) {
+		options.Testing.Fail()
 		return fmt.Errorf("test setup has failed:%w", setupErr)
 	}
 
@@ -317,20 +604,24 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		MonitoringEnabled:  *options.ProjectMonitoringEnabled,
 		AutoDeploy:         *options.ProjectAutoDeploy,
 		Environments:       options.ProjectEnvironments,
-		ComplianceProfile:  options.ProjectComplianceProfile,
 	}
 	prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
 	if assert.NoError(options.Testing, err) {
 		if assert.Equal(options.Testing, 201, resp.StatusCode) {
 			options.ProjectsLog(fmt.Sprintf("Created Test Project - %s", *prj.Definition.Name))
+			// https://cloud.ibm.com/projects/a1316ed6-76de-418e-bb9a-e7ed05aa7834
+			// print link to project
+			options.ProjectsLog(fmt.Sprintf("Project URL: %s", fmt.Sprintf("https://cloud.ibm.com/projects/%s", *prj.ID)))
 			options.currentProject = prj
 			options.currentProjectConfig.ProjectID = *prj.ID
 			if assert.NoError(options.Testing, options.ConfigureTestStack()) {
+				options.ProjectsLog(fmt.Sprintf("Configured Test Stack - %s \n- Project ID: %s \n- Config ID: %s", *prj.Definition.Name, *prj.ID, *options.currentStack.Configuration.ID))
 				if options.PreDeployHook != nil {
 					options.ProjectsLog("Running PreDeployHook")
-					hook_err := options.PreDeployHook(options)
-					if hook_err != nil {
-						return hook_err
+					hookErr := options.PreDeployHook(options)
+					if hookErr != nil {
+						options.Testing.Fail()
+						return hookErr
 					}
 					options.ProjectsLog("Finished PreDeployHook")
 				}
@@ -339,11 +630,15 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 
 				var finalError error
 
-				if !assert.Empty(options.Testing, deployErrs) {
+				if len(deployErrs) > 0 {
 					// print all errors and return a single error
 					for _, derr := range deployErrs {
 						options.ProjectsLog(fmt.Sprintf("Error: %s", derr.Error()))
-						finalError = fmt.Errorf("%w\n%s", finalError, derr)
+						if finalError == nil {
+							finalError = derr
+						} else {
+							finalError = fmt.Errorf("%w\n%s", finalError, derr)
+						}
 					}
 				} else {
 					options.ProjectsLog("All configurations deployed successfully")
@@ -351,13 +646,15 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 
 				if options.PostDeployHook != nil {
 					options.ProjectsLog("Running PostDeployHook")
-					hook_err := options.PostDeployHook(options)
-					if hook_err != nil {
-						return hook_err
+					hookErr := options.PostDeployHook(options)
+					if hookErr != nil {
+						options.Testing.Fail()
+						return hookErr
 					}
 					options.ProjectsLog("Finished PostDeployHook")
 				}
 				if finalError != nil {
+					options.Testing.Fail()
 					return finalError
 				} else {
 					return nil
@@ -375,60 +672,64 @@ func (options *TestProjectsOptions) TestTearDown() {
 	}
 	if !options.SkipTestTearDown {
 		if options.executeResourceTearDown() {
-			//		trigger undeploy
-		}
 
-		if options.executeProjectTearDown() {
-			// Delete the project
-
-			// Check if any configurations are still validating, or deploying or undeploying, if so wait, timeout after 10 minutes
-			// Set end time
-			validationEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
-
-			for {
-				// Get all configurations
-				allConfigurations, cfgErr := options.CloudInfoService.GetProjectConfigs(*options.currentProject.ID)
-				if cfgErr != nil {
-					options.ProjectsLog("Failed to get configurations during project delete, attempting blind delete")
-					break
+			// Trigger undeploy and wait for completion
+			options.ProjectsLog("Triggering Undeploy and waiting for completion")
+			undeployErrors := options.TriggerUnDeployAndWait()
+			if len(undeployErrors) > 0 {
+				for _, err := range undeployErrors {
+					options.ProjectsLog(fmt.Sprintf("Failed to undeploy: %s", err))
+					options.Testing.Fail()
 				}
-
-				// Check if any configuration is still in VALIDATING, DEPLOYING, or UNDEPLOYING state
-				isAnyConfigInProcess := false
-				for _, config := range allConfigurations {
-					if *config.State == project.ProjectConfig_State_Validating || *config.State == project.ProjectConfig_State_Deploying || *config.State == project.ProjectConfig_State_Undeploying {
-						isAnyConfigInProcess = true
-						options.ProjectsLog(fmt.Sprintf("Configuration %s is still %s", *config.Definition.Name, *config.State))
-						break
-					}
-				}
-
-				// If no configuration is in VALIDATING, DEPLOYING, or UNDEPLOYING state, break the loop
-				if !isAnyConfigInProcess {
-					break
-				}
-
-				// If the time is greater than the timeout, return an error
-				if time.Now().After(validationEndTime) {
-					options.ProjectsLog("validation timeout for configurations")
-				}
-
-				// Sleep for 30 seconds before the next check
-				time.Sleep(30 * time.Second)
-
 			}
 
-			options.Testing.Log("[PROJECTS] Deleting Test Project")
+		}
+		if options.executeProjectTearDown() {
+			// Wait until no pipeline actions are running or timeout is reached
+			options.ProjectsLog("Checking all pipeline actions are complete")
+			timeout := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
+			for {
+				running, err := options.CloudInfoService.ArePipelineActionsRunning(options.currentStackConfig)
+				if err != nil {
+					options.ProjectsLog(fmt.Sprintf("Error checking pipeline actions: %s", err))
+					options.Testing.Fail()
+					return
+				}
+				if !running || time.Now().After(timeout) {
+					break
+				}
+				options.ProjectsLog("Pipeline actions are still running, waiting...")
+				time.Sleep(30 * time.Second)
+			}
+
+			// Check if timeout was reached
+			if time.Now().After(timeout) {
+				options.ProjectsLog("Timeout reached while waiting for pipeline actions to complete")
+				options.Testing.Fail()
+				return
+			}
+			options.ProjectsLog("All pipeline actions are complete")
+			// Delete the project
+			options.ProjectsLog("Deleting Test Project")
 			if options.currentProject.ID != nil {
 				_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
 				if assert.NoError(options.Testing, err) {
-					assert.Equal(options.Testing, 202, resp.StatusCode)
-					options.ProjectsLog("Deleted Test Project")
+					if assert.Equal(options.Testing, 202, resp.StatusCode) {
+						options.ProjectsLog("Deleted Test Project")
+					} else {
+						options.ProjectsLog(fmt.Sprintf("Failed to delete Test Project, response code: %d", resp.StatusCode))
+					}
+				} else {
+					options.ProjectsLog(fmt.Sprintf("Error deleting Test Project: %s", err))
 				}
 			} else {
-				options.ProjectsLog("No project to delete")
+				options.ProjectsLog("No project ID found to delete")
 			}
+		} else {
+			options.ProjectsLog(fmt.Sprintf("Project URL: %s", fmt.Sprintf("https://cloud.ibm.com/projects/%s", *options.currentProject.ID)))
 		}
+	} else {
+		options.ProjectsLog(fmt.Sprintf("Project URL: %s", fmt.Sprintf("https://cloud.ibm.com/projects/%s", *options.currentProject.ID)))
 	}
 }
 
@@ -448,6 +749,15 @@ func (options *TestProjectsOptions) executeResourceTearDown() bool {
 		execute = false
 	}
 
+	// dont teardown if there is nothing to teardown
+	if options.currentStackConfig != nil {
+		if options.currentStackConfig.ConfigID == "" {
+			execute = false
+		}
+	}
+	if options.currentStackConfig == nil {
+		execute = false
+	}
 	envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
 
 	if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
@@ -477,6 +787,10 @@ func (options *TestProjectsOptions) executeProjectTearDown() bool {
 	}
 
 	if options.Testing.Failed() {
+		execute = false
+	}
+	// skip teardown if no project was created
+	if options.currentProject == nil {
 		execute = false
 	}
 
@@ -515,8 +829,73 @@ func (options *TestProjectsOptions) testSetup() error {
 func (options *TestProjectsOptions) ProjectsLog(message string) {
 	if options.ProjectName != "" {
 		logPrefix := fmt.Sprintf("[PROJECTS - %s] ", options.ProjectName)
-		logger.Log(options.Testing, fmt.Sprintf("%s %s", logPrefix, message))
+		options.Testing.Log(fmt.Sprintf("%s %s", logPrefix, message))
 	} else {
-		logger.Log(options.Testing, fmt.Sprintf("[PROJECTS] %s", message))
+		options.Testing.Log(fmt.Sprintf("[PROJECTS] %s", message))
 	}
+}
+
+// TrackAndResyncState tracks the state of members and triggers a resync if a member is stuck in a state for more than the options.StackAutoSyncInterval.
+func TrackAndResyncState(
+	options *TestProjectsOptions,
+	stackDetails *project.ProjectConfig,
+	stackMembers []*project.ProjectConfig,
+	memberStateStartTime map[string]time.Time,
+	mu *sync.Mutex,
+) (errors []error) {
+
+	if options.StackAutoSync {
+		for _, member := range stackMembers {
+			if member.ID == nil {
+				return []error{fmt.Errorf("member ID is nil")}
+			}
+			if member.State != nil && *member.State == project.ProjectConfig_State_Deployed {
+				//options.ProjectsLog(fmt.Sprintf("Member %s is already deployed, skipping sync tracking", *member.ID))
+				continue
+			}
+			stateCode := "Unknown"
+			if member.StateCode != nil {
+				stateCode = *member.StateCode
+			}
+
+			// if state draft and awaiting prerequisite, do not trigger sync
+			if *member.State == project.ProjectConfig_State_Draft && stateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite {
+				continue
+			}
+
+			memberName, err := options.CloudInfoService.LookupMemberNameByID(stackDetails, *member.ID)
+			if err != nil {
+				memberName = fmt.Sprintf("Unknown name, ID: %s", *member.ID)
+			}
+
+			// Lock the mutex before accessing the map
+			mu.Lock()
+			// Check if the member's ID is in the map
+			// If it is, check if the member has been in the same state for more than options.StackAutoSyncInterval minutes
+			// If it has, trigger SyncConfig and reset the start time
+			// If it is not, store the start time for the member's current state
+			if startTime, exists := memberStateStartTime[*member.ID]; exists {
+				// Check if the member has been in the same state for more than options.StackAutoSyncInterval minutes
+				if time.Since(startTime) > time.Duration(options.StackAutoSyncInterval)*time.Minute {
+					if member.State == nil {
+						mu.Unlock()
+						return []error{fmt.Errorf("member state is nil")}
+					}
+					options.ProjectsLog(fmt.Sprintf("Member %s stuck in state %s for more than %d minutes, triggering SyncConfig", memberName, *member.State, options.StackAutoSyncInterval))
+					_, syncErr := options.CloudInfoService.SyncConfig(options.currentStackConfig.ProjectID, *member.ID)
+					if syncErr != nil {
+						errors = append(errors, syncErr)
+					}
+					// Reset the start time after triggering SyncConfig
+					memberStateStartTime[*member.ID] = time.Now()
+				}
+			} else {
+				// Store the start time for the member's current state
+				memberStateStartTime[*member.ID] = time.Now()
+			}
+			mu.Unlock()
+		}
+		return errors
+	}
+	return errors
 }

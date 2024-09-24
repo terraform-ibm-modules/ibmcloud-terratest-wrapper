@@ -55,26 +55,24 @@ type ConfigDetails struct {
 	// Settings used to override the default settings
 	Settings map[string]interface{}
 	// Stack specific
-	StackLocatorID    string
-	StackDefinition   *project.StackDefinitionBlockPrototype
-	EnvironmentID     *string
-	Members           []project.StackConfigMember
-	ComplianceProfile *project.ProjectComplianceProfile
+	StackLocatorID  string
+	StackDefinition *project.StackDefinitionBlockPrototype
+	EnvironmentID   *string
+	Members         []project.StackConfigMember
 }
 
 // ProjectsConfig Config for creating a project
 type ProjectsConfig struct {
-	ProjectID          string                            `json:"project_id,omitempty"`
-	Location           string                            `json:"location,omitempty"`
-	ProjectName        string                            `json:"project_name,omitempty"`
-	ProjectDescription string                            `json:"project_description,omitempty"`
-	ResourceGroup      string                            `json:"resource_group,omitempty"`
-	DestroyOnDelete    bool                              `json:"destroy_on_delete"`
-	MonitoringEnabled  bool                              `json:"monitoring_enabled"`
-	AutoDeploy         bool                              `json:"auto_deploy"`
-	Configs            []project.ProjectConfigPrototype  `json:"configs,omitempty"`
-	Environments       []project.EnvironmentPrototype    `json:"environments,omitempty"`
-	Headers            map[string]string                 `json:"headers,omitempty"`
-	Store              *project.ProjectDefinitionStore   `json:"store,omitempty"`
-	ComplianceProfile  *project.ProjectComplianceProfile `json:"compliance_profile,omitempty"`
+	ProjectID          string                           `json:"project_id,omitempty"`
+	Location           string                           `json:"location,omitempty"`
+	ProjectName        string                           `json:"project_name,omitempty"`
+	ProjectDescription string                           `json:"project_description,omitempty"`
+	ResourceGroup      string                           `json:"resource_group,omitempty"`
+	DestroyOnDelete    bool                             `json:"destroy_on_delete"`
+	MonitoringEnabled  bool                             `json:"monitoring_enabled"`
+	AutoDeploy         bool                             `json:"auto_deploy"`
+	Configs            []project.ProjectConfigPrototype `json:"configs,omitempty"`
+	Environments       []project.EnvironmentPrototype   `json:"environments,omitempty"`
+	Headers            map[string]string                `json:"headers,omitempty"`
+	Store              *project.ProjectDefinitionStore  `json:"store,omitempty"`
 }

@@ -180,14 +180,12 @@ func (infoSvc *CloudInfoService) CreateNewStack(stackConfig *ConfigDetails) (res
 
 	// Create a project config first
 	createProjectConfigDefinitionOptions := &project.ProjectConfigDefinitionPrototypeStackConfigDefinitionProperties{
-		Description:       &stackConfig.Description,
-		Name:              &stackConfig.Name,
-		Members:           stackConfig.Members,
-		Authorizations:    stackConfig.Authorizations,
-		Inputs:            stackConfig.Inputs,
-		Settings:          stackConfig.Settings,
-		ComplianceProfile: stackConfig.ComplianceProfile,
-		EnvironmentID:     stackConfig.EnvironmentID,
+		Description:    &stackConfig.Description,
+		Name:           &stackConfig.Name,
+		Members:        stackConfig.Members,
+		Authorizations: stackConfig.Authorizations,
+		//Inputs:         stackConfig.Inputs, // Inputs are set in the stack definition this is not valid to set them here
+		EnvironmentID: stackConfig.EnvironmentID,
 	}
 	createConfigOptions := infoSvc.projectsService.NewCreateConfigOptions(
 		stackConfig.ProjectID,
@@ -361,6 +359,7 @@ func (infoSvc *CloudInfoService) UndeployConfig(details *ConfigDetails) (result 
 	return infoSvc.projectsService.UndeployConfig(undeployConfigOptions)
 }
 
+// IsUndeploying checks if the config is undeploying
 func (infoSvc *CloudInfoService) IsUndeploying(details *ConfigDetails) (projectConfig *project.ProjectConfigVersion, isUndeploying bool) {
 	config, _, err := infoSvc.GetConfig(details)
 	if err != nil {
@@ -509,12 +508,16 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 		log.Println("Error unmarshaling catalog JSON:", err)
 		return nil, nil, err
 	}
+	// TODO: override inputs with values from catalogConfig
+	// Probably needs CatalogJson to have a map of inputs
+
 	stackConfig.Name = catalogConfig.Products[0].Name
 	stackConfig.Description = catalogConfig.Products[0].Label
 
 	return infoSvc.CreateNewStack(stackConfig)
 }
 
+// GetStackMembers gets the members of a stack
 func (infoSvc *CloudInfoService) GetStackMembers(stackConfig *ConfigDetails) (members []*project.ProjectConfig, err error) {
 	members = make([]*project.ProjectConfig, 0)
 	if stackConfig.Members == nil {
@@ -533,6 +536,7 @@ func (infoSvc *CloudInfoService) GetStackMembers(stackConfig *ConfigDetails) (me
 	return members, nil
 }
 
+// SyncConfig syncs a project config with schematics
 func (infoSvc *CloudInfoService) SyncConfig(projectID string, configID string) (response *core.DetailedResponse, err error) {
 
 	syncOptions := &project.SyncConfigOptions{
@@ -556,6 +560,231 @@ func (infoSvc *CloudInfoService) LookupMemberNameByID(stackDetails *project.Proj
 		}
 	}
 	return "", fmt.Errorf("member ID %s not found in stack details", memberID)
+}
+
+// GetSchematicsJobLogsForMember gets the schematics job logs for a member
+func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.ProjectConfig, memberName string) (details string, terraformLogs string) {
+	var logMessage strings.Builder
+	var terraformLogMessage strings.Builder
+	logMessage.WriteString(fmt.Sprintf("Schematics job logs for member: %s", memberName))
+
+	if member.Schematics != nil && member.Schematics.WorkspaceCrn != nil {
+		schematicsWorkspaceCrn := member.Schematics.WorkspaceCrn
+		logMessage.WriteString(fmt.Sprintf(", Schematics Workspace CRN: %s", *schematicsWorkspaceCrn))
+	} else {
+		logMessage.WriteString(", Unknown Schematics Workspace CRN")
+	}
+
+	if member.LastUndeployed != nil {
+		logMessage.WriteString(fmt.Sprintf("\n\t(%s) failed Undeployment", memberName))
+		if member.LastUndeployed.Job != nil {
+			jobID := "unknown"
+			if member.LastUndeployed.Job.ID != nil {
+				jobID = *member.LastUndeployed.Job.ID
+			}
+			logMessage.WriteString(fmt.Sprintf(", Schematics Undeploy Job ID: %s", jobID))
+
+			if member.NeedsAttentionState != nil {
+				var url string
+				for _, state := range member.NeedsAttentionState {
+					if state.ActionURL != nil {
+						url = *state.ActionURL
+						break
+					}
+				}
+				logMessage.WriteString(fmt.Sprintf("\nSchematics workspace URL: %s", url))
+
+				if jobID != "unknown" {
+					jobURL := strings.Split(url, "/jobs?region=")[0]
+					jobURL = fmt.Sprintf("%s/log/%s", jobURL, jobID)
+					logMessage.WriteString(fmt.Sprintf("\nSchematics Job URL: %s", jobURL))
+					logs, errGetLogs := infoSvc.GetSchematicsJobLogsText(jobID)
+					if errGetLogs != nil {
+						terraformLogMessage.WriteString(fmt.Sprintf("\nError getting job logs for Job ID: %s member: %s, error: %s", jobID, memberName, errGetLogs))
+					} else {
+						terraformLogMessage.WriteString(fmt.Sprintf("\nJob logs for Job ID: %s member: %s\n%s", jobID, memberName, logs))
+					}
+				}
+			}
+			if member.LastUndeployed.Result != nil {
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) Undeployment result: %s", memberName, *member.LastUndeployed.Result))
+			} else {
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) Undeployment result: nil", memberName))
+			}
+			if member.LastUndeployed.Job.Summary != nil && member.LastUndeployed.Job.Summary.DestroySummary != nil && member.LastUndeployed.Job.Summary.DestroySummary.Resources != nil && member.LastUndeployed.Job.Summary.DestroySummary.Resources.Failed != nil {
+				for _, failedResource := range member.LastUndeployed.Job.Summary.DestroySummary.Resources.Failed {
+					logMessage.WriteString(fmt.Sprintf("\n\t(%s) Failed resource: %s", memberName, failedResource))
+				}
+			} else {
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) failed Deployment, no failed resources returned", memberName))
+			}
+
+			if member.LastUndeployed.Job.Summary != nil && member.LastUndeployed.Job.Summary.DestroyMessages != nil && member.LastUndeployed.Job.Summary.DestroyMessages.ErrorMessages != nil {
+				for _, applyError := range member.LastUndeployed.Job.Summary.DestroyMessages.ErrorMessages {
+					logMessage.WriteString(fmt.Sprintf("\n\t(%s) Deployment error:\n", memberName))
+					for key, value := range applyError.GetProperties() {
+						logMessage.WriteString(fmt.Sprintf("\t\t%s: %v\n", key, value))
+					}
+				}
+			} else {
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) failed Deployment, no failed plan messages returned", memberName))
+			}
+		}
+	} else if member.LastDeployed != nil {
+		jobID := "unknown"
+		if member.LastDeployed.Job != nil && member.LastDeployed.Job.ID != nil {
+			jobID = *member.LastDeployed.Job.ID
+		}
+		logMessage.WriteString(fmt.Sprintf(", Schematics Deploy Job ID: %s", jobID))
+
+		if member.NeedsAttentionState != nil {
+			var url string
+			for _, state := range member.NeedsAttentionState {
+				if state.ActionURL != nil {
+					url = *state.ActionURL
+					break
+				}
+			}
+			logMessage.WriteString(fmt.Sprintf("\nSchematics workspace URL: %s", url))
+
+			if jobID != "unknown" {
+				jobURL := strings.Split(url, "/jobs?region=")[0]
+				jobURL = fmt.Sprintf("%s/log/%s", jobURL, jobID)
+				logMessage.WriteString(fmt.Sprintf("\nSchematics Job URL: %s", jobURL))
+				logs, errGetLogs := infoSvc.GetSchematicsJobLogsText(jobID)
+				if errGetLogs != nil {
+					terraformLogMessage.WriteString(fmt.Sprintf("\nError getting job logs for Job ID: %s member: %s, error: %s", jobID, memberName, errGetLogs))
+				} else {
+					terraformLogMessage.WriteString(fmt.Sprintf("\nJob logs for Job ID: %s member: %s\n%s", jobID, memberName, logs))
+				}
+			}
+		}
+		if member.LastDeployed.Result != nil {
+			logMessage.WriteString(fmt.Sprintf("\n\t(%s) Deployment result: %s", memberName, *member.LastDeployed.Result))
+		} else {
+			logMessage.WriteString(fmt.Sprintf("\n\t(%s) Deployment result: nil", memberName))
+		}
+		if member.LastDeployed.Job.Summary != nil && member.LastDeployed.Job.Summary.ApplySummary != nil && member.LastDeployed.Job.Summary.ApplySummary.FailedResources != nil {
+			for _, failedResource := range member.LastDeployed.Job.Summary.ApplySummary.FailedResources {
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) Failed resource: %s", memberName, failedResource))
+			}
+		} else {
+			logMessage.WriteString(fmt.Sprintf("\n\t(%s) failed Deployment, no failed resources returned", memberName))
+		}
+
+		if member.LastDeployed.Job.Summary != nil && member.LastDeployed.Job.Summary.ApplyMessages != nil && member.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages != nil {
+			for _, applyError := range member.LastDeployed.Job.Summary.ApplyMessages.ErrorMessages {
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) Deployment error:\n", memberName))
+				for key, value := range applyError.GetProperties() {
+					logMessage.WriteString(fmt.Sprintf("\t\t%s: %v\n", key, value))
+				}
+			}
+		} else {
+			logMessage.WriteString(fmt.Sprintf("\n\t(%s) failed Deployment, no failed plan messages returned", memberName))
+		}
+	} else if member.LastValidated != nil {
+		jobID := "unknown"
+		if member.LastValidated.Job != nil && member.LastValidated.Job.ID != nil {
+			jobID = *member.LastValidated.Job.ID
+		}
+		logMessage.WriteString(fmt.Sprintf(", Schematics Validate Job ID: %s", jobID))
+
+		if member.NeedsAttentionState != nil {
+			var url string
+			for _, state := range member.NeedsAttentionState {
+				if state.ActionURL != nil {
+					url = *state.ActionURL
+					break
+				}
+			}
+			logMessage.WriteString(fmt.Sprintf("\nSchematics workspace URL: %s", url))
+
+			if jobID != "unknown" {
+				jobURL := strings.Split(url, "/jobs?region=")[0]
+				jobURL = fmt.Sprintf("%s/log/%s", jobURL, jobID)
+				logMessage.WriteString(fmt.Sprintf("\nSchematics Job URL: %s", jobURL))
+				logs, errGetLogs := infoSvc.GetSchematicsJobLogsText(jobID)
+				if errGetLogs != nil {
+					terraformLogMessage.WriteString(fmt.Sprintf("\nError getting job logs for Job ID: %s member: %s, error: %s", jobID, memberName, errGetLogs))
+				} else {
+					terraformLogMessage.WriteString(fmt.Sprintf("\nJob logs for Job ID: %s member: %s\n%s", jobID, memberName, logs))
+				}
+			}
+		}
+
+		if member.LastValidated.Result != nil {
+			logMessage.WriteString(fmt.Sprintf("\n\t(%s) Validation result: %s", memberName, *member.LastValidated.Result))
+		} else {
+			logMessage.WriteString(fmt.Sprintf("\n\t(%s) Validation result: nil", memberName))
+		}
+
+		if member.LastValidated.Job.Summary != nil && member.LastValidated.Job.Summary.PlanSummary != nil && member.LastValidated.Job.Summary.PlanSummary.FailedResources != nil {
+			for _, failedResource := range member.LastValidated.Job.Summary.PlanSummary.FailedResources {
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) Failed resource: %s", memberName, failedResource))
+			}
+		} else {
+			logMessage.WriteString(fmt.Sprintf("\n\t(%s) failed Validation, no failed resources returned", memberName))
+		}
+
+		if member.LastValidated.Job.Summary != nil && member.LastValidated.Job.Summary.PlanMessages != nil && member.LastValidated.Job.Summary.PlanMessages.ErrorMessages != nil {
+			for _, planError := range member.LastValidated.Job.Summary.PlanMessages.ErrorMessages {
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) Validation error:\n", memberName))
+				for key, value := range planError.GetProperties() {
+					logMessage.WriteString(fmt.Sprintf("\t\t%s: %v\n", key, value))
+				}
+			}
+		} else {
+			logMessage.WriteString(fmt.Sprintf("\n\t(%s) No failed plan messages returned", memberName))
+		}
+	}
+	return logMessage.String(), terraformLogMessage.String()
+}
+
+// ProjectsMemberIsDeploying checks if a member is in a state that indicates it is currently deploying.
+func ProjectsMemberIsDeploying(member *project.ProjectConfig) bool {
+	if member.State == nil {
+		return false
+	}
+	return *member.State == project.ProjectConfig_State_Deploying ||
+		*member.State == project.ProjectConfig_State_Validating ||
+		*member.State == project.ProjectConfig_State_Approved ||
+		*member.State == project.ProjectConfig_State_Validated
+}
+
+// ProjectsMemberIsUndeployed checks if a member is in an undeployed state.
+func ProjectsMemberIsUndeployed(member *project.ProjectConfig) bool {
+	if member.State == nil {
+		return false
+	}
+	return *member.State == project.ProjectConfig_State_Approved ||
+		*member.State == project.ProjectConfig_State_Draft ||
+		*member.State == project.ProjectConfig_State_Validated ||
+		*member.State == project.ProjectConfig_State_Deleted
+
+}
+
+// ProjectsMemberIsDeployFailed checks if a member is in a state that indicates deployment failure.
+func ProjectsMemberIsDeployFailed(member *project.ProjectConfig) bool {
+	if member.State == nil {
+		return false
+	}
+	return *member.State == project.ProjectConfig_State_DeployingFailed ||
+		*member.State == project.ProjectConfig_State_ValidatingFailed
+}
+
+// ArePipelineActionsRunning checks if any pipeline actions are running for the given stack
+func (infoSvc *CloudInfoService) ArePipelineActionsRunning(stackConfig *ConfigDetails) (bool, error) {
+	stackMembers, err := infoSvc.GetStackMembers(stackConfig)
+	if err != nil {
+		return false, err
+	}
+
+	for _, member := range stackMembers {
+		if member.State != nil && (*member.State == project.ProjectConfig_State_Deploying || *member.State == project.ProjectConfig_State_Validating || *member.State == project.ProjectConfig_State_Undeploying) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // convertSliceToString
