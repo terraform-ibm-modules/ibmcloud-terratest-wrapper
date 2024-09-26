@@ -179,3 +179,9 @@ func sanitizeJSON(data interface{}, secureList map[string]interface{}) {
 		}
 	}
 }
+
+// PrintStructAsJson prints a struct as a formatted JSON string
+func PrintStructAsJson(data interface{}) {
+	b, _ := json.MarshalIndent(data, "", "  ")
+	fmt.Println(string(b))
+}

@@ -3,6 +3,7 @@ package cloudinfo
 
 import (
 	"errors"
+	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"log"
 	"os"
 	"sync"
@@ -42,6 +43,7 @@ type CloudInfoService struct {
 	lock                      sync.Mutex
 	icdService                icdService
 	projectsService           projectsService
+	schematicsService         schematicsService
 	ApiKey                    string
 }
 
@@ -54,27 +56,31 @@ type CloudInfoServiceI interface {
 	HasRegionData() bool
 	RemoveRegionForTest(string)
 	GetThreadLock() *sync.Mutex
+	GetClusterIngressStatus(clusterId string) (string, error)
 	GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error)
-	CreateDefaultProject(string, string, string) (*projects.Project, *core.DetailedResponse, error)
+	CreateProjectFromConfig(config *ProjectsConfig) (*projects.Project, *core.DetailedResponse, error)
 	GetProject(projectID string) (*projects.Project, *core.DetailedResponse, error)
 	GetProjectConfigs(projectID string) ([]projects.ProjectConfigSummary, error)
-	GetConfig(projectID string, configID string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	GetConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
 	DeleteProject(projectID string) (*projects.ProjectDeleteResponse, *core.DetailedResponse, error)
-	CreateConfig(projectID string, name string, description string, stackLocatorID string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	CreateDaConfig(projectID string, locatorID string, name string, description string, authorizations projects.ProjectConfigAuth, inputs map[string]interface{}, settings map[string]interface{}) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	CreateConfigFromCatalogJson(projectID string, catalogJsonPath string, stackLocatorID string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	UpdateConfig(projectID string, configID string, configuration projects.ProjectConfigDefinitionPatchIntf) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	ApproveConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	IsConfigApproved(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isApproved bool)
-	ValidateProjectConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	IsConfigValidated(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isValidated bool)
-	DeployConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	IsConfigDeployed(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isDeployed bool)
-	UndeployConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	IsUndeploying(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isUndeploying bool)
-	CreateStackFromConfigFileWithInputs(projectID string, stackConfigPath string, catalogJsonPath string, stackInputs map[string]interface{}) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
-	GetProjectConfigVersion(projectID string, configID string, version int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	GetClusterIngressStatus(clusterId string) (string, error)
+	CreateConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	DeployConfig(configDetails *ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	CreateDaConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	CreateConfigFromCatalogJson(configDetails *ConfigDetails, catalogJson string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	UpdateConfig(configDetails *ConfigDetails, configuration projects.ProjectConfigDefinitionPatchIntf) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	ValidateProjectConfig(configDetails *ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	IsConfigDeployed(configDetails *ConfigDetails) (projectConfig *projects.ProjectConfigVersion, isDeployed bool)
+	UndeployConfig(details *ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	IsUndeploying(details *ConfigDetails) (projectConfig *projects.ProjectConfigVersion, isUndeploying bool)
+	CreateStackFromConfigFile(stackConfig *ConfigDetails, stackConfigPath string, catalogJsonPath string) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
+	GetProjectConfigVersion(configDetails *ConfigDetails, version int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	GetStackMembers(stackConfig *ConfigDetails) ([]*projects.ProjectConfig, error)
+	SyncConfig(projectID string, configID string) (response *core.DetailedResponse, err error)
+	LookupMemberNameByID(stackDetails *projects.ProjectConfig, memberID string) (string, error)
+	GetSchematicsJobLogs(jobID string) (result *schematics.JobLog, response *core.DetailedResponse, err error)
+	GetSchematicsJobLogsText(jobID string) (logs string, err error)
+	ArePipelineActionsRunning(stackConfig *ConfigDetails) (bool, error)
+	GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string) (string, string)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -92,6 +98,7 @@ type CloudInfoServiceOptions struct {
 	IcdService                icdService
 	ProjectsService           projectsService
 	CatalogService            catalogService
+	SchematicsService         schematicsService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -184,11 +191,18 @@ type projectsService interface {
 	Approve(approveOptions *projects.ApproveOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
 	DeployConfig(deployConfigOptions *projects.DeployConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
 	UndeployConfig(unDeployConfigOptions *projects.UndeployConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+
+	SyncConfig(syncConfigOptions *projects.SyncConfigOptions) (response *core.DetailedResponse, err error)
 }
 
 // catalogService for external Data Catalog V1 Service API. Used for mocking.
 type catalogService interface {
 	GetVersion(getVersionOptions *catalogmanagementv1.GetVersionOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
+}
+
+// schematicsService for external Schematics V1 Service API. Used for mocking.
+type schematicsService interface {
+	ListJobLogs(listJobLogsOptions *schematics.ListJobLogsOptions) (result *schematics.JobLog, response *core.DetailedResponse, err error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -409,6 +423,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.catalogService = catalogClient
 
 	}
+
+	if options.SchematicsService != nil {
+		infoSvc.schematicsService = options.SchematicsService
+	} else {
+		schematicsClient, schematicsErr := schematics.NewSchematicsV1(&schematics.SchematicsV1Options{
+			Authenticator: infoSvc.authenticator,
+		})
+		if schematicsErr != nil {
+			log.Println("Error creating schematics client:", schematicsErr)
+			return nil, schematicsErr
+		}
+
+		infoSvc.schematicsService = schematicsClient
+	}
+
 	return infoSvc, nil
 }
 
