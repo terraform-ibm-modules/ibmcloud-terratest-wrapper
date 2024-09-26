@@ -56,6 +56,7 @@ type CloudInfoServiceI interface {
 	HasRegionData() bool
 	RemoveRegionForTest(string)
 	GetThreadLock() *sync.Mutex
+	GetClusterIngressStatus(clusterId string) (string, error)
 	GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error)
 	CreateProjectFromConfig(config *ProjectsConfig) (*projects.Project, *core.DetailedResponse, error)
 	GetProject(projectID string) (*projects.Project, *core.DetailedResponse, error)
