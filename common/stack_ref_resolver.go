@@ -4,6 +4,7 @@ import (
 	"fmt"
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -77,6 +78,13 @@ func ProcessInputs(inputs map[string]interface{}) []Ref {
 			Resolved:      resolved,
 		})
 	}
+	// Sort the slice by the Name field to always have a consistent order
+	// This is needed because the input is a map and maps are unordered
+	// The slice is ordered to make the output deterministic
+	sort.Slice(stackRefInputs, func(i, j int) bool {
+		return stackRefInputs[i].Name < stackRefInputs[j].Name
+	})
+
 	return stackRefInputs
 }
 
@@ -106,6 +114,7 @@ func ProcessOutputs(outputs []project.OutputValue) []Ref {
 			Resolved:      resolved,
 		})
 	}
+
 	return stackRefOutputs
 }
 
