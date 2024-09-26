@@ -750,14 +750,10 @@ func (options *TestProjectsOptions) executeResourceTearDown() bool {
 	}
 
 	// dont teardown if there is nothing to teardown
-	if options.currentStackConfig != nil {
-		if options.currentStackConfig.ConfigID == "" {
-			execute = false
-		}
-	}
-	if options.currentStackConfig == nil {
+	if options.currentStackConfig == nil || options.currentStackConfig.ConfigID == "" {
 		execute = false
 	}
+
 	envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
 
 	if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
