@@ -531,9 +531,10 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 					undeployableState = false
 					failed = true
 					errorList = append(errorList, fmt.Errorf("undeploy stack failed with state code %s", stateCode))
+				} else {
+					options.ProjectsLog(fmt.Sprintf("Stack is still undeploying, current state: %s and state code: %s\n%s", *stackDetails.State, stateCode, currentUndeployStatus+strings.Join(memberStates, "\n")))
+					time.Sleep(30 * time.Second)
 				}
-				options.ProjectsLog(fmt.Sprintf("Stack is still undeploying, current state: %s and state code: %s\n%s", *stackDetails.State, stateCode, currentUndeployStatus+strings.Join(memberStates, "\n")))
-				time.Sleep(30 * time.Second)
 			}
 		}
 
