@@ -399,8 +399,20 @@ func (options *TestProjectsOptions) TriggerUnDeploy() []error {
 			if len(syncErrs) > 0 {
 				return syncErrs
 			}
-
-			// Check if any configuration is still in VALIDATING, DEPLOYING, or UNDEPLOYING state
+			stateCode := "Unknown"
+			if stackDetails.StateCode != nil {
+				stateCode = *stackDetails.StateCode
+			}
+			// first check the stack state if it is not in a deploying or undeploying state then we can trigger undeploy
+			if stateCode != project.ProjectConfig_StateCode_AwaitingMemberDeployment &&
+				*stackDetails.State != project.ProjectConfig_State_Deploying &&
+				*stackDetails.State != project.ProjectConfig_State_Undeploying {
+				readyForUndeploy = true
+				options.ProjectsLog(fmt.Sprintf("Stack is in state %s with stateCode %s, ready for undeploy", *stackDetails.State, stateCode))
+			} else {
+				options.ProjectsLog(fmt.Sprintf("Stack is in state %s with stateCode %s, waiting for all members to complete", *stackDetails.State, stateCode))
+			}
+			// then double check if any configuration is still in VALIDATING, DEPLOYING, or UNDEPLOYING state
 			for _, member := range stackMembers {
 				if *member.State == project.ProjectConfig_State_Validating || *member.State == project.ProjectConfig_State_Deploying || *member.State == project.ProjectConfig_State_Undeploying {
 					readyForUndeploy = false
