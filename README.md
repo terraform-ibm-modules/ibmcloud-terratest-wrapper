@@ -253,8 +253,183 @@ For more customization, see the `ibmcloud-terratest-wrapper` reference at pkg.go
 
 ---
 ## IBM Cloud Projects
-IBM Cloud Projects support has been added but should be considered alpha. It is using pre-release APIs and may change in the future.
-It is not recommended to use this feature. Breaking changes are expected and upgrade paths are not guaranteed.
+
+IBM Cloud Projects support has been added and is now available in the first release. This section explains how to use the test wrapper for testing IBM Cloud Projects.
+
+### Example Usage
+
+The following example demonstrates how to use the `TestProjectsOptions` from the `testprojects` package to run a full test for IBM Cloud Projects.
+
+```go
+package tests
+
+import (
+ "fmt"
+ "github.com/stretchr/testify/assert"
+ "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
+ "os"
+ "testing"
+)
+
+func TestProjectsFullTest(t *testing.T) {
+ options := testprojects.TestProjectOptionsDefault(&testprojects.TestProjectsOptions{
+  Testing:              t,
+  Prefix:               "mock-stack",
+  ProjectLocation:      "us-south", // By default, a random region is selected
+  ProjectDestroyOnDelete: core.BoolPtr(true), // By default, the members are destroyed on Project delete
+  ProjectMonitoringEnabled: core.BoolPtr(true), // By default, monitoring is enabled
+  StackConfigurationPath: "stack_definition.json", // Path to the stack configuration file, by default it is stack_definition.json
+  StackCatalogJsonPath: "ibm_catalog.json", // Path to the stack catalog JSON file, by default it is ibm_catalog.json
+  StackAutoSync:        true, // By default, auto sync is disabled. This is for emergencies only. If set to true, a sync with Schematics will be executed if the member has not updated before the `StackAutoSyncInterval`.
+  StackAutoSyncInterval: 20,  // By default, the interval is 20 minutes
+  StackAuthorizations: &project.ProjectConfigAuth{ // By default, the API Key is used with the TF_VAR_ibmcloud_api_key environment variable
+   ApiKey: core.StringPtr(os.Getenv("TF_VAR_ibmcloud_api_key")),
+   Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
+  },
+  DeployTimeoutMinutes: 360, // By default, the timeout is 6 hours
+  PreDeployHook: func(options *testprojects.TestProjectsOptions) error {
+   // Custom code to run before stack deploy
+   return nil
+  },
+  PostDeployHook: func(options *testprojects.TestProjectsOptions) error {
+   // Custom code to run after stack deploy
+   return nil
+  },
+  PreUndeployHook: func(options *testprojects.TestProjectsOptions) error {
+   // Custom code to run before stack undeploy
+   return nil
+  },
+  PostUndeployHook: func(options *testprojects.TestProjectsOptions) error {
+   // Custom code to run after stack undeploy
+   return nil
+  },
+ })
+
+ options.StackMemberInputs = map[string]map[string]interface{}{
+  "primary-da": {
+   "prefix": fmt.Sprintf("p%s", options.Prefix),
+  },
+  "secondary-da": {
+   "prefix": fmt.Sprintf("s%s", options.Prefix),
+  },
+ }
+ options.StackInputs = map[string]interface{}{
+  "resource_group_name": "default",
+  "ibmcloud_api_key":    os.Getenv("TF_VAR_ibmcloud_api_key"),
+ }
+
+ err := options.RunProjectsTest()
+ if assert.NoError(t, err) {
+  t.Log("TestProjectsFullTest Passed")
+ } else {
+  t.Error("TestProjectsFullTest Failed")
+ }
+}
+```
+
+## Explanation of `TestProjectsOptions`
+
+#### Prefix
+- **Type**: `string`
+- **Description**: This prefix is added to resource names to easily identify the project.
+
+
+#### ProjectLocation
+- **Type**: `string`
+- **Description**: The location of the project. If not set, a random location will be selected this is recommended.
+- **Default**: Random location is selected
+
+#### ProjectDestroyOnDelete
+- **Type**: `*bool`
+- **Description**: If set to `true`, the project will be destroyed when deleted.
+- **Default**: `true`
+
+#### ProjectMonitoringEnabled
+- **Type**: `*bool`
+- **Description**: If set to `true`, monitoring will be enabled for the project.
+- **Default**: `true`
+
+#### ProjectAutoDeploy
+- **Type**: `*bool`
+- **Description**: If set to `true`, the project will be automatically deployed. It is recommended to set this to `true` (default) for most tests.
+- **Default**: `true`
+
+#### StackConfigurationPath
+- **Type**: `string`
+- **Description**: Path to the configuration file that will be used to create the stack.
+- **Default**: `stack_definition.json`
+
+#### StackCatalogJsonPath
+- **Type**: `string`
+- **Description**: Path to the JSON file containing the stack catalog.
+- **Default**: `ibm_catalog.json`
+
+#### StackAutoSync
+- **Type**: `bool`
+- **Description**: If set to `true`, a sync with Schematics will be executed if the member has not updated before the `StackAutoSyncInterval`. This is for emergencies only and not recommended.
+- **Default**: `false`
+
+#### StackAutoSyncInterval
+- **Type**: `int`
+- **Description**: The number of minutes to wait before syncing with Schematics if the state has not updated. Default is 20 minutes.
+- **Default**: 20
+
+#### StackAuthorizations
+- **Type**: `*project.ProjectConfigAuth`
+- **Description**: The authorizations to use for the project. If not set, the default will be to use the `TF_VAR_ibmcloud_api_key` environment variable. Can be used to set Trusted Profile or API Key.
+- **Default**: API Key with the value from environment variable `TF_VAR_ibmcloud_api_key`
+
+### Stack and Member Inputs
+
+#### StackMemberInputs
+- **Type**: `map[string]map[string]interface{}`
+- **Description**: A map where each key represents a stack member, and the value is another map containing the variables for that member.
+- **Example**:
+    ```go
+    options.StackMemberInputs = map[string]map[string]interface{}{
+        "primary-da": {
+            "input1": "value1",
+            "input2": 2,
+        },
+        "secondary-da": {
+            "input1": "value1",
+            "input2": 2,
+        },
+    }
+    ```
+
+#### StackInputs
+- **Type**: `map[string]interface{}`
+- **Description**: A map containing variables that apply at the top stack level.
+- **Example**:
+    ```go
+    options.StackInputs = map[string]interface{}{
+        "input1": "value1",
+        "input2": 2,
+    }
+    ```
+
+#### DeployTimeoutMinutes
+- **Type**: `int`
+- **Description**: The number of minutes to wait for the stack to deploy. Also used for undeploy. Default is 6 hours. This should be set to a reasonable value for the test, the lowest maximum deploy time.
+- **Recommended**: Yes
+
+### Hooks
+
+Hooks allow you to inject custom code into the test process. Here are the available hooks:
+
+- **PreDeployHook**: Called before the deploy.
+- **PostDeployHook**: Called after the deploy.
+- **PreUndeployHook**: Called before the undeploy. If this fails, the undeploy will continue.
+- **PostUndeployHook**: Called after the undeploy.
+
+#### Example of Setting a Hook
+```go
+options.PreDeployHook = func(options *TestProjectsOptions) error {
+    // Custom code to run before deploy
+    return nil
+}
+```
 ___
 ## Contributing
 
