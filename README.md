@@ -254,7 +254,7 @@ For more customization, see the `ibmcloud-terratest-wrapper` reference at pkg.go
 ---
 ## IBM Cloud Projects
 
-IBM Cloud Projects support has been added and is now available in the first release. This section explains how to use the test wrapper for testing IBM Cloud Projects.
+This section explains how to use the test wrapper for testing IBM Cloud Projects.
 
 ### Example Usage
 
