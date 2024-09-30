@@ -56,6 +56,7 @@ type TestProjectsOptions struct {
 	ProjectsApiURL string
 
 	// ConfigrationPath Path to the configuration file that will be used to create the project.
+	// Deprecated: Use StackConfigurationPath instead.
 	ConfigrationPath string
 	// StackConfigurationPath Path to the configuration file that will be used to create the stack.
 	StackConfigurationPath string
