@@ -117,6 +117,8 @@ type TestProjectsOptions struct {
 	PostDeployHook   func(options *TestProjectsOptions) error // In upgrade tests, this hook will be called after the deploy
 	PreUndeployHook  func(options *TestProjectsOptions) error // If this fails, the undeploy will continue
 	PostUndeployHook func(options *TestProjectsOptions) error
+
+	Logger *common.TestLogger
 }
 
 // TestProjectOptionsDefault Default constructor for TestProjectsOptions
