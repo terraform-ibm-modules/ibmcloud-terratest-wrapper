@@ -855,7 +855,10 @@ func (options *TestProjectsOptions) executeProjectTearDown() bool {
 func (options *TestProjectsOptions) testSetup() error {
 
 	// setup logger
-	options.Logger = common.NewTestLogger(options.Testing.Name())
+	if options.Logger == nil {
+		options.Logger = common.NewTestLogger(options.Testing.Name())
+	}
+
 	if options.ProjectName != "" {
 		options.Logger.SetPrefix(fmt.Sprintf("PROJECTS - %s", options.ProjectName))
 	} else {
