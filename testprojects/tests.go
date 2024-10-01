@@ -6,6 +6,7 @@ import (
 	"github.com/gruntwork-io/terratest/modules/logger"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,48 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
+
+// Status is a struct of the status strings
+type Status struct {
+	DEPLOYED              string
+	DEPLOYING             string
+	DEPLOYING_FAILED      string
+	VALIDATED             string
+	VALIDATING            string
+	VALIDATING_FAILED     string
+	AWAITING_VALIDATION   string
+	APPROVED              string
+	DRAFT                 string
+	AWAITING_PREREQUISITE string
+	AWAITING_INPUT        string
+	NIL                   string
+	UNKOWN                string
+}
+
+// Statuses is a map of the status strings to colorized strings
+var Statuses = map[string]string{
+	project.ProjectConfig_State_Deployed:                     common.ColorizeString(common.Colors.Green, project.ProjectConfig_State_Deployed),
+	project.ProjectConfig_State_Deploying:                    common.ColorizeString(common.Colors.Orange, project.ProjectConfig_State_Deploying),
+	project.ProjectConfig_State_DeployingFailed:              common.ColorizeString(common.Colors.Red, project.ProjectConfig_State_DeployingFailed),
+	project.ProjectConfig_State_Undeploying:                  common.ColorizeString(common.Colors.Orange, project.ProjectConfig_State_Undeploying),
+	project.ProjectConfig_State_UndeployingFailed:            common.ColorizeString(common.Colors.Red, project.ProjectConfig_State_UndeployingFailed),
+	project.ProjectConfig_State_Validated:                    common.ColorizeString(common.Colors.Green, project.ProjectConfig_State_Validated),
+	project.ProjectConfig_State_Validating:                   common.ColorizeString(common.Colors.Orange, project.ProjectConfig_State_Validating),
+	project.ProjectConfig_State_ValidatingFailed:             common.ColorizeString(common.Colors.Red, project.ProjectConfig_State_ValidatingFailed),
+	project.ProjectConfig_State_Approved:                     common.ColorizeString(common.Colors.Green, project.ProjectConfig_State_Approved),
+	project.ProjectConfig_State_Draft:                        common.ColorizeString(common.Colors.Blue, project.ProjectConfig_State_Draft),
+	project.ProjectConfig_State_ApplyFailed:                  common.ColorizeString(common.Colors.Red, project.ProjectConfig_State_ApplyFailed),
+	project.ProjectConfig_State_Deleting:                     common.ColorizeString(common.Colors.Orange, project.ProjectConfig_State_Deleting),
+	project.ProjectConfig_State_DeletingFailed:               common.ColorizeString(common.Colors.Red, project.ProjectConfig_State_DeletingFailed),
+	project.ProjectConfig_State_Deleted:                      common.ColorizeString(common.Colors.Green, project.ProjectConfig_State_Deleted),
+	project.ProjectConfig_StateCode_AwaitingValidation:       common.ColorizeString(common.Colors.Yellow, project.ProjectConfig_StateCode_AwaitingValidation),
+	project.ProjectConfig_StateCode_AwaitingPrerequisite:     common.ColorizeString(common.Colors.Yellow, project.ProjectConfig_StateCode_AwaitingPrerequisite),
+	project.ProjectConfig_StateCode_AwaitingInput:            common.ColorizeString(common.Colors.Yellow, project.ProjectConfig_StateCode_AwaitingInput),
+	project.ProjectConfig_StateCode_AwaitingMemberDeployment: common.ColorizeString(common.Colors.Yellow, project.ProjectConfig_StateCode_AwaitingMemberDeployment),
+	project.ProjectConfig_StateCode_AwaitingStackSetup:       common.ColorizeString(common.Colors.Yellow, project.ProjectConfig_StateCode_AwaitingStackSetup),
+	"nil":     common.ColorizeString(common.Colors.Red, "nil"),
+	"Unknown": common.ColorizeString(common.Colors.Purple, "Unknown"),
+}
 
 func (options *TestProjectsOptions) ConfigureTestStack() error {
 	// Configure the test stack
@@ -148,7 +191,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 			}
 
 			if member.State == nil {
-				memberStates = append(memberStates, fmt.Sprintf("%s%s state is nil, skipping this time", memberLabel, memberName))
+				memberStates = append(memberStates, fmt.Sprintf("%s%s state is %s, skipping this time", memberLabel, memberName, Statuses["nil"]))
 				// assume deployable state
 				deployableState = true
 				continue
@@ -159,9 +202,9 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				stateCode = *member.StateCode
 			}
 			if *member.State == project.ProjectConfig_State_Deployed {
-				memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, *member.State))
+				memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, Statuses[*member.State]))
 			} else {
-				memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s and state code: %s", memberLabel, memberName, *member.State, stateCode))
+				memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s and state code: %s", memberLabel, memberName, Statuses[*member.State], Statuses[stateCode]))
 				if stateCode == "Unknown" {
 					// assume blip and mark deployable
 					deployableState = true
@@ -172,56 +215,41 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				*member.StateCode == project.ProjectConfig_StateCode_AwaitingValidation) {
 				deployableState = true
 			}
-			if *member.State == project.ProjectConfig_State_Validating {
-				currentDeployStatus = fmt.Sprintf("%s%s%s is still validating\n", currentDeployStatus, memberLabel, memberName)
-				deployableState = true
-			} else if *member.State == project.ProjectConfig_State_Deploying {
-				currentDeployStatus = fmt.Sprintf("%s%s%s is still deploying\n", currentDeployStatus, memberLabel, memberName)
-				deployableState = true
-			} else if *member.State == project.ProjectConfig_State_Deployed {
-				currentDeployStatus = fmt.Sprintf("%s%s%s is deployed\n", currentDeployStatus, memberLabel, memberName)
-			} else if *member.State == project.ProjectConfig_State_Approved {
-				currentDeployStatus = fmt.Sprintf("%s%s%s is approved\n", currentDeployStatus, memberLabel, memberName)
-			} else if member.StateCode != nil && *member.StateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite {
-				currentDeployStatus = fmt.Sprintf("%s%s%s is awaiting prerequisite\n", currentDeployStatus, memberLabel, memberName)
-			} else if *member.State == project.ProjectConfig_State_ValidatingFailed {
-				// fail deployment and get the error
-				deployableState = false
-				failed = true
-				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName)
-				options.Logger.ShortError(terraLogs)
-				errorList = append(errorList, fmt.Errorf(logMessage))
-			} else if *member.State == project.ProjectConfig_State_DeployingFailed {
-				deployableState = false
-				failed = true
-				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName)
-				options.Logger.ShortError(terraLogs)
-				errorList = append(errorList, fmt.Errorf(logMessage))
-			} else if *member.State == project.ProjectConfig_State_Draft {
-				options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Something unexpected happened on the backend attempting re-trigger deploy", memberName, *member.State, stateCode))
-				// Something happened re-trigger deploy
-				trigErrs := options.TriggerDeploy()
-				if trigErrs != nil {
-					var terr *core.SDKProblem
-					errors.As(trigErrs, &terr)
-					if terr.IBMProblem.Summary == "Not Modified" {
-						// continue assume still deploying
-						options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Trigger Deploy returned Not Modified, continuing", memberName, *member.State, stateCode))
-						currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, not triggered, no changes, continuing assuming still deploying\n", currentDeployStatus, memberLabel, memberName, *member.State)
-					} else {
-						options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Something unexpected happened on the backend attempting re-trigger deploy failed, continuing assuming still deploying\n%s", memberName, *member.State, stateCode, trigErrs))
-						currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, error triggering, continuing assuming still deploying\n", currentDeployStatus, memberLabel, memberName, *member.State)
-					}
-				} else {
-					currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, attempting to re-trigger deploy\n", currentDeployStatus, memberLabel, memberName, *member.State)
 
-				}
-			} else {
-				if member.State == nil {
-					currentDeployStatus = fmt.Sprintf("%s%s%s is in an unknown state\n", currentDeployStatus, memberLabel, memberName)
+			switch *member.State {
+			case project.ProjectConfig_State_Validating, project.ProjectConfig_State_Deploying:
+				currentDeployStatus = fmt.Sprintf("%s%s%s is still %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
+				deployableState = true
+			case project.ProjectConfig_State_Deployed, project.ProjectConfig_State_Approved:
+				currentDeployStatus = fmt.Sprintf("%s%s%s is %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
+			case project.ProjectConfig_State_ValidatingFailed, project.ProjectConfig_State_DeployingFailed:
+				deployableState = false
+				failed = true
+				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName)
+				options.Logger.ShortError(terraLogs)
+				errorList = append(errorList, fmt.Errorf(logMessage))
+			case project.ProjectConfig_State_Draft:
+				if stateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite {
+					currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
 				} else {
-					currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s\n", currentDeployStatus, memberLabel, memberName, *member.State)
+					options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Something unexpected happened on the backend attempting re-trigger deploy", memberName, Statuses[*member.State], Statuses[stateCode]))
+					trigErrs := options.TriggerDeploy()
+					if trigErrs != nil {
+						var terr *core.SDKProblem
+						errors.As(trigErrs, &terr)
+						if terr.IBMProblem.Summary == "Not Modified" {
+							options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Trigger Deploy returned Not Modified, continuing", memberName, Statuses[*member.State], Statuses[stateCode]))
+							currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, not triggered, no changes, continuing assuming still deploying\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
+						} else {
+							options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Something unexpected happened on the backend attempting re-trigger deploy failed, continuing assuming still deploying\n%s", memberName, Statuses[*member.State], Statuses[stateCode], trigErrs))
+							currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, error triggering, continuing assuming still deploying\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
+						}
+					} else {
+						currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, attempting to re-trigger deploy\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
+					}
 				}
+			default:
+				currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
 			}
 		}
 
@@ -260,18 +288,18 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 							stateCode = *member.StateCode
 						}
 						if cloudinfo.ProjectsMemberIsDeploying(member) || (*member.State == project.ProjectConfig_State_Draft && stateCode != project.ProjectConfig_StateCode_AwaitingPrerequisite) {
-							memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s and state code: %s", memberLabel, memberName, *member.State, stateCode))
+							memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s and state code: %s", memberLabel, memberName, Statuses[*member.State], Statuses[stateCode]))
 							deployableMembers++
 						} else if *member.State == project.ProjectConfig_State_Deployed {
-							memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s, current state code:%s", memberLabel, memberName, *member.State, stateCode))
+							memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s, current state code:%s", memberLabel, memberName, Statuses[*member.State], Statuses[stateCode]))
 							deployableMembers++
 						} else {
-							memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s, current state code:%s", memberLabel, memberName, *member.State, stateCode))
+							memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s, current state code:%s", memberLabel, memberName, Statuses[*member.State], Statuses[stateCode]))
 						}
 					}
 					if memberCount == deployableMembers {
 						var stackStatusMessage strings.Builder
-						stackStatusMessage.WriteString(fmt.Sprintf("Stack is still deploying, current state: %s and state code: %s", *stackDetails.State, *stackDetails.StateCode))
+						stackStatusMessage.WriteString(fmt.Sprintf("Stack is still deploying, current state: %s and state code: %s", Statuses[*stackDetails.State], Statuses[*stackDetails.StateCode]))
 						for _, memState := range memberStates {
 							stackStatusMessage.WriteString(memState)
 						}
@@ -304,32 +332,24 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 			errorList = append(errorList, fmt.Errorf("stackDetails state is nil"))
 			return errorList
 		}
-		if *stackDetails.State == project.ProjectConfig_State_ApplyFailed {
-			// get the error message and add to errorList
-			errorList = append(errorList, fmt.Errorf("failed with state %s", *stackDetails.State))
 
-			failed = true
-		}
-		if *stackDetails.State == project.ProjectConfig_State_DeployingFailed {
-			// get the error message and add to errorList
-			errorList = append(errorList, fmt.Errorf("failed with state %s", *stackDetails.State))
-			failed = true
-		}
-		if *stackDetails.State == project.ProjectConfig_State_ValidatingFailed {
-			// get the error message and add to errorList
-			errorList = append(errorList, fmt.Errorf("failed with state %s", *stackDetails.State))
+		switch *stackDetails.State {
+		case project.ProjectConfig_State_ApplyFailed, project.ProjectConfig_State_DeployingFailed, project.ProjectConfig_State_ValidatingFailed:
+			errorList = append(errorList, fmt.Errorf("failed with state %s", Statuses[*stackDetails.State]))
 			failed = true
 		}
 
 		if failed {
-			options.Logger.ShortError(fmt.Sprintf("Stack Deploy Failed, current state: %s\n%s", *stackDetails.State, currentDeployStatus))
+			options.Logger.ShortError(fmt.Sprintf("Stack Deploy Failed, current state: %s\n%s", Statuses[*stackDetails.State], currentDeployStatus))
 			return errorList
 		}
+
 		if stackDetails.StateCode == nil {
 			options.Logger.ShortInfo("Stack state code is nil, skipping this time")
 			time.Sleep(time.Duration(30) * time.Second)
 			continue
 		}
+
 		if *stackDetails.State == project.ProjectConfig_State_Deployed &&
 			*stackDetails.StateCode != project.ProjectConfig_StateCode_AwaitingMemberDeployment &&
 			*stackDetails.StateCode != project.ProjectConfig_StateCode_AwaitingPrerequisite &&
@@ -337,9 +357,9 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 			*stackDetails.StateCode != project.ProjectConfig_StateCode_AwaitingValidation {
 			deployComplete = true
 
-			options.Logger.ShortInfo(fmt.Sprintf("Stack Deployed Successfully, current state: %s and state code: %s", *stackDetails.State, *stackDetails.StateCode))
+			options.Logger.ShortInfo(fmt.Sprintf("Stack Deployed Successfully, current state: %s and state code: %s", Statuses[*stackDetails.State], Statuses[*stackDetails.StateCode]))
 		} else {
-			options.Logger.ShortInfo(fmt.Sprintf("Stack is still deploying, current state: %s and state code: %s\n%s", *stackDetails.State, *stackDetails.StateCode, currentDeployStatus))
+			options.Logger.ShortInfo(fmt.Sprintf("Stack is still deploying, current state: %s and state code: %s\n%s", Statuses[*stackDetails.State], Statuses[*stackDetails.StateCode], currentDeployStatus))
 			time.Sleep(time.Duration(30) * time.Second)
 		}
 	}
@@ -364,7 +384,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 	if stackDetails.StateCode != nil {
 		stateCode = *stackDetails.StateCode
 	}
-	options.Logger.ShortInfo(fmt.Sprintf("Stacks final state: %s, state code: %s", *stackDetails.State, stateCode))
+	options.Logger.ShortInfo(fmt.Sprintf("Stacks final state: %s, state code: %s", Statuses[*stackDetails.State], Statuses[stateCode]))
 
 	return nil
 }
@@ -410,9 +430,9 @@ func (options *TestProjectsOptions) TriggerUnDeploy() (bool, []error) {
 				*stackDetails.State != project.ProjectConfig_State_Deploying &&
 				*stackDetails.State != project.ProjectConfig_State_Undeploying {
 				readyForUndeploy = true
-				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, ready for undeploy", *stackDetails.State, stateCode))
+				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, ready for undeploy", Statuses[*stackDetails.State], Statuses[stateCode]))
 			} else {
-				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, waiting for all members to complete", *stackDetails.State, stateCode))
+				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, waiting for all members to complete", Statuses[*stackDetails.State], Statuses[stateCode]))
 			}
 			// then double check if any configuration is still in VALIDATING, DEPLOYING, or UNDEPLOYING state
 			for _, member := range stackMembers {
@@ -422,7 +442,7 @@ func (options *TestProjectsOptions) TriggerUnDeploy() (bool, []error) {
 					if err != nil {
 						memberName = fmt.Sprintf("Unknown name, ID: %s", *member.ID)
 					}
-					options.Logger.ShortInfo(fmt.Sprintf("Member %s is still in state %s, waiting for all members to complete", memberName, *member.State))
+					options.Logger.ShortInfo(fmt.Sprintf("Member %s is still in state %s, waiting for all members to complete", memberName, Statuses[*member.State]))
 					time.Sleep(time.Duration(30) * time.Second)
 				}
 			}
@@ -518,19 +538,19 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 					}
 
 					if *member.State == project.ProjectConfig_State_Undeploying {
-						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, *member.State))
+						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, Statuses[*member.State]))
 					} else if *member.State == project.ProjectConfig_State_UndeployingFailed {
-						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, *member.State))
+						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, Statuses[*member.State]))
 						undeployableState = false
 						failed = true
 						logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName)
 						options.Logger.ShortError(terraLogs)
 						errorList = append(errorList, fmt.Errorf("(%s) failed Undeployment\n%s", memberName, logMessage))
 					} else if cloudinfo.ProjectsMemberIsUndeployed(member) {
-						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, *member.State))
+						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, Statuses[*member.State]))
 						undeployedCount++
 					} else {
-						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, *member.State))
+						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, Statuses[*member.State]))
 						undeployableState = false
 					}
 				}
@@ -547,13 +567,13 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 					if *stackDetails.State == project.ProjectConfig_State_UndeployingFailed {
 						undeployableState = false
 						failed = true
-						errorList = append(errorList, fmt.Errorf("undeploy stack failed with state %s", *stackDetails.State))
+						errorList = append(errorList, fmt.Errorf("undeploy stack failed with state %s", Statuses[*stackDetails.State]))
 					} else if *stackDetails.State == project.ProjectConfig_State_Draft && stateCode == project.ProjectConfig_StateCode_AwaitingMemberDeployment {
 						// Treat draft state with awaiting_member_deployment as complete undeploy
 						undeployComplete = true
-						options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with state code %s, treating as complete undeploy", *stackDetails.State, stateCode))
+						options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with state code %s, treating as complete undeploy", Statuses[*stackDetails.State], Statuses[stateCode]))
 					} else {
-						options.Logger.ShortInfo(fmt.Sprintf("Stack is still undeploying, current state: %s and state code: %s\n%s", *stackDetails.State, stateCode, currentUndeployStatus+strings.Join(memberStates, "\n")))
+						options.Logger.ShortInfo(fmt.Sprintf("Stack is still undeploying, current state: %s and state code: %s\n%s", Statuses[*stackDetails.State], Statuses[stateCode], currentUndeployStatus+strings.Join(memberStates, "\n")))
 						time.Sleep(30 * time.Second)
 					}
 				}
@@ -581,9 +601,15 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 			if stackDetails.StateCode != nil {
 				stateCode = *stackDetails.StateCode
 			}
-			options.Logger.ShortInfo(fmt.Sprintf("Stacks final state: %s, state code: %s", *stackDetails.State, stateCode))
-			options.Logger.ShortInfo(fmt.Sprintf("%d/%d members undeployed", totalMembers, undeployedCount))
-			options.Logger.ShortInfo("Undeploy completed successfully")
+			options.Logger.ShortInfo(fmt.Sprintf("Stacks final state: %s, state code: %s", Statuses[*stackDetails.State], Statuses[stateCode]))
+			// check the counts and if undeployed count is less than total members make it red
+			if undeployedCount < totalMembers {
+				options.Logger.ShortError(fmt.Sprintf("Stack undeploy failed, current state: %s, undeployed count: %d, total members: %d", Statuses[*stackDetails.State], undeployedCount, totalMembers))
+				options.Logger.ShortInfo("Undeploy completed unsuccessfully")
+			} else {
+				options.Logger.ShortInfo(fmt.Sprintf("%s/%s members undeployed", common.ColorizeString(common.Colors.Green, strconv.Itoa(undeployedCount)), common.ColorizeString(common.Colors.Green, strconv.Itoa(totalMembers))))
+				options.Logger.ShortInfo("Undeploy completed successfully")
+			}
 		}
 	}
 	return nil

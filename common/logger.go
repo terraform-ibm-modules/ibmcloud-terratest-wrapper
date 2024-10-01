@@ -20,6 +20,12 @@ type Color struct {
 	Yellow string
 	// Blue ANSI color code
 	Blue string
+	// Orange ANSI color code
+	Orange string
+	// Purple ANSI color code
+	Purple string
+	// Cyan ANSI color code
+	Cyan string
 }
 
 // Colors instance to access color codes
@@ -29,6 +35,9 @@ var Colors = Color{
 	Green:  "\033[32m",
 	Yellow: "\033[33m",
 	Blue:   "\033[34m",
+	Orange: "\033[38;5;208m",
+	Purple: "\033[35m",
+	Cyan:   "\033[36m",
 }
 
 // ColorizeString returns a string with the specified color
