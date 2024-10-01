@@ -6,16 +6,73 @@ import (
 
 type CatalogJson struct {
 	Products []struct {
-		Label           string   `json:"label"`
-		Name            string   `json:"name"`
-		ProductKind     string   `json:"product_kind"`
-		Tags            []string `json:"tags"`
-		OfferingIconUrl string   `json:"offering_icon_url"`
-		Flavors         []struct {
-			Compliance struct {
+		Label            string   `json:"label"`
+		Name             string   `json:"name"`
+		ProductKind      string   `json:"product_kind"`
+		Tags             []string `json:"tags"`
+		Keywords         []string `json:"keywords"`
+		ShortDescription string   `json:"short_description"`
+		LongDescription  string   `json:"long_description"`
+		OfferingDocsURL  string   `json:"offering_docs_url"`
+		OfferingIconURL  string   `json:"offering_icon_url"`
+		ProviderName     string   `json:"provider_name"`
+		Features         []struct {
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		} `json:"features"`
+		SupportDetails string `json:"support_details"`
+		Flavors        []struct {
+			Label            string `json:"label"`
+			Name             string `json:"name"`
+			WorkingDirectory string `json:"working_directory"`
+			Compliance       struct {
+				Authority string `json:"authority"`
+				Profiles  []struct {
+					ProfileName    string `json:"profile_name"`
+					ProfileVersion string `json:"profile_version"`
+				} `json:"profiles"`
 			} `json:"compliance"`
+			IamPermissions []struct {
+				ServiceName string   `json:"service_name"`
+				RoleCrns    []string `json:"role_crns"`
+			} `json:"iam_permissions"`
 			Architecture struct {
+				Features []struct {
+					Title       string `json:"title"`
+					Description string `json:"description"`
+				} `json:"features"`
+				Diagrams []struct {
+					Diagram struct {
+						URL          string `json:"url"`
+						Caption      string `json:"caption"`
+						Type         string `json:"type"`
+						ThumbnailURL string `json:"thumbnail_url"`
+					} `json:"diagram"`
+					Description string `json:"description"`
+				} `json:"diagrams"`
 			} `json:"architecture"`
+			Configuration []struct {
+				Key          string `json:"key"`
+				Type         string `json:"type"`
+				Description  string `json:"description"`
+				DefaultValue string `json:"default_value"`
+				Required     bool   `json:"required"`
+				DisplayName  string `json:"display_name,omitempty"`
+				CustomConfig struct {
+					Type             string `json:"type"`
+					Grouping         string `json:"grouping"`
+					OriginalGrouping string `json:"original_grouping"`
+				} `json:"custom_config,omitempty"`
+				Options []struct {
+					DisplayName string `json:"displayname"`
+					Value       string `json:"value"`
+				} `json:"options,omitempty"`
+			} `json:"configuration"`
+			Outputs []struct {
+				Key         string `json:"key"`
+				Description string `json:"description"`
+			} `json:"outputs"`
+			InstallType string `json:"install_type"`
 		} `json:"flavors"`
 	} `json:"products"`
 }
@@ -59,6 +116,11 @@ type ConfigDetails struct {
 	StackDefinition *project.StackDefinitionBlockPrototype
 	EnvironmentID   *string
 	Members         []project.StackConfigMember
+
+	// CatalogProductName The name of the product in the catalog. Defaults to the first product in the catalog.
+	CatalogProductName string
+	// CatalogFlavorName The name of the flavor in the catalog. Defaults to the first flavor in the catalog.
+	CatalogFlavorName string
 }
 
 // ProjectsConfig Config for creating a project

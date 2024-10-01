@@ -1,0 +1,51 @@
+{
+  "inputs": [],
+  "outputs": [
+    {
+      "name": "output1",
+      "value": "ref:../member1/outputs/output1"
+    },
+    {
+      "name": "output2",
+      "value": "ref:../member2/outputs/output2"
+    }
+  ],
+  "members": [
+    {
+      "inputs": [
+        {
+          "name": "input1",
+          "value": "ref:../../inputs/input1"
+        },
+        {
+          "name": "input2",
+          "value": 20
+        },
+        {
+          "name": "input3",
+          "value": "value3"
+        }
+      ],
+      "name": "member1",
+      "version_locator": "version1"
+    },
+    {
+      "inputs": [
+        {
+          "name": "input1",
+          "value": "ref:../../inputs/input1"
+        },
+        {
+          "name": "input2",
+          "value": 30
+        },
+        {
+          "name": "input3",
+          "value": "value3"
+        }
+      ],
+      "name": "member2",
+      "version_locator": "version2"
+    }
+  ]
+}

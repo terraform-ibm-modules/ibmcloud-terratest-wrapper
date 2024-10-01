@@ -23,8 +23,10 @@ func (options *TestProjectsOptions) ConfigureTestStack() error {
 	var stackResp *core.DetailedResponse
 	var stackErr error
 	options.currentStackConfig = &cloudinfo.ConfigDetails{
-		ProjectID: *options.currentProject.ID,
-		Inputs:    options.StackInputs,
+		ProjectID:          *options.currentProject.ID,
+		Inputs:             options.StackInputs,
+		CatalogProductName: options.CatalogProductName,
+		CatalogFlavorName:  options.CatalogFlavorName,
 	}
 	options.currentStack, stackResp, stackErr = options.CloudInfoService.CreateStackFromConfigFile(options.currentStackConfig, options.StackConfigurationPath, options.StackCatalogJsonPath)
 	if !assert.NoError(options.Testing, stackErr) {

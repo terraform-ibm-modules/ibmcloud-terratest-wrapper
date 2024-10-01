@@ -158,22 +158,12 @@ func (infoSvc *CloudInfoService) CreateConfigFromCatalogJson(configDetails *Conf
 		log.Println("Error unmarshaling catalog JSON:", err)
 		return nil, nil, err
 	}
+	// TODO: Validate inputs are valid for the stack
 
 	// TODO: override inputs with values from catalogConfig
 	configDetails.Name = catalogConfig.Products[0].Name
 	configDetails.Description = catalogConfig.Products[0].Label
 	return infoSvc.CreateConfig(configDetails)
-}
-
-func (infoSvc *CloudInfoService) AddStackFromConfig(configDetails *ConfigDetails) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
-
-	createStackDefinitionOptions := &project.CreateStackDefinitionOptions{
-		ProjectID:       &configDetails.ProjectID,
-		ID:              &configDetails.ConfigID,
-		StackDefinition: configDetails.StackDefinition,
-	}
-
-	return infoSvc.projectsService.CreateStackDefinition(createStackDefinitionOptions)
 }
 
 func (infoSvc *CloudInfoService) CreateNewStack(stackConfig *ConfigDetails) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
@@ -214,46 +204,6 @@ func (infoSvc *CloudInfoService) UpdateStackFromConfig(stackConfig *ConfigDetail
 		StackDefinition: stackConfig.StackDefinition,
 	}
 	return infoSvc.projectsService.UpdateStackDefinition(updateStackDefinitionOptions)
-}
-
-func (infoSvc *CloudInfoService) AddStackFromFile(stackConfig *ConfigDetails, configFilePath string, catalogJsonPath string) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
-	// Read the config JSON file
-	jsonFile, err := os.ReadFile(configFilePath)
-	if err != nil {
-		log.Println("Error reading config JSON file:", err)
-		return nil, nil, err
-	}
-
-	// Create a new variable of type Struct
-	var config Stack
-
-	// Unmarshal the JSON data into the config variable
-	err = json.Unmarshal(jsonFile, &config)
-	if err != nil {
-		log.Println("Error unmarshaling JSON:", err)
-		return nil, nil, err
-	}
-
-	projectConfig, _, configErr := infoSvc.CreateConfigFromCatalogJson(stackConfig, catalogJsonPath)
-	if configErr != nil {
-		log.Println("Error creating config from catalog JSON:", configErr)
-		return nil, nil, configErr
-	}
-
-	stackConfig.ConfigID = *projectConfig.ID
-	if stackConfig.StackDefinition == nil {
-		stackConfig.StackDefinition = &project.StackDefinitionBlockPrototype{}
-	}
-
-	// Unmarshal the JSON data into the config variable
-	err = json.Unmarshal(jsonFile, &stackConfig)
-	if err != nil {
-		log.Fatal("Error unmarshaling JSON:", err)
-		return nil, nil, err
-	}
-
-	return infoSvc.UpdateStackFromConfig(stackConfig)
-
 }
 
 func (infoSvc *CloudInfoService) ForceValidateProjectConfig(configDetails *ConfigDetails) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
@@ -508,11 +458,49 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 		log.Println("Error unmarshaling catalog JSON:", err)
 		return nil, nil, err
 	}
-	// TODO: override inputs with values from catalogConfig
-	// Probably needs CatalogJson to have a map of inputs
 
-	stackConfig.Name = catalogConfig.Products[0].Name
-	stackConfig.Description = catalogConfig.Products[0].Label
+	var catalogProductIndex int
+	if stackConfig.CatalogProductName == "" {
+		catalogProductIndex = 0
+	} else {
+		for i, product := range catalogConfig.Products {
+			if product.Name == stackConfig.CatalogProductName {
+				catalogProductIndex = i
+				break
+			}
+		}
+	}
+	var catalogFlavorIndex int
+	if stackConfig.CatalogFlavorName == "" {
+		catalogFlavorIndex = 0
+	} else {
+		for i, flavor := range catalogConfig.Products[catalogProductIndex].Flavors {
+			if flavor.Name == stackConfig.CatalogFlavorName {
+				catalogFlavorIndex = i
+				break
+			}
+		}
+	}
+
+	// TODO: if stack_def not set use the working dir from the flavor to set it, catalog json will need to be processed first
+	stackConfig.Name = fmt.Sprintf("%s-%s", catalogConfig.Products[catalogProductIndex].Label, catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Label)
+	// description: product label - flavor label
+	stackConfig.Description = fmt.Sprintf("%s-%s", catalogConfig.Products[catalogProductIndex].Label, catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Label)
+	// TODO: validate the flavors inputs are in the stack inputs
+	//"configuration": [
+	//						{
+	//							"key": "prefix",
+	//							"type": "string",
+	//							"description": "A prefix added to the name of all resources created by this solution. Used to avoid name clashes in the target account when existing this solution multiple times.",
+	//							"default_value": "rag",
+	//							"required": true
+	//						},
+	//						{
+	//							"key": "ibmcloud_api_key",
+	//							"type": "password",
+	//							"description": "The API Key used to provision all resources created in this solution.",
+	//							"required": true
+	//						},
 
 	return infoSvc.CreateNewStack(stackConfig)
 }
