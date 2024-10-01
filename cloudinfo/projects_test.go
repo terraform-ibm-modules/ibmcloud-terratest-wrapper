@@ -270,6 +270,7 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 	testCases := []struct {
 		name            string
 		stackConfig     *ConfigDetails
+		stackDef        *projects.StackDefinitionBlock
 		stackConfigPath string
 		catalogJsonPath string
 		expectedInputs  map[string]interface{}
@@ -278,9 +279,24 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			name: "Inputs from current stack configuration",
 			stackConfig: &ConfigDetails{
 				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
 				Inputs: map[string]interface{}{
 					"input1": "value1",
 					"input2": 2,
+				},
+			},
+			stackDef: &projects.StackDefinitionBlock{
+				Inputs: []projects.StackDefinitionInputVariable{
+					{
+						Name:     core.StringPtr("input1"),
+						Type:     core.StringPtr("string"),
+						Required: core.BoolPtr(true),
+					},
+					{
+						Name:     core.StringPtr("input2"),
+						Type:     core.StringPtr("int"),
+						Required: core.BoolPtr(true),
+					},
 				},
 			},
 			stackConfigPath: "testdata/stack_definition_stack_inputs.json",
@@ -294,7 +310,9 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			name: "Default values from ibm_catalog.json",
 			stackConfig: &ConfigDetails{
 				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
 			},
+			stackDef:        &projects.StackDefinitionBlock{},
 			stackConfigPath: "testdata/stack_definition_no_stack_inputs.json",
 			catalogJsonPath: "testdata/ibm_catalog_with_config_overrides.json",
 			expectedInputs: map[string]interface{}{
@@ -306,7 +324,9 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			name: "Default values from stack_definition.json",
 			stackConfig: &ConfigDetails{
 				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
 			},
+			stackDef:        &projects.StackDefinitionBlock{},
 			stackConfigPath: "testdata/stack_definition_no_stack_inputs.json",
 			catalogJsonPath: "testdata/ibm_catalog_no_config_overrides.json",
 			expectedInputs: map[string]interface{}{
@@ -335,13 +355,43 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			assert.NoError(suite.T(), err)
 
 			mockStackDefinition := &projects.StackDefinition{
-				ID: core.StringPtr("mockStackID"),
+				ID:              core.StringPtr("mockStackID"),
+				StackDefinition: tc.stackDef,
 			}
 			mockResponse := &core.DetailedResponse{StatusCode: 201}
 
-			suite.mockService.On("CreateStackDefinition", mock.Anything).Return(mockStackDefinition, mockResponse, nil)
-			suite.mockService.On("CreateConfig", mock.Anything).Return(&projects.ProjectConfig{}, mockResponse, nil)
-			suite.mockService.On("NewCreateConfigOptions", mock.Anything, mock.Anything).Return(&projects.CreateConfigOptions{}, nil)
+			mockConfig := &projects.ProjectConfig{
+				ID: core.StringPtr("12345"),
+			}
+			suite.mockService.On("CreateStackDefinition", mock.Anything).Run(func(args mock.Arguments) {
+				stackDefinitionOptions := args.Get(0).(*projects.CreateStackDefinitionOptions)
+				mockStackDefinition.ID = stackDefinitionOptions.ID
+			}).Return(mockStackDefinition, mockResponse, nil)
+
+			suite.mockService.On("CreateConfig", mock.Anything).Run(func(args mock.Arguments) {
+				configOptions := args.Get(0).(*projects.CreateConfigOptions)
+				mockConfig.ID = configOptions.ProjectID
+			}).Return(mockConfig, mockResponse, nil)
+
+			suite.mockService.On("NewCreateStackDefinitionOptions", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+				projectID := args.String(0)
+				configID := args.String(1)
+				stackDefinition := args.Get(2).(*projects.StackDefinitionBlockPrototype)
+				args[0] = &projects.CreateStackDefinitionOptions{
+					ProjectID:       core.StringPtr(projectID),
+					ID:              core.StringPtr(configID),
+					StackDefinition: stackDefinition,
+				}
+			}).Return(func(args mock.Arguments) *projects.CreateStackDefinitionOptions {
+				projectID := args.String(0)
+				configID := args.String(1)
+				stackDefinition := args.Get(2).(*projects.StackDefinitionBlockPrototype)
+				return &projects.CreateStackDefinitionOptions{
+					ProjectID:       core.StringPtr(projectID),
+					ID:              core.StringPtr(configID),
+					StackDefinition: stackDefinition,
+				}
+			}, nil)
 
 			result, response, err := suite.infoSvc.CreateStackFromConfigFile(tc.stackConfig, tc.stackConfigPath, tc.catalogJsonPath)
 
