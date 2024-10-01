@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"strings"
 )
 
 // Color struct to hold ANSI color codes
@@ -77,23 +78,37 @@ func (t *TestLogger) EnableDateTime(enable bool) {
 // logWithCaller logs a message with the caller's file and line number
 func (t *TestLogger) logWithCaller(level, message, color string) {
 	_, file, line, ok := runtime.Caller(2)
-	coloredLevel := ColorizeString(color, level)
-	coloredPrefix := ColorizeString(color, fmt.Sprintf("[%s - %s]", t.testName, t.prefix))
 	if ok {
-		t.logger.Printf("%s %s %s:%d %s", coloredLevel, coloredPrefix, file, line, message)
+		// Extract only the file name from the full path
+		file = file[strings.LastIndex(file, "/")+1:]
+	}
+	coloredLevel := ColorizeString(color, level)
+	var coloredPrefix string
+	if t.prefix != "" {
+		coloredPrefix = ColorizeString(color, fmt.Sprintf("[%s - %s]", t.testName, t.prefix))
 	} else {
-		t.logger.Printf("%s %s %s", coloredLevel, coloredPrefix, message)
+		coloredPrefix = ColorizeString(color, fmt.Sprintf("[%s]", t.testName))
+	}
+	if ok {
+		t.logger.Printf("%s: %s %s:%d %s", coloredLevel, coloredPrefix, file, line, message)
+	} else {
+		t.logger.Printf("%s: %s %s", coloredLevel, coloredPrefix, message)
 	}
 }
 
 // logWithoutCaller logs a message without the caller's file and line number
 func (t *TestLogger) logWithoutCaller(level, message, color string) {
 	coloredLevel := ColorizeString(color, level)
-	coloredPrefix := ColorizeString(color, fmt.Sprintf("[%s - %s]", t.testName, t.prefix))
+	var coloredPrefix string
+	if t.prefix != "" {
+		coloredPrefix = ColorizeString(color, fmt.Sprintf("[%s - %s]", t.testName, t.prefix))
+	} else {
+		coloredPrefix = ColorizeString(color, fmt.Sprintf("[%s]", t.testName))
+	}
 	if level == "" {
 		t.logger.Printf("%s %s", coloredPrefix, message)
 	} else {
-		t.logger.Printf("%s %s %s", coloredLevel, coloredPrefix, message)
+		t.logger.Printf("%s: %s %s", coloredLevel, coloredPrefix, message)
 	}
 }
 
@@ -125,4 +140,14 @@ func (t *TestLogger) ShortDebug(message string) {
 // Debug logs a debug message
 func (t *TestLogger) Debug(message string) {
 	t.logWithCaller("DEBUG", message, Colors.Yellow)
+}
+
+// Custom logs a message with a custom level name and color
+func (t *TestLogger) Custom(level, message, color string) {
+	t.logWithCaller(level, message, color)
+}
+
+// ShortCustom logs a message with a custom color without caller information or level prefix
+func (t *TestLogger) ShortCustom(message, color string) {
+	t.logWithoutCaller("", message, color)
 }
