@@ -135,6 +135,8 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 		}
 
 		currentDeployStatus := fmt.Sprintf("%s Current Deploy Status:\n", common.ColorizeString(common.Colors.Blue, fmt.Sprintf("[STACK - %s]", options.currentStackConfig.Name)))
+		memberLabel := common.ColorizeString(common.Colors.Blue, "\t- Member: ")
+
 		// loop each member and check state
 		for _, member := range stackMembers {
 			if member.ID == nil {
@@ -146,7 +148,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 			}
 
 			if member.State == nil {
-				memberStates = append(memberStates, fmt.Sprintf(" - member: %s state is nil, skipping this time", memberName))
+				memberStates = append(memberStates, fmt.Sprintf("%s%s state is nil, skipping this time", memberLabel, memberName))
 				// assume deployable state
 				deployableState = true
 				continue
@@ -157,9 +159,9 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				stateCode = *member.StateCode
 			}
 			if *member.State == project.ProjectConfig_State_Deployed {
-				memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s", memberName, *member.State))
+				memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, *member.State))
 			} else {
-				memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s and state code: %s", memberName, *member.State, stateCode))
+				memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s and state code: %s", memberLabel, memberName, *member.State, stateCode))
 				if stateCode == "Unknown" {
 					// assume blip and mark deployable
 					deployableState = true
@@ -171,17 +173,17 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				deployableState = true
 			}
 			if *member.State == project.ProjectConfig_State_Validating {
-				currentDeployStatus = fmt.Sprintf("%s - member: %s is still validating\n", currentDeployStatus, memberName)
+				currentDeployStatus = fmt.Sprintf("%s%s%s is still validating\n", currentDeployStatus, memberLabel, memberName)
 				deployableState = true
 			} else if *member.State == project.ProjectConfig_State_Deploying {
-				currentDeployStatus = fmt.Sprintf("%s - member: %s is still deploying\n", currentDeployStatus, memberName)
+				currentDeployStatus = fmt.Sprintf("%s%s%s is still deploying\n", currentDeployStatus, memberLabel, memberName)
 				deployableState = true
 			} else if *member.State == project.ProjectConfig_State_Deployed {
-				currentDeployStatus = fmt.Sprintf("%s - member: %s is deployed\n", currentDeployStatus, memberName)
+				currentDeployStatus = fmt.Sprintf("%s%s%s is deployed\n", currentDeployStatus, memberLabel, memberName)
 			} else if *member.State == project.ProjectConfig_State_Approved {
-				currentDeployStatus = fmt.Sprintf("%s - member: %s is approved\n", currentDeployStatus, memberName)
+				currentDeployStatus = fmt.Sprintf("%s%s%s is approved\n", currentDeployStatus, memberLabel, memberName)
 			} else if member.StateCode != nil && *member.StateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite {
-				currentDeployStatus = fmt.Sprintf("%s - member: %s is awaiting prerequisite\n", currentDeployStatus, memberName)
+				currentDeployStatus = fmt.Sprintf("%s%s%s is awaiting prerequisite\n", currentDeployStatus, memberLabel, memberName)
 			} else if *member.State == project.ProjectConfig_State_ValidatingFailed {
 				// fail deployment and get the error
 				deployableState = false
@@ -205,20 +207,20 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 					if terr.IBMProblem.Summary == "Not Modified" {
 						// continue assume still deploying
 						options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Trigger Deploy returned Not Modified, continuing", memberName, *member.State, stateCode))
-						currentDeployStatus = fmt.Sprintf("%s - member: %s is in state %s, not triggered, no changes, continuing assuming still deploying\n", currentDeployStatus, memberName, *member.State)
+						currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, not triggered, no changes, continuing assuming still deploying\n", currentDeployStatus, memberLabel, memberName, *member.State)
 					} else {
 						options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Something unexpected happened on the backend attempting re-trigger deploy failed, continuing assuming still deploying\n%s", memberName, *member.State, stateCode, trigErrs))
-						currentDeployStatus = fmt.Sprintf("%s - member: %s is in state %s, error triggering, continuing assuming still deploying\n", currentDeployStatus, memberName, *member.State)
+						currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, error triggering, continuing assuming still deploying\n", currentDeployStatus, memberLabel, memberName, *member.State)
 					}
 				} else {
-					currentDeployStatus = fmt.Sprintf("%s - member: %s is in state %s, attempting to re-trigger deploy\n", currentDeployStatus, memberName, *member.State)
+					currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, attempting to re-trigger deploy\n", currentDeployStatus, memberLabel, memberName, *member.State)
 
 				}
 			} else {
 				if member.State == nil {
-					currentDeployStatus = fmt.Sprintf("%s - member: %s is in an unknown state\n", currentDeployStatus, memberName)
+					currentDeployStatus = fmt.Sprintf("%s%s%s is in an unknown state\n", currentDeployStatus, memberLabel, memberName)
 				} else {
-					currentDeployStatus = fmt.Sprintf("%s - member: %s is in state %s\n", currentDeployStatus, memberName, *member.State)
+					currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s\n", currentDeployStatus, memberLabel, memberName, *member.State)
 				}
 			}
 		}
@@ -258,13 +260,13 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 							stateCode = *member.StateCode
 						}
 						if cloudinfo.ProjectsMemberIsDeploying(member) || (*member.State == project.ProjectConfig_State_Draft && stateCode != project.ProjectConfig_StateCode_AwaitingPrerequisite) {
-							memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s and state code: %s", memberName, *member.State, stateCode))
+							memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s and state code: %s", memberLabel, memberName, *member.State, stateCode))
 							deployableMembers++
 						} else if *member.State == project.ProjectConfig_State_Deployed {
-							memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s, current state code:%s", memberName, *member.State, stateCode))
+							memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s, current state code:%s", memberLabel, memberName, *member.State, stateCode))
 							deployableMembers++
 						} else {
-							memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s, current state code:%s", memberName, *member.State, stateCode))
+							memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s, current state code:%s", memberLabel, memberName, *member.State, stateCode))
 						}
 					}
 					if memberCount == deployableMembers {
@@ -498,6 +500,8 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 				currentUndeployStatus := fmt.Sprintf("%s Current Undeploy Status:\n", common.ColorizeString(common.Colors.Blue, fmt.Sprintf("[STACK - %s]", options.currentStackConfig.Name)))
 				undeployedCount = 0
 
+				memberLabel := common.ColorizeString(common.Colors.Blue, "\t- Member: ")
+
 				for _, member := range stackMembers {
 					if member.ID == nil {
 						return []error{fmt.Errorf("member ID is nil")}
@@ -508,25 +512,25 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 					}
 
 					if member.State == nil {
-						memberStates = append(memberStates, fmt.Sprintf(" - member: %s state is nil, skipping this time", memberName))
+						memberStates = append(memberStates, fmt.Sprintf("%s%s state is nil, skipping this time", memberLabel, memberName))
 						undeployableState = false
 						continue
 					}
 
 					if *member.State == project.ProjectConfig_State_Undeploying {
-						memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s", memberName, *member.State))
+						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, *member.State))
 					} else if *member.State == project.ProjectConfig_State_UndeployingFailed {
-						memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s", memberName, *member.State))
+						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, *member.State))
 						undeployableState = false
 						failed = true
 						logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName)
 						options.Logger.ShortError(terraLogs)
 						errorList = append(errorList, fmt.Errorf("(%s) failed Undeployment\n%s", memberName, logMessage))
 					} else if cloudinfo.ProjectsMemberIsUndeployed(member) {
-						memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s", memberName, *member.State))
+						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, *member.State))
 						undeployedCount++
 					} else {
-						memberStates = append(memberStates, fmt.Sprintf(" - member: %s current state: %s", memberName, *member.State))
+						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, *member.State))
 						undeployableState = false
 					}
 				}
