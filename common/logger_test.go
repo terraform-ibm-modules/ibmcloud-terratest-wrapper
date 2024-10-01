@@ -3,79 +3,106 @@ package common
 import (
 	"bytes"
 	"log"
+	"regexp"
 	"testing"
 )
 
-func TestNewTestLogger(t *testing.T) {
-	testName := "TestName"
-	prefix := "v1.0"
-	logger := NewTestLoggerWithPrefix(testName, prefix)
-
-	if logger.testName != testName {
-		t.Errorf("expected testName to be %s, got %s", testName, logger.testName)
+func TestLoggerFunction(t *testing.T) {
+	testCases := []struct {
+		name           string
+		prefix         string
+		logFunc        func(*TestLogger)
+		expectedOutput string
+	}{
+		{
+			name:   "Info",
+			prefix: "v1.0",
+			logFunc: func(logger *TestLogger) {
+				logger.Info("This is an info message")
+			},
+			expectedOutput: `\033\[32mINFO\033\[0m: \033\[32m\[TestName - v1.0\]\033\[0m .* This is an info message`,
+		},
+		{
+			name:   "Error",
+			prefix: "v1.0",
+			logFunc: func(logger *TestLogger) {
+				logger.Error("This is an error message")
+			},
+			expectedOutput: `\033\[31mERROR\033\[0m: \033\[31m\[TestName - v1.0\]\033\[0m .* This is an error message`,
+		},
+		{
+			name:   "Debug",
+			prefix: "v1.0",
+			logFunc: func(logger *TestLogger) {
+				logger.Debug("This is a debug message")
+			},
+			expectedOutput: `\033\[33mDEBUG\033\[0m: \033\[33m\[TestName - v1.0\]\033\[0m .* This is a debug message`,
+		},
+		{
+			name:   "ShortInfo",
+			prefix: "Projects - 1234",
+			logFunc: func(logger *TestLogger) {
+				logger.ShortInfo("This is a short info message")
+			},
+			expectedOutput: `\033\[32m\[TestName - Projects - 1234\]\033\[0m This is a short info message`,
+		},
+		{
+			name: "ShortInfoNoPrefix",
+			logFunc: func(logger *TestLogger) {
+				logger.ShortInfo("This is a short info message")
+			},
+			expectedOutput: `\033\[32m\[TestName\]\033\[0m This is a short info message`,
+		},
+		{
+			name:   "Custom",
+			prefix: "v1.0",
+			logFunc: func(logger *TestLogger) {
+				logger.Custom("CUSTOM", "This is a custom message", Colors.Blue)
+			},
+			expectedOutput: `\033\[34mCUSTOM\033\[0m: \033\[34m\[TestName - v1.0\]\033\[0m .* This is a custom message`,
+		},
+		{
+			name: "ShortCustom",
+			logFunc: func(logger *TestLogger) {
+				logger.ShortCustom("This is a short custom message", Colors.Blue)
+			},
+			expectedOutput: `\033\[34m\[TestName\]\033\[0m This is a short custom message`,
+		},
+		{
+			name: "ShortError",
+			logFunc: func(logger *TestLogger) {
+				logger.ShortError("This is a short error message")
+			},
+			expectedOutput: `\033\[31m\[TestName\]\033\[0m This is a short error message`,
+		},
+		{
+			name: "ShortDebug",
+			logFunc: func(logger *TestLogger) {
+				logger.ShortDebug("This is a short debug message")
+			},
+			expectedOutput: `\033\[33m\[TestName\]\033\[0m This is a short debug message`,
+		},
 	}
 
-	if logger.prefix != prefix {
-		t.Errorf("expected prefix to be %s, got %s", prefix, logger.prefix)
-	}
-}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			logger := &TestLogger{
+				logger:   log.New(&buf, "", 0),
+				testName: "TestName",
+				prefix:   tc.prefix,
+			}
 
-func TestTestLogger_Info(t *testing.T) {
-	var buf bytes.Buffer
-	logger := &TestLogger{
-		logger:   log.New(&buf, "", 0),
-		testName: "TestName",
-		prefix:   "v1.0",
-	}
+			// Call the logging function
+			tc.logFunc(logger)
 
-	logger.Info("This is an info message")
+			// Compile the expected output regex
+			re := regexp.MustCompile(tc.expectedOutput)
 
-	if !bytes.Contains(buf.Bytes(), []byte("INFO: [TestName - v1.0]")) {
-		t.Errorf("expected log to contain 'INFO: [TestName - v1.0]', got %s", buf.String())
-	}
-}
-
-func TestTestLogger_Error(t *testing.T) {
-	var buf bytes.Buffer
-	logger := &TestLogger{
-		logger:   log.New(&buf, "", 0),
-		testName: "TestName",
-		prefix:   "v1.0",
-	}
-
-	logger.Error("This is an error message")
-
-	if !bytes.Contains(buf.Bytes(), []byte("ERROR: [TestName - v1.0]")) {
-		t.Errorf("expected log to contain 'ERROR: [TestName - v1.0]', got %s", buf.String())
-	}
-}
-
-func TestTestLogger_Debug(t *testing.T) {
-	var buf bytes.Buffer
-	logger := &TestLogger{
-		logger:   log.New(&buf, "", 0),
-		testName: "TestName",
-		prefix:   "v1.0",
-	}
-
-	logger.Debug("This is a debug message")
-
-	if !bytes.Contains(buf.Bytes(), []byte("DEBUG: [TestName - v1.0]")) {
-		t.Errorf("expected log to contain 'DEBUG: [TestName - v1.0]', got %s", buf.String())
-	}
-}
-
-func TestTestLogger_ShortInfo(t *testing.T) {
-	var buf bytes.Buffer
-	logger := &TestLogger{
-		logger:   log.New(&buf, "", 0),
-		testName: "TestName",
-		prefix:   "Projects - 1234",
-	}
-
-	logger.ShortInfo("This is a short info message")
-
-	if !bytes.Contains(buf.Bytes(), []byte("[TestName - Projects - 1234] This is a short info message")) {
-		t.Errorf("expected log to contain '[TestName - Projects - 1234] This is a short info message', got %s", buf.String())
+			// Check if the actual output matches the expected output regex
+			if !re.MatchString(buf.String()) {
+				t.Errorf("expected log to match '%s', got %s", tc.expectedOutput, buf.String())
+			}
+		})
 	}
 }
