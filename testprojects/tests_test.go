@@ -4,6 +4,7 @@ import (
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/project-go-sdk/projectv1"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 	"os"
 	"testing"
 
@@ -17,6 +18,7 @@ func TestCorrectResourceTeardownFlag(t *testing.T) {
 		o := TestProjectsOptions{
 			Testing:            new(testing.T),
 			currentStackConfig: &cloudinfo.ConfigDetails{ConfigID: "1234"},
+			Logger:             common.NewTestLogger(t.Name()),
 		}
 		assert.Equal(t, true, o.executeResourceTearDown())
 	})
@@ -27,15 +29,18 @@ func TestCorrectResourceTeardownFlag(t *testing.T) {
 			SkipUndeploy:       true,
 			SkipProjectDelete:  false,
 			currentStackConfig: &cloudinfo.ConfigDetails{ConfigID: "1234"},
+			Logger:             common.NewTestLogger(t.Name()),
 		}
 		assert.Equal(t, false, o.executeResourceTearDown())
 	})
+
 	t.Run("SuccessNoConfig", func(t *testing.T) {
 		o := TestProjectsOptions{
 			Testing:            new(testing.T),
 			SkipUndeploy:       false,
 			SkipProjectDelete:  false,
 			currentStackConfig: nil,
+			Logger:             common.NewTestLogger(t.Name()),
 		}
 		assert.Equal(t, false, o.executeResourceTearDown())
 	})
@@ -46,6 +51,7 @@ func TestCorrectResourceTeardownFlag(t *testing.T) {
 			SkipUndeploy:       false,
 			SkipProjectDelete:  false,
 			currentStackConfig: &cloudinfo.ConfigDetails{ConfigID: "1234"},
+			Logger:             &common.TestLogger{},
 		}
 		o.Testing.Fail()
 		assert.Equal(t, true, o.executeResourceTearDown())
@@ -57,6 +63,7 @@ func TestCorrectResourceTeardownFlag(t *testing.T) {
 			SkipUndeploy:       true,
 			SkipProjectDelete:  false,
 			currentStackConfig: &cloudinfo.ConfigDetails{ConfigID: "1234"},
+			Logger:             common.NewTestLogger(t.Name()),
 		}
 		o.Testing.Fail()
 		assert.Equal(t, false, o.executeResourceTearDown())
@@ -68,6 +75,7 @@ func TestCorrectResourceTeardownFlag(t *testing.T) {
 			SkipUndeploy:       false,
 			SkipProjectDelete:  false,
 			currentStackConfig: &cloudinfo.ConfigDetails{ConfigID: "1234"},
+			Logger:             common.NewTestLogger(t.Name()),
 		}
 		os.Setenv("DO_NOT_DESTROY_ON_FAILURE", "true")
 		o.Testing.Fail()
@@ -81,6 +89,7 @@ func TestCorrectResourceTeardownFlag(t *testing.T) {
 			SkipUndeploy:       false,
 			SkipProjectDelete:  false,
 			currentStackConfig: &cloudinfo.ConfigDetails{ConfigID: "1234"},
+			Logger:             common.NewTestLogger(t.Name()),
 		}
 		os.Setenv("DO_NOT_DESTROY_ON_FAILURE", "false")
 		o.Testing.Fail()
@@ -94,6 +103,7 @@ func TestCorrectResourceTeardownFlag(t *testing.T) {
 			SkipUndeploy:       false,
 			SkipProjectDelete:  false,
 			currentStackConfig: &cloudinfo.ConfigDetails{ConfigID: "1234"},
+			Logger:             common.NewTestLogger(t.Name()),
 		}
 		os.Setenv("DO_NOT_DESTROY_ON_FAILURE", "true")
 		o.Testing.Fail()
@@ -108,6 +118,7 @@ func TestCorrectProjectTeardownFlag(t *testing.T) {
 		o := TestProjectsOptions{
 			Testing:        new(testing.T),
 			currentProject: &projectv1.Project{ID: core.StringPtr("1234")},
+			Logger:         common.NewTestLogger(t.Name()),
 		}
 		assert.Equal(t, true, o.executeProjectTearDown())
 	})
@@ -118,6 +129,7 @@ func TestCorrectProjectTeardownFlag(t *testing.T) {
 			SkipUndeploy:      false,
 			SkipProjectDelete: true,
 			currentProject:    &projectv1.Project{ID: core.StringPtr("1234")},
+			Logger:            common.NewTestLogger(t.Name()),
 		}
 		assert.Equal(t, false, o.executeProjectTearDown())
 	})
@@ -128,6 +140,7 @@ func TestCorrectProjectTeardownFlag(t *testing.T) {
 			SkipUndeploy:      false,
 			SkipProjectDelete: false,
 			currentProject:    nil,
+			Logger:            common.NewTestLogger(t.Name()),
 		}
 		assert.Equal(t, false, o.executeProjectTearDown())
 	})
@@ -138,6 +151,7 @@ func TestCorrectProjectTeardownFlag(t *testing.T) {
 			SkipUndeploy:      false,
 			SkipProjectDelete: false,
 			currentProject:    &projectv1.Project{ID: core.StringPtr("1234")},
+			Logger:            common.NewTestLogger(t.Name()),
 		}
 		o.Testing.Fail()
 		assert.Equal(t, false, o.executeProjectTearDown())
@@ -149,6 +163,7 @@ func TestCorrectProjectTeardownFlag(t *testing.T) {
 			SkipUndeploy:      true,
 			SkipProjectDelete: false,
 			currentProject:    &projectv1.Project{ID: core.StringPtr("1234")},
+			Logger:            common.NewTestLogger(t.Name()),
 		}
 		o.Testing.Fail()
 		assert.Equal(t, false, o.executeProjectTearDown())
