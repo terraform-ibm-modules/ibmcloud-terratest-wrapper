@@ -39,12 +39,14 @@ type CloudInfoService struct {
 	cbrService                cbrService
 	containerClient           containerClient
 	catalogService            catalogService
-	regionsData               []RegionData
-	lock                      sync.Mutex
-	icdService                icdService
-	projectsService           projectsService
-	schematicsService         schematicsService
-	ApiKey                    string
+	// stackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
+	stackDefinitionCreator StackDefinitionCreator
+	regionsData            []RegionData
+	lock                   sync.Mutex
+	icdService             icdService
+	projectsService        projectsService
+	schematicsService      schematicsService
+	ApiKey                 string
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -55,6 +57,7 @@ type CloudInfoServiceI interface {
 	LoadRegionPrefsFromFile(string) error
 	HasRegionData() bool
 	RemoveRegionForTest(string)
+	ReplaceCBRRule(updatedExistingRule *contextbasedrestrictionsv1.Rule, eTag *string) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	GetThreadLock() *sync.Mutex
 	GetClusterIngressStatus(clusterId string) (string, error)
 	GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error)
@@ -99,6 +102,8 @@ type CloudInfoServiceOptions struct {
 	ProjectsService           projectsService
 	CatalogService            catalogService
 	SchematicsService         schematicsService
+	// StackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
+	StackDefinitionCreator StackDefinitionCreator
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -437,6 +442,11 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 
 		infoSvc.schematicsService = schematicsClient
 	}
+	if options.StackDefinitionCreator != nil {
+		infoSvc.stackDefinitionCreator = options.StackDefinitionCreator
+	} else {
+		infoSvc.stackDefinitionCreator = infoSvc
+	}
 
 	return infoSvc, nil
 }
@@ -457,4 +467,8 @@ func NewCloudInfoServiceFromEnv(apiKeyEnv string, options CloudInfoServiceOption
 
 func (infoSvc *CloudInfoService) GetThreadLock() *sync.Mutex {
 	return &infoSvc.lock
+}
+
+type StackDefinitionCreator interface {
+	CreateStackDefinitionWrapper(options *projects.CreateStackDefinitionOptions, members []projects.ProjectConfig) (*projects.StackDefinition, *core.DetailedResponse, error)
 }

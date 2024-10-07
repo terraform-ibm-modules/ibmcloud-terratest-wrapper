@@ -73,6 +73,14 @@
               "default_value": "80",
               "required": true,
               "display_name": "Input 2"
+            },
+            {
+              "key": "input1",
+              "type": "string",
+              "description": "Description for input1",
+              "default_value": "catalog_default1",
+              "required": true,
+              "display_name": "Input 1"
             }
           ],
           "outputs": [

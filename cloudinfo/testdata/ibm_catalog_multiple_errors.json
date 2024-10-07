@@ -73,6 +73,22 @@
               "default_value": "80",
               "required": true,
               "display_name": "Input 2"
+            },
+            {
+              "key": "input5",
+              "type": "string",
+              "description": "this input is not valid for the stack",
+              "default_value": "catalog_invalid_input",
+              "required": true,
+              "display_name": "Input 5"
+            },
+            {
+              "key": "input1",
+              "type": "string",
+              "description": "Description for input1",
+              "default_value": "catalog_default1",
+              "required": true,
+              "display_name": "Input 1"
             }
           ],
           "outputs": [

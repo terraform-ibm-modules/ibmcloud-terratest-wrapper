@@ -1,5 +1,27 @@
 {
-  "inputs": [],
+  "inputs": [
+    {
+      "name": "input1",
+      "required": true,
+      "type": "string",
+      "default": "stack_def_Value1",
+      "hidden": false
+    },
+    {
+      "name": "input2",
+      "required": false,
+      "type": "int",
+      "hidden": false,
+      "default": 10
+    },
+    {
+      "name": "input3",
+      "required": false,
+      "type": "array",
+      "hidden": false,
+      "default": ["stack_def_arr_value1", "stack_def_arr_value2"]
+    }
+  ],
   "outputs": [
     {
       "name": "output1",
@@ -8,6 +30,10 @@
     {
       "name": "output2",
       "value": "ref:../member2/outputs/output2"
+    },
+    {
+      "name": "output1",
+      "value": "ref:../member1/outputs/output3"
     }
   ],
   "members": [
@@ -23,7 +49,7 @@
         },
         {
           "name": "input3",
-          "value": "value3"
+          "value": "stack_def_value3"
         }
       ],
       "name": "member1",
@@ -33,7 +59,7 @@
       "inputs": [
         {
           "name": "input1",
-          "value": "ref:../../inputs/input1"
+          "value": "ref:../../inputs/input2"
         },
         {
           "name": "input2",
@@ -41,7 +67,7 @@
         },
         {
           "name": "input3",
-          "value": "value3"
+          "value": "stack_def_value4"
         }
       ],
       "name": "member2",

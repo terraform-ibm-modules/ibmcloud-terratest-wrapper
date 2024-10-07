@@ -9,6 +9,8 @@ import (
 	"math/rand"
 	"os"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -172,7 +174,7 @@ func (infoSvc *CloudInfoService) CreateNewStack(stackConfig *ConfigDetails) (res
 	createProjectConfigDefinitionOptions := &project.ProjectConfigDefinitionPrototypeStackConfigDefinitionProperties{
 		Description:    &stackConfig.Description,
 		Name:           &stackConfig.Name,
-		Members:        stackConfig.Members,
+		Members:        stackConfig.MemberConfigs,
 		Authorizations: stackConfig.Authorizations,
 		//Inputs:         stackConfig.Inputs, // Inputs are set in the stack definition this is not valid to set them here
 		EnvironmentID: stackConfig.EnvironmentID,
@@ -189,13 +191,24 @@ func (infoSvc *CloudInfoService) CreateNewStack(stackConfig *ConfigDetails) (res
 	stackConfig.ConfigID = *config.ID
 	// Then apply the stack definition
 	stackDefOptions := infoSvc.projectsService.NewCreateStackDefinitionOptions(stackConfig.ProjectID, *config.ID, stackConfig.StackDefinition)
-	result, response, err = infoSvc.projectsService.CreateStackDefinition(stackDefOptions)
-	if err != nil {
-		return nil, nil, err
-	}
-	return result, response, nil
+	result, response, err = infoSvc.stackDefinitionCreator.CreateStackDefinitionWrapper(stackDefOptions, stackConfig.Members)
+
+	return result, response, err
 
 }
+
+// CreateStackDefinition is a wrapper around projectv1.CreateStackDefinition to allow correct mocking in the tests
+func (infoSvc *CloudInfoService) CreateStackDefinitionWrapper(stackDefOptions *project.CreateStackDefinitionOptions, members []project.ProjectConfig) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
+
+	// dummy use of members
+	_ = members
+
+	result, response, err = infoSvc.projectsService.CreateStackDefinition(stackDefOptions)
+
+	return result, response, err
+
+}
+
 func (infoSvc *CloudInfoService) UpdateStackFromConfig(stackConfig *ConfigDetails) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 
 	updateStackDefinitionOptions := &project.UpdateStackDefinitionOptions{
@@ -335,32 +348,184 @@ func (infoSvc *CloudInfoService) IsUndeploying(details *ConfigDetails) (projectC
 }
 
 // CreateStackFromConfigFile creates a stack from a config file
+// This method orchestrates the stack creation process by managing stack configurations, member inputs, and handling catalog configurations.
 func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDetails, stackConfigPath string, catalogJsonPath string) (stackDefinition *project.StackDefinition, response *core.DetailedResponse, err error) {
 	if stackConfig.Authorizations == nil {
+		// Set default authorizations if not provided
 		stackConfig.Authorizations = &project.ProjectConfigAuth{
 			ApiKey: &infoSvc.authenticator.ApiKey,
 			Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
 		}
 	}
 
+	// Track inputs that should not be overridden
+	doNotOverrideInputs := trackStackInputs(stackConfig)
+
+	// Read the stack configuration from the provided file path
+	stackJson, err := readStackConfig(stackConfigPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Check for any duplicate stack inputs or outputs
+	errorMessages := checkStackForDuplicates(stackJson)
+
+	// Set up member inputs from the stack configuration
+	memberInputsMap := setMemberInputsMap(stackConfig, doNotOverrideInputs)
+
+	// Process each member in the stack configuration
+	stackConfig, err = processMembers(stackJson, stackConfig, memberInputsMap, doNotOverrideInputs, infoSvc)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Define stack inputs and outputs
+	stackInputsDef, stackOutputsDef := defineStackIO(stackJson, stackConfig, doNotOverrideInputs)
+
+	stackConfig.StackDefinition = &project.StackDefinitionBlockPrototype{
+		Inputs:  stackInputsDef,
+		Outputs: stackOutputsDef,
+	}
+
+	// Read the catalog configuration
+	catalogConfig, catalogProductIndex, catalogFlavorIndex, err := readCatalogConfig(catalogJsonPath, stackConfig, &errorMessages)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Update stack inputs from catalog configuration
+	updateInputsFromCatalog(stackConfig, catalogConfig, catalogProductIndex, catalogFlavorIndex, doNotOverrideInputs)
+
+	// Check if all catalog inputs exist in the stack definition
+	checkCatalogInputsExistInStackDefinition(stackJson, catalogConfig, catalogProductIndex, catalogFlavorIndex, &errorMessages)
+
+	// If there are any errors from the validation process, return them
+	if len(errorMessages) > 0 {
+		return nil, nil, fmt.Errorf(strings.Join(errorMessages, "\n"))
+	}
+
+	// Sort stack inputs by name for consistency
+	sortInputsByName(stackConfig)
+
+	// Set stack name and description using catalog product and flavor labels
+	stackConfig.Name = fmt.Sprintf("%s-%s", catalogConfig.Products[catalogProductIndex].Label, catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Label)
+	stackConfig.Description = fmt.Sprintf("%s-%s", catalogConfig.Products[catalogProductIndex].Label, catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Label)
+
+	// Create the new stack
+	return infoSvc.CreateNewStack(stackConfig)
+}
+
+// trackStackInputs tracks inputs that should not be overridden.
+// This function initializes a map of inputs that should be preserved in the stack configuration.
+func trackStackInputs(stackConfig *ConfigDetails) map[string]map[string]interface{} {
+	doNotOverrideInputs := make(map[string]map[string]interface{})
+	doNotOverrideInputs["stack"] = make(map[string]interface{})
+	if stackConfig.Inputs != nil {
+		for key, value := range stackConfig.Inputs {
+			doNotOverrideInputs["stack"][key] = value
+		}
+	}
+	return doNotOverrideInputs
+}
+
+// readStackConfig reads the stack configuration from a JSON file.
+// This function reads and unmarshals the stack configuration from the given file path.
+func readStackConfig(stackConfigPath string) (Stack, error) {
 	jsonFile, err := os.ReadFile(stackConfigPath)
 	if err != nil {
 		log.Println("Error reading config JSON file:", err)
-		return nil, nil, err
+		return Stack{}, err
 	}
 
 	var stackJson Stack
 	err = json.Unmarshal(jsonFile, &stackJson)
 	if err != nil {
 		log.Println("Error unmarshalling JSON:", err)
-		return nil, nil, err
+		return Stack{}, err
+	}
+	return stackJson, nil
+}
+
+// checkStackForDuplicates checks for duplicate inputs and outputs in the stack configuration.
+// This function validates the stack configuration for any duplicate inputs or outputs and returns any errors found.
+func checkStackForDuplicates(stackJson Stack) []string {
+	errorMessages := []string{}
+
+	inputNames := make(map[string]bool)
+	duplicateInputs := []string{}
+	for _, input := range stackJson.Inputs {
+		if _, exists := inputNames[input.Name]; exists {
+			duplicateInputs = append(duplicateInputs, input.Name)
+		} else {
+			inputNames[input.Name] = true
+		}
+	}
+	if len(duplicateInputs) > 0 {
+		errorMessages = append(errorMessages, fmt.Sprintf("duplicate stack input variable found: %s", strings.Join(duplicateInputs, ", ")))
 	}
 
+	outputNames := make(map[string]bool)
+	duplicateOutputs := []string{}
+	for _, output := range stackJson.Outputs {
+		if _, exists := outputNames[output.Name]; exists {
+			duplicateOutputs = append(duplicateOutputs, output.Name)
+		} else {
+			outputNames[output.Name] = true
+		}
+	}
+	if len(duplicateOutputs) > 0 {
+		errorMessages = append(errorMessages, fmt.Sprintf("duplicate stack output variable found: %s", strings.Join(duplicateOutputs, ", ")))
+	}
+
+	for _, member := range stackJson.Members {
+		memberInputNames := make(map[string]bool)
+		duplicateMemberInputs := []string{}
+		for _, input := range member.Inputs {
+			if _, exists := memberInputNames[input.Name]; exists {
+				duplicateMemberInputs = append(duplicateMemberInputs, fmt.Sprintf("member: %s input: %s", member.Name, input.Name))
+			} else {
+				memberInputNames[input.Name] = true
+			}
+		}
+		if len(duplicateMemberInputs) > 0 {
+			errorMessages = append(errorMessages, fmt.Sprintf("duplicate member input variable found %s", strings.Join(duplicateMemberInputs, ", ")))
+		}
+	}
+	return errorMessages
+}
+
+// setMemberInputsMap sets up the inputs for each member in the stack configuration.
+// This function creates a map of inputs for each member and also tracks inputs that should not be overridden.
+func setMemberInputsMap(stackConfig *ConfigDetails, doNotOverrideInputs map[string]map[string]interface{}) map[string]map[string]interface{} {
+	memberInputsMap := make(map[string]map[string]interface{})
+	for _, memberConfig := range stackConfig.MemberConfigDetails {
+		memberInputs := make(map[string]interface{})
+		for key, value := range memberConfig.Inputs {
+			memberInputs[key] = value
+			if _, ok := doNotOverrideInputs[memberConfig.Name]; !ok {
+				doNotOverrideInputs[memberConfig.Name] = make(map[string]interface{})
+			}
+			doNotOverrideInputs[memberConfig.Name][key] = value
+		}
+		memberInputsMap[memberConfig.Name] = memberInputs
+	}
+	return memberInputsMap
+}
+
+// processMembers processes each member in the stack configuration.
+// This function iterates over each member, sets up its configuration, and creates the necessary project configurations.
+func processMembers(stackJson Stack, stackConfig *ConfigDetails, memberInputsMap map[string]map[string]interface{}, doNotOverrideInputs map[string]map[string]interface{}, infoSvc *CloudInfoService) (*ConfigDetails, error) {
 	for _, member := range stackJson.Members {
 		inputs := make(map[string]interface{})
 		for _, input := range member.Inputs {
 			val := input.Value
 			inputs[input.Name] = val
+		}
+
+		if memberInputs, exists := memberInputsMap[member.Name]; exists {
+			for key, value := range memberInputs {
+				inputs[key] = value
+			}
 		}
 
 		newConfig := ConfigDetails{
@@ -372,27 +537,31 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 			Authorizations: stackConfig.Authorizations,
 		}
 		daProjectConfig, _, createDaErr := infoSvc.CreateDaConfig(&newConfig)
-
 		if createDaErr != nil {
 			log.Println("Error creating config from JSON:", createDaErr)
 			log.Printf("Current Member Name: %s\n", member.Name)
 			log.Printf("Current Member description: %s\n", member.Name)
 			log.Printf("Current Member VersionLocator: %s\n", member.VersionLocator)
 			log.Printf("Current Member Inputs: %v\n", inputs)
-			return nil, nil, createDaErr
+			return nil, createDaErr
 		}
 
 		curMemberNameVar := member.Name
 		curMemberName := &curMemberNameVar
 
 		curDaProjectConfig := daProjectConfig.ID
-
-		stackConfig.Members = append(stackConfig.Members, project.StackConfigMember{
+		stackConfig.Members = append(stackConfig.Members, *daProjectConfig)
+		stackConfig.MemberConfigs = append(stackConfig.MemberConfigs, project.StackConfigMember{
 			Name:     curMemberName,
 			ConfigID: curDaProjectConfig,
 		})
 	}
+	return stackConfig, nil
+}
 
+// defineStackIO defines the inputs and outputs for the stack configuration.
+// This function creates the stack input and output definitions based on the provided stack configuration and JSON data.
+func defineStackIO(stackJson Stack, stackConfig *ConfigDetails, doNotOverrideInputs map[string]map[string]interface{}) ([]project.StackDefinitionInputVariable, []project.StackDefinitionOutputVariable) {
 	var stackInputsDef []project.StackDefinitionInputVariable
 	var stackOutputsDef []project.StackDefinitionOutputVariable
 	for _, input := range stackJson.Inputs {
@@ -403,24 +572,28 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 		requiredVar := input.Required
 		required := &requiredVar
 		var inputDefault interface{}
-		if stackConfig.Inputs != nil {
-			if val, ok := stackConfig.Inputs[input.Name]; ok {
-				inputDefault = val
+		if _, exists := doNotOverrideInputs["stack"][input.Name]; !exists {
+			if stackConfig.Inputs != nil {
+				if val, ok := stackConfig.Inputs[input.Name]; ok {
+					inputDefault = val
+				}
 			}
-		}
-		if inputDefault == nil {
-			if input.Default == nil {
-				inputDefault = "__NULL__"
-			} else {
-				inputDefault = input.Default
+			if inputDefault == nil {
+				if input.Default == nil {
+					inputDefault = "__NULL__"
+				} else {
+					inputDefault = input.Default
+				}
 			}
+		} else {
+			inputDefault = doNotOverrideInputs["stack"][input.Name]
 		}
 		inputDefault = convertSliceToString(inputDefault)
-
 		descriptionVar := input.Description
 		description := &descriptionVar
 		hiddenVar := input.Hidden
 		hidden := &hiddenVar
+
 		stackInputsDef = append(stackInputsDef, project.StackDefinitionInputVariable{
 			Name:        name,
 			Type:        inputType,
@@ -442,21 +615,23 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 		})
 	}
 
-	stackConfig.StackDefinition = &project.StackDefinitionBlockPrototype{
-		Inputs:  stackInputsDef,
-		Outputs: stackOutputsDef,
-	}
+	return stackInputsDef, stackOutputsDef
+}
 
-	jsonFile, err = os.ReadFile(catalogJsonPath)
+// readCatalogConfig reads the catalog configuration from a JSON file.
+// This function reads and unmarshals the catalog configuration, and identifies the product and flavor indices based on the stack configuration.
+func readCatalogConfig(catalogJsonPath string, stackConfig *ConfigDetails, errorMessages *[]string) (CatalogJson, int, int, error) {
+	jsonFile, err := os.ReadFile(catalogJsonPath)
 	if err != nil {
 		log.Println("Error reading catalog JSON file:", err)
-		return nil, nil, err
+		return CatalogJson{}, 0, 0, err
 	}
+
 	var catalogConfig CatalogJson
 	err = json.Unmarshal(jsonFile, &catalogConfig)
 	if err != nil {
 		log.Println("Error unmarshaling catalog JSON:", err)
-		return nil, nil, err
+		return CatalogJson{}, 0, 0, err
 	}
 
 	var catalogProductIndex int
@@ -470,6 +645,7 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 			}
 		}
 	}
+
 	var catalogFlavorIndex int
 	if stackConfig.CatalogFlavorName == "" {
 		catalogFlavorIndex = 0
@@ -482,27 +658,120 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 		}
 	}
 
-	// TODO: if stack_def not set use the working dir from the flavor to set it, catalog json will need to be processed first
-	stackConfig.Name = fmt.Sprintf("%s-%s", catalogConfig.Products[catalogProductIndex].Label, catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Label)
-	// description: product label - flavor label
-	stackConfig.Description = fmt.Sprintf("%s-%s", catalogConfig.Products[catalogProductIndex].Label, catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Label)
-	// TODO: validate the flavors inputs are in the stack inputs
-	//"configuration": [
-	//						{
-	//							"key": "prefix",
-	//							"type": "string",
-	//							"description": "A prefix added to the name of all resources created by this solution. Used to avoid name clashes in the target account when existing this solution multiple times.",
-	//							"default_value": "rag",
-	//							"required": true
-	//						},
-	//						{
-	//							"key": "ibmcloud_api_key",
-	//							"type": "password",
-	//							"description": "The API Key used to provision all resources created in this solution.",
-	//							"required": true
-	//						},
+	catalogInputNames := make(map[string]bool)
+	duplicateCatalogInputs := []string{}
+	for _, input := range catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Configuration {
+		if _, exists := catalogInputNames[input.Key]; exists {
+			duplicateCatalogInputs = append(duplicateCatalogInputs, input.Key)
+		} else {
+			catalogInputNames[input.Key] = true
+		}
+	}
+	if len(duplicateCatalogInputs) > 0 {
+		*errorMessages = append(*errorMessages, fmt.Sprintf("duplicate catalog input variable found: %s", strings.Join(duplicateCatalogInputs, ", ")))
+	}
 
-	return infoSvc.CreateNewStack(stackConfig)
+	return catalogConfig, catalogProductIndex, catalogFlavorIndex, nil
+}
+
+// updateInputsFromCatalog updates stack inputs based on the catalog configuration.
+// This function updates the stack configuration's inputs using the values from the catalog configuration, respecting the precedence rules.
+func updateInputsFromCatalog(stackConfig *ConfigDetails, catalogConfig CatalogJson, catalogProductIndex int, catalogFlavorIndex int, doNotOverrideInputs map[string]map[string]interface{}) {
+	for _, input := range catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Configuration {
+		if stackConfig.Inputs == nil {
+			stackConfig.Inputs = make(map[string]interface{})
+		}
+		var inputDefault interface{}
+
+		if _, exists := doNotOverrideInputs["stack"][input.Key]; !exists {
+			if stackConfig.Inputs != nil {
+				if val, ok := stackConfig.Inputs[input.Key]; ok {
+					inputDefault = val
+				} else {
+					inputDefault = input.DefaultValue
+				}
+			}
+		} else {
+			inputDefault = doNotOverrideInputs["stack"][input.Key]
+		}
+		inputDefault = convertSliceToString(inputDefault)
+
+		found := false
+		for i := range stackConfig.StackDefinition.Inputs {
+			if *stackConfig.StackDefinition.Inputs[i].Name == input.Key {
+				switch *stackConfig.StackDefinition.Inputs[i].Type {
+				case "int":
+					var int64Val int64
+					if val, ok := inputDefault.(int); ok {
+						int64Val = int64(val)
+						stackConfig.StackDefinition.Inputs[i].Default = &int64Val
+					} else if val, err := strconv.ParseInt(inputDefault.(string), 10, 64); err == nil {
+						int64Val = val
+						stackConfig.StackDefinition.Inputs[i].Default = &int64Val
+					}
+				case "string", "password", "array":
+					if val, ok := inputDefault.(string); ok {
+						stackConfig.StackDefinition.Inputs[i].Default = &val
+					}
+				case "boolean":
+					if val, ok := inputDefault.(bool); ok {
+						stackConfig.StackDefinition.Inputs[i].Default = &val
+					} else if val, err := strconv.ParseBool(inputDefault.(string)); err == nil {
+						stackConfig.StackDefinition.Inputs[i].Default = &val
+					}
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			stackConfig.StackDefinition.Inputs = append(stackConfig.StackDefinition.Inputs, project.StackDefinitionInputVariable{
+				Name:        core.StringPtr(input.Key),
+				Type:        core.StringPtr(input.Type),
+				Required:    core.BoolPtr(input.Required),
+				Default:     &input.DefaultValue,
+				Description: core.StringPtr(input.Description),
+				Hidden:      core.BoolPtr(false),
+			})
+		}
+	}
+}
+
+// checkCatalogInputsExistInStackDefinition checks if all catalog inputs exist in the stack definition.
+// This function ensures that each input defined in the catalog configuration is also present in the stack definition,
+// thereby ensuring consistency between the catalog and stack configurations.
+func checkCatalogInputsExistInStackDefinition(stackJson Stack, catalogConfig CatalogJson, catalogProductIndex, catalogFlavorIndex int, errorMessages *[]string) {
+	catalogInputs := catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Configuration
+	missingInputs := []string{}
+
+	// Iterate over each catalog input and check if it exists in the stack definition
+	for _, catalogInput := range catalogInputs {
+		found := false
+		for _, stackInput := range stackJson.Inputs {
+			if catalogInput.Key == stackInput.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			missingInputs = append(missingInputs, catalogInput.Key)
+		}
+	}
+
+	if len(missingInputs) > 0 {
+		*errorMessages = append(*errorMessages, fmt.Sprintf("catalog input variable not found in stack definition: %s", strings.Join(missingInputs, ", ")))
+	}
+}
+
+// sortInputsByName sorts the stack inputs by their name.
+// This function ensures that the stack inputs are sorted by name for consistent ordering.
+func sortInputsByName(stackConfig *ConfigDetails) {
+	sort.Slice(stackConfig.StackDefinition.Inputs, func(i, j int) bool {
+		if stackConfig.StackDefinition.Inputs[i].Name == nil || stackConfig.StackDefinition.Inputs[j].Name == nil {
+			return false
+		}
+		return *stackConfig.StackDefinition.Inputs[i].Name < *stackConfig.StackDefinition.Inputs[j].Name
+	})
 }
 
 // GetStackMembers gets the members of a stack
@@ -511,7 +780,7 @@ func (infoSvc *CloudInfoService) GetStackMembers(stackConfig *ConfigDetails) (me
 	if stackConfig.Members == nil {
 		return members, nil
 	}
-	for _, member := range stackConfig.Members {
+	for _, member := range stackConfig.MemberConfigs {
 		config, _, err := infoSvc.GetConfig(&ConfigDetails{
 			ProjectID: stackConfig.ProjectID,
 			ConfigID:  *member.ConfigID,

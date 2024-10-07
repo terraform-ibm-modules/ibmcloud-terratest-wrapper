@@ -77,6 +77,15 @@ type CatalogJson struct {
 	} `json:"products"`
 }
 
+// CatalogInput represents an input from the catalog configuration
+type CatalogInput struct {
+	Key          string `json:"key"`
+	Type         string `json:"type"`
+	DefaultValue string `json:"default_value"`
+	Required     bool   `json:"required"`
+	Description  string `json:"description"`
+}
+
 type Stack struct {
 	Inputs []struct {
 		Name        string      `json:"name"`
@@ -115,7 +124,11 @@ type ConfigDetails struct {
 	StackLocatorID  string
 	StackDefinition *project.StackDefinitionBlockPrototype
 	EnvironmentID   *string
-	Members         []project.StackConfigMember
+	Members         []project.ProjectConfig
+	// Member Config details used to override the default member inputs
+	// Only need to set the name and inputs
+	MemberConfigDetails []ConfigDetails
+	MemberConfigs       []project.StackConfigMember
 
 	// CatalogProductName The name of the product in the catalog. Defaults to the first product in the catalog.
 	CatalogProductName string

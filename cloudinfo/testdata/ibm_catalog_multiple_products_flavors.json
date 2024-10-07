@@ -1,0 +1,238 @@
+{
+  "products": [
+    {
+      "label": "Product Label 1",
+      "name": "First Product Name",
+      "product_kind": "Product Kind",
+      "tags": ["tag1", "tag2"],
+      "keywords": ["keyword1", "keyword2"],
+      "short_description": "Short description",
+      "long_description": "Long description",
+      "offering_docs_url": "http://example.com/docs",
+      "offering_icon_url": "http://example.com/icon",
+      "provider_name": "Provider Name",
+      "features": [
+        {
+          "title": "Feature Title",
+          "description": "Feature Description"
+        }
+      ],
+      "support_details": "Support details",
+      "flavors": [
+        {
+          "label": "Flavor Label",
+          "name": "Flavor Name",
+          "working_directory": "Working Directory",
+          "compliance": {
+            "authority": "Authority",
+            "profiles": [
+              {
+                "profile_name": "Profile Name",
+                "profile_version": "Profile Version"
+              }
+            ]
+          },
+          "iam_permissions": [
+            {
+              "service_name": "Service Name",
+              "role_crns": ["crn1", "crn2"]
+            }
+          ],
+          "architecture": {
+            "features": [
+              {
+                "title": "Architecture Feature Title",
+                "description": "Architecture Feature Description"
+              }
+            ],
+            "diagrams": [
+              {
+                "diagram": {
+                  "url": "http://example.com/diagram",
+                  "caption": "Diagram Caption",
+                  "type": "Diagram Type",
+                  "thumbnail_url": "http://example.com/thumbnail"
+                },
+                "description": "Diagram Description"
+              }
+            ]
+          },
+          "configuration": [
+            {
+              "key": "input1",
+              "type": "string",
+              "description": "Description for input1",
+              "default_value": "catalog_product1_default_flavor1",
+              "required": true,
+              "display_name": "Input 1"
+            },
+            {
+              "key": "input2",
+              "type": "int",
+              "description": "Description for input2",
+              "default_value": "70",
+              "required": true,
+              "display_name": "Input 2"
+            }
+          ],
+          "outputs": [
+            {
+              "key": "output1",
+              "description": "Description for output1"
+            }
+          ],
+          "install_type": "Install Type"
+        }
+      ]
+    },
+    {
+      "label": "Product Label 2",
+      "name": "Second Product Name",
+      "product_kind": "Product Kind",
+      "tags": ["tag1", "tag2"],
+      "keywords": ["keyword1", "keyword2"],
+      "short_description": "Short description",
+      "long_description": "Long description",
+      "offering_docs_url": "http://example.com/docs",
+      "offering_icon_url": "http://example.com/icon",
+      "provider_name": "Provider Name",
+      "features": [
+        {
+          "title": "Feature Title",
+          "description": "Feature Description"
+        }
+      ],
+      "support_details": "Support details",
+      "flavors": [
+        {
+          "label": "Flavor Label",
+          "name": "Flavor Name",
+          "working_directory": "Working Directory",
+          "compliance": {
+            "authority": "Authority",
+            "profiles": [
+              {
+                "profile_name": "Profile Name",
+                "profile_version": "Profile Version"
+              }
+            ]
+          },
+          "iam_permissions": [
+            {
+              "service_name": "Service Name",
+              "role_crns": ["crn1", "crn2"]
+            }
+          ],
+          "architecture": {
+            "features": [
+              {
+                "title": "Architecture Feature Title",
+                "description": "Architecture Feature Description"
+              }
+            ],
+            "diagrams": [
+              {
+                "diagram": {
+                  "url": "http://example.com/diagram",
+                  "caption": "Diagram Caption",
+                  "type": "Diagram Type",
+                  "thumbnail_url": "http://example.com/thumbnail"
+                },
+                "description": "Diagram Description"
+              }
+            ]
+          },
+          "configuration": [
+            {
+              "key": "input1",
+              "type": "string",
+              "description": "Description for input1",
+              "default_value": "catalog_product2_default_flavor1",
+              "required": true,
+              "display_name": "Input 1"
+            },
+            {
+              "key": "input2",
+              "type": "int",
+              "description": "Description for input2",
+              "default_value": "85",
+              "required": true,
+              "display_name": "Input 2"
+            }
+          ],
+          "outputs": [
+            {
+              "key": "output1",
+              "description": "Description for output1"
+            }
+          ],
+          "install_type": "Install Type"
+        },
+        {
+          "label": "Flavor Label 2",
+          "name": "Second Flavor Name",
+          "working_directory": "Working Directory",
+          "compliance": {
+            "authority": "Authority",
+            "profiles": [
+              {
+                "profile_name": "Profile Name",
+                "profile_version": "Profile Version"
+              }
+            ]
+          },
+          "iam_permissions": [
+            {
+              "service_name": "Service Name",
+              "role_crns": ["crn1", "crn2"]
+            }
+          ],
+          "architecture": {
+            "features": [
+              {
+                "title": "Architecture Feature Title",
+                "description": "Architecture Feature Description"
+              }
+            ],
+            "diagrams": [
+              {
+                "diagram": {
+                  "url": "http://example.com/diagram",
+                  "caption": "Diagram Caption",
+                  "type": "Diagram Type",
+                  "thumbnail_url": "http://example.com/thumbnail"
+                },
+                "description": "Diagram Description"
+              }
+            ]
+          },
+          "configuration": [
+            {
+              "key": "input1",
+              "type": "string",
+              "description": "Description for input1",
+              "default_value": "product2_default_flavor2",
+              "required": true,
+              "display_name": "Input 1"
+            },
+            {
+              "key": "input2",
+              "type": "int",
+              "description": "Description for input2",
+              "default_value": "95",
+              "required": true,
+              "display_name": "Input 2"
+            }
+          ],
+          "outputs": [
+            {
+              "key": "output1",
+              "description": "Description for output1"
+            }
+          ],
+          "install_type": "Install Type"
+        }
+      ]
+    }
+  ]
+}
