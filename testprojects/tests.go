@@ -69,6 +69,17 @@ func (options *TestProjectsOptions) ConfigureTestStack() error {
 		ProjectID: *options.currentProject.ID,
 		Inputs:    options.StackInputs,
 	}
+	// set member inputs
+	if options.StackMemberInputs != nil {
+		for memberName, memberInputs := range options.StackMemberInputs {
+			options.currentStackConfig.MemberConfigDetails = append(options.currentStackConfig.MemberConfigDetails,
+				cloudinfo.ConfigDetails{
+					Name:   memberName,
+					Inputs: memberInputs,
+				})
+		}
+	}
+
 	options.currentStack, stackResp, stackErr = options.CloudInfoService.CreateStackFromConfigFile(options.currentStackConfig, options.StackConfigurationPath, options.StackCatalogJsonPath)
 	if !assert.NoError(options.Testing, stackErr) {
 		options.Logger.ShortError("Failed to configure Test Stack")
