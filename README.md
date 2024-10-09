@@ -381,6 +381,18 @@ func TestProjectsFullTest(t *testing.T) {
 
 ### Stack and Member Inputs
 
+The `StackInputs` and `StackMemberInputs` maps allow you to specify configuration variables for the stack and its members, respectively.
+The input precedence follows a specific order to ensure that the most relevant values are applied.
+The order of precedence is as follows:
+ - Inputs from the current stack configuration `StackInputs` and `StackMemberInputs`
+ - Default values from the `ibm_catalog.json`
+ - Default values from the `stack_definition.json`
+
+This means that if a variable is defined in the current stack configuration, it will take precedence over any default values.
+If it is not defined, the default value from the `ibm_catalog.json` will be used.
+If neither is available, the default value from the `stack_definition.json` will be applied.
+This hierarchy ensures that the most specific and relevant configuration is always used.
+
 #### StackMemberInputs
 - **Type**: `map[string]map[string]interface{}`
 - **Description**: A map where each key represents a stack member, and the value is another map containing the variables for that member.

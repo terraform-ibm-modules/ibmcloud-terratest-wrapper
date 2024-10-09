@@ -18,12 +18,17 @@ import (
 /**** START MOCK CloudInfoService ****/
 type cloudInfoServiceMock struct {
 	mock.Mock
+	cloudinfo.CloudInfoServiceI
 	prefsFileName                     string
 	loadFileCalled                    bool
 	getLeastVpcTestRegionCalled       bool
 	getLeastVpcNoATTestRegionCalled   bool
 	getLeastPowerConnectionZoneCalled bool
 	lock                              sync.Mutex
+}
+
+func (mock *cloudInfoServiceMock) CreateStackDefinitionWrapper(stackDefOptions *projects.CreateStackDefinitionOptions, members []projects.StackConfigMember) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
+	return nil, nil, nil
 }
 
 func (mock *cloudInfoServiceMock) LoadRegionPrefsFromFile(prefsFile string) error {
@@ -201,6 +206,16 @@ func (mock *cloudInfoServiceMock) ArePipelineActionsRunning(stackConfig *cloudin
 
 func (mock *cloudInfoServiceMock) GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string) (string, string) {
 	return "", ""
+}
+
+// special mock for CreateStackDefinition
+// we do not have enough information when mocking projectv1.CreateStackDefinition to return a valid response
+// to get around this we create a wrapper that can take in the missing list of members that can be used in the mock
+// to return a valid response
+
+func (mock *cloudInfoServiceMock) CreateStackDefinition(stackDefOptions *projects.CreateStackDefinitionOptions, members []projects.StackConfigMember) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
+	args := mock.Called(stackDefOptions, members)
+	return args.Get(0).(*projects.StackDefinition), args.Get(1).(*core.DetailedResponse), args.Error(2)
 }
 
 /**** END MOCK CloudInfoService ****/

@@ -84,6 +84,11 @@ type TestProjectsOptions struct {
 	// StackInputs {"input1": "value1", "input2": 2}
 	StackInputs map[string]interface{}
 
+	// CatalogProductName The name of the product in the catalog. Defaults to the first product in the catalog.
+	CatalogProductName string
+	// CatalogFlavorName The name of the flavor in the catalog. Defaults to the first flavor in the catalog.
+	CatalogFlavorName string
+
 	// ParallelDeploy If set to true, the test will deploy the stack in parallel.
 	// This will deploy the stack in batches of whatever is not waiting on a prerequisite to be deployed.
 	// Note Undeploy will still be in serial.
