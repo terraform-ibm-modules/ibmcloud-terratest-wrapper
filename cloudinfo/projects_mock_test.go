@@ -299,6 +299,9 @@ func adjustInputVariables(inputs []projects.StackDefinitionInputVariable) []proj
 		case string:
 			val := v
 			adjustedInput.Default = &val
+		case bool:
+			val := v
+			adjustedInput.Default = &val
 		case int:
 			val := int64(v)
 			adjustedInput.Default = &val

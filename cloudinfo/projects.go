@@ -705,9 +705,14 @@ func updateInputsFromCatalog(stackConfig *ConfigDetails, catalogConfig CatalogJs
 					if val, ok := inputDefault.(int); ok {
 						int64Val = int64(val)
 						stackConfig.StackDefinition.Inputs[i].Default = &int64Val
+					} else if val, ok := inputDefault.(float64); ok {
+						int64Val = int64(val)
+						stackConfig.StackDefinition.Inputs[i].Default = &int64Val
 					} else if val, err := strconv.ParseInt(inputDefault.(string), 10, 64); err == nil {
 						int64Val = val
 						stackConfig.StackDefinition.Inputs[i].Default = &int64Val
+					} else {
+						stackConfig.StackDefinition.Inputs[i].Default = &val
 					}
 				case "string", "password", "array":
 					if val, ok := inputDefault.(string); ok {

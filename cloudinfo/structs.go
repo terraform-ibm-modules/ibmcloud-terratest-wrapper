@@ -52,12 +52,12 @@ type CatalogJson struct {
 				} `json:"diagrams"`
 			} `json:"architecture"`
 			Configuration []struct {
-				Key          string `json:"key"`
-				Type         string `json:"type"`
-				Description  string `json:"description"`
-				DefaultValue string `json:"default_value"`
-				Required     bool   `json:"required"`
-				DisplayName  string `json:"display_name,omitempty"`
+				Key          string      `json:"key"`
+				Type         string      `json:"type"`
+				Description  string      `json:"description"`
+				DefaultValue interface{} `json:"default_value"`
+				Required     bool        `json:"required"`
+				DisplayName  string      `json:"display_name,omitempty"`
 				CustomConfig struct {
 					Type             string `json:"type"`
 					Grouping         string `json:"grouping"`
@@ -79,11 +79,11 @@ type CatalogJson struct {
 
 // CatalogInput represents an input from the catalog configuration
 type CatalogInput struct {
-	Key          string `json:"key"`
-	Type         string `json:"type"`
-	DefaultValue string `json:"default_value"`
-	Required     bool   `json:"required"`
-	Description  string `json:"description"`
+	Key          string      `json:"key"`
+	Type         string      `json:"type"`
+	DefaultValue interface{} `json:"default_value"`
+	Required     bool        `json:"required"`
+	Description  string      `json:"description"`
 }
 
 type Stack struct {

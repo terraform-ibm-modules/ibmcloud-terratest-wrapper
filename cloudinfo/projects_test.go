@@ -444,7 +444,7 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 				ProjectID: "mockProjectID",
 				ConfigID:  "54321",
 			},
-			stackConfigPath: "testdata/stack_definition_stack_inputs.json",
+			stackConfigPath: "testdata/stack_definition_stack_inputs_extended.json",
 			catalogJsonPath: "testdata/ibm_catalog_with_config_overrides.json",
 			expectedConfig: &projects.StackDefinition{
 				ID: core.StringPtr("mockProjectID"), // This would be generated on the server side and not part of the input
@@ -471,6 +471,14 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 							Type:        core.StringPtr("array"),
 							Required:    core.BoolPtr(false),
 							Default:     core.StringPtr("[\"stack_def_arr_value1\", \"stack_def_arr_value2\"]"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("input4"),
+							Type:        core.StringPtr("bool"),
+							Required:    core.BoolPtr(false),
+							Default:     core.BoolPtr(true),
 							Description: core.StringPtr(""),
 							Hidden:      core.BoolPtr(false),
 						},
@@ -956,7 +964,9 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			result, _, err := suite.infoSvc.CreateStackFromConfigFile(tc.stackConfig, tc.stackConfigPath, tc.catalogJsonPath)
 
 			if tc.expectedError == nil {
-				assert.EqualValues(suite.T(), SortStackDefinition(tc.expectedConfig), SortStackDefinition(result))
+				if assert.NoError(suite.T(), err) {
+					assert.EqualValues(suite.T(), SortStackDefinition(tc.expectedConfig), SortStackDefinition(result))
+				}
 			} else {
 				if assert.Error(suite.T(), err) {
 					assert.Equal(suite.T(), tc.expectedError.Error(), err.Error())

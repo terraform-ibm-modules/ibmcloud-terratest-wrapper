@@ -70,9 +70,25 @@
               "key": "input2",
               "type": "int",
               "description": "Description for input2",
-              "default_value": "80",
+              "default_value": 80,
               "required": true,
               "display_name": "Input 2"
+            },
+            {
+              "key": "input3",
+              "type": "bool",
+              "description": "Description for input3",
+              "default_value": true,
+              "required": true,
+              "display_name": "Input 3"
+            },
+            {
+              "key": "input4",
+              "type": "array",
+              "description": "Description for input4",
+              "default_value": ["catalog_default4"],
+              "required": true,
+              "display_name": "Input 4"
             }
           ],
           "outputs": [
