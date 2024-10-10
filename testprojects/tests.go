@@ -636,6 +636,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		// ensure we always run the test tear down, even if a panic occurs
 		defer func() {
 			if r := recover(); r != nil {
+				options.Testing.Fail()
 				options.Logger.ShortInfo(fmt.Sprintf("Recovered from panic: %v", r))
 			}
 			options.TestTearDown()
