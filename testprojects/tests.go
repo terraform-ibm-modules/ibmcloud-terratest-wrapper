@@ -3,9 +3,9 @@ package testprojects
 import (
 	"errors"
 	"fmt"
-	"github.com/gruntwork-io/terratest/modules/logger"
 	"os"
 	"path"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -636,8 +636,15 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		// ensure we always run the test tear down, even if a panic occurs
 		defer func() {
 			if r := recover(); r != nil {
+
 				options.Testing.Fail()
-				options.Logger.ShortInfo(fmt.Sprintf("Recovered from panic: %v", r))
+				// Get the file and line number where the panic occurred
+				_, file, line, ok := runtime.Caller(4)
+				if ok {
+					options.Logger.ShortError(fmt.Sprintf("Recovered from panic: %v\nOccurred at: %s:%d\n", r, file, line))
+				} else {
+					options.Logger.ShortError(fmt.Sprintf("Recovered from panic: %v", r))
+				}
 			}
 			options.TestTearDown()
 		}()
@@ -827,7 +834,11 @@ func (options *TestProjectsOptions) executeResourceTearDown() bool {
 
 	// if test failed and we are not executing, add a log line stating this
 	if options.Testing.Failed() && !execute {
-		options.Logger.ShortError("Terratest failed. Debug the Test and delete resources manually.")
+		if options.currentStackConfig == nil || options.currentStackConfig.ConfigID == "" {
+			options.Logger.ShortError("Terratest failed. No resources to delete.")
+		} else {
+			options.Logger.ShortError("Terratest failed. Debug the Test and delete resources manually.")
+		}
 	}
 
 	return execute
@@ -857,7 +868,11 @@ func (options *TestProjectsOptions) executeProjectTearDown() bool {
 
 	// if test failed and we are not executing, add a log line stating this
 	if options.Testing.Failed() && !execute {
-		logger.Log(options.Testing, "Terratest failed. Debug the Test and delete the project manually.")
+		if options.currentProject == nil {
+			options.Logger.ShortError("Terratest failed. No project to delete.")
+		} else {
+			options.Logger.ShortError("Terratest failed. Debug the Test and delete the project manually.")
+		}
 	}
 
 	return execute

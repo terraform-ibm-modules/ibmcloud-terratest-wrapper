@@ -26,7 +26,7 @@
       "required": false,
       "type": "bool",
       "hidden": false,
-      "default": true
+      "default": false
     }
   ],
   "outputs": [

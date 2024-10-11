@@ -70,7 +70,7 @@
               "key": "input2",
               "type": "int",
               "description": "Description for input2",
-              "default_value": "70",
+              "default_value": 70,
               "required": true,
               "display_name": "Input 2"
             }
@@ -155,7 +155,7 @@
               "key": "input2",
               "type": "int",
               "description": "Description for input2",
-              "default_value": "85",
+              "default_value": 85,
               "required": true,
               "display_name": "Input 2"
             }
@@ -219,7 +219,7 @@
               "key": "input2",
               "type": "int",
               "description": "Description for input2",
-              "default_value": "95",
+              "default_value": 95,
               "required": true,
               "display_name": "Input 2"
             }

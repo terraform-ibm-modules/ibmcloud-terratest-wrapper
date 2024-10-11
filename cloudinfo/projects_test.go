@@ -441,8 +441,10 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 		{
 			name: "Default values from ibm_catalog.json, should override values from stack_definition.json",
 			stackConfig: &ConfigDetails{
-				ProjectID: "mockProjectID",
-				ConfigID:  "54321",
+				ProjectID:          "mockProjectID",
+				ConfigID:           "54321",
+				CatalogProductName: "Product Name",
+				CatalogFlavorName:  "Flavor Name",
 			},
 			stackConfigPath: "testdata/stack_definition_stack_inputs_extended.json",
 			catalogJsonPath: "testdata/ibm_catalog_with_config_overrides.json",
@@ -470,7 +472,7 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 							Name:        core.StringPtr("input3"),
 							Type:        core.StringPtr("array"),
 							Required:    core.BoolPtr(false),
-							Default:     core.StringPtr("[\"stack_def_arr_value1\", \"stack_def_arr_value2\"]"),
+							Default:     core.StringPtr("[\"catalog_arr_value1\", \"catalog_arr_value2\"]"),
 							Description: core.StringPtr(""),
 							Hidden:      core.BoolPtr(false),
 						},
@@ -479,6 +481,79 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 							Type:        core.StringPtr("bool"),
 							Required:    core.BoolPtr(false),
 							Default:     core.BoolPtr(true),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+					},
+					Outputs: []projects.StackDefinitionOutputVariable{
+						{Name: core.StringPtr("output1"), Value: core.StringPtr("ref:../members/member1/outputs/output1")},
+						{Name: core.StringPtr("output2"), Value: core.StringPtr("ref:../members/member2/outputs/output2")},
+					},
+					Members: []projects.StackDefinitionMember{
+						{
+							Name:           core.StringPtr("member1"),
+							VersionLocator: core.StringPtr("version1"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("input1"), Value: core.StringPtr("ref:../../inputs/input1")},
+								{Name: core.StringPtr("input2"), Value: core.StringPtr("20")},
+								{Name: core.StringPtr("input3"), Value: core.StringPtr("stack_def_value3")},
+							},
+						},
+						{
+							Name:           core.StringPtr("member2"),
+							VersionLocator: core.StringPtr("version2"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("input1"), Value: core.StringPtr("ref:../../inputs/input2")},
+								{Name: core.StringPtr("input2"), Value: core.StringPtr("30")},
+								{Name: core.StringPtr("input3"), Value: core.StringPtr("stack_def_value4")},
+							},
+						},
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			name: "Default values from ibm_catalog.json with a default not set, should override values from stack_definition.json",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_stack_inputs_extended.json",
+			catalogJsonPath: "testdata/ibm_catalog_with_config_overrides_and_defaults_not_set.json",
+			expectedConfig: &projects.StackDefinition{
+				ID: core.StringPtr("mockProjectID"), // This would be generated on the server side and not part of the input
+				StackDefinition: &projects.StackDefinitionBlock{
+					Inputs: []projects.StackDefinitionInputVariable{
+						{
+							Name:        core.StringPtr("input1"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("stack_def_Value1"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("input2"),
+							Type:        core.StringPtr("int"),
+							Required:    core.BoolPtr(false),
+							Default:     core.Int64Ptr(80),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("input3"),
+							Type:        core.StringPtr("array"),
+							Required:    core.BoolPtr(false),
+							Default:     core.StringPtr("[\"stack_def_arr_value1\", \"stack_def_arr_value2\"]"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("input4"),
+							Type:        core.StringPtr("bool"),
+							Required:    core.BoolPtr(false),
+							Default:     core.BoolPtr(false),
 							Description: core.StringPtr(""),
 							Hidden:      core.BoolPtr(false),
 						},
@@ -877,7 +952,8 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			stackConfigPath: "testdata/stack_definition_duplicate_stack_inputs.json",
 			catalogJsonPath: "testdata/ibm_catalog_no_config_overrides.json",
 			expectedConfig:  nil,
-			expectedError:   fmt.Errorf("duplicate stack input variable found: input1, input2"),
+			expectedError: fmt.Errorf("duplicate stack input variable found: input1\n" +
+				"duplicate stack input variable found: input2"),
 		},
 		{
 			name: "duplicate stack outputs, should return an error",
@@ -910,7 +986,7 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			stackConfigPath: "testdata/stack_definition_stack_inputs.json",
 			catalogJsonPath: "testdata/ibm_catalog_extra_input.json",
 			expectedConfig:  nil,
-			expectedError:   fmt.Errorf("catalog input variable not found in stack definition: input5"),
+			expectedError:   fmt.Errorf("extra catalog input variable not found in stack definition in product 'Product Name', flavor 'Flavor Name': input5"),
 		},
 		{
 			name: "catalog input duplicate found, should return an error",
@@ -921,7 +997,36 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			stackConfigPath: "testdata/stack_definition_stack_inputs.json",
 			catalogJsonPath: "testdata/ibm_catalog_duplicate_input.json",
 			expectedConfig:  nil,
-			expectedError:   fmt.Errorf("duplicate catalog input variable found: input1"),
+			expectedError:   fmt.Errorf("duplicate catalog input variable found in product 'Product Name', flavor 'Flavor Name': input1"),
+		},
+		{
+			name: "catalog input type mismatch, should return an error",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_stack_inputs_extended.json",
+			catalogJsonPath: "testdata/ibm_catalog_with_config_overrides_type_mismatch.json",
+			expectedConfig:  nil,
+			expectedError: fmt.Errorf("catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input1 expected type: string, got: array\n" +
+				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input2 expected type: int, got: string\n" +
+				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input3 expected type: array, got: bool\n" +
+				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input4 expected type: bool, got: array"),
+		},
+		{
+			// This is checking the type of the actual default value
+			name: "catalog input default type mismatch, should return an error",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_stack_inputs_extended.json",
+			catalogJsonPath: "testdata/ibm_catalog_with_config_overrides_value_type_mismatch.json",
+			expectedConfig:  nil,
+			expectedError: fmt.Errorf("catalog configuration default value type mismatch in product 'Product Name', flavor 'Flavor Name': input1 expected type: string, got: bool\n" +
+				"catalog configuration default value type mismatch in product 'Product Name', flavor 'Flavor Name': input2 expected type: int, got: string\n" +
+				"catalog configuration default value type mismatch in product 'Product Name', flavor 'Flavor Name': input3 expected type: array, got: string\n" +
+				"catalog configuration default value type mismatch in product 'Product Name', flavor 'Flavor Name': input4 expected type: bool, got: string"),
 		},
 		{
 			name: "multiple duplicates or extra inputs, should return a single error with multiple messages",
@@ -933,11 +1038,13 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			catalogJsonPath: "testdata/ibm_catalog_multiple_errors.json",
 			expectedConfig:  nil,
 			expectedError: fmt.Errorf(
-				"duplicate stack input variable found: input1, input2\n" +
+				"duplicate stack input variable found: input1\n" +
+					"duplicate stack input variable found: input2\n" +
 					"duplicate stack output variable found: output1\n" +
 					"duplicate member input variable found member: member1 input: input1\n" +
-					"duplicate catalog input variable found: input1\n" +
-					"catalog input variable not found in stack definition: input5"),
+					"duplicate catalog input variable found in product 'Product Name', flavor 'Flavor Name': input1\n" +
+					"catalog configuration default value type mismatch in product 'Product Name', flavor 'Flavor Name': input2 expected type: int, got: string\n" +
+					"extra catalog input variable not found in stack definition in product 'Product Name', flavor 'Flavor Name': input5"),
 		},
 	}
 

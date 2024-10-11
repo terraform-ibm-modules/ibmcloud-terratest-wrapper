@@ -70,7 +70,7 @@
               "key": "input2",
               "type": "int",
               "description": "Description for input2",
-              "default_value": "80",
+              "default_value": 80,
               "required": true,
               "display_name": "Input 2"
             },
