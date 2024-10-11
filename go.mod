@@ -9,10 +9,10 @@ require (
 	github.com/IBM-Cloud/power-go-client v1.8.1
 	github.com/IBM/cloud-databases-go-sdk v0.7.0
 	github.com/IBM/go-sdk-core/v5 v5.17.5
-	github.com/IBM/platform-services-go-sdk v0.69.1
+	github.com/IBM/platform-services-go-sdk v0.69.2
 	github.com/IBM/project-go-sdk v0.3.6
 	github.com/IBM/schematics-go-sdk v0.3.0
-	github.com/IBM/vpc-go-sdk v0.59.0
+	github.com/IBM/vpc-go-sdk v0.60.0
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/go-openapi/errors v0.22.0
 	github.com/go-openapi/strfmt v0.23.0
