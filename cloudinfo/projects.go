@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -396,8 +397,8 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 	// Update stack inputs from catalog configuration
 	updateInputsFromCatalog(stackConfig, catalogConfig, catalogProductIndex, catalogFlavorIndex, doNotOverrideInputs)
 
-	// Check if all catalog inputs exist in the stack definition
-	checkCatalogInputsExistInStackDefinition(stackJson, catalogConfig, catalogProductIndex, catalogFlavorIndex, &errorMessages)
+	// Check if all catalog inputs exist in the stack definition and match types
+	validateCatalogInputsInStackDefinition(stackJson, catalogConfig, catalogProductIndex, catalogFlavorIndex, &errorMessages)
 
 	// If there are any errors from the validation process, return them
 	if len(errorMessages) > 0 {
@@ -407,8 +408,13 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 	// Sort stack inputs by name for consistency
 	sortInputsByName(stackConfig)
 
-	// Set stack name and description using catalog product and flavor labels
-	stackConfig.Name = fmt.Sprintf("%s-%s", catalogConfig.Products[catalogProductIndex].Label, catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Label)
+	// Set stack name and description using catalog product and flavor labels, ensure the name is valid. For the test the name does not really matter so strip invalid characters.
+	// Define the pattern to match valid characters
+	var validNamePattern = regexp.MustCompile(`[^a-zA-Z0-9-_ ]`)
+
+	// Generate the stack name and strip invalid characters
+	rawName := fmt.Sprintf("%s-%s", catalogConfig.Products[catalogProductIndex].Label, catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Label)
+	stackConfig.Name = validNamePattern.ReplaceAllString(rawName, "")
 	stackConfig.Description = fmt.Sprintf("%s-%s", catalogConfig.Products[catalogProductIndex].Label, catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Label)
 
 	// Create the new stack
@@ -452,45 +458,34 @@ func checkStackForDuplicates(stackJson Stack) []string {
 	errorMessages := []string{}
 
 	inputNames := make(map[string]bool)
-	duplicateInputs := []string{}
 	for _, input := range stackJson.Inputs {
 		if _, exists := inputNames[input.Name]; exists {
-			duplicateInputs = append(duplicateInputs, input.Name)
+			errorMessages = append(errorMessages, fmt.Sprintf("duplicate stack input variable found: %s", input.Name))
 		} else {
 			inputNames[input.Name] = true
 		}
 	}
-	if len(duplicateInputs) > 0 {
-		errorMessages = append(errorMessages, fmt.Sprintf("duplicate stack input variable found: %s", strings.Join(duplicateInputs, ", ")))
-	}
 
 	outputNames := make(map[string]bool)
-	duplicateOutputs := []string{}
 	for _, output := range stackJson.Outputs {
 		if _, exists := outputNames[output.Name]; exists {
-			duplicateOutputs = append(duplicateOutputs, output.Name)
+			errorMessages = append(errorMessages, fmt.Sprintf("duplicate stack output variable found: %s", output.Name))
 		} else {
 			outputNames[output.Name] = true
 		}
 	}
-	if len(duplicateOutputs) > 0 {
-		errorMessages = append(errorMessages, fmt.Sprintf("duplicate stack output variable found: %s", strings.Join(duplicateOutputs, ", ")))
-	}
 
 	for _, member := range stackJson.Members {
 		memberInputNames := make(map[string]bool)
-		duplicateMemberInputs := []string{}
 		for _, input := range member.Inputs {
 			if _, exists := memberInputNames[input.Name]; exists {
-				duplicateMemberInputs = append(duplicateMemberInputs, fmt.Sprintf("member: %s input: %s", member.Name, input.Name))
+				errorMessages = append(errorMessages, fmt.Sprintf("duplicate member input variable found member: %s input: %s", member.Name, input.Name))
 			} else {
 				memberInputNames[input.Name] = true
 			}
 		}
-		if len(duplicateMemberInputs) > 0 {
-			errorMessages = append(errorMessages, fmt.Sprintf("duplicate member input variable found %s", strings.Join(duplicateMemberInputs, ", ")))
-		}
 	}
+
 	return errorMessages
 }
 
@@ -622,6 +617,8 @@ func defineStackIO(stackJson Stack, stackConfig *ConfigDetails, doNotOverrideInp
 // This function reads and unmarshals the catalog configuration, and identifies the product and flavor indices based on the stack configuration.
 func readCatalogConfig(catalogJsonPath string, stackConfig *ConfigDetails, errorMessages *[]string) (CatalogJson, int, int, error) {
 	jsonFile, err := os.ReadFile(catalogJsonPath)
+	duplicateErrorMessages := []string{}
+
 	if err != nil {
 		log.Println("Error reading catalog JSON file:", err)
 		return CatalogJson{}, 0, 0, err
@@ -659,16 +656,18 @@ func readCatalogConfig(catalogJsonPath string, stackConfig *ConfigDetails, error
 	}
 
 	catalogInputNames := make(map[string]bool)
-	duplicateCatalogInputs := []string{}
+	productName := catalogConfig.Products[catalogProductIndex].Name
+	flavorName := catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Name
 	for _, input := range catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Configuration {
 		if _, exists := catalogInputNames[input.Key]; exists {
-			duplicateCatalogInputs = append(duplicateCatalogInputs, input.Key)
+			duplicateErrorMessages = append(duplicateErrorMessages, fmt.Sprintf("duplicate catalog input variable found in product '%s', flavor '%s': %s", productName, flavorName, input.Key))
 		} else {
 			catalogInputNames[input.Key] = true
 		}
 	}
-	if len(duplicateCatalogInputs) > 0 {
-		*errorMessages = append(*errorMessages, fmt.Sprintf("duplicate catalog input variable found: %s", strings.Join(duplicateCatalogInputs, ", ")))
+	if len(duplicateErrorMessages) > 0 {
+
+		*errorMessages = append(*errorMessages, strings.Join(duplicateErrorMessages, "\n"))
 	}
 
 	return catalogConfig, catalogProductIndex, catalogFlavorIndex, nil
@@ -694,6 +693,12 @@ func updateInputsFromCatalog(stackConfig *ConfigDetails, catalogConfig CatalogJs
 		} else {
 			inputDefault = doNotOverrideInputs["stack"][input.Key]
 		}
+
+		// Skip updating if the default value is nil
+		if inputDefault == nil {
+			continue
+		}
+
 		inputDefault = convertSliceToString(inputDefault)
 
 		found := false
@@ -718,7 +723,7 @@ func updateInputsFromCatalog(stackConfig *ConfigDetails, catalogConfig CatalogJs
 					if val, ok := inputDefault.(string); ok {
 						stackConfig.StackDefinition.Inputs[i].Default = &val
 					}
-				case "boolean":
+				case "bool", "boolean":
 					if val, ok := inputDefault.(bool); ok {
 						stackConfig.StackDefinition.Inputs[i].Default = &val
 					} else if val, err := strconv.ParseBool(inputDefault.(string)); err == nil {
@@ -742,30 +747,100 @@ func updateInputsFromCatalog(stackConfig *ConfigDetails, catalogConfig CatalogJs
 	}
 }
 
-// checkCatalogInputsExistInStackDefinition checks if all catalog inputs exist in the stack definition.
-// This function ensures that each input defined in the catalog configuration is also present in the stack definition,
+// validateCatalogInputsInStackDefinition validates that all catalog inputs exist in the stack definition and their types match.
+// This function ensures that each input defined in the catalog configuration is also present in the stack definition with the correct type,
 // thereby ensuring consistency between the catalog and stack configurations.
-func checkCatalogInputsExistInStackDefinition(stackJson Stack, catalogConfig CatalogJson, catalogProductIndex, catalogFlavorIndex int, errorMessages *[]string) {
+func validateCatalogInputsInStackDefinition(stackJson Stack, catalogConfig CatalogJson, catalogProductIndex, catalogFlavorIndex int, errorMessages *[]string) {
 	catalogInputs := catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Configuration
-	missingInputs := []string{}
+	productName := catalogConfig.Products[catalogProductIndex].Name
+	flavorName := catalogConfig.Products[catalogProductIndex].Flavors[catalogFlavorIndex].Name
+	typeMismatches := []string{}
+	defaultTypeMismatches := []string{}
+	extraInputs := []string{}
 
-	// Iterate over each catalog input and check if it exists in the stack definition
+	// Iterate over each catalog input and check if it exists in the stack definition and if the types match
 	for _, catalogInput := range catalogInputs {
+		// Skip the ibmcloud_api_key input as it may not part of the stack definition, but is always valid
+		if catalogInput.Key == "ibmcloud_api_key" {
+			continue
+		}
 		found := false
 		for _, stackInput := range stackJson.Inputs {
 			if catalogInput.Key == stackInput.Name {
 				found = true
+				expectedType := convertGoTypeToExpectedType(stackInput.Type)
+				if !isValidType(catalogInput.Type, expectedType) {
+					typeMismatches = append(typeMismatches, fmt.Sprintf("catalog configuration type mismatch in product '%s', flavor '%s': %s expected type: %s, got: %s", productName, flavorName, catalogInput.Key, expectedType, catalogInput.Type))
+				}
+				// Check if the default value type matches the expected type
+				if catalogInput.DefaultValue != nil {
+					defaultValueType := reflect.TypeOf(catalogInput.DefaultValue).String()
+					expectedDefaultValueType := convertGoTypeToExpectedType(defaultValueType)
+					if !isValidType(expectedType, expectedDefaultValueType) {
+						defaultTypeMismatches = append(defaultTypeMismatches, fmt.Sprintf("catalog configuration default value type mismatch in product '%s', flavor '%s': %s expected type: %s, got: %s", productName, flavorName, catalogInput.Key, expectedType, expectedDefaultValueType))
+					}
+				}
 				break
 			}
 		}
 		if !found {
-			missingInputs = append(missingInputs, catalogInput.Key)
+			extraInputs = append(extraInputs, fmt.Sprintf("extra catalog input variable not found in stack definition in product '%s', flavor '%s': %s", productName, flavorName, catalogInput.Key))
 		}
 	}
 
-	if len(missingInputs) > 0 {
-		*errorMessages = append(*errorMessages, fmt.Sprintf("catalog input variable not found in stack definition: %s", strings.Join(missingInputs, ", ")))
+	if len(typeMismatches) > 0 {
+		*errorMessages = append(*errorMessages, strings.Join(typeMismatches, "\n"))
 	}
+
+	if len(defaultTypeMismatches) > 0 {
+		*errorMessages = append(*errorMessages, strings.Join(defaultTypeMismatches, "\n"))
+	}
+
+	if len(extraInputs) > 0 {
+		*errorMessages = append(*errorMessages, strings.Join(extraInputs, "\n"))
+	}
+}
+
+// convertGoTypeToExpectedType converts Go types to the expected type names as defined in catalog json.
+func convertGoTypeToExpectedType(goType string) string {
+	switch goType {
+	case "string":
+		return "string"
+	case "int", "int64", "float32", "float64":
+		return "int"
+	case "[]interface {}":
+		return "array"
+	case "map[string]interface {}":
+		return "object"
+	case "bool":
+		return "bool"
+	default:
+		return goType
+	}
+}
+
+// isValidType checks if the provided type is valid considering additional valid types
+func isValidType(expectedType, actualType string) bool {
+	validTypes := map[string][]string{
+		"password": {"password", "string"},
+		"boolean":  {"boolean", "bool"},
+		"array":    {"array"},
+		"object":   {"object"},
+		"int":      {"int", "int64", "float32", "float64"},
+		"string":   {"string"},
+		"float":    {"float32", "float64"},
+		// Add more type mappings as needed
+	}
+
+	if valid, exists := validTypes[expectedType]; exists {
+		for _, t := range valid {
+			if t == actualType {
+				return true
+			}
+		}
+		return false
+	}
+	return expectedType == actualType
 }
 
 // sortInputsByName sorts the stack inputs by their name.
