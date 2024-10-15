@@ -276,10 +276,9 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 			if allMembersDeployed {
 				deployComplete = true
 			} else if !failed {
-				// TODO: pause 30 second then check the member states one last time
 				// just incase there was a delay in updating the state
 				// Move members deployable check to its own function
-				time.Sleep(30 * time.Second)
+				time.Sleep(time.Duration(options.StackPollTimeSeconds) * time.Second)
 
 				var errorMessage strings.Builder
 				membersLatest, latestMemErr := options.CloudInfoService.GetStackMembers(options.currentStackConfig)
@@ -316,7 +315,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 						}
 
 						options.Logger.ShortInfo(stackStatusMessage.String())
-						time.Sleep(time.Duration(30) * time.Second)
+						time.Sleep(time.Duration(options.StackPollTimeSeconds) * time.Second)
 						continue
 					}
 				}
@@ -357,7 +356,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 
 		if stackDetails.StateCode == nil {
 			options.Logger.ShortInfo("Stack state code is nil, skipping this time")
-			time.Sleep(time.Duration(30) * time.Second)
+			time.Sleep(time.Duration(options.StackPollTimeSeconds) * time.Second)
 			continue
 		}
 
@@ -371,7 +370,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 			options.Logger.ShortInfo(fmt.Sprintf("Stack Deployed Successfully, current state: %s and state code: %s", Statuses[*stackDetails.State], Statuses[*stackDetails.StateCode]))
 		} else {
 			options.Logger.ShortInfo(fmt.Sprintf("Stack is still deploying, current state: %s and state code: %s\n%s", Statuses[*stackDetails.State], Statuses[*stackDetails.StateCode], currentDeployStatus))
-			time.Sleep(time.Duration(30) * time.Second)
+			time.Sleep(time.Duration(options.StackPollTimeSeconds) * time.Second)
 		}
 	}
 
@@ -454,7 +453,7 @@ func (options *TestProjectsOptions) TriggerUnDeploy() (bool, []error) {
 						memberName = fmt.Sprintf("Unknown name, ID: %s", *member.ID)
 					}
 					options.Logger.ShortInfo(fmt.Sprintf("Member %s is still in state %s, waiting for all members to complete", memberName, Statuses[*member.State]))
-					time.Sleep(time.Duration(30) * time.Second)
+					time.Sleep(time.Duration(options.StackPollTimeSeconds) * time.Second)
 				}
 			}
 		}
@@ -585,7 +584,7 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 						options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with state code %s, treating as complete undeploy", Statuses[*stackDetails.State], Statuses[stateCode]))
 					} else {
 						options.Logger.ShortInfo(fmt.Sprintf("Stack is still undeploying, current state: %s and state code: %s\n%s", Statuses[*stackDetails.State], Statuses[stateCode], currentUndeployStatus+strings.Join(memberStates, "\n")))
-						time.Sleep(30 * time.Second)
+						time.Sleep(time.Duration(options.StackPollTimeSeconds) * time.Second)
 					}
 				}
 			}
@@ -771,7 +770,7 @@ func (options *TestProjectsOptions) TestTearDown() {
 					break
 				}
 				options.Logger.ShortInfo("Pipeline actions are still running, waiting...")
-				time.Sleep(30 * time.Second)
+				time.Sleep(time.Duration(options.StackPollTimeSeconds) * time.Second)
 			}
 
 			// Check if timeout was reached
