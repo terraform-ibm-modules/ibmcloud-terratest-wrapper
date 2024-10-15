@@ -62,6 +62,9 @@ type TestProjectsOptions struct {
 	StackConfigurationPath string
 	StackCatalogJsonPath   string
 
+	// StackPollTimeSeconds The number of seconds to wait between polling the stack status. 0 is not valid and will default to 60 seconds.
+	StackPollTimeSeconds int
+
 	// StackAutoSync If set to true, when deploying or undeploying a member, a sync with Schematics will be executed if the member has not updated before the StackAutoSyncInterval.
 	StackAutoSync bool
 	// StackAutoSyncInterval The number of minutes to wait before syncing with Schematics if state has not updated. Default is 20 minutes.
@@ -178,6 +181,10 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 
 	if newOptions.StackAutoSyncInterval == 0 {
 		newOptions.StackAutoSyncInterval = 20
+	}
+
+	if newOptions.StackPollTimeSeconds == 0 {
+		newOptions.StackPollTimeSeconds = 60
 	}
 	// if newOptions.ProjectLocation == ""
 	// a random location will be selected at project creation time in CreateProjectFromConfig
