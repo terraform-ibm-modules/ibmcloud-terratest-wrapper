@@ -43,7 +43,7 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("=== RECOVER FROM PANIC ===")
-			options.Testing.Error("Panic recovery during schematics test")
+			options.Testing.Errorf("Recovered from panic: %v", r)
 		}
 		testTearDown(svc, options)
 	}()
