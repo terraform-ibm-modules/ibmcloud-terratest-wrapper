@@ -92,6 +92,9 @@ type TestSchematicOptions struct {
 	// By default this will be false, and if a failure happens the workspace and logs will be preserved for analysis.
 	DeleteWorkspaceOnFail bool
 
+	// If you want to skip test teardown (both resource destroy and workspace deletion)
+	SkipTestTearDown bool
+
 	// This value is used to set the terraform version attribute for the workspace and template.
 	// If left empty, an empty value will be set in the template which will cause the Schematic jobs to use the highest available version.
 	//
