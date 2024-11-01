@@ -173,6 +173,26 @@ type TestOptions struct {
 	PostDestroyHook func(options *TestOptions) error
 }
 
+type CheckConsistencyOptions struct {
+	// REQUIRED: a pointer to an initialized testing object.
+	// Typically, you would assign the test object used in the unit test.
+	Testing *testing.T
+
+	// For Consistency Checks: Specify terraform resource names to ignore for consistency checks.
+	// You can ignore specific resources in both idempotent and upgrade consistency checks by adding their names to these
+	// lists. There are separate lists for adds, updates, and destroys.
+	//
+	// This can be useful if you have resources like `null_resource` that are marked with a lifecycle that causes a refresh on every run.
+	// Normally this would fail a consistency check but can be ignored by adding to one of these lists.
+	//
+	// Name format is terraform style, for example: `module.some_module.null_resource.foo`
+	IgnoreAdds     Exemptions
+	IgnoreDestroys Exemptions
+	IgnoreUpdates  Exemptions
+
+	IsUpgradeTest bool // Identifies if current test is an UPGRADE test, used for special processing
+}
+
 // Default constructor for TestOptions struct. This constructor takes in an existing TestOptions object with minimal values set, and returns
 // a new object that has amended or new values set.
 //

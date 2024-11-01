@@ -79,7 +79,7 @@ func sanitizeResourceChanges(change *tfjson.Change, mergedSensitive map[string]i
 }
 
 // handleSanitizationError logs an error message if a sanitization error occurs.
-func handleSanitizationError(err error, location string, options *TestOptions) {
+func handleSanitizationError(err error, location string, options *CheckConsistencyOptions) {
 	if err != nil {
 		errorMessage := fmt.Sprintf("Error sanitizing sensitive data in %s", location)
 		logger.Log(options.Testing, errorMessage)
@@ -88,12 +88,8 @@ func handleSanitizationError(err error, location string, options *TestOptions) {
 
 // checkConsistency Fails the test if any destroys are detected and the resource is not exempt.
 // If any addresses are provided in IgnoreUpdates.List then fail on updates too unless the resource is exempt
-func (options *TestOptions) CheckConsistency(plan *terraform.PlanStruct) {
-	options.checkConsistency(plan)
-}
-
-// checkConsistency check consistency
-func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
+// Returns TRUE if there were consistency changes that were identified
+func CheckConsistency(plan *terraform.PlanStruct, options *CheckConsistencyOptions) bool {
 	validChange := false
 
 	for _, resource := range plan.ResourceChangesMap {
@@ -161,7 +157,7 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 				after, err = common.SanitizeSensitiveData(beforeAfter[1], mergedSensitive)
 				handleSanitizationError(err, "after diff", options)
 			} else {
-				after = fmt.Sprintf("Could not parse after from diff") // dont print incase diff contains sensitive values
+				after = "Could not parse after from diff" // dont print incase diff contains sensitive values
 			}
 
 			// Perform sanitization on "Before" part
@@ -170,7 +166,7 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 				before, err = common.SanitizeSensitiveData(strings.TrimPrefix(beforeAfter[0], "Before: "), mergedSensitive)
 				handleSanitizationError(err, "before diff", options)
 			} else {
-				before = fmt.Sprintf("Could not parse before from diff") // dont print incase diff contains sensitive values
+				before = "Could not parse before from diff" // dont print incase diff contains sensitive values
 			}
 
 			// Reassemble the sanitized diff string
@@ -202,11 +198,18 @@ func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
 			}
 		}
 	}
-	// Run plan again to output the nice human-readable plan if there are valid changes
-	if validChange {
-		terraform.Plan(options.Testing, options.TerraformOptions)
-	}
+
+	return validChange
 }
+
+// checkConsistency check consistency
+// func checkConsistency(plan *terraform.PlanStruct, options *CheckConsistencyOptions) {
+
+// 	// Run plan again to output the nice human-readable plan if there are valid changes
+// 	if validChange {
+// 		terraform.Plan(options.Testing, options.TerraformOptions)
+// 	}
+// }
 
 // Function to setup testing environment.
 //
@@ -376,7 +379,7 @@ func (options *TestOptions) testTearDown() {
 			}
 			logger.Log(options.Testing, "START: Destroy")
 			destroyOutput, destroyError := terraform.DestroyE(options.Testing, options.TerraformOptions)
-			if assert.NoError(options.Testing, destroyError) == false {
+			if !assert.NoError(options.Testing, destroyError) {
 				logger.Log(options.Testing, destroyError)
 				// On destroy resource group failure, list remaining resources
 				if common.StringContainsIgnoreCase(destroyError.Error(), "Error Deleting resource group") {
@@ -466,7 +469,7 @@ func (options *TestOptions) testTearDown() {
 
 // print_resources internal helper function that prints the resources in the resource group
 func print_resources(t *testing.T, resourceGroup string, resources []resourcecontrollerv2.ResourceInstance, err error) {
-	logger.Log(t, fmt.Sprintf("---------------------------"))
+	logger.Log(t, "---------------------------")
 	if err != nil {
 		logger.Log(t, fmt.Sprintf("Error listing resources in Resource Group %s, %s\n"+
 			"Is this Resource Group already deleted?", resourceGroup, err))
@@ -476,7 +479,7 @@ func print_resources(t *testing.T, resourceGroup string, resources []resourcecon
 		logger.Log(t, fmt.Sprintf("Resources in Resource Group %s:", resourceGroup))
 		cloudinfo.PrintResources(resources)
 	}
-	logger.Log(t, fmt.Sprintf("---------------------------"))
+	logger.Log(t, "---------------------------")
 }
 
 // RunTestUpgrade runs the upgrade test to ensure that the Terraform configurations being tested
@@ -763,7 +766,17 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		}
 
 		logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)...")
-		options.checkConsistency(result)
+		hasConsistencyChanges := CheckConsistency(result, &CheckConsistencyOptions{
+			Testing:        options.Testing,
+			IgnoreAdds:     options.IgnoreAdds,
+			IgnoreDestroys: options.IgnoreDestroys,
+			IgnoreUpdates:  options.IgnoreUpdates,
+			IsUpgradeTest:  options.IsUpgradeTest,
+		})
+
+		if hasConsistencyChanges {
+			terraform.Plan(options.Testing, options.TerraformOptions)
+		}
 
 		// Check if optional upgrade support on PR Branch is needed
 		if options.CheckApplyResultForUpgrade && !options.Testing.Failed() {
@@ -811,7 +824,18 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 		options.testTearDown()
 		return result, err
 	}
-	options.checkConsistency(result)
+	hasConsistencyChanges := CheckConsistency(result, &CheckConsistencyOptions{
+		Testing:        options.Testing,
+		IgnoreAdds:     options.IgnoreAdds,
+		IgnoreDestroys: options.IgnoreDestroys,
+		IgnoreUpdates:  options.IgnoreUpdates,
+		IsUpgradeTest:  options.IsUpgradeTest,
+	})
+
+	if hasConsistencyChanges {
+		terraform.Plan(options.Testing, options.TerraformOptions)
+	}
+
 	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
 
 	options.testTearDown()
