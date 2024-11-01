@@ -115,6 +115,18 @@ type TestSchematicOptions struct {
 	SchematicsApiSvc  SchematicsApiSvcI           // OPTIONAL: service pointer for interacting with external schematics api
 	schematicsTestSvc *SchematicsTestService      // internal property to specify pointer to test service, used for test mocking
 
+	// For Consistency Checks: Specify terraform resource names to ignore for consistency checks.
+	// You can ignore specific resources in both idempotent and upgrade consistency checks by adding their names to these
+	// lists. There are separate lists for adds, updates, and destroys.
+	//
+	// This can be useful if you have resources like `null_resource` that are marked with a lifecycle that causes a refresh on every run.
+	// Normally this would fail a consistency check but can be ignored by adding to one of these lists.
+	//
+	// Name format is terraform style, for example: `module.some_module.null_resource.foo`
+	IgnoreAdds     testhelper.Exemptions
+	IgnoreDestroys testhelper.Exemptions
+	IgnoreUpdates  testhelper.Exemptions
+
 	// These optional fields can be used to override the default retry settings for making Schematics API calls.
 	// If SDK/API calls to Schematics result in errors, such as retrieving existing workspace details,
 	// the test framework will retry those calls for a set number of times, with a wait time between calls.

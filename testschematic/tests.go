@@ -5,9 +5,11 @@ import (
 	"os"
 	"strings"
 
+	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper"
 )
 
 // RunSchematicTest will use the supplied options to run an end-to-end Terraform test of a project in an
@@ -143,8 +145,18 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 			if assert.Equalf(options.Testing, SchematicsJobStatusCompleted, consistencyPlanJobStatus, "CONSISTENCY PLAN has failed with status %s - %s", consistencyPlanJobStatus, workspaceNameString) {
 				// if the consistency plan was successful, get the plan json and check consistency
 				consistencyPlanJson, consistencyPlanJsonErr := svc.TestOptions.CloudInfoService.GetSchematicsJobPlanJson(*consistencyPlanResponse.Activityid)
-				if assert.NoErrorf(options.Testing, consistencyPlanJsonErr, "error retrieving CONSISTENCY PLAN JSON - %v - %s", consistencyPlanJsonErr, workspaceNameString) {
-					// TODO: process plan
+				if assert.NoErrorf(options.Testing, consistencyPlanJsonErr, "error retrieving CONSISTENCY PLAN JSON - %w - %s", consistencyPlanJsonErr, workspaceNameString) {
+					// convert the json string into a terratest plan struct
+					planStruct, planStructErr := terraform.ParsePlanJSON(consistencyPlanJson)
+					if assert.NoErrorf(options.Testing, planStructErr, "error converting plan string into struct: %w -%s", planStructErr, workspaceNameString) {
+						testhelper.CheckConsistency(planStruct, &testhelper.CheckConsistencyOptions{
+							Testing:        options.Testing,
+							IgnoreAdds:     options.IgnoreAdds,
+							IgnoreDestroys: options.IgnoreDestroys,
+							IgnoreUpdates:  options.IgnoreUpdates,
+							IsUpgradeTest:  false,
+						})
+					}
 				}
 			}
 		}
