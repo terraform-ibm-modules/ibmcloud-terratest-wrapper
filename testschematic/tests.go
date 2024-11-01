@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
@@ -24,15 +25,11 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	// Any errors in this section will be considerd "unexpected" and returned to the calling unit test
 	// to short-circuit and quit the test.
 	// The official start of the unit test, with assertions, will begin AFTER workspace is properly created.
-
-	// create new schematic service with authenticator, set pointer of service in options for use later
-	var svc *SchematicsTestService
-	if options.schematicsTestSvc == nil {
-		svc = &SchematicsTestService{}
-	} else {
-		svc = options.schematicsTestSvc
+	svc, setupErr := testSetup(options)
+	if setupErr != nil {
+		return setupErr
 	}
-	svc.TestOptions = options
+
 	svc.TerraformTestStarted = false
 	svc.TerraformResourcesCreated = false
 
@@ -47,21 +44,6 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 		}
 		testTearDown(svc, options)
 	}()
-
-	// create IAM authenticator if needed
-	if svc.ApiAuthenticator == nil {
-		svc.CreateAuthenticator(options.RequiredEnvironmentVars[ibmcloudApiKeyVar])
-	}
-
-	// create external API service if needed
-	if options.SchematicsApiSvc != nil {
-		svc.SchematicsApiSvc = options.SchematicsApiSvc
-	} else {
-		svcErr := svc.InitializeSchematicsService()
-		if svcErr != nil {
-			return fmt.Errorf("error creating schematics sdk service: %w", svcErr)
-		}
-	}
 
 	// get the root path of this project
 	projectPath, pathErr := common.GitRootPath(".")
@@ -152,7 +134,67 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 		}
 	}
 
+	// ------ CONSISTENCY PLAN ------
+	consistencyPlanResponse, consistencyPlanErr := svc.CreatePlanJob()
+	if assert.NoErrorf(options.Testing, consistencyPlanErr, "error creating PLAN - %s", workspaceNameString) {
+		options.Testing.Log("[SCHEMATICS] Starting CONSISTENCY PLAN job ...")
+		consistencyPlanJobStatus, consistencyPlanStatusErr := svc.WaitForFinalJobStatus(*consistencyPlanResponse.Activityid)
+		if assert.NoErrorf(options.Testing, consistencyPlanStatusErr, "error waiting for CONSISTENCY PLAN to finish - %s", workspaceNameString) {
+			if assert.Equalf(options.Testing, SchematicsJobStatusCompleted, consistencyPlanJobStatus, "CONSISTENCY PLAN has failed with status %s - %s", consistencyPlanJobStatus, workspaceNameString) {
+				// if the consistency plan was successful, get the plan json and check consistency
+				consistencyPlanJson, consistencyPlanJsonErr := svc.TestOptions.CloudInfoService.GetSchematicsJobPlanJson(*consistencyPlanResponse.Activityid)
+				if assert.NoErrorf(options.Testing, consistencyPlanJsonErr, "error retrieving CONSISTENCY PLAN JSON - %v - %s", consistencyPlanJsonErr, workspaceNameString) {
+					// TODO: process plan
+				}
+			}
+		}
+	}
+
 	return nil
+}
+
+// testSetup is a helper function that will initialize and setup the SchematicsTestService in preparation for a test
+// Any errors in this section will be considerd "unexpected" and returned to the calling unit test
+// to short-circuit and quit the test.
+func testSetup(options *TestSchematicOptions) (*SchematicsTestService, error) {
+	// create new schematic service with authenticator, set pointer of service in options for use later
+	var svc *SchematicsTestService
+	if options.schematicsTestSvc == nil {
+		svc = &SchematicsTestService{}
+	} else {
+		svc = options.schematicsTestSvc
+	}
+
+	svc.TestOptions = options
+
+	// create new CloudInfoService if not supplied
+	if options.CloudInfoService == nil {
+		cloudInfoSvc, cloudInfoErr := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
+		if cloudInfoErr != nil {
+			return nil, cloudInfoErr
+		}
+		svc.CloudInfoService = cloudInfoSvc
+		options.CloudInfoService = cloudInfoSvc
+	} else {
+		svc.CloudInfoService = options.CloudInfoService
+	}
+
+	// create IAM authenticator if needed
+	if svc.ApiAuthenticator == nil {
+		svc.CreateAuthenticator(options.RequiredEnvironmentVars[ibmcloudApiKeyVar])
+	}
+
+	// create external API service if needed
+	if options.SchematicsApiSvc != nil {
+		svc.SchematicsApiSvc = options.SchematicsApiSvc
+	} else {
+		svcErr := svc.InitializeSchematicsService()
+		if svcErr != nil {
+			return nil, fmt.Errorf("error creating schematics sdk service: %w", svcErr)
+		}
+	}
+
+	return svc, nil
 }
 
 // testTearDown is a helper function, typically called via golang "defer", that will clean up and remove any existing resources that were

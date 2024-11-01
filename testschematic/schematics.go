@@ -16,6 +16,7 @@ import (
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/go-openapi/errors"
 	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
@@ -64,14 +65,15 @@ type IamAuthenticatorSvcI interface {
 
 // main data struct for all schematic test methods
 type SchematicsTestService struct {
-	SchematicsApiSvc          SchematicsApiSvcI     // the main schematics service interface
-	ApiAuthenticator          IamAuthenticatorSvcI  // the authenticator used for schematics api calls
-	WorkspaceID               string                // workspace ID used for tests
-	WorkspaceName             string                // name of workspace that was created for test
-	TemplateID                string                // workspace template ID used for tests
-	TestOptions               *TestSchematicOptions // additional testing options
-	TerraformTestStarted      bool                  // keeps track of when actual Terraform resource testing has begin, used for proper test teardown logic
-	TerraformResourcesCreated bool                  // keeps track of when we start deploying resources, used for proper test teardown logic
+	SchematicsApiSvc          SchematicsApiSvcI           // the main schematics service interface
+	ApiAuthenticator          IamAuthenticatorSvcI        // the authenticator used for schematics api calls
+	WorkspaceID               string                      // workspace ID used for tests
+	WorkspaceName             string                      // name of workspace that was created for test
+	TemplateID                string                      // workspace template ID used for tests
+	TestOptions               *TestSchematicOptions       // additional testing options
+	TerraformTestStarted      bool                        // keeps track of when actual Terraform resource testing has begin, used for proper test teardown logic
+	TerraformResourcesCreated bool                        // keeps track of when we start deploying resources, used for proper test teardown logic
+	CloudInfoService          cloudinfo.CloudInfoServiceI // reference to a CloudInfoService resource
 }
 
 // CreateAuthenticator will accept a valid IBM cloud API key, and
