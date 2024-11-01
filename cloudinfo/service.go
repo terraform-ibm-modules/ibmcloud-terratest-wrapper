@@ -3,10 +3,11 @@ package cloudinfo
 
 import (
 	"errors"
-	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"log"
 	"os"
 	"sync"
+
+	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	projects "github.com/IBM/project-go-sdk/projectv1"
@@ -84,6 +85,8 @@ type CloudInfoServiceI interface {
 	GetSchematicsJobLogsText(jobID string) (logs string, err error)
 	ArePipelineActionsRunning(stackConfig *ConfigDetails) (bool, error)
 	GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string) (string, string)
+	GetSchematicsJobFileData(jobID string, fileType string) (*schematics.JobFileData, error)
+	GetSchematicsJobPlanJson(jobID string) (string, error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -208,6 +211,7 @@ type catalogService interface {
 // schematicsService for external Schematics V1 Service API. Used for mocking.
 type schematicsService interface {
 	ListJobLogs(listJobLogsOptions *schematics.ListJobLogsOptions) (result *schematics.JobLog, response *core.DetailedResponse, err error)
+	GetJobFiles(getJobFilesOptions *schematics.GetJobFilesOptions) (result *schematics.JobFileData, response *core.DetailedResponse, err error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.

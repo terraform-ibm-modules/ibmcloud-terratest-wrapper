@@ -2,12 +2,13 @@ package cloudinfo
 
 import (
 	"fmt"
-	"github.com/IBM/go-sdk-core/v5/core"
-	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/IBM/go-sdk-core/v5/core"
+	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 )
 
 func (infoSvc *CloudInfoService) GetSchematicsJobLogs(jobID string) (result *schematics.JobLog, response *core.DetailedResponse, err error) {
@@ -73,4 +74,40 @@ func (infoSvc *CloudInfoService) GetSchematicsJobLogsText(jobID string) (logs st
 	}
 
 	return "", fmt.Errorf("exceeded maximum retries, attempt failures:\n%s", strings.Join(retryErrors, "\n"))
+}
+
+// GetSchematicsJobFileData will download a specific job file and return a JobFileData structure.
+// Allowable values for fileType: template_repo, readme_file, log_file, state_file, plan_json
+func (infoSvc *CloudInfoService) GetSchematicsJobFileData(jobID string, fileType string) (*schematics.JobFileData, error) {
+	// setup options
+	// file type Allowable values: [template_repo,readme_file,log_file,state_file,plan_json]
+	jobFileOptions := &schematics.GetJobFilesOptions{
+		JobID:    core.StringPtr(jobID),
+		FileType: core.StringPtr(fileType),
+	}
+
+	data, _, err := infoSvc.schematicsService.GetJobFiles(jobFileOptions)
+
+	return data, err
+}
+
+func (infoSvc *CloudInfoService) GetSchematicsJobPlanJson(jobID string) (string, error) {
+	// get the plan_json file for the job
+	data, dataErr := infoSvc.GetSchematicsJobFileData(jobID, "plan_json")
+
+	// check for multiple error conditions
+	if dataErr != nil {
+		return "", dataErr
+	}
+	if data == nil {
+		return "", fmt.Errorf("job file data object is nil, which is unexpected")
+	}
+	if data.FileContent == nil {
+		return "", fmt.Errorf("file content is nil, which is unexpected")
+	}
+
+	// extract the plan file content and return
+	contentPtr := data.FileContent
+
+	return *contentPtr, nil
 }
