@@ -1,7 +1,6 @@
 package testhelper
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/gruntwork-io/terratest/modules/random"
-	tfjson "github.com/hashicorp/terraform-json"
 
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 
@@ -63,153 +61,6 @@ func (options *TestOptions) skipUpgradeTest(source_repo string, source_branch st
 
 	return doNotRunUpgradeTest
 }
-
-// sanitizeResourceChanges sanitizes the sensitive data in a Terraform JSON Change and returns the sanitized JSON.
-func sanitizeResourceChanges(change *tfjson.Change, mergedSensitive map[string]interface{}) (string, error) {
-	// Marshal the Change to JSON bytes
-	changesBytes, err := json.MarshalIndent(change, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	changesJson := string(changesBytes)
-
-	// Perform sanitization of sensitive data
-	changesJson, err = common.SanitizeSensitiveData(changesJson, mergedSensitive)
-	return changesJson, err
-}
-
-// handleSanitizationError logs an error message if a sanitization error occurs.
-func handleSanitizationError(err error, location string, options *CheckConsistencyOptions) {
-	if err != nil {
-		errorMessage := fmt.Sprintf("Error sanitizing sensitive data in %s", location)
-		logger.Log(options.Testing, errorMessage)
-	}
-}
-
-// checkConsistency Fails the test if any destroys are detected and the resource is not exempt.
-// If any addresses are provided in IgnoreUpdates.List then fail on updates too unless the resource is exempt
-// Returns TRUE if there were consistency changes that were identified
-func CheckConsistency(plan *terraform.PlanStruct, options *CheckConsistencyOptions) bool {
-	validChange := false
-
-	for _, resource := range plan.ResourceChangesMap {
-		// get JSON string of full changes for the logs
-		changesBytes, changesErr := json.MarshalIndent(resource.Change, "", "  ")
-		// if it errors in the marshall step, just put a placeholder and move on, not important
-		changesJson := "--UNAVAILABLE--"
-		if changesErr == nil {
-			changesJson = string(changesBytes)
-		}
-
-		var resourceDetails string
-
-		// Treat all keys in the BeforeSensitive and AfterSensitive maps as sensitive
-		// Assuming BeforeSensitive and AfterSensitive are of type interface{}
-		beforeSensitive, beforeSensitiveOK := resource.Change.BeforeSensitive.(map[string]interface{})
-		afterSensitive, afterSensitiveOK := resource.Change.AfterSensitive.(map[string]interface{})
-
-		// Create the mergedSensitive map
-		mergedSensitive := make(map[string]interface{})
-
-		// Check if BeforeSensitive is of the expected type
-		if beforeSensitiveOK {
-			// Copy the keys and values from BeforeSensitive to the mergedSensitive map.
-			for key, value := range beforeSensitive {
-				mergedSensitive[key] = value
-			}
-		}
-
-		// Check if AfterSensitive is of the expected type
-		if afterSensitiveOK {
-			// Copy the keys and values from AfterSensitive to the mergedSensitive map.
-			for key, value := range afterSensitive {
-				mergedSensitive[key] = value
-			}
-		}
-
-		// Perform sanitization
-		sanitizedChangesJson, err := sanitizeResourceChanges(resource.Change, mergedSensitive)
-		if err != nil {
-			sanitizedChangesJson = "Error sanitizing sensitive data"
-			logger.Log(options.Testing, sanitizedChangesJson)
-		}
-		formatChangesJson, err := common.FormatJsonStringPretty(sanitizedChangesJson)
-
-		var formatChangesJsonString string
-		if err != nil {
-			logger.Log(options.Testing, "Error formatting JSON, use unformatted")
-			formatChangesJsonString = sanitizedChangesJson
-		} else {
-			formatChangesJsonString = string(formatChangesJson)
-		}
-
-		diff, diffErr := common.GetBeforeAfterDiff(changesJson)
-
-		if diffErr != nil {
-			diff = fmt.Sprintf("Error getting diff: %s", diffErr)
-		} else {
-			// Split the changesJson into "Before" and "After" parts
-			beforeAfter := strings.Split(diff, "After: ")
-
-			// Perform sanitization on "After" part
-			var after string
-			if len(beforeAfter) > 1 {
-				after, err = common.SanitizeSensitiveData(beforeAfter[1], mergedSensitive)
-				handleSanitizationError(err, "after diff", options)
-			} else {
-				after = "Could not parse after from diff" // dont print incase diff contains sensitive values
-			}
-
-			// Perform sanitization on "Before" part
-			var before string
-			if len(beforeAfter) > 0 {
-				before, err = common.SanitizeSensitiveData(strings.TrimPrefix(beforeAfter[0], "Before: "), mergedSensitive)
-				handleSanitizationError(err, "before diff", options)
-			} else {
-				before = "Could not parse before from diff" // dont print incase diff contains sensitive values
-			}
-
-			// Reassemble the sanitized diff string
-			diff = "  Before: \n\t" + before + "\n  After: \n\t" + after
-		}
-		resourceDetails = fmt.Sprintf("\nName: %s\nAddress: %s\nActions: %s\nDIFF:\n%s\n\nChange Detail:\n%s", resource.Name, resource.Address, resource.Change.Actions, diff, formatChangesJsonString)
-
-		var errorMessage string
-		if !options.IgnoreDestroys.IsExemptedResource(resource.Address) {
-			errorMessage = fmt.Sprintf("Resource(s) identified to be destroyed %s", resourceDetails)
-			assert.False(options.Testing, resource.Change.Actions.Delete(), errorMessage)
-			assert.False(options.Testing, resource.Change.Actions.DestroyBeforeCreate(), errorMessage)
-			assert.False(options.Testing, resource.Change.Actions.CreateBeforeDestroy(), errorMessage)
-			validChange = true
-		}
-		if !options.IgnoreUpdates.IsExemptedResource(resource.Address) {
-			errorMessage = fmt.Sprintf("Resource(s) identified to be updated %s", resourceDetails)
-			assert.False(options.Testing, resource.Change.Actions.Update(), errorMessage)
-			validChange = true
-		}
-		// We only want to check pure Adds (creates without destroy) if the consistency test is
-		// NOT the result of an Upgrade, as some adds are expected when doing the Upgrade test
-		// (such as new resources were added as part of the pull request)
-		if !options.IsUpgradeTest {
-			if !options.IgnoreAdds.IsExemptedResource(resource.Address) {
-				errorMessage = fmt.Sprintf("Resource(s) identified to be created %s", resourceDetails)
-				assert.False(options.Testing, resource.Change.Actions.Create(), errorMessage)
-				validChange = true
-			}
-		}
-	}
-
-	return validChange
-}
-
-// checkConsistency check consistency
-// func checkConsistency(plan *terraform.PlanStruct, options *CheckConsistencyOptions) {
-
-// 	// Run plan again to output the nice human-readable plan if there are valid changes
-// 	if validChange {
-// 		terraform.Plan(options.Testing, options.TerraformOptions)
-// 	}
-// }
 
 // Function to setup testing environment.
 //
@@ -766,13 +617,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		}
 
 		logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)...")
-		hasConsistencyChanges := CheckConsistency(result, &CheckConsistencyOptions{
-			Testing:        options.Testing,
-			IgnoreAdds:     options.IgnoreAdds,
-			IgnoreDestroys: options.IgnoreDestroys,
-			IgnoreUpdates:  options.IgnoreUpdates,
-			IsUpgradeTest:  options.IsUpgradeTest,
-		})
+		hasConsistencyChanges := CheckConsistency(result, options)
 
 		if hasConsistencyChanges {
 			terraform.Plan(options.Testing, options.TerraformOptions)
@@ -824,13 +669,7 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 		options.testTearDown()
 		return result, err
 	}
-	hasConsistencyChanges := CheckConsistency(result, &CheckConsistencyOptions{
-		Testing:        options.Testing,
-		IgnoreAdds:     options.IgnoreAdds,
-		IgnoreDestroys: options.IgnoreDestroys,
-		IgnoreUpdates:  options.IgnoreUpdates,
-		IsUpgradeTest:  options.IsUpgradeTest,
-	})
+	hasConsistencyChanges := CheckConsistency(result, options)
 
 	if hasConsistencyChanges {
 		terraform.Plan(options.Testing, options.TerraformOptions)

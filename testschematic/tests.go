@@ -149,13 +149,7 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 					// convert the json string into a terratest plan struct
 					planStruct, planStructErr := terraform.ParsePlanJSON(consistencyPlanJson)
 					if assert.NoErrorf(options.Testing, planStructErr, "error converting plan string into struct: %w -%s", planStructErr, workspaceNameString) {
-						testhelper.CheckConsistency(planStruct, &testhelper.CheckConsistencyOptions{
-							Testing:        options.Testing,
-							IgnoreAdds:     options.IgnoreAdds,
-							IgnoreDestroys: options.IgnoreDestroys,
-							IgnoreUpdates:  options.IgnoreUpdates,
-							IsUpgradeTest:  false,
-						})
+						testhelper.CheckConsistency(planStruct, options)
 					}
 				}
 			}

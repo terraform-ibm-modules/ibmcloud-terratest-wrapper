@@ -193,6 +193,23 @@ type CheckConsistencyOptions struct {
 	IsUpgradeTest bool // Identifies if current test is an UPGRADE test, used for special processing
 }
 
+// CheckConsistencyOptionsI is an interface that a testoption struct can implement that will return the appropriate
+// CheckConsistencyOptions object populated with correct values
+type CheckConsistencyOptionsI interface {
+	GetCheckConsistencyOptions() *CheckConsistencyOptions
+}
+
+// To support consistency check options interface
+func (options *TestOptions) GetCheckConsistencyOptions() *CheckConsistencyOptions {
+	return &CheckConsistencyOptions{
+		Testing:        options.Testing,
+		IgnoreAdds:     options.IgnoreAdds,
+		IgnoreDestroys: options.IgnoreDestroys,
+		IgnoreUpdates:  options.IgnoreUpdates,
+		IsUpgradeTest:  options.IsUpgradeTest,
+	}
+}
+
 // Default constructor for TestOptions struct. This constructor takes in an existing TestOptions object with minimal values set, and returns
 // a new object that has amended or new values set.
 //

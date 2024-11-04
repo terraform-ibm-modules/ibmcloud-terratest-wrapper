@@ -158,6 +158,17 @@ type WorkspaceEnvironmentVariable struct {
 	Secure bool   // metadata to mark value as sensitive
 }
 
+// To support consistency check options interface
+func (options *TestSchematicOptions) GetCheckConsistencyOptions() *testhelper.CheckConsistencyOptions {
+	return &testhelper.CheckConsistencyOptions{
+		Testing:        options.Testing,
+		IgnoreAdds:     options.IgnoreAdds,
+		IgnoreDestroys: options.IgnoreDestroys,
+		IgnoreUpdates:  options.IgnoreUpdates,
+		IsUpgradeTest:  false,
+	}
+}
+
 // TestSchematicOptionsDefault is a constructor for struct TestSchematicOptions. This function will accept an existing instance of
 // TestSchematicOptions values, and return a new instance of TestSchematicOptions with the original values set along with appropriate
 // default values for any properties that were not set in the original options.
