@@ -136,6 +136,10 @@ type TestSchematicOptions struct {
 	// Current Default: 5 retries, 5 second wait
 	SchematicSvcRetryCount       *int
 	SchematicSvcRetryWaitSeconds *int
+
+	// By default the logs from schematics jobs will only be printed to the test log if there is a failure in the job.
+	// Set this value to `true` to have all schematics job logs (plan/apply/destroy) printed to the test log.
+	PrintAllSchematicsLogs bool
 }
 
 type TestSchematicTerraformVar struct {

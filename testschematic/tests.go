@@ -112,16 +112,22 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	svc.TerraformTestStarted = true
 
 	// ------ PLAN ------
+	planSuccess := false // will only flip to true if job completes
 	planResponse, planErr := svc.CreatePlanJob()
 	if assert.NoErrorf(options.Testing, planErr, "error creating PLAN - %s", workspaceNameString) {
 		options.Testing.Log("[SCHEMATICS] Starting PLAN job ...")
 		planJobStatus, planStatusErr := svc.WaitForFinalJobStatus(*planResponse.Activityid)
 		if assert.NoErrorf(options.Testing, planStatusErr, "error waiting for PLAN to finish - %s", workspaceNameString) {
-			assert.Equalf(options.Testing, SchematicsJobStatusCompleted, planJobStatus, "PLAN has failed with status %s - %s", planJobStatus, workspaceNameString)
+			planSuccess = assert.Equalf(options.Testing, SchematicsJobStatusCompleted, planJobStatus, "PLAN has failed with status %s - %s", planJobStatus, workspaceNameString)
+		}
+
+		if !planSuccess || options.PrintAllSchematicsLogs {
+			svc.printWorkspaceJobLogToTestLog(*planResponse.Activityid, "PLAN")
 		}
 	}
 
 	// ------ APPLY ------
+	applySuccess := false // will only flip to true if job completes
 	if !options.Testing.Failed() {
 		applyResponse, applyErr := svc.CreateApplyJob()
 		if assert.NoErrorf(options.Testing, applyErr, "error creating APPLY - %s", workspaceNameString) {
@@ -131,27 +137,41 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 
 			applyJobStatus, applyStatusErr := svc.WaitForFinalJobStatus(*applyResponse.Activityid)
 			if assert.NoErrorf(options.Testing, applyStatusErr, "error waiting for APPLY to finish - %s", workspaceNameString) {
-				assert.Equalf(options.Testing, SchematicsJobStatusCompleted, applyJobStatus, "APPLY has failed with status %s - %s", applyJobStatus, workspaceNameString)
+				applySuccess = assert.Equalf(options.Testing, SchematicsJobStatusCompleted, applyJobStatus, "APPLY has failed with status %s - %s", applyJobStatus, workspaceNameString)
+			}
+
+			if !applySuccess || options.PrintAllSchematicsLogs {
+				svc.printWorkspaceJobLogToTestLog(*applyResponse.Activityid, "APPLY")
 			}
 		}
 	}
 
 	// ------ CONSISTENCY PLAN ------
-	consistencyPlanResponse, consistencyPlanErr := svc.CreatePlanJob()
-	if assert.NoErrorf(options.Testing, consistencyPlanErr, "error creating PLAN - %s", workspaceNameString) {
-		options.Testing.Log("[SCHEMATICS] Starting CONSISTENCY PLAN job ...")
-		consistencyPlanJobStatus, consistencyPlanStatusErr := svc.WaitForFinalJobStatus(*consistencyPlanResponse.Activityid)
-		if assert.NoErrorf(options.Testing, consistencyPlanStatusErr, "error waiting for CONSISTENCY PLAN to finish - %s", workspaceNameString) {
-			if assert.Equalf(options.Testing, SchematicsJobStatusCompleted, consistencyPlanJobStatus, "CONSISTENCY PLAN has failed with status %s - %s", consistencyPlanJobStatus, workspaceNameString) {
-				// if the consistency plan was successful, get the plan json and check consistency
-				consistencyPlanJson, consistencyPlanJsonErr := svc.TestOptions.CloudInfoService.GetSchematicsJobPlanJson(*consistencyPlanResponse.Activityid)
-				if assert.NoErrorf(options.Testing, consistencyPlanJsonErr, "error retrieving CONSISTENCY PLAN JSON - %w - %s", consistencyPlanJsonErr, workspaceNameString) {
-					// convert the json string into a terratest plan struct
-					planStruct, planStructErr := terraform.ParsePlanJSON(consistencyPlanJson)
-					if assert.NoErrorf(options.Testing, planStructErr, "error converting plan string into struct: %w -%s", planStructErr, workspaceNameString) {
-						testhelper.CheckConsistency(planStruct, options)
+	consistencyPlanSuccess := false // will only flip to true if job completes
+	if !options.Testing.Failed() {
+		consistencyPlanResponse, consistencyPlanErr := svc.CreatePlanJob()
+		if assert.NoErrorf(options.Testing, consistencyPlanErr, "error creating PLAN - %s", workspaceNameString) {
+			options.Testing.Log("[SCHEMATICS] Starting CONSISTENCY PLAN job ...")
+			consistencyPlanJobStatus, consistencyPlanStatusErr := svc.WaitForFinalJobStatus(*consistencyPlanResponse.Activityid)
+			if assert.NoErrorf(options.Testing, consistencyPlanStatusErr, "error waiting for CONSISTENCY PLAN to finish - %s", workspaceNameString) {
+				if assert.Equalf(options.Testing, SchematicsJobStatusCompleted, consistencyPlanJobStatus, "CONSISTENCY PLAN has failed with status %s - %s", consistencyPlanJobStatus, workspaceNameString) {
+					// if the consistency plan was successful, get the plan json and check consistency
+					consistencyPlanJson, consistencyPlanJsonErr := svc.TestOptions.CloudInfoService.GetSchematicsJobPlanJson(*consistencyPlanResponse.Activityid)
+					if assert.NoErrorf(options.Testing, consistencyPlanJsonErr, "error retrieving CONSISTENCY PLAN JSON - %w - %s", consistencyPlanJsonErr, workspaceNameString) {
+						// convert the json string into a terratest plan struct
+						planStruct, planStructErr := terraform.ParsePlanJSON(consistencyPlanJson)
+						if assert.NoErrorf(options.Testing, planStructErr, "error converting plan string into struct: %w -%s", planStructErr, workspaceNameString) {
+							// base the success not on job complete, but on if consistency test finds any problems
+							// CheckConsistency returns TRUE if it finds issues, so we will negate that for success
+							foundConsistencyIssues := testhelper.CheckConsistency(planStruct, options)
+							consistencyPlanSuccess = !foundConsistencyIssues
+						}
 					}
 				}
+			}
+
+			if !consistencyPlanSuccess || options.PrintAllSchematicsLogs {
+				svc.printWorkspaceJobLogToTestLog(*consistencyPlanResponse.Activityid, "CONSISTENCY PLAN")
 			}
 		}
 	}
@@ -231,12 +251,17 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 			if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
 				options.Testing.Log("[SCHEMATICS] Schematics APPLY failed. Debug the Test and delete resources manually.")
 			} else {
+				destroySuccess := false // will only flip to true if job completes
 				destroyResponse, destroyErr := svc.CreateDestroyJob()
 				if assert.NoErrorf(options.Testing, destroyErr, "error creating DESTROY - %s", svc.WorkspaceName) {
 					options.Testing.Log("[SCHEMATICS] Starting DESTROY job ...")
 					destroyJobStatus, destroyStatusErr := svc.WaitForFinalJobStatus(*destroyResponse.Activityid)
 					if assert.NoErrorf(options.Testing, destroyStatusErr, "error waiting for DESTROY to finish - %s", svc.WorkspaceName) {
-						assert.Equalf(options.Testing, SchematicsJobStatusCompleted, destroyJobStatus, "DESTROY has failed with status %s - %s", destroyJobStatus, svc.WorkspaceName)
+						destroySuccess = assert.Equalf(options.Testing, SchematicsJobStatusCompleted, destroyJobStatus, "DESTROY has failed with status %s - %s", destroyJobStatus, svc.WorkspaceName)
+					}
+
+					if !destroySuccess || options.PrintAllSchematicsLogs {
+						svc.printWorkspaceJobLogToTestLog(*destroyResponse.Activityid, "DESTROY")
 					}
 				}
 			}
@@ -258,4 +283,34 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 			}
 		}
 	}
+}
+
+// SPECIAL NOTE: We do not want to fail the test if there is any issue/error retrieving or printing a log.
+// In this function we will be capturing most errors and to simply short-circuit and return
+// the error to the caller, to avoid any panic or test failure.
+func (svc *SchematicsTestService) printWorkspaceJobLogToTestLog(jobID string, jobType string) error {
+
+	// if for some reason cloudInfo has not been initialized, return immediately
+	if svc.CloudInfoService == nil {
+		return fmt.Errorf("could not get workspace logs, CloudInfoService was not initialized which is unexpected - JobID %s", jobID)
+	}
+
+	// retrieve job log
+	jobLog, jobLogErr := svc.CloudInfoService.GetSchematicsJobLogsText(jobID)
+	if jobLogErr != nil {
+		return jobLogErr
+	}
+	if len(jobLog) == 0 {
+		return fmt.Errorf("workspace job log was empty which is unexpected - JobID %s", jobID)
+	}
+
+	// create some headers and footers
+	logHeader := fmt.Sprintf("=============== BEGIN %s JOB LOG (Job:%s Workspace:%s) ===============", strings.ToUpper(jobType), jobID, svc.WorkspaceName)
+	logFooter := fmt.Sprintf("=============== END %s JOB LOG (Job:%s Workspace:%s) ===============", strings.ToUpper(jobType), jobID, svc.WorkspaceName)
+	finalLog := fmt.Sprintf("%s\n%s\n%s", logHeader, jobLog, logFooter)
+
+	// print out log text
+	svc.TestOptions.Testing.Log(finalLog)
+
+	return nil
 }
