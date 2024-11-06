@@ -34,7 +34,7 @@ const SchematicsJobStatusInProgress = "INPROGRESS"
 
 // Defaults for API retry mechanic
 const defaultApiRetryCount int = 5
-const defaultApiRetryWaitSeconds int = 10
+const defaultApiRetryWaitSeconds int = 30
 
 // golang does not support constant array/slice, this is our constant
 func getApiRetryStatusExceptions() []int {
