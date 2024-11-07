@@ -305,8 +305,8 @@ func (svc *SchematicsTestService) printWorkspaceJobLogToTestLog(jobID string, jo
 	}
 
 	// create some headers and footers
-	logHeader := fmt.Sprintf("=============== BEGIN %s JOB LOG (Job:%s Workspace:%s) ===============", strings.ToUpper(jobType), jobID, svc.WorkspaceName)
-	logFooter := fmt.Sprintf("=============== END %s JOB LOG (Job:%s Workspace:%s) ===============", strings.ToUpper(jobType), jobID, svc.WorkspaceName)
+	logHeader := fmt.Sprintf("=============== BEGIN %s JOB LOG (%s) ===============", strings.ToUpper(jobType), svc.WorkspaceID)
+	logFooter := fmt.Sprintf("=============== END %s JOB LOG (%s) ===============", strings.ToUpper(jobType), svc.WorkspaceID)
 	finalLog := fmt.Sprintf("%s\n%s\n%s", logHeader, jobLog, logFooter)
 
 	// print out log text
