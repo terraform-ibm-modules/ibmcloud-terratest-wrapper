@@ -9,6 +9,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/strfmt/conv"
 	"github.com/stretchr/testify/assert"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 )
 
 func TestSchematicFullTest(t *testing.T) {
@@ -41,6 +42,7 @@ func TestSchematicFullTest(t *testing.T) {
 		schematicsTestSvc:            svc,
 		SchematicSvcRetryCount:       &zero,
 		SchematicSvcRetryWaitSeconds: &zero,
+		CloudInfoService:             &cloudinfo.CloudInfoService{},
 	}
 
 	// mock at least one good tar upload and one other completed activity

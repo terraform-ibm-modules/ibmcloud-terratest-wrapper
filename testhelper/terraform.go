@@ -69,7 +69,7 @@ func ValidateTerraformOutputs(outputs map[string]interface{}, expectedKeys ...st
 		if !ok {
 			missingKeys = append(missingKeys, key)
 			if err != nil {
-				err = fmt.Errorf("%wOutput: %s'%s'%s was not found", err, blueBold, key, reset)
+				err = fmt.Errorf("%w\noutput: %s'%s'%s was not found", err, blueBold, key, reset)
 			} else {
 				err = fmt.Errorf("output: %s'%s'%s was not found", blueBold, key, reset)
 			}
@@ -83,7 +83,7 @@ func ValidateTerraformOutputs(outputs map[string]interface{}, expectedKeys ...st
 					expected = "blank string"
 				}
 				if err != nil {
-					err = fmt.Errorf("%wOutput: %s'%s'%s was not expected to be %s", err, blueBold, key, reset, expected)
+					err = fmt.Errorf("%w\noutput: %s'%s'%s was not expected to be %s", err, blueBold, key, reset, expected)
 				} else {
 					err = fmt.Errorf("output: %s'%s'%s was not expected to be %s", blueBold, key, reset, expected)
 				}
