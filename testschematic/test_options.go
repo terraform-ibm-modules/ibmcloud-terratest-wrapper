@@ -20,7 +20,6 @@ const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 const defaultGitUserEnvKey = "GIT_TOKEN_USER"
 const defaultGitTokenEnvKey = "GIT_TOKEN"
 const DefaultWaitJobCompleteMinutes = int16(120) // default 2 hrs wait time
-const DefaultSchematicsApiURL = "https://schematics.cloud.ibm.com"
 
 // TestSchematicOptions is the main data struct containing all options related to running a Terraform unit test wihtin IBM Schematics Workspaces
 type TestSchematicOptions struct {
@@ -55,6 +54,10 @@ type TestSchematicOptions struct {
 	// If left empty, this will be populated by dynamic region selection by default constructor and can be referenced later.
 	Region string
 
+	// Set this value to force a specific region for the Schematics Workspace.
+	// Default will choose a random valid region for the workspace.
+	WorkspaceLocation string
+
 	// Only required if using the WithVars constructor, as this value will then populate the `resource_group` input variable.
 	ResourceGroup string
 
@@ -85,7 +88,7 @@ type TestSchematicOptions struct {
 	WaitJobCompleteMinutes int16
 
 	// Base URL of the schematics REST API. Set to override default.
-	// Default: https://schematics.cloud.ibm.com
+	// Default will be based on the appropriate endpoint for the chosen `WorkspaceRegion`
 	SchematicsApiURL string
 
 	// Set this to true if you would like to delete the test Schematic Workspace if the test fails.
@@ -213,10 +216,6 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 
 	if newOptions.WaitJobCompleteMinutes <= 0 {
 		newOptions.WaitJobCompleteMinutes = DefaultWaitJobCompleteMinutes
-	}
-
-	if len(newOptions.SchematicsApiURL) == 0 {
-		newOptions.SchematicsApiURL = DefaultSchematicsApiURL
 	}
 
 	return newOptions

@@ -3,6 +3,7 @@ package cloudinfo
 
 import (
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"sync"
@@ -46,8 +47,9 @@ type CloudInfoService struct {
 	lock                   sync.Mutex
 	icdService             icdService
 	projectsService        projectsService
-	schematicsService      schematicsService
-	ApiKey                 string
+	// schematics is regional, this map contains schematics services by location
+	schematicsServices map[string]schematicsService
+	ApiKey             string
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -81,12 +83,13 @@ type CloudInfoServiceI interface {
 	GetStackMembers(stackConfig *ConfigDetails) ([]*projects.ProjectConfig, error)
 	SyncConfig(projectID string, configID string) (response *core.DetailedResponse, err error)
 	LookupMemberNameByID(stackDetails *projects.ProjectConfig, memberID string) (string, error)
-	GetSchematicsJobLogs(jobID string) (result *schematics.JobLog, response *core.DetailedResponse, err error)
-	GetSchematicsJobLogsText(jobID string) (logs string, err error)
+	GetSchematicsJobLogs(jobID string, location string) (result *schematics.JobLog, response *core.DetailedResponse, err error)
+	GetSchematicsJobLogsText(jobID string, location string) (logs string, err error)
 	ArePipelineActionsRunning(stackConfig *ConfigDetails) (bool, error)
-	GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string) (string, string)
-	GetSchematicsJobFileData(jobID string, fileType string) (*schematics.JobFileData, error)
-	GetSchematicsJobPlanJson(jobID string) (string, error)
+	GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string) (string, string)
+	GetSchematicsJobFileData(jobID string, fileType string, location string) (*schematics.JobFileData, error)
+	GetSchematicsJobPlanJson(jobID string, location string) (string, error)
+	GetSchematicsServiceByLocation(location string) (schematicsService, error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -104,7 +107,7 @@ type CloudInfoServiceOptions struct {
 	IcdService                icdService
 	ProjectsService           projectsService
 	CatalogService            catalogService
-	SchematicsService         schematicsService
+	SchematicsServices        map[string]schematicsService
 	// StackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	StackDefinitionCreator StackDefinitionCreator
 }
@@ -212,6 +215,8 @@ type catalogService interface {
 type schematicsService interface {
 	ListJobLogs(listJobLogsOptions *schematics.ListJobLogsOptions) (result *schematics.JobLog, response *core.DetailedResponse, err error)
 	GetJobFiles(getJobFilesOptions *schematics.GetJobFilesOptions) (result *schematics.JobFileData, response *core.DetailedResponse, err error)
+	GetEnableGzipCompression() bool
+	GetServiceURL() string
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -252,6 +257,11 @@ func (regions SortedRegionsDataByPriority) Less(i, j int) bool {
 }
 func (regions SortedRegionsDataByPriority) Swap(i, j int) {
 	regions[i], regions[j] = regions[j], regions[i]
+}
+
+// Returns a constant of supported locations for schematics service
+func GetSchematicsLocations() []string {
+	return []string{"us", "eu"}
 }
 
 // NewCloudInfoServiceWithKey is a factory function used for creating a new initialized service structure.
@@ -433,19 +443,30 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 
 	}
 
-	if options.SchematicsService != nil {
-		infoSvc.schematicsService = options.SchematicsService
+	// Schematics is a regional endpoint service, and cross-location API calls do not work.
+	// Here we will set up multiple services for the known geographic locations (US and EU)
+	if options.SchematicsServices != nil {
+		infoSvc.schematicsServices = options.SchematicsServices
 	} else {
-		schematicsClient, schematicsErr := schematics.NewSchematicsV1(&schematics.SchematicsV1Options{
-			Authenticator: infoSvc.authenticator,
-		})
-		if schematicsErr != nil {
-			log.Println("Error creating schematics client:", schematicsErr)
-			return nil, schematicsErr
-		}
+		infoSvc.schematicsServices = make(map[string]schematicsService)
+		for _, schematicsLocation := range GetSchematicsLocations() {
+			schematicsUrl, schematicsUrlErr := GetSchematicServiceURLForRegion(schematicsLocation)
+			if schematicsUrlErr != nil {
+				return nil, fmt.Errorf("error determining Schematics URL:%w", schematicsUrlErr)
+			}
+			schematicsClient, schematicsErr := schematics.NewSchematicsV1(&schematics.SchematicsV1Options{
+				Authenticator: infoSvc.authenticator,
+				URL:           schematicsUrl,
+			})
+			if schematicsErr != nil {
+				log.Println("Error creating schematics client:", schematicsErr)
+				return nil, fmt.Errorf("error creating schematics client:%w", schematicsErr)
+			}
 
-		infoSvc.schematicsService = schematicsClient
+			infoSvc.schematicsServices[schematicsLocation] = schematicsClient
+		}
 	}
+
 	if options.StackDefinitionCreator != nil {
 		infoSvc.stackDefinitionCreator = options.StackDefinitionCreator
 	} else {

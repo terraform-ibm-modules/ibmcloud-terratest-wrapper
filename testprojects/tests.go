@@ -236,7 +236,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 			case project.ProjectConfig_State_ValidatingFailed, project.ProjectConfig_State_DeployingFailed:
 				deployableState = false
 				failed = true
-				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName)
+				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location)
 				options.Logger.ShortError(terraLogs)
 				errorList = append(errorList, fmt.Errorf(logMessage))
 			case project.ProjectConfig_State_Draft:
@@ -553,7 +553,7 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, Statuses[*member.State]))
 						undeployableState = false
 						failed = true
-						logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName)
+						logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location)
 						options.Logger.ShortError(terraLogs)
 						errorList = append(errorList, fmt.Errorf("(%s) failed Undeployment\n%s", memberName, logMessage))
 					} else if cloudinfo.ProjectsMemberIsUndeployed(member) {

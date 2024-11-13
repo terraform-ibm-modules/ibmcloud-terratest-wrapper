@@ -3,8 +3,6 @@ package cloudinfo
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/IBM/go-sdk-core/v5/core"
-	project "github.com/IBM/project-go-sdk/projectv1"
 	"log"
 	"math/rand"
 	"os"
@@ -13,6 +11,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/IBM/go-sdk-core/v5/core"
+	project "github.com/IBM/project-go-sdk/projectv1"
 )
 
 // CreateProjectFromConfig creates a project with the given config
@@ -900,9 +901,13 @@ func (infoSvc *CloudInfoService) LookupMemberNameByID(stackDetails *project.Proj
 }
 
 // GetSchematicsJobLogsForMember gets the schematics job logs for a member
-func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.ProjectConfig, memberName string) (details string, terraformLogs string) {
+func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.ProjectConfig, memberName string, projectRegion string) (details string, terraformLogs string) {
 	var logMessage strings.Builder
 	var terraformLogMessage strings.Builder
+
+	// determine schematics geo location from project region
+	schematicsLocation := projectRegion[0:2]
+
 	logMessage.WriteString(fmt.Sprintf("Schematics job logs for member: %s", memberName))
 
 	if member.Schematics != nil && member.Schematics.WorkspaceCrn != nil {
@@ -935,7 +940,7 @@ func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.P
 					jobURL := strings.Split(url, "/jobs?region=")[0]
 					jobURL = fmt.Sprintf("%s/log/%s", jobURL, jobID)
 					logMessage.WriteString(fmt.Sprintf("\nSchematics Job URL: %s", jobURL))
-					logs, errGetLogs := infoSvc.GetSchematicsJobLogsText(jobID)
+					logs, errGetLogs := infoSvc.GetSchematicsJobLogsText(jobID, schematicsLocation)
 					if errGetLogs != nil {
 						terraformLogMessage.WriteString(fmt.Sprintf("\nError getting job logs for Job ID: %s member: %s, error: %s", jobID, memberName, errGetLogs))
 					} else {
@@ -988,7 +993,7 @@ func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.P
 				jobURL := strings.Split(url, "/jobs?region=")[0]
 				jobURL = fmt.Sprintf("%s/log/%s", jobURL, jobID)
 				logMessage.WriteString(fmt.Sprintf("\nSchematics Job URL: %s", jobURL))
-				logs, errGetLogs := infoSvc.GetSchematicsJobLogsText(jobID)
+				logs, errGetLogs := infoSvc.GetSchematicsJobLogsText(jobID, schematicsLocation)
 				if errGetLogs != nil {
 					terraformLogMessage.WriteString(fmt.Sprintf("\nError getting job logs for Job ID: %s member: %s, error: %s", jobID, memberName, errGetLogs))
 				} else {
@@ -1040,7 +1045,7 @@ func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.P
 				jobURL := strings.Split(url, "/jobs?region=")[0]
 				jobURL = fmt.Sprintf("%s/log/%s", jobURL, jobID)
 				logMessage.WriteString(fmt.Sprintf("\nSchematics Job URL: %s", jobURL))
-				logs, errGetLogs := infoSvc.GetSchematicsJobLogsText(jobID)
+				logs, errGetLogs := infoSvc.GetSchematicsJobLogsText(jobID, schematicsLocation)
 				if errGetLogs != nil {
 					terraformLogMessage.WriteString(fmt.Sprintf("\nError getting job logs for Job ID: %s member: %s, error: %s", jobID, memberName, errGetLogs))
 				} else {

@@ -63,14 +63,14 @@ func TestSchematicCreateWorkspace(t *testing.T) {
 	mockErrorType := new(schematicErrorMock)
 
 	t.Run("WorkspaceCreated", func(t *testing.T) {
-		result, err := svc.CreateTestWorkspace("good", "any-rg", ".", "terraform_v1.2", []string{"tag1", "tag2"})
+		result, err := svc.CreateTestWorkspace("good", "any-rg", "us-south", ".", "terraform_v1.2", []string{"tag1", "tag2"})
 		if assert.NoError(t, err) {
 			assert.Equal(t, mockWorkspaceID, *result.ID)
 		}
 	})
 
 	t.Run("WorkspaceCreatedEmptyDefaults", func(t *testing.T) {
-		result, err := svc.CreateTestWorkspace("good", "any-rg", "", "", []string{"tag1", "tag2"})
+		result, err := svc.CreateTestWorkspace("good", "any-rg", "", "", "", []string{"tag1", "tag2"})
 		if assert.NoError(t, err) {
 			assert.Equal(t, mockWorkspaceID, *result.ID)
 		}
@@ -78,7 +78,7 @@ func TestSchematicCreateWorkspace(t *testing.T) {
 
 	t.Run("ExternalServiceError", func(t *testing.T) {
 		schematicSvc.failCreateWorkspace = true
-		_, err := svc.CreateTestWorkspace("error", "any-rg", ".", "terraform_v1.2", []string{"tag1"})
+		_, err := svc.CreateTestWorkspace("error", "any-rg", "us-south", ".", "terraform_v1.2", []string{"tag1"})
 		assert.ErrorAs(t, err, &mockErrorType)
 	})
 }

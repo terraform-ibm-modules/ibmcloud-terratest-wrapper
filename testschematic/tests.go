@@ -63,7 +63,7 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 
 	// create a new empty workspace, resulting in "draft" status
 	options.Testing.Log("[SCHEMATICS] Creating Test Workspace")
-	_, wsErr := svc.CreateTestWorkspace(options.Prefix, options.ResourceGroup, options.TemplateFolder, options.TerraformVersion, options.Tags)
+	_, wsErr := svc.CreateTestWorkspace(options.Prefix, options.ResourceGroup, svc.WorkspaceLocation, options.TemplateFolder, options.TerraformVersion, options.Tags)
 	if wsErr != nil {
 		return fmt.Errorf("error creating new schematic workspace: %w", wsErr)
 	}
@@ -122,7 +122,10 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 		}
 
 		if !planSuccess || options.PrintAllSchematicsLogs {
-			svc.printWorkspaceJobLogToTestLog(*planResponse.Activityid, "PLAN")
+			printPlanLogErr := svc.printWorkspaceJobLogToTestLog(*planResponse.Activityid, "PLAN")
+			if printPlanLogErr != nil {
+				options.Testing.Logf("Error printing PLAN logs:%s", printPlanLogErr)
+			}
 		}
 	}
 
@@ -141,7 +144,10 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 			}
 
 			if !applySuccess || options.PrintAllSchematicsLogs {
-				svc.printWorkspaceJobLogToTestLog(*applyResponse.Activityid, "APPLY")
+				printApplyLogErr := svc.printWorkspaceJobLogToTestLog(*applyResponse.Activityid, "APPLY")
+				if printApplyLogErr != nil {
+					options.Testing.Logf("Error printing APPLY logs:%s", printApplyLogErr)
+				}
 			}
 		}
 	}
@@ -156,7 +162,7 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 			if assert.NoErrorf(options.Testing, consistencyPlanStatusErr, "error waiting for CONSISTENCY PLAN to finish - %s", workspaceNameString) {
 				if assert.Equalf(options.Testing, SchematicsJobStatusCompleted, consistencyPlanJobStatus, "CONSISTENCY PLAN has failed with status %s - %s", consistencyPlanJobStatus, workspaceNameString) {
 					// if the consistency plan was successful, get the plan json and check consistency
-					consistencyPlanJson, consistencyPlanJsonErr := svc.TestOptions.CloudInfoService.GetSchematicsJobPlanJson(*consistencyPlanResponse.Activityid)
+					consistencyPlanJson, consistencyPlanJsonErr := svc.TestOptions.CloudInfoService.GetSchematicsJobPlanJson(*consistencyPlanResponse.Activityid, svc.WorkspaceLocation)
 					if assert.NoErrorf(options.Testing, consistencyPlanJsonErr, "error retrieving CONSISTENCY PLAN JSON - %w - %s", consistencyPlanJsonErr, workspaceNameString) {
 						// convert the json string into a terratest plan struct
 						planStruct, planStructErr := terraform.ParsePlanJSON(consistencyPlanJson)
@@ -171,7 +177,10 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 			}
 
 			if !consistencyPlanSuccess || options.PrintAllSchematicsLogs {
-				svc.printWorkspaceJobLogToTestLog(*consistencyPlanResponse.Activityid, "CONSISTENCY PLAN")
+				printConsistencyLogErr := svc.printWorkspaceJobLogToTestLog(*consistencyPlanResponse.Activityid, "CONSISTENCY PLAN")
+				if printConsistencyLogErr != nil {
+					options.Testing.Logf("Error printing PLAN logs:%s", printConsistencyLogErr)
+				}
 			}
 		}
 	}
@@ -203,6 +212,15 @@ func testSetup(options *TestSchematicOptions) (*SchematicsTestService, error) {
 		options.CloudInfoService = cloudInfoSvc
 	} else {
 		svc.CloudInfoService = options.CloudInfoService
+	}
+
+	// pick random region for workspace if it was not supplied
+	// if no region specified, choose a random one
+	if len(options.WorkspaceLocation) > 0 {
+		svc.WorkspaceLocation = options.WorkspaceLocation
+	} else {
+		svc.WorkspaceLocation = cloudinfo.GetRandomSchematicsLocation()
+		svc.TestOptions.Testing.Logf("[SCHEMATICS] Random Workspace region chosen: %s", svc.WorkspaceLocation)
 	}
 
 	// create IAM authenticator if needed
@@ -261,7 +279,10 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 					}
 
 					if !destroySuccess || options.PrintAllSchematicsLogs {
-						svc.printWorkspaceJobLogToTestLog(*destroyResponse.Activityid, "DESTROY")
+						printDestroyLogErr := svc.printWorkspaceJobLogToTestLog(*destroyResponse.Activityid, "DESTROY")
+						if printDestroyLogErr != nil {
+							options.Testing.Logf("Error printing DESTROY logs:%s", printDestroyLogErr)
+						}
 					}
 				}
 			}
@@ -296,7 +317,7 @@ func (svc *SchematicsTestService) printWorkspaceJobLogToTestLog(jobID string, jo
 	}
 
 	// retrieve job log
-	jobLog, jobLogErr := svc.CloudInfoService.GetSchematicsJobLogsText(jobID)
+	jobLog, jobLogErr := svc.CloudInfoService.GetSchematicsJobLogsText(jobID, svc.WorkspaceLocation)
 	if jobLogErr != nil {
 		return jobLogErr
 	}
