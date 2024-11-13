@@ -288,19 +288,22 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 			}
 		}
 
-		// ------ DELETE WORKSPACE ------
-		// only delete workspace if one of these is true:
-		// * terraform hasn't been started yet
-		// * no failures
-		// * failed and DeleteWorkspaceOnFail is true
-		if !svc.TerraformTestStarted ||
-			!options.Testing.Failed() ||
-			(options.Testing.Failed() && options.DeleteWorkspaceOnFail) {
+		// only attempt to delete workspace if it was created (valid workspace id)
+		if len(svc.WorkspaceID) > 0 {
+			// ------ DELETE WORKSPACE ------
+			// only delete workspace if one of these is true:
+			// * terraform hasn't been started yet
+			// * no failures
+			// * failed and DeleteWorkspaceOnFail is true
+			if !svc.TerraformTestStarted ||
+				!options.Testing.Failed() ||
+				(options.Testing.Failed() && options.DeleteWorkspaceOnFail) {
 
-			options.Testing.Log("[SCHEMATICS] Deleting Workspace")
-			_, deleteWsErr := svc.DeleteWorkspace()
-			if deleteWsErr != nil {
-				options.Testing.Logf("[SCHEMATICS] WARNING: Schematics WORKSPACE DELETE failed! Remove manually if required. Name: %s (%s)", svc.WorkspaceName, svc.WorkspaceID)
+				options.Testing.Log("[SCHEMATICS] Deleting Workspace")
+				_, deleteWsErr := svc.DeleteWorkspace()
+				if deleteWsErr != nil {
+					options.Testing.Logf("[SCHEMATICS] WARNING: Schematics WORKSPACE DELETE failed! Remove manually if required. Name: %s (%s)", svc.WorkspaceName, svc.WorkspaceID)
+				}
 			}
 		}
 	}
