@@ -12,7 +12,7 @@ require (
 	github.com/IBM/platform-services-go-sdk v0.71.0
 	github.com/IBM/project-go-sdk v0.3.6
 	github.com/IBM/schematics-go-sdk v0.3.0
-	github.com/IBM/vpc-go-sdk v0.61.0
+	github.com/IBM/vpc-go-sdk v0.62.0
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/go-openapi/errors v0.22.0
 	github.com/go-openapi/strfmt v0.23.0
