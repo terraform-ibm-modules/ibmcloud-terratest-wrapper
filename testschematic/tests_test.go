@@ -38,7 +38,7 @@ func TestSchematicFullTest(t *testing.T) {
 		WaitJobCompleteMinutes:       1,
 		DeleteWorkspaceOnFail:        false,
 		SchematicsApiSvc:             schematicSvc,
-		schematicsTestSvc:            svc,
+		SchematicsTestSvc:            svc,
 		SchematicSvcRetryCount:       &zero,
 		SchematicSvcRetryWaitSeconds: &zero,
 	}
