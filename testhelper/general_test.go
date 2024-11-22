@@ -2,13 +2,14 @@ package testhelper
 
 import (
 	"errors"
+	"os"
+	"sync"
+	"testing"
+
 	"github.com/IBM/go-sdk-core/v5/core"
 	projects "github.com/IBM/project-go-sdk/projectv1"
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
-	"os"
-	"sync"
-	"testing"
 
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	"github.com/stretchr/testify/assert"
@@ -191,11 +192,11 @@ func (mock *cloudInfoServiceMock) GetClusterIngressStatus(string) (string, error
 	return "", nil
 }
 
-func (mock *cloudInfoServiceMock) GetSchematicsJobLogs(string) (*schematics.JobLog, *core.DetailedResponse, error) {
+func (mock *cloudInfoServiceMock) GetSchematicsJobLogs(string, string) (*schematics.JobLog, *core.DetailedResponse, error) {
 	return nil, nil, nil
 
 }
-func (mock *cloudInfoServiceMock) GetSchematicsJobLogsText(string) (string, error) {
+func (mock *cloudInfoServiceMock) GetSchematicsJobLogsText(string, string) (string, error) {
 	return "", nil
 
 }
@@ -204,7 +205,7 @@ func (mock *cloudInfoServiceMock) ArePipelineActionsRunning(stackConfig *cloudin
 	return false, nil
 }
 
-func (mock *cloudInfoServiceMock) GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string) (string, string) {
+func (mock *cloudInfoServiceMock) GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string) (string, string) {
 	return "", ""
 }
 

@@ -20,7 +20,6 @@ const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 const defaultGitUserEnvKey = "GIT_TOKEN_USER"
 const defaultGitTokenEnvKey = "GIT_TOKEN"
 const DefaultWaitJobCompleteMinutes = int16(120) // default 2 hrs wait time
-const DefaultSchematicsApiURL = "https://schematics.cloud.ibm.com"
 
 // TestSchematicOptions is the main data struct containing all options related to running a Terraform unit test wihtin IBM Schematics Workspaces
 type TestSchematicOptions struct {
@@ -55,6 +54,10 @@ type TestSchematicOptions struct {
 	// If left empty, this will be populated by dynamic region selection by default constructor and can be referenced later.
 	Region string
 
+	// Set this value to force a specific region for the Schematics Workspace.
+	// Default will choose a random valid region for the workspace.
+	WorkspaceLocation string
+
 	// Only required if using the WithVars constructor, as this value will then populate the `resource_group` input variable.
 	ResourceGroup string
 
@@ -85,12 +88,15 @@ type TestSchematicOptions struct {
 	WaitJobCompleteMinutes int16
 
 	// Base URL of the schematics REST API. Set to override default.
-	// Default: https://schematics.cloud.ibm.com
+	// Default will be based on the appropriate endpoint for the chosen `WorkspaceRegion`
 	SchematicsApiURL string
 
 	// Set this to true if you would like to delete the test Schematic Workspace if the test fails.
 	// By default this will be false, and if a failure happens the workspace and logs will be preserved for analysis.
 	DeleteWorkspaceOnFail bool
+
+	// If you want to skip test teardown (both resource destroy and workspace deletion)
+	SkipTestTearDown bool
 
 	// This value is used to set the terraform version attribute for the workspace and template.
 	// If left empty, an empty value will be set in the template which will cause the Schematic jobs to use the highest available version.
@@ -112,6 +118,18 @@ type TestSchematicOptions struct {
 	SchematicsApiSvc  SchematicsApiSvcI           // OPTIONAL: service pointer for interacting with external schematics api
 	schematicsTestSvc *SchematicsTestService      // internal property to specify pointer to test service, used for test mocking
 
+	// For Consistency Checks: Specify terraform resource names to ignore for consistency checks.
+	// You can ignore specific resources in both idempotent and upgrade consistency checks by adding their names to these
+	// lists. There are separate lists for adds, updates, and destroys.
+	//
+	// This can be useful if you have resources like `null_resource` that are marked with a lifecycle that causes a refresh on every run.
+	// Normally this would fail a consistency check but can be ignored by adding to one of these lists.
+	//
+	// Name format is terraform style, for example: `module.some_module.null_resource.foo`
+	IgnoreAdds     testhelper.Exemptions
+	IgnoreDestroys testhelper.Exemptions
+	IgnoreUpdates  testhelper.Exemptions
+
 	// These optional fields can be used to override the default retry settings for making Schematics API calls.
 	// If SDK/API calls to Schematics result in errors, such as retrieving existing workspace details,
 	// the test framework will retry those calls for a set number of times, with a wait time between calls.
@@ -121,6 +139,10 @@ type TestSchematicOptions struct {
 	// Current Default: 5 retries, 5 second wait
 	SchematicSvcRetryCount       *int
 	SchematicSvcRetryWaitSeconds *int
+
+	// By default the logs from schematics jobs will only be printed to the test log if there is a failure in the job.
+	// Set this value to `true` to have all schematics job logs (plan/apply/destroy) printed to the test log.
+	PrintAllSchematicsLogs bool
 }
 
 type TestSchematicTerraformVar struct {
@@ -141,6 +163,17 @@ type WorkspaceEnvironmentVariable struct {
 	Value  string // value of env var
 	Hidden bool   // metadata to hide this env var
 	Secure bool   // metadata to mark value as sensitive
+}
+
+// To support consistency check options interface
+func (options *TestSchematicOptions) GetCheckConsistencyOptions() *testhelper.CheckConsistencyOptions {
+	return &testhelper.CheckConsistencyOptions{
+		Testing:        options.Testing,
+		IgnoreAdds:     options.IgnoreAdds,
+		IgnoreDestroys: options.IgnoreDestroys,
+		IgnoreUpdates:  options.IgnoreUpdates,
+		IsUpgradeTest:  false,
+	}
 }
 
 // TestSchematicOptionsDefault is a constructor for struct TestSchematicOptions. This function will accept an existing instance of
@@ -183,10 +216,6 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 
 	if newOptions.WaitJobCompleteMinutes <= 0 {
 		newOptions.WaitJobCompleteMinutes = DefaultWaitJobCompleteMinutes
-	}
-
-	if len(newOptions.SchematicsApiURL) == 0 {
-		newOptions.SchematicsApiURL = DefaultSchematicsApiURL
 	}
 
 	return newOptions

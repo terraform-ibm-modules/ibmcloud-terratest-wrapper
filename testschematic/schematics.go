@@ -16,6 +16,7 @@ import (
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/go-openapi/errors"
 	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
@@ -33,7 +34,7 @@ const SchematicsJobStatusInProgress = "INPROGRESS"
 
 // Defaults for API retry mechanic
 const defaultApiRetryCount int = 5
-const defaultApiRetryWaitSeconds int = 10
+const defaultApiRetryWaitSeconds int = 30
 
 // golang does not support constant array/slice, this is our constant
 func getApiRetryStatusExceptions() []int {
@@ -64,14 +65,16 @@ type IamAuthenticatorSvcI interface {
 
 // main data struct for all schematic test methods
 type SchematicsTestService struct {
-	SchematicsApiSvc          SchematicsApiSvcI     // the main schematics service interface
-	ApiAuthenticator          IamAuthenticatorSvcI  // the authenticator used for schematics api calls
-	WorkspaceID               string                // workspace ID used for tests
-	WorkspaceName             string                // name of workspace that was created for test
-	TemplateID                string                // workspace template ID used for tests
-	TestOptions               *TestSchematicOptions // additional testing options
-	TerraformTestStarted      bool                  // keeps track of when actual Terraform resource testing has begin, used for proper test teardown logic
-	TerraformResourcesCreated bool                  // keeps track of when we start deploying resources, used for proper test teardown logic
+	SchematicsApiSvc          SchematicsApiSvcI           // the main schematics service interface
+	ApiAuthenticator          IamAuthenticatorSvcI        // the authenticator used for schematics api calls
+	WorkspaceID               string                      // workspace ID used for tests
+	WorkspaceName             string                      // name of workspace that was created for test
+	WorkspaceLocation         string                      // region the workspace was created in
+	TemplateID                string                      // workspace template ID used for tests
+	TestOptions               *TestSchematicOptions       // additional testing options
+	TerraformTestStarted      bool                        // keeps track of when actual Terraform resource testing has begin, used for proper test teardown logic
+	TerraformResourcesCreated bool                        // keeps track of when we start deploying resources, used for proper test teardown logic
+	CloudInfoService          cloudinfo.CloudInfoServiceI // reference to a CloudInfoService resource
 }
 
 // CreateAuthenticator will accept a valid IBM cloud API key, and
@@ -104,8 +107,26 @@ func (svc *SchematicsTestService) GetRefreshToken() (string, error) {
 // for schematicsv1 and assign it to a property of the receiver for later use.
 func (svc *SchematicsTestService) InitializeSchematicsService() error {
 	var err error
+	var getUrlErr error
+	var schematicsURL string // will default to empty which is ok
+
+	// if override of URL was not provided, determine correct one by workspace region that was chosen
+	if len(svc.TestOptions.SchematicsApiURL) > 0 {
+		schematicsURL = svc.TestOptions.SchematicsApiURL
+	} else {
+		if len(svc.WorkspaceLocation) > 0 {
+			schematicsURL, getUrlErr = cloudinfo.GetSchematicServiceURLForRegion(svc.WorkspaceLocation)
+			if getUrlErr != nil {
+				return fmt.Errorf("error getting schematics URL for region %s - %w", svc.WorkspaceLocation, getUrlErr)
+			}
+		} else {
+			schematicsURL = schematics.DefaultServiceURL
+		}
+	}
+	svc.TestOptions.Testing.Logf("[SCHEMATICS] Schematics API for region %s: %s", svc.WorkspaceLocation, schematicsURL)
+
 	svc.SchematicsApiSvc, err = schematics.NewSchematicsV1(&schematics.SchematicsV1Options{
-		URL:           svc.TestOptions.SchematicsApiURL,
+		URL:           schematicsURL,
 		Authenticator: svc.ApiAuthenticator,
 	})
 	if err != nil {
@@ -116,19 +137,20 @@ func (svc *SchematicsTestService) InitializeSchematicsService() error {
 }
 
 // CreateTestWorkspace will create a new IBM Schematics Workspace that will be used for testing.
-func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup string, templateFolder string, terraformVersion string, tags []string) (*schematics.WorkspaceResponse, error) {
+func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup string, region string, templateFolder string, terraformVersion string, tags []string) (*schematics.WorkspaceResponse, error) {
 
 	var folder *string
 	var version *string
 	var wsVersion []string
-	// choose nil default for version if not supplied, so that they omit from template setup
-	// (schematics should then determine defaults)
+
 	if len(templateFolder) == 0 {
 		folder = core.StringPtr(".")
 	} else {
 		folder = core.StringPtr(templateFolder)
 	}
 
+	// choose nil default for version if not supplied, so that they omit from template setup
+	// (schematics should then determine defaults)
 	if len(terraformVersion) > 0 {
 		version = core.StringPtr(terraformVersion)
 		wsVersion = []string{terraformVersion}
@@ -164,7 +186,7 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 		Name:          core.StringPtr(name),
 		TemplateData:  []schematics.TemplateSourceDataRequest{*templateModel},
 		Type:          wsVersion,
-		Location:      core.StringPtr(defaultRegion),
+		Location:      core.StringPtr(region),
 		ResourceGroup: core.StringPtr(resourceGroup),
 		Tags:          tags,
 	}
