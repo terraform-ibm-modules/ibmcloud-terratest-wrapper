@@ -1,18 +1,18 @@
 module github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper
 
-go 1.22.0
+go 1.22.4
 
 toolchain go1.23.3
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240719075425-078fcb3a55be
 	github.com/IBM-Cloud/power-go-client v1.8.3
-	github.com/IBM/cloud-databases-go-sdk v0.7.0
+	github.com/IBM/cloud-databases-go-sdk v0.7.1
 	github.com/IBM/go-sdk-core/v5 v5.18.1
-	github.com/IBM/platform-services-go-sdk v0.71.0
+	github.com/IBM/platform-services-go-sdk v0.71.1
 	github.com/IBM/project-go-sdk v0.3.6
-	github.com/IBM/schematics-go-sdk v0.3.0
-	github.com/IBM/vpc-go-sdk v0.62.0
+	github.com/IBM/schematics-go-sdk v0.4.0
+	github.com/IBM/vpc-go-sdk v0.63.1
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/go-openapi/errors v0.22.0
 	github.com/go-openapi/strfmt v0.23.0
@@ -104,7 +104,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.16.0 // indirect
 	go.opentelemetry.io/otel/trace v1.16.0 // indirect
 	golang.org/x/mod v0.17.0 // indirect
-	golang.org/x/net v0.25.0 // indirect
+	golang.org/x/net v0.30.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
 	golang.org/x/sync v0.9.0 // indirect
 	golang.org/x/sys v0.27.0 // indirect
