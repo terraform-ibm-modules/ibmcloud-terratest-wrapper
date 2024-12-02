@@ -153,7 +153,6 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 	}
 
 	// ------ CONSISTENCY PLAN ------
-	consistencyPlanSuccess := false // will only flip to true if job completes
 	if !options.Testing.Failed() {
 		consistencyPlanResponse, consistencyPlanErr := svc.CreatePlanJob()
 		if assert.NoErrorf(options.Testing, consistencyPlanErr, "error creating PLAN - %s", workspaceNameString) {
@@ -167,16 +166,14 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 						// convert the json string into a terratest plan struct
 						planStruct, planStructErr := terraform.ParsePlanJSON(consistencyPlanJson)
 						if assert.NoErrorf(options.Testing, planStructErr, "error converting plan string into struct: %w -%s", planStructErr, workspaceNameString) {
-							// base the success not on job complete, but on if consistency test finds any problems
-							// CheckConsistency returns TRUE if it finds issues, so we will negate that for success
-							foundConsistencyIssues := testhelper.CheckConsistency(planStruct, options)
-							consistencyPlanSuccess = !foundConsistencyIssues
+							// not consuming the boolean return from CheckConsistency on purpose, as it does not let us know what we need to know here
+							testhelper.CheckConsistency(planStruct, options)
 						}
 					}
 				}
 			}
 
-			if !consistencyPlanSuccess || options.PrintAllSchematicsLogs {
+			if options.Testing.Failed() || options.PrintAllSchematicsLogs {
 				printConsistencyLogErr := svc.printWorkspaceJobLogToTestLog(*consistencyPlanResponse.Activityid, "CONSISTENCY PLAN")
 				if printConsistencyLogErr != nil {
 					options.Testing.Logf("Error printing PLAN logs:%s", printConsistencyLogErr)
