@@ -9,10 +9,13 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"testing"
 
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"github.com/gruntwork-io/terratest/modules/logger"
+	"github.com/gruntwork-io/terratest/modules/random"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -384,4 +387,43 @@ func RetrievePrivateKey(sshPvtKey string) (interface{}, error) {
 		return nil, err
 	}
 	return key, err
+}
+
+// SkipUpgradeTest can determine if a terraform or schematics upgrade test should be skipped by analyzing
+// the currently checked out git branch, looking for specific verbage in the commit messages.
+func SkipUpgradeTest(testing *testing.T, source_repo string, source_branch string, branch string) bool {
+
+	// random string to use in remote name
+	remote := fmt.Sprintf("upstream-%s", strings.ToLower(random.UniqueId()))
+	logger.Log(testing, "Remote name:", remote)
+	// Set upstream to the source repo
+	remote_out, remote_err := exec.Command("/bin/sh", "-c", fmt.Sprintf("git remote add %s %s", remote, source_repo)).Output()
+	if remote_err != nil {
+		logger.Log(testing, "Add remote output:\n", remote_out)
+		logger.Log(testing, "Error adding upstream remote:\n", remote_err)
+		return false
+	}
+	// Fetch the source repo
+	fetch_out, fetch_err := exec.Command("/bin/sh", "-c", fmt.Sprintf("git fetch %s -f", remote)).Output()
+	if fetch_err != nil {
+		logger.Log(testing, "Fetch output:\n", fetch_out)
+		logger.Log(testing, "Error fetching upstream:\n", fetch_err)
+		return false
+	} else {
+		logger.Log(testing, "Fetch output:\n", fetch_out)
+	}
+	// Get all the commit messages from the PR branch
+	// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
+	// clone even if the default branch has not been checked out or pulled.
+	cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("git log %s/%s..%s", remote, source_branch, branch))
+	out, _ := cmd.CombinedOutput()
+
+	fmt.Printf("Commit Messages (%s): \n%s", source_branch, string(out))
+	// Skip upgrade Test if BREAKING CHANGE OR SKIP UPGRADE TEST string found in commit messages
+	doNotRunUpgradeTest := false
+	if (strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST")) && !strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
+		doNotRunUpgradeTest = true
+	}
+
+	return doNotRunUpgradeTest
 }
