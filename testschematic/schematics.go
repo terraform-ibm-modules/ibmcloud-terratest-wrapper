@@ -22,6 +22,7 @@ import (
 
 // IBM schematics job types
 const SchematicsJobTypeUpload = "TAR_WORKSPACE_UPLOAD"
+const SchematicsJobTypeUpdate = "WORKSPACE_UPDATE"
 const SchematicsJobTypePlan = "PLAN"
 const SchematicsJobTypeApply = "APPLY"
 const SchematicsJobTypeDestroy = "DESTROY"
@@ -53,6 +54,7 @@ type SchematicsApiSvcI interface {
 	PlanWorkspaceCommand(*schematics.PlanWorkspaceCommandOptions) (*schematics.WorkspaceActivityPlanResult, *core.DetailedResponse, error)
 	ApplyWorkspaceCommand(*schematics.ApplyWorkspaceCommandOptions) (*schematics.WorkspaceActivityApplyResult, *core.DetailedResponse, error)
 	DestroyWorkspaceCommand(*schematics.DestroyWorkspaceCommandOptions) (*schematics.WorkspaceActivityDestroyResult, *core.DetailedResponse, error)
+	ReplaceWorkspace(*schematics.ReplaceWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
 }
 
 // interface for external IBMCloud IAM Authenticator api. Can be mocked for tests
@@ -69,12 +71,17 @@ type SchematicsTestService struct {
 	ApiAuthenticator          IamAuthenticatorSvcI        // the authenticator used for schematics api calls
 	WorkspaceID               string                      // workspace ID used for tests
 	WorkspaceName             string                      // name of workspace that was created for test
+	WorkspaceNameForLog       string                      // combination of Name and ID useful for log consistency
 	WorkspaceLocation         string                      // region the workspace was created in
 	TemplateID                string                      // workspace template ID used for tests
 	TestOptions               *TestSchematicOptions       // additional testing options
 	TerraformTestStarted      bool                        // keeps track of when actual Terraform resource testing has begin, used for proper test teardown logic
 	TerraformResourcesCreated bool                        // keeps track of when we start deploying resources, used for proper test teardown logic
 	CloudInfoService          cloudinfo.CloudInfoServiceI // reference to a CloudInfoService resource
+	BaseTerraformRepo         string                      // the URL of the origin git repository, typically the base that the PR will merge into, used for upgrade test
+	BaseTerraformRepoBranch   string                      // the branch name of the main origin branch of the project (main or master), used for upgrade test
+	TestTerraformRepo         string                      // the URL of the repo for the pull request, will be either origin or a fork
+	TestTerraformRepoBranch   string                      // the branch of the test, usually the current checked out branch of the test run
 }
 
 // CreateAuthenticator will accept a valid IBM cloud API key, and
@@ -215,6 +222,108 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 	svc.WorkspaceName = *workspace.Name
 
 	return workspace, nil
+}
+
+// CreateUploadTarFile will create a tar file with terraform code, based on include patterns set in options.
+// Returns the full tarball name that was created on local system (path included).
+func (svc *SchematicsTestService) CreateUploadTarFile(projectPath string) (string, error) {
+	svc.TestOptions.Testing.Log("[SCHEMATICS] Creating TAR file")
+	tarballName, tarballErr := CreateSchematicTar(projectPath, &svc.TestOptions.TarIncludePatterns)
+	if tarballErr != nil {
+		return "", fmt.Errorf("error creating tar file: %w", tarballErr)
+	}
+
+	svc.TestOptions.Testing.Log("[SCHEMATICS] Uploading TAR file")
+	uploadErr := svc.UploadTarToWorkspace(tarballName)
+	if uploadErr != nil {
+		return tarballName, fmt.Errorf("error uploading tar file to workspace: %w - %s", uploadErr, svc.WorkspaceNameForLog)
+	}
+
+	// -------- UPLOAD TAR FILE ----------
+	// find the tar upload job
+	uploadJob, uploadJobErr := svc.FindLatestWorkspaceJobByName(SchematicsJobTypeUpload)
+	if uploadJobErr != nil {
+		return tarballName, fmt.Errorf("error finding the upload tar action: %w - %s", uploadJobErr, svc.WorkspaceNameForLog)
+	}
+	// wait for it to finish
+	uploadJobStatus, uploadJobStatusErr := svc.WaitForFinalJobStatus(*uploadJob.ActionID)
+	if uploadJobStatusErr != nil {
+		return tarballName, fmt.Errorf("error waiting for upload of tar to finish: %w - %s", uploadJobStatusErr, svc.WorkspaceNameForLog)
+	}
+	// check if complete
+	if uploadJobStatus != SchematicsJobStatusCompleted {
+		return tarballName, fmt.Errorf("tar upload has failed with status %s - %s", uploadJobStatus, svc.WorkspaceNameForLog)
+	}
+
+	return tarballName, nil
+}
+
+// SetTemplateRepoToBranch will call UpdateTestTemplateRepo with the appropriate URLs set at the service level
+// for the branch of this test
+func (svc *SchematicsTestService) SetTemplateRepoToBranch() error {
+	return svc.UpdateTestTemplateRepo(svc.TestTerraformRepo, svc.TestTerraformRepoBranch, "")
+}
+
+// SetTemplateRepoToBase will call UpdateTestTemplateRepo with the appropriate URLs set at the service level
+// for the base (master or main) branch of this test, used in upgrade tests
+func (svc *SchematicsTestService) SetTemplateRepoToBase() error {
+	return svc.UpdateTestTemplateRepo(svc.BaseTerraformRepo, svc.BaseTerraformRepoBranch, "")
+}
+
+// UpdateTestTemplateRepo will replace the workspace repository with a given github URL and branch
+func (svc *SchematicsTestService) UpdateTestTemplateRepo(url string, branch string, token string) error {
+	svc.TestOptions.Testing.Logf("[SCHEMATICS] Setting template repository to repo %s (%s)", url, branch)
+	// set up repo update request
+	repoUpdateRequest := &schematics.TemplateRepoUpdateRequest{
+		URL:    core.StringPtr(url),
+		Branch: core.StringPtr(branch),
+	}
+
+	// set up overall workspace options
+	replaceOptions := &schematics.ReplaceWorkspaceOptions{
+		WID:          core.StringPtr(svc.WorkspaceID),
+		TemplateRepo: repoUpdateRequest,
+	}
+
+	// if supplied set a token for private repo
+	if len(token) > 0 {
+		replaceOptions.SetXGithubToken(token)
+	}
+
+	// now update template
+	var resp *core.DetailedResponse
+	var updateErr error
+	retries := 0
+	for {
+		_, resp, updateErr = svc.SchematicsApiSvc.ReplaceWorkspace(replaceOptions)
+		if svc.retryApiCall(updateErr, getDetailedResponseStatusCode(resp), retries) {
+			retries++
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ReplaceWorkspace, status code: %d", getDetailedResponseStatusCode(resp))
+		} else {
+			break
+		}
+	}
+	if updateErr != nil {
+		return updateErr
+	}
+
+	// -------- SETTING UP WORKSPACE WITH REPO ----------
+	// find the repository refresh job
+	replaceJob, replaceJobErr := svc.FindLatestWorkspaceJobByName(SchematicsJobTypeUpdate)
+	if replaceJobErr != nil {
+		return fmt.Errorf("error finding the update workspace action: %w - %s", replaceJobErr, svc.WorkspaceNameForLog)
+	}
+	// wait for it to finish
+	replaceJobStatus, replaceJobStatusErr := svc.WaitForFinalJobStatus(*replaceJob.ActionID)
+	if replaceJobStatusErr != nil {
+		return fmt.Errorf("error waiting for update of workspace to finish: %w - %s", replaceJobStatusErr, svc.WorkspaceNameForLog)
+	}
+	// check if complete
+	if replaceJobStatus != SchematicsJobStatusCompleted {
+		return fmt.Errorf("workspace update has failed with status %s - %s", replaceJobStatus, svc.WorkspaceNameForLog)
+	}
+
+	return nil
 }
 
 // UpdateTestTemplateVars will update an existing Schematics Workspace terraform template with a

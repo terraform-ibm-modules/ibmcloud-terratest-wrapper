@@ -130,6 +130,21 @@ type TestSchematicOptions struct {
 	IgnoreDestroys testhelper.Exemptions
 	IgnoreUpdates  testhelper.Exemptions
 
+	// Use these options to specify a base terraform repo and branch to use for upgrade tests.
+	// If not supplied, the default logic will be used to determine the base repo and branch.
+	// Will be overridden by environment variables BASE_TERRAFORM_REPO and BASE_TERRAFORM_BRANCH if set.
+	//
+	// For repositories that require authentication:
+	// - For HTTPS repositories, set the GIT_TOKEN environment variable to your Personal Access Token (PAT).
+	// - For SSH repositories, set the SSH_PRIVATE_KEY environment variable to your SSH private key value.
+	//   If the SSH_PRIVATE_KEY environment variable is not set, the default SSH key located at ~/.ssh/id_rsa will be used.
+	//   Ensure that the appropriate public key is added to the repository's list of authorized keys.
+	//
+	// BaseTerraformRepo:   The URL of the base Terraform repository.
+	BaseTerraformRepo string
+	// BaseTerraformBranch: The branch within the base Terraform repository to use for upgrade tests.
+	BaseTerraformBranch string
+
 	// These optional fields can be used to override the default retry settings for making Schematics API calls.
 	// If SDK/API calls to Schematics result in errors, such as retrieving existing workspace details,
 	// the test framework will retry those calls for a set number of times, with a wait time between calls.
@@ -143,6 +158,11 @@ type TestSchematicOptions struct {
 	// By default the logs from schematics jobs will only be printed to the test log if there is a failure in the job.
 	// Set this value to `true` to have all schematics job logs (plan/apply/destroy) printed to the test log.
 	PrintAllSchematicsLogs bool
+
+	// This property will be set to true by the test when an upgrade test was performed.
+	// You can then inspect this value after the test run, if needed, to make further code decisions.
+	// NOTE: this is not an option field that is meant to be set from a unit test, it is informational only
+	IsUpgradeTest bool
 }
 
 type TestSchematicTerraformVar struct {
@@ -172,7 +192,7 @@ func (options *TestSchematicOptions) GetCheckConsistencyOptions() *testhelper.Ch
 		IgnoreAdds:     options.IgnoreAdds,
 		IgnoreDestroys: options.IgnoreDestroys,
 		IgnoreUpdates:  options.IgnoreUpdates,
-		IsUpgradeTest:  false,
+		IsUpgradeTest:  options.IsUpgradeTest,
 	}
 }
 
