@@ -261,13 +261,13 @@ func (svc *SchematicsTestService) CreateUploadTarFile(projectPath string) (strin
 // SetTemplateRepoToBranch will call UpdateTestTemplateRepo with the appropriate URLs set at the service level
 // for the branch of this test
 func (svc *SchematicsTestService) SetTemplateRepoToBranch() error {
-	return svc.UpdateTestTemplateRepo(svc.TestTerraformRepo, svc.TestTerraformRepoBranch, "")
+	return svc.UpdateTestTemplateRepo(svc.TestTerraformRepo, svc.TestTerraformRepoBranch, svc.TestOptions.TemplateGitToken)
 }
 
 // SetTemplateRepoToBase will call UpdateTestTemplateRepo with the appropriate URLs set at the service level
 // for the base (master or main) branch of this test, used in upgrade tests
 func (svc *SchematicsTestService) SetTemplateRepoToBase() error {
-	return svc.UpdateTestTemplateRepo(svc.BaseTerraformRepo, svc.BaseTerraformRepoBranch, "")
+	return svc.UpdateTestTemplateRepo(svc.BaseTerraformRepo, svc.BaseTerraformRepoBranch, svc.TestOptions.TemplateGitToken)
 }
 
 // UpdateTestTemplateRepo will replace the workspace repository with a given github URL and branch

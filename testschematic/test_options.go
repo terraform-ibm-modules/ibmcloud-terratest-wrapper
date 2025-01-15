@@ -80,6 +80,12 @@ type TestSchematicOptions struct {
 	// to that value.
 	TemplateFolder string
 
+	// The Git auth token used by schematics to clone initial template source of project.
+	// If TAR upload option is not used, the default will be to use the Git URL of the test branch for initial schematics workload setup.
+	// If the test repo is private or protected, set this value to a Git token that is authorized to read/clone the repository.
+	// NOTE: you may also need to set the same token in a `NetrcSettings` as well for this scenario.
+	TemplateGitToken string
+
 	// Optional list of tags that will be applied to the Schematics Workspace instance
 	Tags []string
 
