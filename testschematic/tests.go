@@ -316,7 +316,9 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 	// if there is a panic during resource destroy, recover and fail test but do not continue with teardown
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println("=== RECOVER FROM PANIC IN testschematic.testTearDown() ===")
+			fmt.Println("=== RECOVER FROM PANIC (stacktrace start) ===")
+			fmt.Println(string(debug.Stack()))
+			fmt.Println("=== RECOVER FROM PANIC (stacktrace end) ===")
 			options.Testing.Error("Panic recovery during schematics teardown")
 		}
 	}()
