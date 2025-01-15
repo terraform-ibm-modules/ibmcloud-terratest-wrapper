@@ -398,8 +398,9 @@ func (svc *SchematicsTestService) printWorkspaceJobLogToTestLog(jobID string, jo
 
 	// create some headers and footers
 	logHeader := fmt.Sprintf("=============== BEGIN %s JOB LOG (%s) ===============", strings.ToUpper(jobType), svc.WorkspaceID)
+	logHeaderUrl := fmt.Sprintf("SCHEMATICS LOG URL: https://cloud.ibm.com/schematics/workspaces/%s/log/%s", svc.WorkspaceID, jobID)
 	logFooter := fmt.Sprintf("=============== END %s JOB LOG (%s) ===============", strings.ToUpper(jobType), svc.WorkspaceID)
-	finalLog := fmt.Sprintf("%s\n%s\n%s", logHeader, jobLog, logFooter)
+	finalLog := fmt.Sprintf("%s\n%s\n%s\n%s", logHeader, logHeaderUrl, jobLog, logFooter)
 
 	// print out log text
 	svc.TestOptions.Testing.Log(finalLog)
