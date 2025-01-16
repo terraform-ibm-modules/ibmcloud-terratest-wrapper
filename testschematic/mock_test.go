@@ -38,6 +38,7 @@ type schematicServiceMock struct {
 	mock.Mock
 	activities                   []schematics.WorkspaceActivity
 	failCreateWorkspace          bool
+	failReplaceWorkspace         bool
 	failDeleteWorkspace          bool
 	failTemplateRepoUpload       bool
 	failReplaceWorkspaceInputs   bool
@@ -61,6 +62,7 @@ type iamAuthenticatorMock struct {
 func mockSchematicServiceReset(mock *schematicServiceMock, options *TestSchematicOptions) {
 	mock.failCreateWorkspace = false
 	mock.failDeleteWorkspace = false
+	mock.failReplaceWorkspace = false
 	mock.failTemplateRepoUpload = false
 	mock.failReplaceWorkspaceInputs = false
 	mock.failListWorkspaceActivities = false
@@ -95,6 +97,21 @@ func (mock *schematicServiceMock) CreateWorkspace(createWorkspaceOptions *schema
 
 func (mock *schematicServiceMock) UpdateWorkspace(updateWorkspaceOptions *schematics.UpdateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error) {
 	if mock.failCreateWorkspace {
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
+	}
+
+	result := &schematics.WorkspaceResponse{
+		ID: core.StringPtr(mockWorkspaceID),
+		TemplateData: []schematics.TemplateSourceDataResponse{
+			{ID: core.StringPtr(mockTemplateID)},
+		},
+	}
+	response := &core.DetailedResponse{StatusCode: 200}
+	return result, response, nil
+}
+
+func (mock *schematicServiceMock) ReplaceWorkspace(replaceWorkspaceOptions *schematics.ReplaceWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error) {
+	if mock.failReplaceWorkspace {
 		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
 
