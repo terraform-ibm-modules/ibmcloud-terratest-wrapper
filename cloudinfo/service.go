@@ -144,7 +144,11 @@ type iamPolicyService interface {
 // resourceControllerService for external Resource Controller V2 Service API. Used for mocking.
 type resourceControllerService interface {
 	NewListResourceInstancesOptions() *resourcecontrollerv2.ListResourceInstancesOptions
+	NewListReclamationsOptions() *resourcecontrollerv2.ListReclamationsOptions
+	NewRunReclamationActionOptions(string, string) *resourcecontrollerv2.RunReclamationActionOptions
+	ListReclamations(*resourcecontrollerv2.ListReclamationsOptions) (*resourcecontrollerv2.ReclamationsList, *core.DetailedResponse, error)
 	ListResourceInstances(*resourcecontrollerv2.ListResourceInstancesOptions) (*resourcecontrollerv2.ResourceInstancesList, *core.DetailedResponse, error)
+	RunReclamationAction(*resourcecontrollerv2.RunReclamationActionOptions) (*resourcecontrollerv2.Reclamation, *core.DetailedResponse, error)
 }
 
 // resourceManagerService for external Resource Manager V2 Service API. Used for mocking.

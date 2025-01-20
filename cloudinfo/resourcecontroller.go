@@ -2,8 +2,9 @@ package cloudinfo
 
 import (
 	"fmt"
-	bluemix_crn "github.com/IBM-Cloud/bluemix-go/crn"
 	"strings"
+
+	bluemix_crn "github.com/IBM-Cloud/bluemix-go/crn"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
@@ -64,6 +65,38 @@ func (infoSvc *CloudInfoService) ListResourcesByGroupID(resourceGroupId string) 
 	}
 
 	return allResources, nil
+}
+
+func (infoSvc *CloudInfoService) GetReclamationIdFromCRN(CRN string) string {
+
+	parsed_crn := strings.Split(CRN, ":")
+	resourceInstanceID := parsed_crn[7]
+
+	listReclamationsOptions := infoSvc.resourceControllerService.NewListReclamationsOptions()
+	listReclamationsOptions = listReclamationsOptions.SetResourceInstanceID(resourceInstanceID)
+	reclamationsList, _, err := infoSvc.resourceControllerService.ListReclamations(listReclamationsOptions)
+	if err != nil {
+		panic(err)
+	}
+	reclamationID := *reclamationsList.Resources[0].ID
+
+	fmt.Println("reclamation id is ", reclamationID)
+	return reclamationID
+}
+
+func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationId(reclamationID string) {
+
+	fmt.Println("Deleting the instance from reclamation id")
+
+	runReclamationActionOptions := infoSvc.resourceControllerService.NewRunReclamationActionOptions(
+		reclamationID,
+		"reclaim",
+	)
+
+	_, _, err := infoSvc.resourceControllerService.RunReclamationAction(runReclamationActionOptions)
+	if err != nil {
+		panic(err)
+	}
 }
 
 // listResourceInstances will retrieve all resources of a given type for an account
