@@ -67,7 +67,7 @@ func (infoSvc *CloudInfoService) ListResourcesByGroupID(resourceGroupId string) 
 	return allResources, nil
 }
 
-func (infoSvc *CloudInfoService) GetReclamationIdFromCRN(CRN string) string {
+func (infoSvc *CloudInfoService) GetReclamationIdFromCRN(CRN string) (string, error) {
 
 	parsed_crn := strings.Split(CRN, ":")
 	resourceInstanceID := parsed_crn[7]
@@ -78,13 +78,20 @@ func (infoSvc *CloudInfoService) GetReclamationIdFromCRN(CRN string) string {
 	if err != nil {
 		panic(err)
 	}
+
+	if len(reclamationsList.Resources) == 0 {
+
+		return "", fmt.Errorf("no reclamation found for the given CRN")
+
+	}
+
 	reclamationID := *reclamationsList.Resources[0].ID
 
 	fmt.Println("reclamation id is ", reclamationID)
-	return reclamationID
+	return reclamationID, nil
 }
 
-func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationId(reclamationID string) {
+func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationId(reclamationID string) (string, error) {
 
 	fmt.Println("Deleting the instance from reclamation id")
 
@@ -95,8 +102,11 @@ func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationId(reclamationID s
 
 	_, _, err := infoSvc.resourceControllerService.RunReclamationAction(runReclamationActionOptions)
 	if err != nil {
-		panic(err)
+
+		return "", err
 	}
+
+	return "instance reclaimed successfully", nil
 }
 
 // listResourceInstances will retrieve all resources of a given type for an account
