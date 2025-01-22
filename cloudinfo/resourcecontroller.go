@@ -76,7 +76,8 @@ func (infoSvc *CloudInfoService) GetReclamationIdFromCRN(CRN string) (string, er
 	listReclamationsOptions = listReclamationsOptions.SetResourceInstanceID(resourceInstanceID)
 	reclamationsList, _, err := infoSvc.resourceControllerService.ListReclamations(listReclamationsOptions)
 	if err != nil {
-		panic(err)
+
+		return "", err
 	}
 
 	if len(reclamationsList.Resources) == 0 {
