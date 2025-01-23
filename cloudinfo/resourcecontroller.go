@@ -82,7 +82,7 @@ func (infoSvc *CloudInfoService) GetReclamationIdFromCRN(CRN string) (string, er
 
 	if len(reclamationsList.Resources) == 0 {
 
-		return "", fmt.Errorf("no reclamation found for the given CRN")
+		return "", nil
 
 	}
 
@@ -94,7 +94,7 @@ func (infoSvc *CloudInfoService) GetReclamationIdFromCRN(CRN string) (string, er
 
 func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationId(reclamationID string) (string, error) {
 
-	fmt.Println("Deleting the instance from reclamation id")
+	fmt.Println("Deleting the instance using reclamation id")
 
 	runReclamationActionOptions := infoSvc.resourceControllerService.NewRunReclamationActionOptions(
 		reclamationID,
@@ -108,6 +108,31 @@ func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationId(reclamationID s
 	}
 
 	return "instance reclaimed successfully", nil
+}
+
+func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationByCRN(CRN string) (string, error) {
+
+	reclamationID, err := infoSvc.GetReclamationIdFromCRN(CRN)
+
+	if err != nil {
+
+		return "", err
+	}
+
+	if reclamationID == "" {
+
+		fmt.Println("No reclamation found for the given CRN")
+		return "No reclamation found for the given CRN", nil
+	}
+
+	_, err = infoSvc.DeleteInstanceFromReclamationId(reclamationID)
+
+	if err != nil {
+		return "", err
+	}
+
+	return "Instance reclaimed successfully", nil
+
 }
 
 // listResourceInstances will retrieve all resources of a given type for an account

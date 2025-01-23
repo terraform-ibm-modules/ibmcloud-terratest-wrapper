@@ -183,3 +183,13 @@ func TestDeleteInstanceFromReclamation(t *testing.T) {
 	assert.Nil(t, err)
 
 }
+
+func TestDeleteInstanceFromReclamationByCrn(t *testing.T) {
+
+	infoSvc := CloudInfoService{
+		resourceControllerService: &resourceControllerServiceMock{},
+	}
+
+	_, err := infoSvc.DeleteInstanceFromReclamationByCRN("crn:v1:bluemix:public:my-service:theregion:a/accountnum:guid::")
+	assert.Nil(t, err)
+}
