@@ -227,6 +227,29 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 		}
 	}
 
+	// ------ UPGRADE APPLY ------
+	// if option is set and we are performing upgrade test, do one final apply
+	if !options.Testing.Failed() && performUpgradeTest && svc.TestOptions.CheckApplyResultForUpgrade {
+		upgradeApplySuccess := false
+		upgradeApplyResponse, upgradeApplyErr := svc.CreateApplyJob()
+		if assert.NoErrorf(options.Testing, upgradeApplyErr, "error creating UPGRADE APPLY - %s", svc.WorkspaceNameForLog) {
+
+			options.Testing.Log("[SCHEMATICS] Starting UPGRADE APPLY job ...")
+
+			upgradeApplyJobStatus, upgradeApplyStatusErr := svc.WaitForFinalJobStatus(*upgradeApplyResponse.Activityid)
+			if assert.NoErrorf(options.Testing, upgradeApplyStatusErr, "error waiting for UPGRADE APPLY to finish - %s", svc.WorkspaceNameForLog) {
+				upgradeApplySuccess = assert.Equalf(options.Testing, SchematicsJobStatusCompleted, upgradeApplyJobStatus, "UPGRADE APPLY has failed with status %s - %s", upgradeApplyJobStatus, svc.WorkspaceNameForLog)
+			}
+
+			if !upgradeApplySuccess || options.PrintAllSchematicsLogs {
+				upgradePrintApplyLogErr := svc.printWorkspaceJobLogToTestLog(*upgradeApplyResponse.Activityid, "UPGRADE APPLY")
+				if upgradePrintApplyLogErr != nil {
+					options.Testing.Logf("Error printing APPLY logs:%s", upgradePrintApplyLogErr)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -377,7 +400,11 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 
 		// clean up any temp directories that were created
 		if len(svc.BaseTerraformTempDir) > 0 {
-			os.RemoveAll(svc.BaseTerraformTempDir)
+			options.Testing.Logf("[SCHEMATICS] Removing temp directory for upgrade test: %s", svc.BaseTerraformTempDir)
+			baseTempRemoveErr := os.RemoveAll(svc.BaseTerraformTempDir)
+			if baseTempRemoveErr != nil {
+				options.Testing.Logf("[SCHEMATICS] WARNING: failed to remove upgrade test base temp directory: %s", baseTempRemoveErr)
+			}
 		}
 	}
 }

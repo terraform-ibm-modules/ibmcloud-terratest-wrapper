@@ -164,6 +164,9 @@ type TestSchematicOptions struct {
 	// NOTE: this is not an option field that is meant to be set from a unit test, it is informational only
 	IsUpgradeTest      bool
 	UpgradeTestSkipped bool // Informs the calling test that conditions were met to skip the upgrade test
+
+	// Set to true if you wish for an Upgrade test to do a final `terraform apply` after the consistency check on the new (not base) branch.
+	CheckApplyResultForUpgrade bool
 }
 
 type TestSchematicTerraformVar struct {
