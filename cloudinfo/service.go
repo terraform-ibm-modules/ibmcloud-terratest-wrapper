@@ -90,6 +90,9 @@ type CloudInfoServiceI interface {
 	GetSchematicsJobFileData(jobID string, fileType string, location string) (*schematics.JobFileData, error)
 	GetSchematicsJobPlanJson(jobID string, location string) (string, error)
 	GetSchematicsServiceByLocation(location string) (schematicsService, error)
+	GetReclamationIdFromCRN(CRN string) (string, error)
+	DeleteInstanceFromReclamationId(reclamationID string) error
+	DeleteInstanceFromReclamationByCRN(CRN string) error
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.

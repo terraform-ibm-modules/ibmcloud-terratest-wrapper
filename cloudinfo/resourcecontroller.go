@@ -92,7 +92,7 @@ func (infoSvc *CloudInfoService) GetReclamationIdFromCRN(CRN string) (string, er
 	return reclamationID, nil
 }
 
-func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationId(reclamationID string) (string, error) {
+func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationId(reclamationID string) error {
 
 	fmt.Println("Deleting the instance using reclamation id")
 
@@ -104,34 +104,34 @@ func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationId(reclamationID s
 	_, _, err := infoSvc.resourceControllerService.RunReclamationAction(runReclamationActionOptions)
 	if err != nil {
 
-		return "", err
+		return err
 	}
 
-	return "instance reclaimed successfully", nil
+	return nil
 }
 
-func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationByCRN(CRN string) (string, error) {
+func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationByCRN(CRN string) error {
 
 	reclamationID, err := infoSvc.GetReclamationIdFromCRN(CRN)
 
 	if err != nil {
 
-		return "", err
+		return err
 	}
 
 	if reclamationID == "" {
 
 		fmt.Println("No reclamation found for the given CRN")
-		return "No reclamation found for the given CRN", nil
+		return nil
 	}
 
-	_, err = infoSvc.DeleteInstanceFromReclamationId(reclamationID)
+	err = infoSvc.DeleteInstanceFromReclamationId(reclamationID)
 
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	return "Instance reclaimed successfully", nil
+	return nil
 
 }
 

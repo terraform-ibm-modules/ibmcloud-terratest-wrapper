@@ -179,7 +179,7 @@ func TestDeleteInstanceFromReclamation(t *testing.T) {
 		resourceControllerService: &resourceControllerServiceMock{},
 	}
 
-	_, err := infoSvc.DeleteInstanceFromReclamationId("abc")
+	err := infoSvc.DeleteInstanceFromReclamationId("abc")
 	assert.Nil(t, err)
 
 }
@@ -190,6 +190,6 @@ func TestDeleteInstanceFromReclamationByCrn(t *testing.T) {
 		resourceControllerService: &resourceControllerServiceMock{},
 	}
 
-	_, err := infoSvc.DeleteInstanceFromReclamationByCRN("crn:v1:bluemix:public:my-service:theregion:a/accountnum:guid::")
+	err := infoSvc.DeleteInstanceFromReclamationByCRN("crn:v1:bluemix:public:my-service:theregion:a/accountnum:guid::")
 	assert.Nil(t, err)
 }
