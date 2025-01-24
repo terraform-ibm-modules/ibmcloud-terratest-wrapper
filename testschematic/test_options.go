@@ -159,10 +159,11 @@ type TestSchematicOptions struct {
 	// Set this value to `true` to have all schematics job logs (plan/apply/destroy) printed to the test log.
 	PrintAllSchematicsLogs bool
 
-	// This property will be set to true by the test when an upgrade test was performed.
+	// These properties will be set to true by the test when an upgrade test was performed.
 	// You can then inspect this value after the test run, if needed, to make further code decisions.
 	// NOTE: this is not an option field that is meant to be set from a unit test, it is informational only
-	IsUpgradeTest bool
+	IsUpgradeTest      bool
+	UpgradeTestSkipped bool // Informs the calling test that conditions were met to skip the upgrade test
 }
 
 type TestSchematicTerraformVar struct {

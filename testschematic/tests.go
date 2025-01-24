@@ -85,6 +85,7 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 	if performUpgradeTest {
 		if common.SkipUpgradeTest(options.Testing, svc.BaseTerraformRepo, svc.BaseTerraformRepoBranch, svc.TestTerraformRepoBranch) {
 			options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
+			svc.TestOptions.UpgradeTestSkipped = true
 			return nil
 		}
 	}
