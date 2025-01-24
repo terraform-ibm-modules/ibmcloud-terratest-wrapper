@@ -39,7 +39,10 @@ func (options *TestOptions) TestSetup() {
 // testSetup Setup test
 func (options *TestOptions) testSetup() {
 	if !options.SkipTestSetup {
-		os.Setenv("API_DATA_IS_SENSITIVE", "true")
+
+		if !options.ApiDataNonSensitive {
+			os.Setenv("API_DATA_IS_SENSITIVE", "true")
+		}
 		// If calling test had not provided its own TerraformOptions, use the default settings
 		if options.TerraformOptions == nil {
 			// Construct the terraform options with default retryable errors to handle the most common

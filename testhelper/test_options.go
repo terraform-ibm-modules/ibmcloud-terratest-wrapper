@@ -31,6 +31,8 @@ type TestOptions struct {
 	// See examples in cloudinfo/testdata for proper format.
 	BestRegionYAMLPath string
 
+	ApiDataNonSensitive bool
+
 	// Used with dynamic region selection, if any errors occur this will be the region used (fail-open)
 	DefaultRegion string
 
