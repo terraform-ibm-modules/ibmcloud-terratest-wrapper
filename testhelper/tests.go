@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -40,8 +41,10 @@ func (options *TestOptions) TestSetup() {
 func (options *TestOptions) testSetup() {
 	if !options.SkipTestSetup {
 
-		if !options.ApiDataIsNonSensitive {
+		if options.ApiDataIsSensitive == nil {
 			os.Setenv("API_DATA_IS_SENSITIVE", "true")
+		} else {
+			os.Setenv("API_DATA_IS_SENSITIVE", strconv.FormatBool(*options.ApiDataIsSensitive))
 		}
 		// If calling test had not provided its own TerraformOptions, use the default settings
 		if options.TerraformOptions == nil {
