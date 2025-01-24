@@ -82,6 +82,7 @@ type SchematicsTestService struct {
 	BaseTerraformRepoBranch   string                      // the branch name of the main origin branch of the project (main or master), used for upgrade test
 	TestTerraformRepo         string                      // the URL of the repo for the pull request, will be either origin or a fork
 	TestTerraformRepoBranch   string                      // the branch of the test, usually the current checked out branch of the test run
+	BaseTerraformTempDir      string                      // if upgrade test, will contain the temp directory containing clone of base repo
 }
 
 // CreateAuthenticator will accept a valid IBM cloud API key, and
@@ -256,74 +257,6 @@ func (svc *SchematicsTestService) CreateUploadTarFile(projectPath string) (strin
 	}
 
 	return tarballName, nil
-}
-
-// SetTemplateRepoToBranch will call UpdateTestTemplateRepo with the appropriate URLs set at the service level
-// for the branch of this test
-func (svc *SchematicsTestService) SetTemplateRepoToBranch() error {
-	return svc.UpdateTestTemplateRepo(svc.TestTerraformRepo, svc.TestTerraformRepoBranch, svc.TestOptions.TemplateGitToken)
-}
-
-// SetTemplateRepoToBase will call UpdateTestTemplateRepo with the appropriate URLs set at the service level
-// for the base (master or main) branch of this test, used in upgrade tests
-func (svc *SchematicsTestService) SetTemplateRepoToBase() error {
-	return svc.UpdateTestTemplateRepo(svc.BaseTerraformRepo, svc.BaseTerraformRepoBranch, svc.TestOptions.TemplateGitToken)
-}
-
-// UpdateTestTemplateRepo will replace the workspace repository with a given github URL and branch
-func (svc *SchematicsTestService) UpdateTestTemplateRepo(url string, branch string, token string) error {
-	svc.TestOptions.Testing.Logf("[SCHEMATICS] Setting template repository to repo %s (%s)", url, branch)
-	// set up repo update request
-	repoUpdateRequest := &schematics.TemplateRepoUpdateRequest{
-		URL:    core.StringPtr(url),
-		Branch: core.StringPtr(branch),
-	}
-
-	// set up overall workspace options
-	replaceOptions := &schematics.ReplaceWorkspaceOptions{
-		WID:          core.StringPtr(svc.WorkspaceID),
-		TemplateRepo: repoUpdateRequest,
-	}
-
-	// if supplied set a token for private repo
-	if len(token) > 0 {
-		replaceOptions.SetXGithubToken(token)
-	}
-
-	// now update template
-	var resp *core.DetailedResponse
-	var updateErr error
-	retries := 0
-	for {
-		_, resp, updateErr = svc.SchematicsApiSvc.ReplaceWorkspace(replaceOptions)
-		if svc.retryApiCall(updateErr, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ReplaceWorkspace, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
-		}
-	}
-	if updateErr != nil {
-		return updateErr
-	}
-
-	// -------- SETTING UP WORKSPACE WITH REPO ----------
-	// find the repository refresh job
-	replaceJob, replaceJobErr := svc.FindLatestWorkspaceJobByName(SchematicsJobTypeUpdate)
-	if replaceJobErr != nil {
-		return fmt.Errorf("error finding the update workspace action: %w - %s", replaceJobErr, svc.WorkspaceNameForLog)
-	}
-	// wait for it to finish
-	replaceJobStatus, replaceJobStatusErr := svc.WaitForFinalJobStatus(*replaceJob.ActionID)
-	if replaceJobStatusErr != nil {
-		return fmt.Errorf("error waiting for update of workspace to finish: %w - %s", replaceJobStatusErr, svc.WorkspaceNameForLog)
-	}
-	// check if complete
-	if replaceJobStatus != SchematicsJobStatusCompleted {
-		return fmt.Errorf("workspace update has failed with status %s - %s", replaceJobStatus, svc.WorkspaceNameForLog)
-	}
-
-	return nil
 }
 
 // UpdateTestTemplateVars will update an existing Schematics Workspace terraform template with a

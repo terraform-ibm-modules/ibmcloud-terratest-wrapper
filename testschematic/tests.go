@@ -80,11 +80,13 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 		return fmt.Errorf("error getting root path of git project: %w", pathErr)
 	}
 
-	// determine if tar file was requested
-	// NOTE: tar file not supported by upgrade test
-	useTarFile := false
-	if len(options.TarIncludePatterns) > 0 && !performUpgradeTest {
-		useTarFile = true
+	// SKIP UPGRADE TEST?
+	// if this was upgrade test and we determine that we should skip, then we are done with test
+	if performUpgradeTest {
+		if common.SkipUpgradeTest(options.Testing, svc.BaseTerraformRepo, svc.BaseTerraformRepoBranch, svc.TestTerraformRepoBranch) {
+			options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
+			return nil
+		}
 	}
 
 	// create a new empty workspace, resulting in "draft" status
@@ -99,33 +101,25 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 	svc.WorkspaceNameForLog = fmt.Sprintf("[ %s (%s) ]", svc.WorkspaceName, svc.WorkspaceID)
 
 	// WORKSPACE CODE CONFIG
-	// The workspace code can be configured by one of two methods:
-	// 1. Upload of tar file containing code
-	// 2. Configure to use Git repo/branch
-	// (upgrade tests must be done using method 2)
-	if useTarFile {
-		// ------- TAR FILE UPLOAD --------
-		tarballName, tarUploadErr := svc.CreateUploadTarFile(projectPath)
-		// set defer first so that file always gets removed even if error
-		if len(tarballName) > 0 {
-			defer os.Remove(tarballName) // just to cleanup
+	// for TAR file, if this was an upgrade test then we first upload the base branch code
+	tarPath := projectPath
+	if performUpgradeTest {
+		options.Testing.Logf("[SCHEMATICS] Switching to target (%s) code for UPGRADE TEST", svc.BaseTerraformRepoBranch)
+		var upgradeCheckoutErr error
+		tarPath, upgradeCheckoutErr = svc.checkoutBaseRepoCode()
+		if upgradeCheckoutErr != nil {
+			return fmt.Errorf("error cloning base repo for upgrade test: %w", upgradeCheckoutErr)
 		}
-		if tarUploadErr != nil {
-			return fmt.Errorf("error setting workspace tar file: %w", tarUploadErr)
-		}
-	} else {
-		// --------- SET GIT REPO FOR CODE ---------
-		options.Testing.Log("[SCHEMATICS] Setting workspace repository")
-		// if upgrade test, this should initially be the base branch
-		var setInitialTemplateRepoErr error
-		if performUpgradeTest {
-			setInitialTemplateRepoErr = svc.SetTemplateRepoToBase()
-		} else {
-			setInitialTemplateRepoErr = svc.SetTemplateRepoToBranch()
-		}
-		if setInitialTemplateRepoErr != nil {
-			return fmt.Errorf("error setting workspace repository: %w", setInitialTemplateRepoErr)
-		}
+	}
+
+	// ------- TAR FILE UPLOAD --------
+	tarballName, tarUploadErr := svc.CreateUploadTarFile(tarPath)
+	// set defer first so that file always gets removed even if error
+	if len(tarballName) > 0 {
+		defer os.Remove(tarballName) // just to cleanup
+	}
+	if tarUploadErr != nil {
+		return fmt.Errorf("error setting workspace tar file: %w", tarUploadErr)
 	}
 
 	// ------ FINAL WORKSPACE CONFIG ------
@@ -191,11 +185,16 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 	consistencyTypeForLog := "CONSISTENCY" // only using this for logs
 	if !options.Testing.Failed() {
 		if performUpgradeTest {
-			// UPGRADE TEST: set repo URL to branch/fork
-			options.Testing.Log("[SCHEMATICS] Switching branches for UPGRADE TEST ...")
-			setUpgradeTemplateRepoErr := svc.SetTemplateRepoToBranch()
-			if setUpgradeTemplateRepoErr != nil {
-				return fmt.Errorf("error setting workspace repository to branch for upgrade: %w", setUpgradeTemplateRepoErr)
+			// UPGRADE TEST: upload new Tar file based on current code (original project path)
+			options.Testing.Log("[SCHEMATICS] Switching to source code for UPGRADE TEST")
+			// ------- TAR FILE UPLOAD --------
+			upgradeTarballName, upgradeTarUploadErr := svc.CreateUploadTarFile(projectPath)
+			// set defer first so that file always gets removed even if error
+			if len(upgradeTarballName) > 0 {
+				defer os.Remove(upgradeTarballName) // just to cleanup
+			}
+			if upgradeTarUploadErr != nil {
+				return fmt.Errorf("error setting workspace tar file: %w", upgradeTarUploadErr)
 			}
 			consistencyTypeForLog = "UPGRADE"
 		}
@@ -374,6 +373,11 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 				}
 			}
 		}
+
+		// clean up any temp directories that were created
+		if len(svc.BaseTerraformTempDir) > 0 {
+			os.RemoveAll(svc.BaseTerraformTempDir)
+		}
 	}
 }
 
@@ -406,4 +410,24 @@ func (svc *SchematicsTestService) printWorkspaceJobLogToTestLog(jobID string, jo
 	svc.TestOptions.Testing.Log(finalLog)
 
 	return nil
+}
+
+func (svc *SchematicsTestService) checkoutBaseRepoCode() (string, error) {
+	// Create a temporary directory for the base branch
+	baseTempDir, baseTempDirErr := os.MkdirTemp("", fmt.Sprintf("terraform-base-%s", svc.TestOptions.Prefix))
+	if baseTempDirErr != nil {
+		// No need to tearDown as nothing was created
+		return "", fmt.Errorf("failed to create temp dir for base branch: %w", baseTempDirErr)
+	} else {
+		svc.BaseTerraformTempDir = baseTempDir
+		svc.TestOptions.Testing.Log("[SCHEMATICS] TEMP UPGRADE BASE DIR CREATED: ", baseTempDir)
+	}
+
+	// checkout the base branch in temp location
+	cloneErr := common.CloneAndCheckoutBranch(svc.TestOptions.Testing, svc.BaseTerraformRepo, svc.BaseTerraformRepoBranch, baseTempDir)
+	if cloneErr != nil {
+		return "", fmt.Errorf("failed to clone upgrade test base repo [%s (%s)]: %w", svc.BaseTerraformRepo, svc.BaseTerraformRepoBranch, cloneErr)
+	}
+
+	return baseTempDir, nil
 }
