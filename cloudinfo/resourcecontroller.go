@@ -70,6 +70,11 @@ func (infoSvc *CloudInfoService) ListResourcesByGroupID(resourceGroupId string) 
 func (infoSvc *CloudInfoService) GetReclamationIdFromCRN(CRN string) (string, error) {
 
 	parsed_crn := strings.Split(CRN, ":")
+
+	if len(parsed_crn) < 8 {
+
+		return "", fmt.Errorf("invalid crn, instance guid is not present")
+	}
 	resourceInstanceID := parsed_crn[7]
 
 	listReclamationsOptions := infoSvc.resourceControllerService.NewListReclamationsOptions()
