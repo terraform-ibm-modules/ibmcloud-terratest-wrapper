@@ -2,8 +2,9 @@ package cloudinfo
 
 import (
 	"fmt"
-	bluemix_crn "github.com/IBM-Cloud/bluemix-go/crn"
 	"strings"
+
+	bluemix_crn "github.com/IBM-Cloud/bluemix-go/crn"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
@@ -64,6 +65,81 @@ func (infoSvc *CloudInfoService) ListResourcesByGroupID(resourceGroupId string) 
 	}
 
 	return allResources, nil
+}
+
+func (infoSvc *CloudInfoService) GetReclamationIdFromCRN(CRN string) (string, error) {
+
+	parsed_crn := strings.Split(CRN, ":")
+
+	if len(parsed_crn) < 8 {
+
+		return "", fmt.Errorf("invalid crn, instance guid is not present")
+	}
+	resourceInstanceID := parsed_crn[7]
+
+	listReclamationsOptions := infoSvc.resourceControllerService.NewListReclamationsOptions()
+	listReclamationsOptions = listReclamationsOptions.SetResourceInstanceID(resourceInstanceID)
+	reclamationsList, _, err := infoSvc.resourceControllerService.ListReclamations(listReclamationsOptions)
+	if err != nil {
+
+		return "", err
+	}
+
+	if len(reclamationsList.Resources) == 0 {
+
+		return "", nil
+
+	}
+
+	reclamationID := *reclamationsList.Resources[0].ID
+
+	fmt.Println("reclamation id is ", reclamationID)
+	return reclamationID, nil
+}
+
+func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationId(reclamationID string) error {
+
+	fmt.Println("Deleting the instance using reclamation id")
+
+	runReclamationActionOptions := infoSvc.resourceControllerService.NewRunReclamationActionOptions(
+		reclamationID,
+		"reclaim",
+	)
+
+	_, _, err := infoSvc.resourceControllerService.RunReclamationAction(runReclamationActionOptions)
+	if err != nil {
+
+		return err
+	}
+
+	fmt.Println("Instance reclaimed successfully")
+
+	return nil
+}
+
+func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationByCRN(CRN string) error {
+
+	reclamationID, err := infoSvc.GetReclamationIdFromCRN(CRN)
+
+	if err != nil {
+
+		return err
+	}
+
+	if reclamationID == "" {
+
+		fmt.Println("No reclamation found for the given CRN")
+		return nil
+	}
+
+	err = infoSvc.DeleteInstanceFromReclamationId(reclamationID)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+
 }
 
 // listResourceInstances will retrieve all resources of a given type for an account

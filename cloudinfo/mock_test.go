@@ -120,11 +120,23 @@ func (mock *iamPolicyServiceMock) DeletePolicy(deletePolicyOptions *iampolicyman
 // RESOURCE CONTROLLER SERVICE MOCK
 type resourceControllerServiceMock struct {
 	mock.Mock
-	mockResourceList *resourcecontrollerv2.ResourceInstancesList
+	mockResourceList    *resourcecontrollerv2.ResourceInstancesList
+	mockReclamationList *resourcecontrollerv2.ReclamationsList
+	mockReclamation     *resourcecontrollerv2.Reclamation
 }
 
 func (mock *resourceControllerServiceMock) NewListResourceInstancesOptions() *resourcecontrollerv2.ListResourceInstancesOptions {
 	return &resourcecontrollerv2.ListResourceInstancesOptions{}
+}
+
+func (mock *resourceControllerServiceMock) NewListReclamationsOptions() *resourcecontrollerv2.ListReclamationsOptions {
+
+	return &resourcecontrollerv2.ListReclamationsOptions{}
+}
+
+func (mock *resourceControllerServiceMock) NewRunReclamationActionOptions(id string, action string) *resourcecontrollerv2.RunReclamationActionOptions {
+
+	return &resourcecontrollerv2.RunReclamationActionOptions{ID: core.StringPtr(id), ActionName: core.StringPtr(action)}
 }
 
 func (mock *resourceControllerServiceMock) ListResourceInstances(options *resourcecontrollerv2.ListResourceInstancesOptions) (*resourcecontrollerv2.ResourceInstancesList, *core.DetailedResponse, error) {
@@ -144,6 +156,46 @@ func (mock *resourceControllerServiceMock) ListResourceInstances(options *resour
 	}
 
 	return retList, nil, nil
+}
+
+func (mock *resourceControllerServiceMock) ListReclamations(options *resourcecontrollerv2.ListReclamationsOptions) (*resourcecontrollerv2.ReclamationsList, *core.DetailedResponse, error) {
+
+	var recList *resourcecontrollerv2.ReclamationsList
+	var mockID string = "mock-reclamation-id"
+	mockReclamation := resourcecontrollerv2.Reclamation{ID: &mockID}
+	mockReclamationList := []resourcecontrollerv2.Reclamation{mockReclamation}
+
+	if options.ResourceInstanceID != nil && *options.ResourceInstanceID == "ERROR" {
+		return nil, nil, errors.New("mock Resource is error")
+	}
+
+	if mock.mockReclamationList == nil {
+
+		recList = &resourcecontrollerv2.ReclamationsList{
+
+			Resources: mockReclamationList,
+		}
+	} else {
+		recList = mock.mockReclamationList
+	}
+
+	return recList, nil, nil
+}
+
+func (mock *resourceControllerServiceMock) RunReclamationAction(options *resourcecontrollerv2.RunReclamationActionOptions) (*resourcecontrollerv2.Reclamation, *core.DetailedResponse, error) {
+
+	var reclamation *resourcecontrollerv2.Reclamation
+	var mockID string = "mock-reclamation-id"
+	mockReclamation := resourcecontrollerv2.Reclamation{ID: &mockID}
+
+	if mock.mockReclamation == nil {
+
+		reclamation = &mockReclamation
+	} else {
+		reclamation = mock.mockReclamation
+	}
+
+	return reclamation, nil, nil
 }
 
 // Resource Manager mock
