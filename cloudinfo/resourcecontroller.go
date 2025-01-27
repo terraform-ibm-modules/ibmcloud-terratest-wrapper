@@ -112,6 +112,8 @@ func (infoSvc *CloudInfoService) DeleteInstanceFromReclamationId(reclamationID s
 		return err
 	}
 
+	fmt.Println("Instance reclaimed successfully")
+
 	return nil
 }
 
