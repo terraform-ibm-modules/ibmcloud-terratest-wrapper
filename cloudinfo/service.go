@@ -90,6 +90,9 @@ type CloudInfoServiceI interface {
 	GetSchematicsJobFileData(jobID string, fileType string, location string) (*schematics.JobFileData, error)
 	GetSchematicsJobPlanJson(jobID string, location string) (string, error)
 	GetSchematicsServiceByLocation(location string) (schematicsService, error)
+	GetReclamationIdFromCRN(CRN string) (string, error)
+	DeleteInstanceFromReclamationId(reclamationID string) error
+	DeleteInstanceFromReclamationByCRN(CRN string) error
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -144,7 +147,11 @@ type iamPolicyService interface {
 // resourceControllerService for external Resource Controller V2 Service API. Used for mocking.
 type resourceControllerService interface {
 	NewListResourceInstancesOptions() *resourcecontrollerv2.ListResourceInstancesOptions
+	NewListReclamationsOptions() *resourcecontrollerv2.ListReclamationsOptions
+	NewRunReclamationActionOptions(string, string) *resourcecontrollerv2.RunReclamationActionOptions
+	ListReclamations(*resourcecontrollerv2.ListReclamationsOptions) (*resourcecontrollerv2.ReclamationsList, *core.DetailedResponse, error)
 	ListResourceInstances(*resourcecontrollerv2.ListResourceInstancesOptions) (*resourcecontrollerv2.ResourceInstancesList, *core.DetailedResponse, error)
+	RunReclamationAction(*resourcecontrollerv2.RunReclamationActionOptions) (*resourcecontrollerv2.Reclamation, *core.DetailedResponse, error)
 }
 
 // resourceManagerService for external Resource Manager V2 Service API. Used for mocking.
