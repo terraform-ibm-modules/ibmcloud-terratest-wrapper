@@ -258,7 +258,6 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 	return validChange
 }
 
-// sanitizeResourceChanges sanitizes the sensitive data in a Terraform JSON Change and returns the sanitized JSON.
 func sanitizeResourceChanges(change *tfjson.Change, mergedSensitive map[string]interface{}) (string, error) {
 	// Marshal the Change to JSON bytes
 	changesBytes, err := json.MarshalIndent(change, "", "  ")
@@ -268,8 +267,10 @@ func sanitizeResourceChanges(change *tfjson.Change, mergedSensitive map[string]i
 	changesJson := string(changesBytes)
 
 	// Perform sanitization of sensitive data
-	changesJson, err = common.SanitizeSensitiveData(changesJson, mergedSensitive)
-	return changesJson, err
+	for key := range mergedSensitive {
+		changesJson = strings.ReplaceAll(changesJson, fmt.Sprintf("%v", mergedSensitive[key]), "[SENSITIVE]")
+	}
+	return changesJson, nil
 }
 
 // handleSanitizationError logs an error message if a sanitization error occurs.

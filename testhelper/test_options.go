@@ -140,6 +140,9 @@ type TestOptions struct {
 	// this service in a variable that is shared amongst all unit tests and supply the pointer here.
 	CloudInfoService cloudinfo.CloudInfoServiceI
 
+	// SensitiveVars is a list of variables that should be treated as sensitive and not printed to the console.
+	SensitiveVars []string
+
 	// Set to true if you wish for an Upgrade test to do a final `terraform apply` after the consistency check on the new (not base) branch.
 	CheckApplyResultForUpgrade bool
 
