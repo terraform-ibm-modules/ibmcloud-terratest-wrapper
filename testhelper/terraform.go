@@ -184,7 +184,7 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 		}
 
 		// Perform sanitization
-		sanitizedChangesJson, err := sanitizeResourceChanges(resource.Change, mergedSensitive)
+		sanitizedChangesJson, err := sanitizeResourceChanges(resource.Change, mergedSensitive, testOptions.GetSensitiveVars())
 		if err != nil {
 			sanitizedChangesJson = "Error sanitizing sensitive data"
 			logger.Log(options.Testing, sanitizedChangesJson)
@@ -210,7 +210,7 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 			// Perform sanitization on "After" part
 			var after string
 			if len(beforeAfter) > 1 {
-				after, err = common.SanitizeSensitiveData(beforeAfter[1], mergedSensitive)
+				after, err = common.SanitizeSensitiveData(beforeAfter[1], mergedSensitive, testOptions.GetSensitiveVars())
 				handleSanitizationError(err, "after diff", options)
 			} else {
 				after = "Could not parse after from diff" // dont print incase diff contains sensitive values
@@ -219,7 +219,7 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 			// Perform sanitization on "Before" part
 			var before string
 			if len(beforeAfter) > 0 {
-				before, err = common.SanitizeSensitiveData(strings.TrimPrefix(beforeAfter[0], "Before: "), mergedSensitive)
+				before, err = common.SanitizeSensitiveData(strings.TrimPrefix(beforeAfter[0], "Before: "), mergedSensitive, testOptions.GetSensitiveVars())
 				handleSanitizationError(err, "before diff", options)
 			} else {
 				before = "Could not parse before from diff" // dont print incase diff contains sensitive values
@@ -259,17 +259,22 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 }
 
 // sanitizeResourceChanges sanitizes the sensitive data in a Terraform JSON Change and returns the sanitized JSON.
-func sanitizeResourceChanges(change *tfjson.Change, mergedSensitive map[string]interface{}) (string, error) {
+func sanitizeResourceChanges(change *tfjson.Change, mergedSensitive map[string]interface{}, sensitiveKeys []string) (string, error) {
 	// Marshal the Change to JSON bytes
 	changesBytes, err := json.MarshalIndent(change, "", "  ")
 	if err != nil {
 		return "", err
 	}
 	changesJson := string(changesBytes)
+	fmt.Println("Original JSON:", changesJson)
 
 	// Perform sanitization of sensitive data
-	changesJson, err = common.SanitizeSensitiveData(changesJson, mergedSensitive)
-	return changesJson, err
+	sanitizedJson, err := common.SanitizeSensitiveData(changesJson, mergedSensitive, sensitiveKeys)
+	if err != nil {
+		return "", err
+	}
+	fmt.Println("Sanitized JSON:", sanitizedJson)
+	return sanitizedJson, nil
 }
 
 // handleSanitizationError logs an error message if a sanitization error occurs.

@@ -142,6 +142,9 @@ type TestOptions struct {
 	// this service in a variable that is shared amongst all unit tests and supply the pointer here.
 	CloudInfoService cloudinfo.CloudInfoServiceI
 
+	// SensitiveVars is a list of variables that are considered sensitive and should be sanitized in the test output.
+	SensitiveVars []string
+
 	// Set to true if you wish for an Upgrade test to do a final `terraform apply` after the consistency check on the new (not base) branch.
 	CheckApplyResultForUpgrade bool
 
@@ -175,6 +178,10 @@ type TestOptions struct {
 	PostDestroyHook func(options *TestOptions) error
 }
 
+func (o *TestOptions) GetSensitiveVars() []string {
+	return o.SensitiveVars
+}
+
 type CheckConsistencyOptions struct {
 	// REQUIRED: a pointer to an initialized testing object.
 	// Typically, you would assign the test object used in the unit test.
@@ -199,6 +206,7 @@ type CheckConsistencyOptions struct {
 // CheckConsistencyOptions object populated with correct values
 type CheckConsistencyOptionsI interface {
 	GetCheckConsistencyOptions() *CheckConsistencyOptions
+	GetSensitiveVars() []string
 }
 
 // To support consistency check options interface

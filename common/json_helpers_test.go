@@ -178,7 +178,7 @@ func TestSanitizeSensitiveData(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.Name, func(t *testing.T) {
-			result, err := SanitizeSensitiveData(test.InputJSON, test.SecureList)
+			result, err := SanitizeSensitiveData(test.InputJSON, test.SecureList, []string{})
 
 			if err != nil {
 				assert.Equal(t, test.Err, err.Error(), "Error mismatch")

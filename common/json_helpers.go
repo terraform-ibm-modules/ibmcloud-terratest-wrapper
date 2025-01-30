@@ -127,7 +127,7 @@ const SANITIZE_STRING = "SECURE_VALUE_HIDDEN_HASH:"
 
 // SanitizeSensitiveData takes a JSON string and a list of sensitive keys
 // and replaces the values of the sensitive keys with a predefined string.
-func SanitizeSensitiveData(inputJSON string, secureList map[string]interface{}) (string, error) {
+func SanitizeSensitiveData(inputJSON string, secureList map[string]interface{}, sensitiveKeys []string) (string, error) {
 	// Unmarshal the input JSON into a generic data structure.
 	var data interface{}
 	if err := json.Unmarshal([]byte(inputJSON), &data); err != nil {
@@ -135,10 +135,10 @@ func SanitizeSensitiveData(inputJSON string, secureList map[string]interface{}) 
 	}
 
 	// Recursively sanitize the JSON data.
-	sanitizeJSON(data, secureList)
+	sanitizeJSON(data, secureList, sensitiveKeys)
 
 	// Marshal the sanitized data back into a JSON string.
-	sanitizedJSON, err := json.Marshal(data)
+	sanitizedJSON, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return "", err
 	}
@@ -148,12 +148,21 @@ func SanitizeSensitiveData(inputJSON string, secureList map[string]interface{}) 
 
 // sanitizeJSON is a recursive function that traverses a JSON data structure
 // and replaces sensitive keys with SANITIZE_STRING.
-func sanitizeJSON(data interface{}, secureList map[string]interface{}) {
+func sanitizeJSON(data interface{}, secureList map[string]interface{}, sensitiveKeys []string) {
 	switch v := data.(type) {
 	case map[string]interface{}:
 		for key := range v {
 			// NOTE: before and after sensitive sections do not contain values, only booleans denoting sensitive, so skip these sections
-			if key != "before_sensitive" && key != "after_sensitive" && key != "after_unknown" {
+			if key == "before_sensitive" || key == "after_sensitive" || key == "after_unknown" {
+				// Check for sensitive keys within these keys and sanitize them
+				if nestedMap, ok := v[key].(map[string]interface{}); ok {
+					for nestedKey := range nestedMap {
+						if contains(sensitiveKeys, nestedKey) {
+							nestedMap[nestedKey] = SANITIZE_STRING
+						}
+					}
+				}
+			} else {
 				if _, ok := secureList[key]; ok {
 					// Generate a random salt value
 					salt := make([]byte, 16) // You can choose the salt length as needed
@@ -170,17 +179,27 @@ func sanitizeJSON(data interface{}, secureList map[string]interface{}) {
 					v[key] = SANITIZE_STRING + fmt.Sprintf("-%x", hashedValue)
 				} else {
 					// Recursively sanitize nested data.
-					sanitizeJSON(v[key], secureList)
+					sanitizeJSON(v[key], secureList, sensitiveKeys)
 				}
 			}
 		}
 	case []interface{}:
 		for i, item := range v {
 			// Recursively sanitize each item in the array.
-			sanitizeJSON(item, secureList)
+			sanitizeJSON(item, secureList, sensitiveKeys)
 			v[i] = item
 		}
 	}
+}
+
+// contains checks if a slice contains a specific element.
+func contains(slice []string, element string) bool {
+	for _, item := range slice {
+		if item == element {
+			return true
+		}
+	}
+	return false
 }
 
 // PrintStructAsJson prints a struct as a formatted JSON string
