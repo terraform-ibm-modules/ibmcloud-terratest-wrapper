@@ -4,8 +4,6 @@ package common
 // in case of SLZ but can be used anywhere)
 import (
 	"bytes"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -123,7 +121,7 @@ func FormatJsonStringPretty(jsonString string) (string, error) {
 }
 
 // SANITIZE_STRING is the string used to replace sensitive values.
-const SANITIZE_STRING = "SECURE_VALUE_HIDDEN_HASH:"
+const SANITIZE_STRING = "[SENSITIVE]"
 
 // SanitizeSensitiveData takes a JSON string and a list of sensitive keys
 // and replaces the values of the sensitive keys with a predefined string.
@@ -138,7 +136,7 @@ func SanitizeSensitiveData(inputJSON string, secureList map[string]interface{}) 
 	sanitizeJSON(data, secureList)
 
 	// Marshal the sanitized data back into a JSON string.
-	sanitizedJSON, err := json.Marshal(data)
+	sanitizedJSON, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return "", err
 	}
@@ -152,26 +150,11 @@ func sanitizeJSON(data interface{}, secureList map[string]interface{}) {
 	switch v := data.(type) {
 	case map[string]interface{}:
 		for key := range v {
-			// NOTE: before and after sensitive sections do not contain values, only booleans denoting sensitive, so skip these sections
-			if key != "before_sensitive" && key != "after_sensitive" && key != "after_unknown" {
-				if _, ok := secureList[key]; ok {
-					// Generate a random salt value
-					salt := make([]byte, 16) // You can choose the salt length as needed
-					_, err := rand.Read(salt)
-					if err != nil {
-						fmt.Println("Error generating salt:", err)
-						return
-					}
-
-					// Concatenate the salt and input
-					saltedInput := append(salt, []byte(fmt.Sprintf("%v", v[key]))...)
-					// Replace sensitive values with SANITIZE_STRING+Hash of the value.
-					hashedValue := sha256.Sum224(saltedInput)
-					v[key] = SANITIZE_STRING + fmt.Sprintf("-%x", hashedValue)
-				} else {
-					// Recursively sanitize nested data.
-					sanitizeJSON(v[key], secureList)
-				}
+			if _, ok := secureList[key]; ok {
+				v[key] = SANITIZE_STRING
+			} else {
+				// Recursively sanitize nested data.
+				sanitizeJSON(v[key], secureList)
 			}
 		}
 	case []interface{}:

@@ -160,11 +160,7 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 		if beforeSensitiveOK {
 			// Copy the keys and values from BeforeSensitive to the mergedSensitive map.
 			for key, value := range beforeSensitive {
-				// if value is non boolean, that means the terraform attribute was a map.
-				// if a map, then it is only valid if it has fields assigned.
-				// Terraform will leave the map empty if there are no sensitive fields, but still list the map itself.
 				if isSanitizationSensitiveValue(value) {
-					// take the safe route and assume anything else is sensitive
 					mergedSensitive[key] = value
 				}
 			}
@@ -174,16 +170,13 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 		if afterSensitiveOK {
 			// Copy the keys and values from AfterSensitive to the mergedSensitive map.
 			for key, value := range afterSensitive {
-				// if value is non boolean, that means the terraform attribute was a map.
-				// if a map, then it is only valid if it has fields assigned.
-				// Terraform will leave the map empty if there are no sensitive fields, but still list the map itself.
 				if isSanitizationSensitiveValue(value) {
 					mergedSensitive[key] = value
 				}
 			}
 		}
 
-		// Perform sanitization
+		// Sanitize the resource changes
 		sanitizedChangesJson, err := sanitizeResourceChanges(resource.Change, mergedSensitive)
 		if err != nil {
 			sanitizedChangesJson = "Error sanitizing sensitive data"
@@ -258,6 +251,7 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 	return validChange
 }
 
+// sanitizeResourceChanges sanitizes the sensitive data in a Terraform JSON Change and returns the sanitized JSON.
 func sanitizeResourceChanges(change *tfjson.Change, mergedSensitive map[string]interface{}) (string, error) {
 	// Marshal the Change to JSON bytes
 	changesBytes, err := json.MarshalIndent(change, "", "  ")
@@ -265,12 +259,15 @@ func sanitizeResourceChanges(change *tfjson.Change, mergedSensitive map[string]i
 		return "", err
 	}
 	changesJson := string(changesBytes)
+	fmt.Println("Original JSON:", changesJson)
 
 	// Perform sanitization of sensitive data
-	for key := range mergedSensitive {
-		changesJson = strings.ReplaceAll(changesJson, fmt.Sprintf("%v", mergedSensitive[key]), "[SENSITIVE]")
+	sanitizedJson, err := common.SanitizeSensitiveData(changesJson, mergedSensitive)
+	if err != nil {
+		return "", err
 	}
-	return changesJson, nil
+	fmt.Println("Sanitized JSON:", sanitizedJson)
+	return sanitizedJson, nil
 }
 
 // handleSanitizationError logs an error message if a sanitization error occurs.
