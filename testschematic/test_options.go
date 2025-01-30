@@ -124,6 +124,9 @@ type TestSchematicOptions struct {
 	SchematicsApiSvc  SchematicsApiSvcI           // OPTIONAL: service pointer for interacting with external schematics api
 	schematicsTestSvc *SchematicsTestService      // internal property to specify pointer to test service, used for test mocking
 
+	// SensitiveVars is a list of variables that are considered sensitive and should be sanitized in the test output.
+	SensitiveVars []string
+
 	// For Consistency Checks: Specify terraform resource names to ignore for consistency checks.
 	// You can ignore specific resources in both idempotent and upgrade consistency checks by adding their names to these
 	// lists. There are separate lists for adds, updates, and destroys.
@@ -169,6 +172,10 @@ type TestSchematicOptions struct {
 	// You can then inspect this value after the test run, if needed, to make further code decisions.
 	// NOTE: this is not an option field that is meant to be set from a unit test, it is informational only
 	IsUpgradeTest bool
+}
+
+func (o *TestSchematicOptions) GetSensitiveVars() []string {
+	return o.SensitiveVars
 }
 
 type TestSchematicTerraformVar struct {
