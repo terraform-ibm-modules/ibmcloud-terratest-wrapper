@@ -364,6 +364,41 @@ func TestSchematicGetJobDetail(t *testing.T) {
 	})
 }
 
+func TestSchematicGetWorkspaceOutputs(t *testing.T) {
+	zero := 0
+	schematicSvc := new(schematicServiceMock)
+	authSvc := new(iamAuthenticatorMock)
+	svc := &SchematicsTestService{
+		SchematicsApiSvc: schematicSvc,
+		ApiAuthenticator: authSvc,
+		WorkspaceID:      mockWorkspaceID,
+		TemplateID:       mockTemplateID,
+		TestOptions: &TestSchematicOptions{
+			Testing:                      new(testing.T),
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
+	}
+	mockErrorType := new(schematicErrorMock)
+
+	t.Run("OutputsReturned", func(t *testing.T) {
+		result, err := svc.GetLatestWorkspaceOutputs()
+		if assert.NoError(t, err) {
+			if assert.NotNil(t, result) {
+				if assert.Len(t, result, 1) {
+					assert.Equal(t, "the_mock_value", result["mock_output"])
+				}
+			}
+		}
+	})
+
+	t.Run("ServiceError", func(t *testing.T) {
+		schematicSvc.failGetOutputsCommand = true
+		_, err := svc.GetLatestWorkspaceOutputs()
+		assert.ErrorAs(t, err, &mockErrorType)
+	})
+}
+
 func TestSchematicDeleteWorkspace(t *testing.T) {
 	zero := 0
 	schematicSvc := new(schematicServiceMock)

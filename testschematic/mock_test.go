@@ -48,6 +48,7 @@ type schematicServiceMock struct {
 	failPlanWorkspaceCommand     bool
 	failApplyWorkspaceCommand    bool
 	failDestroyWorkspaceCommand  bool
+	failGetOutputsCommand        bool
 	applyComplete                bool
 	destroyComplete              bool
 	workspaceDeleteComplete      bool
@@ -71,6 +72,7 @@ func mockSchematicServiceReset(mock *schematicServiceMock, options *TestSchemati
 	mock.failPlanWorkspaceCommand = false
 	mock.failApplyWorkspaceCommand = false
 	mock.failDestroyWorkspaceCommand = false
+	mock.failGetOutputsCommand = false
 	mock.applyComplete = false
 	mock.destroyComplete = false
 	mock.workspaceDeleteComplete = false
@@ -251,6 +253,23 @@ func (mock *schematicServiceMock) DestroyWorkspaceCommand(destroyWorkspaceComman
 	}
 	response := &core.DetailedResponse{StatusCode: 200}
 	mock.destroyComplete = true
+	return result, response, nil
+}
+
+func (mock *schematicServiceMock) GetWorkspaceOutputs(getWorkspaceOutputsOptions *schematics.GetWorkspaceOutputsOptions) ([]schematics.OutputValuesInner, *core.DetailedResponse, error) {
+	if mock.failGetOutputsCommand {
+		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
+	}
+
+	result := []schematics.OutputValuesInner{
+		{
+			Folder: core.StringPtr("examples/basic"),
+			OutputValues: []map[string]interface{}{
+				{"mock_output": "the_mock_value"},
+			},
+		},
+	}
+	response := &core.DetailedResponse{StatusCode: 200}
 	return result, response, nil
 }
 

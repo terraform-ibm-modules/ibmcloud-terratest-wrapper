@@ -167,6 +167,22 @@ type TestSchematicOptions struct {
 
 	// Set to true if you wish for an Upgrade test to do a final `terraform apply` after the consistency check on the new (not base) branch.
 	CheckApplyResultForUpgrade bool
+
+	// LastTestTerraformOutputs is a map of the last terraform outputs from the last apply of the test.
+	// Note: Plans do not create output. As a side effect of this the upgrade test will have the outputs from the base terraform apply not the upgrade.
+	// Unless the upgrade test is run with the `CheckApplyResultForUpgrade` set to true.
+	LastTestTerraformOutputs map[string]interface{}
+
+	// Hooks These allow us to inject custom code into the test process
+	// example to set a hook:
+	// options.PreApplyHook = func(options *TestOptions) error {
+	//     // do something
+	//     return nil
+	// }
+	PreApplyHook    func(options *TestSchematicOptions) error // In upgrade tests, this hook will be called before the base apply
+	PostApplyHook   func(options *TestSchematicOptions) error // In upgrade tests, this hook will be called after the base apply
+	PreDestroyHook  func(options *TestSchematicOptions) error // If this fails, the destroy will continue
+	PostDestroyHook func(options *TestSchematicOptions) error
 }
 
 type TestSchematicTerraformVar struct {
