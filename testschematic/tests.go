@@ -160,6 +160,20 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 	// ------ APPLY ------
 	applySuccess := false // will only flip to true if job completes
 	if !options.Testing.Failed() {
+
+		// PRE-APPLY HOOK
+		if options.PreApplyHook != nil {
+			options.Testing.Log("START: PreApplyHook")
+			preApplyHookErr := options.PreApplyHook(options)
+			if preApplyHookErr != nil {
+				options.Testing.Log("Error running PreApplyHook")
+				options.Testing.Log(preApplyHookErr)
+				options.Testing.Log("END: PreApplyHook")
+			} else {
+				options.Testing.Log("END: PreApplyHook")
+			}
+		}
+
 		applyResponse, applyErr := svc.CreateApplyJob()
 		if assert.NoErrorf(options.Testing, applyErr, "error creating APPLY - %s", svc.WorkspaceNameForLog) {
 
@@ -175,6 +189,27 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 				printApplyLogErr := svc.printWorkspaceJobLogToTestLog(*applyResponse.Activityid, "APPLY")
 				if printApplyLogErr != nil {
 					options.Testing.Logf("Error printing APPLY logs:%s", printApplyLogErr)
+				}
+			} else {
+				// retrieve and store the last set of outputs in case post-commit hook needs it
+				outputs, outputsErr := svc.GetLatestWorkspaceOutputs()
+				if outputsErr != nil {
+					options.Testing.Logf("[SCHEMATICS] There was an error retrieving output values: %s", outputsErr)
+				} else {
+					options.LastTestTerraformOutputs = outputs
+				}
+
+				// POST-APPLY HOOK
+				if options.PostApplyHook != nil {
+					options.Testing.Log("START: PostApplyHook")
+					postApplyHookErr := options.PostApplyHook(options)
+					if postApplyHookErr != nil {
+						options.Testing.Log("Error running PostApplyHook")
+						options.Testing.Log(postApplyHookErr)
+						options.Testing.Log("END: PostApplyHook")
+					} else {
+						options.Testing.Log("END: PostApplyHook")
+					}
 				}
 			}
 		}
@@ -356,6 +391,19 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 
 	// only perform if skip is not set
 	if !options.SkipTestTearDown {
+		// PRE-DESTROY HOOK
+		if options.PreDestroyHook != nil {
+			options.Testing.Log("START: PreDestroyHook")
+			preHookErr := options.PreDestroyHook(options)
+			if preHookErr != nil {
+				options.Testing.Log("Error running PreDestroyHook")
+				options.Testing.Log(preHookErr)
+				options.Testing.Log("END: PreDestroyHook, continuing with destroy")
+			} else {
+				options.Testing.Log("END: PreDestroyHook")
+			}
+		}
+
 		// ------ DESTROY RESOURCES ------
 		// only run destroy if we had potentially created resources
 		if svc.TerraformResourcesCreated {
@@ -403,6 +451,19 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 				if deleteWsErr != nil {
 					options.Testing.Logf("[SCHEMATICS] WARNING: Schematics WORKSPACE DELETE failed! Remove manually if required. Name: %s (%s)", svc.WorkspaceName, svc.WorkspaceID)
 				}
+			}
+		}
+
+		// POST-DESTROY HOOK
+		if options.PostDestroyHook != nil {
+			options.Testing.Log("START: PostDestroyHook")
+			postHookErr := options.PostDestroyHook(options)
+			if postHookErr != nil {
+				options.Testing.Log("Error running PostDestroyHook")
+				options.Testing.Log(postHookErr)
+				options.Testing.Log("END: PostDestroyHook")
+			} else {
+				options.Testing.Log("END: PostDestroyHook")
 			}
 		}
 

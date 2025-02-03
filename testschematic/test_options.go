@@ -175,7 +175,7 @@ type TestSchematicOptions struct {
 
 	// Hooks These allow us to inject custom code into the test process
 	// example to set a hook:
-	// options.PreApplyHook = func(options *TestOptions) error {
+	// options.PreApplyHook = func(options *TestSchematicOptions) error {
 	//     // do something
 	//     return nil
 	// }
