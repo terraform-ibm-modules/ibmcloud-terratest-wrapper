@@ -481,6 +481,17 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			return nil, resultErr
 		}
 
+		// set outputs after this apply so they are available for hooks
+		var outputErr error
+		// Turn off logging for this step so sensitive data is not logged
+		options.TerraformOptions.Logger = logger.Discard
+		options.LastTestTerraformOutputs, outputErr = terraform.OutputAllE(options.Testing, options.TerraformOptions)
+		options.TerraformOptions.Logger = logger.Default // turn log back on
+
+		if outputErr != nil {
+			logger.Log(options.Testing, "failed to get terraform output: ", outputErr)
+		}
+
 		if options.PostApplyHook != nil {
 			logger.Log(options.Testing, "Running PostApplyHook")
 			hookErr := options.PostApplyHook(options)
@@ -651,6 +662,20 @@ func (options *TestOptions) runTest() (string, error) {
 	output, err := terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
 	assert.Nil(options.Testing, err, "Failed", err)
 	logger.Log(options.Testing, "FINISHED: Init / Apply")
+
+	// set outputs after the apply
+	if err == nil {
+		var outputErr error
+
+		// Turn off logging for this step so sensitive data is not logged
+		options.TerraformOptions.Logger = logger.Discard
+		options.LastTestTerraformOutputs, outputErr = terraform.OutputAllE(options.Testing, options.TerraformOptions)
+		options.TerraformOptions.Logger = logger.Default // turn log back on
+
+		if outputErr != nil {
+			logger.Log(options.Testing, "failed to get terraform output: ", outputErr)
+		}
+	}
 
 	if err == nil && options.PostApplyHook != nil {
 		logger.Log(options.Testing, "Running PostApplyHook")
