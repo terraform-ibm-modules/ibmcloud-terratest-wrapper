@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+	"testing"
 
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
@@ -40,6 +41,11 @@ func (options *TestSchematicOptions) RunSchematicTest() error {
 // 6. delete the test workspace
 func (options *TestSchematicOptions) RunSchematicUpgradeTest() error {
 	options.IsUpgradeTest = true
+	// Skip upgrade Test in continuous testing pipeline which runs in short mode
+	if testing.Short() {
+		options.UpgradeTestSkipped = true
+		options.Testing.Skip("Skipping upgrade Test in short mode.")
+	}
 	return executeSchematicTest(options, true)
 }
 
