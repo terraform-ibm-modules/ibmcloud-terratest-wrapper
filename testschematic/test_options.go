@@ -80,12 +80,6 @@ type TestSchematicOptions struct {
 	// to that value.
 	TemplateFolder string
 
-	// The Git auth token used by schematics to clone initial template source of project.
-	// If TAR upload option is not used, the default will be to use the Git URL of the test branch for initial schematics workload setup.
-	// If the test repo is private or protected, set this value to a Git token that is authorized to read/clone the repository.
-	// NOTE: you may also need to set the same token in a `NetrcSettings` as well for this scenario.
-	TemplateGitToken string
-
 	// Optional list of tags that will be applied to the Schematics Workspace instance
 	Tags []string
 
@@ -165,10 +159,14 @@ type TestSchematicOptions struct {
 	// Set this value to `true` to have all schematics job logs (plan/apply/destroy) printed to the test log.
 	PrintAllSchematicsLogs bool
 
-	// This property will be set to true by the test when an upgrade test was performed.
+	// These properties will be set to true by the test when an upgrade test was performed.
 	// You can then inspect this value after the test run, if needed, to make further code decisions.
 	// NOTE: this is not an option field that is meant to be set from a unit test, it is informational only
-	IsUpgradeTest bool
+	IsUpgradeTest      bool
+	UpgradeTestSkipped bool // Informs the calling test that conditions were met to skip the upgrade test
+
+	// Set to true if you wish for an Upgrade test to do a final `terraform apply` after the consistency check on the new (not base) branch.
+	CheckApplyResultForUpgrade bool
 }
 
 type TestSchematicTerraformVar struct {

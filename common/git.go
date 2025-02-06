@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
@@ -426,4 +428,69 @@ func SkipUpgradeTest(testing *testing.T, source_repo string, source_branch strin
 	}
 
 	return doNotRunUpgradeTest
+}
+
+func CloneAndCheckoutBranch(testing *testing.T, repoURL string, branch string, cloneDir string) error {
+
+	authMethod, authErr := DetermineAuthMethod(repoURL)
+	if authErr != nil {
+		logger.Log(testing, "Failed to determine authentication method, trying without authentication...")
+
+		// Convert SSH URL to HTTPS URL
+		if strings.HasPrefix(repoURL, "git@") {
+			repoURL = strings.Replace(repoURL, ":", "/", 1)
+			repoURL = strings.Replace(repoURL, "git@", "https://", 1)
+			repoURL = strings.TrimSuffix(repoURL, ".git") + ".git"
+		}
+
+		// Try to clone without authentication
+		_, errUnauth := git.PlainClone(cloneDir, false, &git.CloneOptions{
+			URL:           repoURL,
+			ReferenceName: plumbing.NewBranchReferenceName(branch),
+			SingleBranch:  true,
+		})
+
+		if errUnauth != nil {
+			// If unauthenticated clone fails and we cannot determine authentication, return the error from the unauthenticated approach
+			return fmt.Errorf("failed to determine authentication method and clone base repo and branch without authentication: %v", errUnauth)
+		} else {
+			logger.Log(testing, "Cloned base repo and branch without authentication")
+		}
+	} else {
+		// Authentication method determined, try with authentication
+		_, errAuth := git.PlainClone(cloneDir, false, &git.CloneOptions{
+			URL:           repoURL,
+			ReferenceName: plumbing.NewBranchReferenceName(branch),
+			SingleBranch:  true,
+			Auth:          authMethod,
+		})
+
+		if errAuth != nil {
+			logger.Log(testing, "Failed to clone base repo and branch with authentication, trying without authentication...")
+			// Convert SSH URL to HTTPS URL
+			if strings.HasPrefix(repoURL, "git@") {
+				repoURL = strings.Replace(repoURL, ":", "/", 1)
+				repoURL = strings.Replace(repoURL, "git@", "https://", 1)
+				repoURL = strings.TrimSuffix(repoURL, ".git") + ".git"
+			}
+
+			// Try to clone without authentication
+			_, errUnauth := git.PlainClone(cloneDir, false, &git.CloneOptions{
+				URL:           repoURL,
+				ReferenceName: plumbing.NewBranchReferenceName(branch),
+				SingleBranch:  true,
+			})
+
+			if errUnauth != nil {
+				// If unauthenticated clone also fails, return the error from the authenticated approach
+				return fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
+			} else {
+				logger.Log(testing, "Cloned base repo and branch without authentication")
+			}
+		} else {
+			logger.Log(testing, "Cloned base repo and branch with authentication")
+		}
+	}
+
+	return nil
 }
