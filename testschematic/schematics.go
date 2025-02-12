@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -55,6 +56,7 @@ type SchematicsApiSvcI interface {
 	ApplyWorkspaceCommand(*schematics.ApplyWorkspaceCommandOptions) (*schematics.WorkspaceActivityApplyResult, *core.DetailedResponse, error)
 	DestroyWorkspaceCommand(*schematics.DestroyWorkspaceCommandOptions) (*schematics.WorkspaceActivityDestroyResult, *core.DetailedResponse, error)
 	ReplaceWorkspace(*schematics.ReplaceWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
+	GetWorkspaceOutputs(*schematics.GetWorkspaceOutputsOptions) ([]schematics.OutputValuesInner, *core.DetailedResponse, error)
 }
 
 // interface for external IBMCloud IAM Authenticator api. Can be mocked for tests
@@ -573,6 +575,43 @@ func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, e
 	status = *job.Status
 
 	return status, nil
+}
+
+// GetLatestWorkspaceOutputs will return a map of current terraform outputs stored in the workspace
+func (svc *SchematicsTestService) GetLatestWorkspaceOutputs() (map[string]interface{}, error) {
+
+	var outputResponse []schematics.OutputValuesInner
+	var resp *core.DetailedResponse
+	var err error
+	retries := 0
+	for {
+		outputResponse, resp, err = svc.SchematicsApiSvc.GetWorkspaceOutputs(&schematics.GetWorkspaceOutputsOptions{
+			WID: core.StringPtr(svc.WorkspaceID),
+		})
+		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
+			retries++
+			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY GetWorkspaceOutputs, status code: %d", getDetailedResponseStatusCode(resp))
+		} else {
+			break
+		}
+	}
+
+	if err != nil {
+		return make(map[string]interface{}), err
+	}
+
+	// DEV NOTE: the return type from SDK is an array of output wrapper, inside is an array of output maps.
+	// I'm not sure why though, as a schematic workspace would only have one set of outputs?
+	// Through testing I only saw one set of outputs (outputResponse[0].OutputValues[0]),
+	// but just to be safe I'm implementing a loop/merge here, just in case.
+	allOutputs := make(map[string]interface{})
+	for _, outputWrapper := range outputResponse {
+		for _, outputInner := range outputWrapper.OutputValues {
+			maps.Copy(allOutputs, outputInner) // shallow copy into all, from inner (with key merge)
+		}
+	}
+
+	return allOutputs, nil
 }
 
 // DeleteWorkspace will delete the existing workspace created for the test service.
