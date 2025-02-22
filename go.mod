@@ -1,6 +1,6 @@
 module github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper
 
-go 1.22.4
+go 1.23.0
 
 toolchain go1.24.0
 
@@ -16,12 +16,12 @@ require (
 	github.com/go-git/go-git/v5 v5.13.2
 	github.com/go-openapi/errors v0.22.0
 	github.com/go-openapi/strfmt v0.23.0
-	github.com/google/go-cmp v0.6.0
+	github.com/google/go-cmp v0.7.0
 	github.com/gruntwork-io/terratest v0.48.2
 	github.com/hashicorp/terraform-json v0.24.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.10.0
-	golang.org/x/crypto v0.33.0
+	golang.org/x/crypto v0.34.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
