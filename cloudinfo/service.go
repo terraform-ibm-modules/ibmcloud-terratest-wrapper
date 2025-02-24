@@ -93,6 +93,7 @@ type CloudInfoServiceI interface {
 	GetReclamationIdFromCRN(CRN string) (string, error)
 	DeleteInstanceFromReclamationId(reclamationID string) error
 	DeleteInstanceFromReclamationByCRN(CRN string) error
+	ListAllAccountResources() ([]resourcecontrollerv2.ResourceInstance, error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.

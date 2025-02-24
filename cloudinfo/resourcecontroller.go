@@ -10,6 +10,19 @@ import (
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 )
 
+func (infoSvc *CloudInfoService) ListAllAccountResources() ([]resourcecontrollerv2.ResourceInstance, error) {
+	listOptions := infoSvc.resourceControllerService.NewListResourceInstancesOptions()
+	listOptions.SetState(resourcecontrollerv2.ListResourceInstancesOptionsStateActiveConst) // only active resources
+	listOptions.SetLimit(int64(100))
+
+	allResources, errListingResources := listResourceInstances(infoSvc, listOptions)
+	if errListingResources != nil {
+		return nil, fmt.Errorf("error listing resources: %w", errListingResources)
+	}
+
+	return allResources, nil
+}
+
 // ListResourcesByCrnServiceName will retrieve all service instances of a provided type, for an account.
 // This function will loop through ALL resources of type "service_instance" in the account
 // and then filter by looking for the provided service type in the CRN.
