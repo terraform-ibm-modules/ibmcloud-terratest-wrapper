@@ -76,14 +76,14 @@ func TestConvertArrayJson(t *testing.T) {
 			99,
 			"bye",
 		}
-		goodStr, goodErr := ConvertArrayToJsonString(goodArr)
+		goodStr, goodErr := ConvertValueToJsonString(goodArr)
 		if assert.NoError(t, goodErr, "error converting array") {
 			assert.NotEmpty(t, goodStr)
 		}
 	})
 
 	t.Run("NilValue", func(t *testing.T) {
-		nullVal, nullErr := ConvertArrayToJsonString(nil)
+		nullVal, nullErr := ConvertValueToJsonString(nil)
 		if assert.NoError(t, nullErr) {
 			assert.Equal(t, "null", nullVal)
 		}
@@ -91,7 +91,7 @@ func TestConvertArrayJson(t *testing.T) {
 
 	t.Run("NullPointer", func(t *testing.T) {
 		var intPtr *int
-		ptrVal, ptrErr := ConvertArrayToJsonString(intPtr)
+		ptrVal, ptrErr := ConvertValueToJsonString(intPtr)
 		if assert.NoError(t, ptrErr) {
 			assert.Equal(t, "null", ptrVal)
 		}
@@ -138,6 +138,55 @@ func TestIsArray(t *testing.T) {
 		obj := &TestObject{"hello", 99}
 		sis := IsArray(*obj)
 		assert.False(t, sis)
+	})
+}
+
+func TestIsComposite(t *testing.T) {
+
+	t.Run("IsSlice", func(t *testing.T) {
+		slice := []int{1, 2, 3}
+		isSlice := IsCompositeType(slice)
+		assert.True(t, isSlice)
+	})
+
+	t.Run("IsArray", func(t *testing.T) {
+		arr := [3]int{1, 2, 3}
+		isArr := IsCompositeType(arr)
+		assert.True(t, isArr)
+	})
+
+	t.Run("TryString", func(t *testing.T) {
+		val := "hello"
+		is := IsCompositeType(val)
+		assert.False(t, is)
+	})
+
+	t.Run("TryBool", func(t *testing.T) {
+		bval := true
+		bis := IsCompositeType(bval)
+		assert.False(t, bis)
+	})
+
+	t.Run("TryNumber", func(t *testing.T) {
+		nval := 99.99
+		nis := IsCompositeType(nval)
+		assert.False(t, nis)
+	})
+
+	t.Run("TryStruct", func(t *testing.T) {
+		type TestObject struct {
+			prop1 string
+			prop2 int
+		}
+		obj := &TestObject{"hello", 99}
+		sis := IsCompositeType(*obj)
+		assert.True(t, sis)
+	})
+
+	t.Run("TryMap", func(t *testing.T) {
+		mapVal := map[string]string{"one": "1", "two": "2"}
+		sis := IsCompositeType(mapVal)
+		assert.True(t, sis)
 	})
 }
 

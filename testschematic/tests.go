@@ -388,11 +388,13 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 	}()
 
 	// retrieve and store the last set of outputs right before destroy
-	outputs, outputsErr := svc.GetLatestWorkspaceOutputs()
-	if outputsErr != nil {
-		options.Testing.Logf("[SCHEMATICS] There was an error retrieving output values: %s", outputsErr)
-	} else {
-		options.LastTestTerraformOutputs = outputs
+	if svc.TerraformResourcesCreated {
+		outputs, outputsErr := svc.GetLatestWorkspaceOutputs()
+		if outputsErr != nil {
+			options.Testing.Logf("[SCHEMATICS] There was an error retrieving output values: %s", outputsErr)
+		} else {
+			options.LastTestTerraformOutputs = outputs
+		}
 	}
 
 	// only perform if skip is not set
