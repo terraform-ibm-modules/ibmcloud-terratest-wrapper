@@ -270,9 +270,9 @@ func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTer
 	var strErr error
 	variables := []schematics.WorkspaceVariableRequest{}
 	for _, tfVar := range vars {
-		// if tfVal is an array, convert to json array string
-		if common.IsArray(tfVar.Value) {
-			strVal, strErr = common.ConvertArrayToJsonString(tfVar.Value)
+		// if tfVal is an array or map, convert to json string
+		if common.IsCompositeType(tfVar.Value) {
+			strVal, strErr = common.ConvertValueToJsonString(tfVar.Value)
 			if strErr != nil {
 				return strErr
 			}
@@ -815,7 +815,7 @@ func addNetrcToWorkspaceEnv(values *[]map[string]interface{}, metadata *[]schema
 	}
 
 	// turn entire array into string
-	netrcValueStr, _ := common.ConvertArrayToJsonString(netrcValue)
+	netrcValueStr, _ := common.ConvertValueToJsonString(netrcValue)
 	// Add the slice of netrc entries to env with "__netrc__" as the key
 	*values = append(*values, map[string]interface{}{"__netrc__": netrcValueStr})
 
