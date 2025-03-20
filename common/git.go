@@ -517,8 +517,8 @@ func changesToBePush(testing *testing.T, repoDir string, git gitOps) (bool, []st
 		return false, nil, err
 	}
 
-	// If no output, return false and empty slice
-	if len(output) == 0 {
+	// Check for nil output and empty output
+	if output == nil || len(output) == 0 {
 		return false, []string{}, nil
 	}
 
