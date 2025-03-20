@@ -34,6 +34,8 @@ type gitOps interface {
 	getOriginURL(repoPath string) string
 	// GetOriginBranch returns the name of the origin branch.
 	getOriginBranch(repoPath string) string
+	// ExecuteCommand executes a command and returns its output.
+	executeCommand(dir string, command string, args ...string) ([]byte, error)
 }
 
 // envOps is an interface that abstracts environment variable operations.
@@ -190,6 +192,13 @@ func (r *realGitOps) getOriginBranch(repoPath string) string {
 	}
 
 	return branch
+}
+
+// Implementation of executeCommand for realGitOps
+func (r *realGitOps) executeCommand(dir string, command string, args ...string) ([]byte, error) {
+	cmd := exec.Command(command, args...)
+	cmd.Dir = dir
+	return cmd.Output()
 }
 
 // realEnvOps provides the real-world implementation of envOps, interacting with actual environment variables.
@@ -493,4 +502,45 @@ func CloneAndCheckoutBranch(testing *testing.T, repoURL string, branch string, c
 	}
 
 	return nil
+}
+
+// ChangesToBePush determines if there are any changes to push to the remote repository.
+// Returns a boolean indicating if there are changes and a slice of filenames that have changes.
+func ChangesToBePush(testing *testing.T, repoDir string) (bool, []string, error) {
+	return changesToBePush(testing, repoDir, &realGitOps{})
+}
+
+func changesToBePush(testing *testing.T, repoDir string, git gitOps) (bool, []string, error) {
+	output, err := git.executeCommand(repoDir, "git", "status", "--porcelain")
+	if err != nil {
+		logger.Log(testing, "Failed to determine if there are changes to push:", err)
+		return false, nil, err
+	}
+
+	// Check for nil output and empty output
+	if output == nil || len(output) == 0 {
+		return false, []string{}, nil
+	}
+
+	// Parse output to extract filenames
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	changedFiles := make([]string, 0, len(lines))
+
+	for _, line := range lines {
+		if len(line) > 0 {
+			// git status --porcelain output has the format: XY filename
+			// where X and Y are status codes and the rest is the filename
+			parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
+			if len(parts) > 1 {
+				// There might be multiple spaces between status and filename
+				filename := strings.TrimSpace(parts[1])
+				changedFiles = append(changedFiles, filename)
+			} else if len(parts) == 1 && len(parts[0]) > 2 {
+				// Handle cases where there's no space after status codes
+				changedFiles = append(changedFiles, strings.TrimSpace(parts[0][2:]))
+			}
+		}
+	}
+
+	return true, changedFiles, nil
 }

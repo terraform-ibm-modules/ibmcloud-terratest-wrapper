@@ -2,9 +2,10 @@ package common
 
 import (
 	"errors"
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"testing"
 )
 
 // Test for GitRootPath
@@ -76,6 +77,58 @@ func TestGetCurrentPrRepoAndBranch_Negative(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// Test ChangesToBePush
+func TestChangesToBePush_Positive(t *testing.T) {
+	mockCmd := new(MockCommander)
+	// Mock that git status returns some changes
+	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").Return([]byte("M file1.txt\n?? file2.txt"), nil)
+
+	changes, files, err := changesToBePush(t, "../", mockCmd)
+
+	assert.NoError(t, err)
+	assert.True(t, changes)
+	assert.Equal(t, []string{"file1.txt", "file2.txt"}, files)
+	mockCmd.AssertExpectations(t)
+}
+
+func TestChangesToBePush_Negative(t *testing.T) {
+	mockCmd := new(MockCommander)
+	// Mock that git status returns no changes
+	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").Return([]byte(""), nil)
+
+	changes, files, err := changesToBePush(t, "../", mockCmd)
+
+	assert.NoError(t, err)
+	assert.False(t, changes)
+	assert.Empty(t, files)
+	mockCmd.AssertExpectations(t)
+}
+
+func TestChangesToBePush_Error(t *testing.T) {
+	mockCmd := new(MockCommander)
+	// Mock that git status command fails
+	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").Return([]byte(""), errors.New("git command failed"))
+
+	_, _, err := changesToBePush(t, "../", mockCmd)
+
+	assert.Error(t, err)
+	mockCmd.AssertExpectations(t)
+}
+
+// Test different porcelain format variations
+func TestChangesToBePush_FormatVariations(t *testing.T) {
+	mockCmd := new(MockCommander)
+	// Test with different git status output formats
+	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").Return([]byte("M  file1.txt\n MM file2.tf\n?? file3.md"), nil)
+
+	changes, files, err := changesToBePush(t, "../", mockCmd)
+
+	assert.NoError(t, err)
+	assert.True(t, changes)
+	assert.Equal(t, []string{"file1.txt", "file2.tf", "file3.md"}, files)
+	mockCmd.AssertExpectations(t)
+}
+
 // Mock functions
 type MockCommander struct {
 	mock.Mock
@@ -109,4 +162,13 @@ func (m *MockCommander) getOriginURL(repoPath string) string {
 func (m *MockCommander) getOriginBranch(repoPath string) string {
 	args := m.Called()
 	return args.String(0)
+}
+
+func (m *MockCommander) executeCommand(dir string, command string, args ...string) ([]byte, error) {
+	callArgs := []interface{}{dir, command}
+	for _, arg := range args {
+		callArgs = append(callArgs, arg)
+	}
+	mockArgs := m.Called(callArgs...)
+	return mockArgs.Get(0).([]byte), mockArgs.Error(1)
 }
