@@ -151,3 +151,40 @@ type ProjectsConfig struct {
 	Headers            map[string]string                `json:"headers,omitempty"`
 	Store              *project.ProjectDefinitionStore  `json:"store,omitempty"`
 }
+
+// InstallKind represents the type of install
+type InstallKind string
+
+const (
+	// InstallKindTerraform represents a terraform installation
+	InstallKindTerraform InstallKind = "terraform"
+	// InstallKindStack represents a stack installation
+	InstallKindStack InstallKind = "stack"
+)
+
+// String returns the string representation of the InstallKind
+func (i InstallKind) String() string {
+	return string(i)
+}
+
+// Valid checks if the InstallKind is valid
+func (i InstallKind) Valid() bool {
+	switch i {
+	case InstallKindTerraform, InstallKindStack:
+		return true
+	default:
+		return false
+	}
+}
+
+// NewInstallKindTerraform returns a pointer to InstallKindTerraform
+func NewInstallKindTerraform() *InstallKind {
+	k := InstallKindTerraform
+	return &k
+}
+
+// NewInstallKindStack returns a pointer to InstallKindStack
+func NewInstallKindStack() *InstallKind {
+	k := InstallKindStack
+	return &k
+}

@@ -64,6 +64,9 @@ type CloudInfoServiceI interface {
 	GetThreadLock() *sync.Mutex
 	GetClusterIngressStatus(clusterId string) (string, error)
 	GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error)
+	CreateCatalog(catalogName string) (*catalogmanagementv1.Catalog, error)
+	DeleteCatalog(catalogID string) error
+	ImportOffering(catalogID string, zipUrl string, offeringName string, flavorName string, version string, installKind InstallKind) (*catalogmanagementv1.Offering, error)
 	CreateProjectFromConfig(config *ProjectsConfig) (*projects.Project, *core.DetailedResponse, error)
 	GetProject(projectID string) (*projects.Project, *core.DetailedResponse, error)
 	GetProjectConfigs(projectID string) ([]projects.ProjectConfigSummary, error)
@@ -216,6 +219,9 @@ type projectsService interface {
 // catalogService for external Data Catalog V1 Service API. Used for mocking.
 type catalogService interface {
 	GetVersion(getVersionOptions *catalogmanagementv1.GetVersionOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
+	CreateCatalog(createCatalogOptions *catalogmanagementv1.CreateCatalogOptions) (result *catalogmanagementv1.Catalog, response *core.DetailedResponse, err error)
+	DeleteCatalog(deleteCatalogOptions *catalogmanagementv1.DeleteCatalogOptions) (response *core.DetailedResponse, err error)
+	ImportOffering(importOfferingOptions *catalogmanagementv1.ImportOfferingOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
 }
 
 // schematicsService for external Schematics V1 Service API. Used for mocking.
