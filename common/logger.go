@@ -143,12 +143,12 @@ func (t *TestLogger) Error(message string) {
 
 // ShortWarn logs a short warning message without caller information or WARN prefix
 func (t *TestLogger) ShortWarn(message string) {
-	t.logWithoutCaller("", message, Colors.Orange)
+	t.logWithoutCaller("", message, Colors.Yellow)
 }
 
 // Warn logs a warning message
 func (t *TestLogger) Warn(message string) {
-	t.logWithCaller("WARN", message, Colors.Orange)
+	t.logWithCaller("WARN", message, Colors.Yellow)
 }
 
 // ShortDebug logs a short debug message without caller information or DEBUG prefix
