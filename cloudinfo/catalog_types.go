@@ -136,7 +136,6 @@ type OfferingReferenceDetail struct {
 	Flavor               Flavor   `json:"flavor"`
 	VersionLocator       string   `json:"version_locator"`
 	Hidden               bool     `json:"hidden"`
-	Cost                 Cost     `json:"cost"`
 	DeployTime           int64    `json:"deploy_time"`
 	OnByDefault          bool     `json:"on_by_default"`
 	DefaultFlavor        string   `json:"default_flavor"`
@@ -151,39 +150,11 @@ type Flavor struct {
 	Index int    `json:"index"`
 }
 
-// Cost represents the cost information of an offering
-type Cost struct {
-	Version              string                 `json:"version"`
-	Currency             string                 `json:"currency"`
-	Projects             []CostProject          `json:"projects"`
-	Summary              map[string]interface{} `json:"summary"`
-	TotalHourlyCost      string                 `json:"totalHourlyCost"`
-	TotalMonthlyCost     string                 `json:"totalMonthlyCost"`
-	PastTotalHourlyCost  string                 `json:"pastTotalHourlyCost"`
-	PastTotalMonthlyCost string                 `json:"pastTotalMonthlyCost"`
-	DiffTotalHourlyCost  string                 `json:"diffTotalHourlyCost"`
-	DiffTotalMonthlyCost string                 `json:"diffTotalMonthlyCost"`
-	TimeGenerated        string                 `json:"timeGenerated"`
-}
-
-// CostProject represents a project's cost information
-type CostProject struct {
-	Metadata      CostMetadata           `json:"metadata"`
-	PastBreakdown CostBreakdown          `json:"pastBreakdown"`
-	Breakdown     CostBreakdown          `json:"breakdown"`
-	Diff          CostBreakdown          `json:"diff"`
-	Summary       map[string]interface{} `json:"summary"`
-}
-
-// CostMetadata represents metadata about a project's cost information
-type CostMetadata struct {
-	Path       string `json:"path"`
-	Type       string `json:"type"`
-	VcsSubPath string `json:"vcsSubPath"`
-}
-
-// CostBreakdown represents cost breakdown information
-type CostBreakdown struct {
-	TotalHourlyCost  string `json:"totalHourlyCost"`
-	TotalMonthlyCost string `json:"totalMonthlyCost"`
+// DeployedAddonsDetails represents the details of deployed addons
+type DeployedAddonsDetails struct {
+	ProjectID string `json:"project_id"`
+	Configs   []struct {
+		Name     string `json:"name"`
+		ConfigID string `json:"config_id"`
+	} `json:"configs"`
 }

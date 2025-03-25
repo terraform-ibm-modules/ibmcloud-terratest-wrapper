@@ -73,6 +73,10 @@ type ProjectsConfig struct {
 type AddonConfig struct {
 	Prefix              string
 	Inputs              map[string]interface{}
+	ConfigID            string // The ID of the config after it is deployed to the project
+	ConfigName          string
+	ContainerConfigID   string // Temporary support for containers until they are removed
+	ContainerConfigName string
 	ExistingConfigID    string
 	Enabled             bool
 	OnByDefault         bool
@@ -80,10 +84,9 @@ type AddonConfig struct {
 	OfferingName        string
 	OfferingFlavor      string
 	OfferingLabel       string
-	OfferingInstallKind InstallKind
+	OfferingInstallKind InstallKind // Only needed for the root DA to onboard the offering
 	VersionLocator      string
 	ResolvedVersion     string
-	VersionConstraints  string
 	Dependencies        []AddonConfig
 }
 

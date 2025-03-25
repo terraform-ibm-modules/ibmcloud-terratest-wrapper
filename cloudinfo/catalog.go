@@ -7,10 +7,10 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
-	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/gruntwork-io/terratest/modules/random"
 )
 
@@ -138,7 +138,7 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 //	}
 //
 // ]
-func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, projectConfig *ProjectsConfig) (*project.ProjectConfig, error) {
+func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, projectConfig *ProjectsConfig) (*DeployedAddonsDetails, error) {
 	// get all the version locators for the addon
 	componentsReferences, err := infoSvc.GetComponentReferences(addonConfig.VersionLocator)
 	if err != nil {
@@ -187,6 +187,9 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 				addonConfig.Dependencies[i].VersionLocator = component.OfferingReference.VersionLocator
 				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
 				addonConfig.Dependencies[i].OnByDefault = component.OfferingReference.OnByDefault
+				addonConfig.Dependencies[i].Prefix = addonConfig.Prefix
+				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
+				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
 				found = true
 				break
 			}
@@ -203,8 +206,10 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 	for _, component := range componentsToAdd {
 
 		newDependency := AddonConfig{
+			Prefix:          addonConfig.Prefix,
 			OfferingName:    component.OfferingReference.Name,
 			OfferingLabel:   component.OfferingReference.Label,
+			OfferingFlavor:  component.OfferingReference.Flavor.Name,
 			VersionLocator:  component.OfferingReference.VersionLocator,
 			ResolvedVersion: component.OfferingReference.Version,
 			OnByDefault:     component.OfferingReference.OnByDefault,
@@ -218,18 +223,20 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 	// Create the request body
 	addonDependecies := make([]map[string]string, 0, len(addonConfig.Dependencies)+1)
 	// Add the addon itself
+	addonConfig.ConfigName = fmt.Sprintf("%s-%s", addonConfig.Prefix, addonConfig.OfferingName)
 	addonDependecies = append(addonDependecies, map[string]string{
 		"version_locator": addonConfig.VersionLocator,
-		"name":            fmt.Sprintf("%s-%s", addonConfig.Prefix, addonConfig.OfferingName),
+		"name":            addonConfig.ConfigName,
 	})
 
 	// Add the dependencies
-	for _, dep := range addonConfig.Dependencies {
+	for i, dep := range addonConfig.Dependencies {
 		if dep.Enabled {
 			randomPostfix := strings.ToLower(random.UniqueId())
+			addonConfig.Dependencies[i].ConfigName = fmt.Sprintf("%s-%s", dep.OfferingName, randomPostfix)
 			dependencyEntry := map[string]string{
 				"version_locator": dep.VersionLocator,
-				"name":            fmt.Sprintf("%s-%s", dep.OfferingName, randomPostfix),
+				"name":            addonConfig.Dependencies[i].ConfigName,
 			}
 			if dep.ExistingConfigID != "" {
 				dependencyEntry["config_id"] = dep.ExistingConfigID
@@ -252,8 +259,6 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 		return nil, fmt.Errorf("error pretty printing json: %w", err)
 	}
 
-	fmt.Println("Request Body: ", prettyJSON.String())
-
 	// Create a new HTTP request with the JSON body
 	url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/api/v1-beta/deploy/projects/%s/container", projectConfig.ProjectID)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
@@ -271,7 +276,10 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 
 	// Execute the request
 	client := &http.Client{}
+	startTime := time.Now()
 	resp, err := client.Do(req)
+	requestTime := time.Since(startTime)
+	infoSvc.Logger.ShortInfo(fmt.Sprintf("Request completed in %v\n", requestTime))
 	if err != nil {
 		return nil, fmt.Errorf("error executing request: %w", err)
 	}
@@ -288,7 +296,60 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	return nil, nil
+	var deployResponse *DeployedAddonsDetails
+	if err := json.Unmarshal(body, &deployResponse); err != nil {
+		return nil, fmt.Errorf("error unmarshaling response: %w", err)
+	}
+
+	// If no configs were returned, return nil
+	if len(deployResponse.Configs) == 0 {
+		return nil, nil
+	}
+
+	// Process each config from the response
+	for _, config := range deployResponse.Configs {
+		// Check if this is a container config (name ends with " Container")
+		isContainer := strings.HasSuffix(config.Name, " Container")
+
+		if isContainer {
+			// For container configs, extract the base name (without " Container")
+			baseName := strings.TrimSuffix(config.Name, " Container")
+
+			// Check if this container is for the main addon
+			if baseName == addonConfig.ConfigName {
+				addonConfig.ContainerConfigID = config.ConfigID
+				addonConfig.ContainerConfigName = config.Name
+				continue
+			}
+
+			// Check if this container is for any of the dependencies
+			for i, dep := range addonConfig.Dependencies {
+				if dep.Enabled && dep.ConfigName == baseName {
+					addonConfig.Dependencies[i].ContainerConfigID = config.ConfigID
+					addonConfig.Dependencies[i].ContainerConfigName = config.Name
+					break
+				}
+			}
+		} else {
+			// Non-container config processing
+
+			// Check if this is the main addon config
+			if config.Name == addonConfig.ConfigName {
+				addonConfig.ConfigID = config.ConfigID
+				continue
+			}
+
+			// Check if this is a dependency config
+			for i, dep := range addonConfig.Dependencies {
+				if dep.Enabled && dep.ConfigName == config.Name {
+					addonConfig.Dependencies[i].ConfigID = config.ConfigID
+					break
+				}
+			}
+		}
+	}
+
+	return deployResponse, nil
 }
 
 // GetComponentReferences gets the component references for a version locator
