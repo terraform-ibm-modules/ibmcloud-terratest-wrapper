@@ -11,6 +11,7 @@ import (
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
+	project "github.com/IBM/project-go-sdk/projectv1"
 	projects "github.com/IBM/project-go-sdk/projectv1"
 
 	"github.com/IBM-Cloud/bluemix-go"
@@ -67,6 +68,8 @@ type CloudInfoServiceI interface {
 	CreateCatalog(catalogName string) (*catalogmanagementv1.Catalog, error)
 	DeleteCatalog(catalogID string) error
 	ImportOffering(catalogID string, zipUrl string, offeringName string, flavorName string, version string, installKind InstallKind) (*catalogmanagementv1.Offering, error)
+	DeployAddonToProject(addonConfig *AddonConfig, projectConfig *ProjectsConfig) (*project.ProjectConfig, error)
+	GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error)
 	CreateProjectFromConfig(config *ProjectsConfig) (*projects.Project, *core.DetailedResponse, error)
 	GetProject(projectID string) (*projects.Project, *core.DetailedResponse, error)
 	GetProjectConfigs(projectID string) ([]projects.ProjectConfigSummary, error)

@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"runtime"
 
+	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
@@ -44,6 +45,19 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Testing.Fail()
 		return fmt.Errorf("test setup has failed:%w", setupErr)
 	}
+
+	// Deploy Addon
+	options.Logger.ShortInfo("Deploying the addon")
+	_, err := options.CloudInfoService.DeployAddonToProject(&options.AddonConfig, options.currentProjectConfig)
+
+	if err != nil {
+		options.Logger.ShortError(fmt.Sprintf("Error deploying the addon: %v", err))
+		options.Testing.Fail()
+		return fmt.Errorf("error deploying the addon: %w", err)
+	}
+
+	options.Logger.ShortInfo("Addon deployed successfully")
+	options.Logger.ShortInfo("More testing here, deploy undeploy etc")
 
 	return nil
 }
@@ -174,20 +188,20 @@ func (options *TestAddonOptions) testSetup() error {
 
 	// import the offering
 	// ensure install kind is set or return an error
-	if !options.OfferingInstallKind.Valid() {
-		options.Logger.ShortError(fmt.Sprintf("'%s' is not valid for OfferingInstallKind", options.OfferingInstallKind))
+	if !options.AddonConfig.OfferingInstallKind.Valid() {
+		options.Logger.ShortError(fmt.Sprintf("'%s' is not valid for OfferingInstallKind", options.AddonConfig.OfferingInstallKind.String()))
 		options.Testing.Fail()
-		return fmt.Errorf("'%s' is not valid for OfferingInstallKind", options.OfferingInstallKind)
+		return fmt.Errorf("'%s' is not valid for OfferingInstallKind", options.AddonConfig.OfferingInstallKind.String())
 	}
 	// check offering name set or fail
-	if options.OfferingName == "" {
-		options.Logger.ShortError("OfferingName is not set")
+	if options.AddonConfig.OfferingName == "" {
+		options.Logger.ShortError("AddonConfig.OfferingName is not set")
 		options.Testing.Fail()
-		return fmt.Errorf("OfferingName is not set")
+		return fmt.Errorf("AddonConfig.OfferingName is not set")
 	}
 	version := fmt.Sprintf("v0.0.1-dev-%s", options.Prefix)
-	options.Logger.ShortInfo(fmt.Sprintf("Importing the offering flavor: %s from branch: %s as version: %s", options.OfferingFlavorName, *options.currentBranchUrl, version))
-	offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, options.OfferingName, options.OfferingFlavorName, version, options.OfferingInstallKind)
+	options.Logger.ShortInfo(fmt.Sprintf("Importing the offering flavor: %s from branch: %s as version: %s", options.AddonConfig.OfferingFlavor, *options.currentBranchUrl, version))
+	offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, options.AddonConfig.OfferingName, options.AddonConfig.OfferingFlavor, version, options.AddonConfig.OfferingInstallKind)
 	if err != nil {
 		options.Logger.ShortError(fmt.Sprintf("Error importing the offering: %v", err))
 		options.Testing.Fail()
@@ -195,6 +209,47 @@ func (options *TestAddonOptions) testSetup() error {
 	}
 	options.offering = offering
 	options.Logger.ShortInfo(fmt.Sprintf("Imported flavor: %s with version: %s to %s", *options.offering.Label, version, *options.catalog.Label))
+	newVersionLocator := ""
+	if options.offering.Kinds != nil {
+		newVersionLocator = *options.offering.Kinds[0].Versions[0].VersionLocator
+	}
+	options.AddonConfig.OfferingName = *options.offering.Name
+	options.AddonConfig.VersionLocator = newVersionLocator
+	options.AddonConfig.OfferingLabel = *options.offering.Label
+
+	options.Logger.ShortInfo(fmt.Sprintf("Offering Version Locator: %s", options.AddonConfig.VersionLocator))
+
+	// Create a new project
+	options.Logger.ShortInfo("Creating Test Project")
+	if options.ProjectDestroyOnDelete == nil {
+		options.ProjectDestroyOnDelete = core.BoolPtr(true)
+	}
+	if options.ProjectAutoDeploy == nil {
+		options.ProjectAutoDeploy = core.BoolPtr(false)
+	}
+	if options.ProjectMonitoringEnabled == nil {
+		options.ProjectMonitoringEnabled = core.BoolPtr(false)
+	}
+	options.currentProjectConfig = &cloudinfo.ProjectsConfig{
+		Location:           options.ProjectLocation,
+		ProjectName:        options.ProjectName,
+		ProjectDescription: options.ProjectDescription,
+		ResourceGroup:      options.ResourceGroup,
+		DestroyOnDelete:    *options.ProjectDestroyOnDelete,
+		MonitoringEnabled:  *options.ProjectMonitoringEnabled,
+		AutoDeploy:         *options.ProjectAutoDeploy,
+		Environments:       options.ProjectEnvironments,
+	}
+	prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
+	if err != nil {
+		options.Logger.ShortError(fmt.Sprintf("Error creating a new project: %v", err))
+		options.Logger.ShortError(fmt.Sprintf("Response: %v", resp))
+		options.Testing.Fail()
+		return fmt.Errorf("error creating a new project: %w", err)
+	}
+	options.currentProject = prj
+	options.currentProjectConfig.ProjectID = *options.currentProject.ID
+	options.Logger.ShortInfo(fmt.Sprintf("Created a new project: %s with ID %s", options.ProjectName, options.currentProjectConfig.ProjectID))
 
 	return nil
 }
@@ -211,6 +266,20 @@ func (options *TestAddonOptions) TestTearDown() {
 func (options *TestAddonOptions) testTearDown() {
 	// perform the test teardown
 	options.Logger.ShortInfo("Performing test teardown")
+	if options.currentProject.ID != nil {
+		_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
+		if assert.NoError(options.Testing, err) {
+			if assert.Equal(options.Testing, 202, resp.StatusCode) {
+				options.Logger.ShortInfo(fmt.Sprintf("Deleted Test Project: %s", options.currentProjectConfig.ProjectName))
+			} else {
+				options.Logger.ShortError(fmt.Sprintf("Failed to delete Test Project, response code: %d", resp.StatusCode))
+			}
+		} else {
+			options.Logger.ShortError(fmt.Sprintf("Error deleting Test Project: %s", err))
+		}
+	} else {
+		options.Logger.ShortInfo("No project ID found to delete")
+	}
 	// Delete Catalog
 	if options.catalog != nil {
 		options.Logger.ShortInfo(fmt.Sprintf("Deleting the catalog %s with ID %s", *options.catalog.Label, *options.catalog.ID))

@@ -152,6 +152,23 @@ type ProjectsConfig struct {
 	Store              *project.ProjectDefinitionStore  `json:"store,omitempty"`
 }
 
+type AddonConfig struct {
+	Prefix              string
+	Inputs              map[string]interface{}
+	ExistingConfigID    string
+	Enabled             bool
+	OnByDefault         bool
+	OfferingID          string
+	OfferingName        string
+	OfferingFlavor      string
+	OfferingLabel       string
+	OfferingInstallKind InstallKind
+	VersionLocator      string
+	ResolvedVersion     string
+	VersionConstraints  string
+	Dependencies        []AddonConfig
+}
+
 // InstallKind represents the type of install
 type InstallKind string
 
@@ -187,4 +204,109 @@ func NewInstallKindTerraform() *InstallKind {
 func NewInstallKindStack() *InstallKind {
 	k := InstallKindStack
 	return &k
+}
+
+// OfferingReferenceResponse represents the entire response object for offering references
+type OfferingReferenceResponse struct {
+	Included              IncludedReferences     `json:"included"`
+	Required              RequiredReferences     `json:"required"`
+	Optional              OptionalReferences     `json:"optional"`
+	Extension             map[string]interface{} `json:"extension"`
+	DependentStackMembers map[string]interface{} `json:"dependent_stack_members"`
+}
+
+// IncludedReferences represents the included section of offering references
+type IncludedReferences struct {
+	OfferingReferences []SimpleOfferingReference `json:"offering_references"`
+}
+
+// RequiredReferences represents the required section of offering references
+type RequiredReferences struct {
+	OfferingReferences []OfferingReferenceItem `json:"offering_references,omitempty"`
+}
+
+// OptionalReferences represents the optional section of offering references
+type OptionalReferences struct {
+	OfferingReferences []OfferingReferenceItem `json:"offering_references"`
+}
+
+// SimpleOfferingReference represents a simple offering reference with just name and source
+type SimpleOfferingReference struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+}
+
+// OfferingReferenceItem represents an offering reference with detailed information
+type OfferingReferenceItem struct {
+	Name              string                  `json:"name"`
+	OfferingReference OfferingReferenceDetail `json:"offering_reference,omitempty"`
+}
+
+// OfferingReferenceDetail represents the detailed information about an offering
+type OfferingReferenceDetail struct {
+	CatalogID            string   `json:"catalog_id"`
+	ID                   string   `json:"id"`
+	Label                string   `json:"label"`
+	Name                 string   `json:"name"`
+	OfferingIconURL      string   `json:"offering_icon_url"`
+	ShortDescription     string   `json:"short_description"`
+	LongDescription      string   `json:"long_description"`
+	ProductKind          string   `json:"product_kind"`
+	Tags                 []string `json:"tags"`
+	FormatKind           string   `json:"format_kind"`
+	TargetKind           string   `json:"target_kind"`
+	Version              string   `json:"version"`
+	Flavor               Flavor   `json:"flavor"`
+	VersionLocator       string   `json:"version_locator"`
+	Hidden               bool     `json:"hidden"`
+	Cost                 Cost     `json:"cost"`
+	DeployTime           int64    `json:"deploy_time"`
+	OnByDefault          bool     `json:"on_by_default"`
+	DefaultFlavor        string   `json:"default_flavor"`
+	ParentVersionLocator string   `json:"parent_version_locator"`
+	IsPublicCatalog      bool     `json:"is_public_catalog"`
+}
+
+// Flavor represents the flavor information of an offering
+type Flavor struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+	Index int    `json:"index"`
+}
+
+// Cost represents the cost information of an offering
+type Cost struct {
+	Version              string                 `json:"version"`
+	Currency             string                 `json:"currency"`
+	Projects             []CostProject          `json:"projects"`
+	Summary              map[string]interface{} `json:"summary"`
+	TotalHourlyCost      string                 `json:"totalHourlyCost"`
+	TotalMonthlyCost     string                 `json:"totalMonthlyCost"`
+	PastTotalHourlyCost  string                 `json:"pastTotalHourlyCost"`
+	PastTotalMonthlyCost string                 `json:"pastTotalMonthlyCost"`
+	DiffTotalHourlyCost  string                 `json:"diffTotalHourlyCost"`
+	DiffTotalMonthlyCost string                 `json:"diffTotalMonthlyCost"`
+	TimeGenerated        string                 `json:"timeGenerated"`
+}
+
+// CostProject represents a project's cost information
+type CostProject struct {
+	Metadata      CostMetadata           `json:"metadata"`
+	PastBreakdown CostBreakdown          `json:"pastBreakdown"`
+	Breakdown     CostBreakdown          `json:"breakdown"`
+	Diff          CostBreakdown          `json:"diff"`
+	Summary       map[string]interface{} `json:"summary"`
+}
+
+// CostMetadata represents metadata about a project's cost information
+type CostMetadata struct {
+	Path       string `json:"path"`
+	Type       string `json:"type"`
+	VcsSubPath string `json:"vcsSubPath"`
+}
+
+// CostBreakdown represents cost breakdown information
+type CostBreakdown struct {
+	TotalHourlyCost  string `json:"totalHourlyCost"`
+	TotalMonthlyCost string `json:"totalMonthlyCost"`
 }

@@ -65,16 +65,12 @@ type TestAddonOptions struct {
 	// catalog the catalog instance in use.
 	catalog *catalogmanagementv1.Catalog
 
-	// OfferingName The name of the offering to use
-	OfferingName string
-	// OfferingFlavorName The flavor of the offering to use
-	OfferingFlavorName string
-	// Offering Install Kind
-	OfferingInstallKind cloudinfo.InstallKind
-
 	// internal use
 	// offering the offering created in the catalog.
 	offering *catalogmanagementv1.Offering
+
+	// AddonConfig The configuration for the addon to deploy.
+	AddonConfig cloudinfo.AddonConfig
 
 	// ParallelDeploy If set to true, the test will deploy the stack in parallel.
 	// This will deploy the stack in batches of whatever is not waiting on a prerequisite to be deployed.
@@ -130,6 +126,7 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	require.NoError(originalOptions.Testing, err)
 
 	newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, strings.ToLower(random.UniqueId()))
+	newOptions.AddonConfig.Prefix = newOptions.Prefix
 
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt
 	checkVariables := []string{ibmcloudApiKeyVar}
