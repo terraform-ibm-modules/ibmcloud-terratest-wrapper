@@ -52,10 +52,6 @@ type TestAddonOptions struct {
 
 	CloudInfoService cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 
-	// ProjectsApiURL Base URL of the schematics REST API. Set to override default.
-	// Default: https://projects.api.cloud.ibm.com
-	ProjectsApiURL string
-
 	// CatalogUseExisting If set to true, the test will use an existing catalog.
 	CatalogUseExisting bool
 	// CatalogName The name of the catalog to create and deploy to.
@@ -72,15 +68,6 @@ type TestAddonOptions struct {
 	// AddonConfig The configuration for the addon to deploy.
 	AddonConfig cloudinfo.AddonConfig
 
-	// ParallelDeploy If set to true, the test will deploy the stack in parallel.
-	// This will deploy the stack in batches of whatever is not waiting on a prerequisite to be deployed.
-	// Note Undeploy will still be in serial.
-	// Deprecated: All deploys are now parallel by default using projects built-in parallel deploy feature.
-	ParallelDeploy bool
-
-	// ValidationTimeoutMinutes The number of minutes to wait for the project to validate.
-	// Deprecated: This is now handled by projects and we only use DeployTimeoutMinutes for the entire project.
-	ValidationTimeoutMinutes int
 	// DeployTimeoutMinutes The number of minutes to wait for the stack to deploy. Also used for undeploy. Default is 6 hours.
 	DeployTimeoutMinutes int
 
@@ -91,8 +78,8 @@ type TestAddonOptions struct {
 
 	// SkipLocalChangeCheck If set to true, the test will not check for local changes before deploying.
 	SkipLocalChangeCheck bool
-	// IgnorePattern List of regex patterns to ignore files or directories when checking for local changes.
-	IgnorePattern []string
+	// LocalChangesIgnorePattern List of regex patterns to ignore files or directories when checking for local changes.
+	LocalChangesIgnorePattern []string
 
 	// internal use
 	currentProject       *project.Project
@@ -146,9 +133,6 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 		newOptions.ResourceGroup = "Default"
 	}
 
-	if newOptions.ValidationTimeoutMinutes == 0 {
-		newOptions.ValidationTimeoutMinutes = 60
-	}
 	if newOptions.DeployTimeoutMinutes == 0 {
 		newOptions.DeployTimeoutMinutes = 6 * 60
 	}
@@ -161,9 +145,9 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	if newOptions.ProjectAutoDeploy == nil {
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
 	}
-	if newOptions.IgnorePattern == nil {
+	if newOptions.LocalChangesIgnorePattern == nil {
 		// ignore tests directory by default
-		newOptions.IgnorePattern = []string{"^tests/.*"}
+		newOptions.LocalChangesIgnorePattern = []string{"^tests/.*"}
 	}
 
 	return newOptions

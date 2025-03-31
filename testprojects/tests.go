@@ -240,7 +240,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				options.Logger.ShortError(terraLogs)
 				errorList = append(errorList, fmt.Errorf(logMessage))
 			case project.ProjectConfig_State_Draft:
-				if stateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite {
+				if stateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite || (stateCode == project.ProjectConfig_StateCode_AwaitingMemberDeployment && strings.HasSuffix(memberName, " Container")) {
 					currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
 				} else {
 					options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Something unexpected happened on the backend attempting re-trigger deploy", memberName, Statuses[*member.State], Statuses[stateCode]))

@@ -102,6 +102,7 @@ type CloudInfoServiceI interface {
 	DeleteInstanceFromReclamationByCRN(CRN string) error
 	GetLogger() *common.TestLogger
 	SetLogger(logger *common.TestLogger)
+	GetApiKey() string
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -538,4 +539,9 @@ func (infoSvc *CloudInfoService) GetLogger() *common.TestLogger {
 // SetLogger sets a new logger
 func (infoSvc *CloudInfoService) SetLogger(logger *common.TestLogger) {
 	infoSvc.Logger = logger
+}
+
+// GetApiKey returns the current API key
+func (infoSvc *CloudInfoService) GetApiKey() string {
+	return infoSvc.ApiKey
 }

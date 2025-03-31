@@ -121,28 +121,21 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 
 // Addon Functions:
 
-// DeployAddonToProject deploys an addon to a project
-// POST /api/v1-beta/deploy/projects/:projectID/container
-// [
-//
-//	{
-//	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.cb157ad2-0bf7-488c-bdd4-5c568d611423"
-//	},
-//	{
-//	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.3a38fa8e-12ba-472b-be07-832fcb1ae914"
-//	},
-//	{
-//	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.12fa081a-47f1-473c-9acc-70812f66c26b",
-//	    "config_id": "",    // set this if reusing an existing config
-//	    "name": "sm da"
-//	}
-//
-// ]
-func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, projectConfig *ProjectsConfig) (*DeployedAddonsDetails, error) {
-	// get all the version locators for the addon
+// processComponentReferences recursively processes component references for an addon and its dependencies
+// It returns a map of processed version locators to avoid circular dependencies
+func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonConfig, processedLocators map[string]bool) error {
+	// If we've already processed this version locator, skip it to avoid circular dependencies
+	if processedLocators[addonConfig.VersionLocator] {
+		return nil
+	}
+
+	// Mark this locator as processed
+	processedLocators[addonConfig.VersionLocator] = true
+
+	// Get component references for this addon
 	componentsReferences, err := infoSvc.GetComponentReferences(addonConfig.VersionLocator)
 	if err != nil {
-		return nil, fmt.Errorf("error getting component references: %w", err)
+		return fmt.Errorf("error getting component references for %s: %w", addonConfig.VersionLocator, err)
 	}
 
 	// Create a map to track existing dependencies by name
@@ -164,6 +157,12 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
 				addonConfig.Dependencies[i].Enabled = true // Required components are always enabled
 				found = true
+
+				// Process dependencies of this dependency recursively
+				if err := infoSvc.processComponentReferences(&addonConfig.Dependencies[i], processedLocators); err != nil {
+					return err
+				}
+
 				break
 			}
 		}
@@ -191,6 +190,12 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
 				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
 				found = true
+
+				// Process dependencies of this dependency recursively
+				if err := infoSvc.processComponentReferences(&addonConfig.Dependencies[i], processedLocators); err != nil {
+					return err
+				}
+
 				break
 			}
 		}
@@ -204,7 +209,6 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 
 	// Add new dependencies that weren't found in the existing dependencies
 	for _, component := range componentsToAdd {
-
 		newDependency := AddonConfig{
 			Prefix:          addonConfig.Prefix,
 			OfferingName:    component.OfferingReference.Name,
@@ -216,37 +220,77 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 			Enabled:         component.OfferingReference.OnByDefault, // Required components have been forced to enabled
 			OfferingID:      component.OfferingReference.ID,
 			Inputs:          make(map[string]interface{}),
+			Dependencies:    []AddonConfig{}, // Initialize empty dependencies slice
 		}
+
+		// Process dependencies of this new dependency recursively
+		if err := infoSvc.processComponentReferences(&newDependency, processedLocators); err != nil {
+			return err
+		}
+
 		addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
 	}
 
+	return nil
+}
+
+// DeployAddonToProject deploys an addon to a project
+// POST /api/v1-beta/deploy/projects/:projectID/container
+// [
+//
+//	{
+//	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.cb157ad2-0bf7-488c-bdd4-5c568d611423"
+//	},
+//	{
+//	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.3a38fa8e-12ba-472b-be07-832fcb1ae914"
+//	},
+//	{
+//	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.12fa081a-47f1-473c-9acc-70812f66c26b",
+//	    "config_id": "",    // set this if reusing an existing config
+//	    "name": "sm da"
+//	}
+//
+// ]
+func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, projectConfig *ProjectsConfig) (*DeployedAddonsDetails, error) {
+	// Initialize a map to track processed version locators and prevent circular dependencies
+	processedLocators := make(map[string]bool)
+
+	// Process the main addon and all its dependencies recursively
+	if err := infoSvc.processComponentReferences(addonConfig, processedLocators); err != nil {
+		return nil, err
+	}
+
 	// Create the request body
-	addonDependecies := make([]map[string]string, 0, len(addonConfig.Dependencies)+1)
+	addonDependencies := make([]map[string]string, 0)
+
 	// Add the addon itself
 	addonConfig.ConfigName = fmt.Sprintf("%s-%s", addonConfig.Prefix, addonConfig.OfferingName)
-	addonDependecies = append(addonDependecies, map[string]string{
+	addonDependencies = append(addonDependencies, map[string]string{
 		"version_locator": addonConfig.VersionLocator,
 		"name":            addonConfig.ConfigName,
 	})
 
-	// Add the dependencies
-	for i, dep := range addonConfig.Dependencies {
+	// Collect all dependencies from the tree into a flat list
+	flattenedDependencies := flattenDependencies(addonConfig)
+
+	// Add all flattened dependencies
+	for i, dep := range flattenedDependencies {
 		if dep.Enabled {
 			randomPostfix := strings.ToLower(random.UniqueId())
-			addonConfig.Dependencies[i].ConfigName = fmt.Sprintf("%s-%s", dep.OfferingName, randomPostfix)
+			flattenedDependencies[i].ConfigName = fmt.Sprintf("%s-%s", dep.OfferingName, randomPostfix)
 			dependencyEntry := map[string]string{
 				"version_locator": dep.VersionLocator,
-				"name":            addonConfig.Dependencies[i].ConfigName,
+				"name":            flattenedDependencies[i].ConfigName,
 			}
 			if dep.ExistingConfigID != "" {
 				dependencyEntry["config_id"] = dep.ExistingConfigID
 			}
-			addonDependecies = append(addonDependecies, dependencyEntry)
+			addonDependencies = append(addonDependencies, dependencyEntry)
 		}
 	}
 
-	// Convert the addonDependecies to JSON
-	jsonBody, err := json.Marshal(addonDependecies)
+	// Convert the addonDependencies to JSON
+	jsonBody, err := json.Marshal(addonDependencies)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling request body: %w", err)
 	}
@@ -306,48 +350,8 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 		return nil, nil
 	}
 
-	// Process each config from the response
-	for _, config := range deployResponse.Configs {
-		// Check if this is a container config (name ends with " Container")
-		isContainer := strings.HasSuffix(config.Name, " Container")
-
-		if isContainer {
-			// For container configs, extract the base name (without " Container")
-			baseName := strings.TrimSuffix(config.Name, " Container")
-
-			// Check if this container is for the main addon
-			if baseName == addonConfig.ConfigName {
-				addonConfig.ContainerConfigID = config.ConfigID
-				addonConfig.ContainerConfigName = config.Name
-				continue
-			}
-
-			// Check if this container is for any of the dependencies
-			for i, dep := range addonConfig.Dependencies {
-				if dep.Enabled && dep.ConfigName == baseName {
-					addonConfig.Dependencies[i].ContainerConfigID = config.ConfigID
-					addonConfig.Dependencies[i].ContainerConfigName = config.Name
-					break
-				}
-			}
-		} else {
-			// Non-container config processing
-
-			// Check if this is the main addon config
-			if config.Name == addonConfig.ConfigName {
-				addonConfig.ConfigID = config.ConfigID
-				continue
-			}
-
-			// Check if this is a dependency config
-			for i, dep := range addonConfig.Dependencies {
-				if dep.Enabled && dep.ConfigName == config.Name {
-					addonConfig.Dependencies[i].ConfigID = config.ConfigID
-					break
-				}
-			}
-		}
-	}
+	// Update configuration information for main addon and all its dependencies
+	updateConfigInfoFromResponse(addonConfig, flattenedDependencies, deployResponse)
 
 	return deployResponse, nil
 }
@@ -399,4 +403,81 @@ func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (
 	}
 
 	return &offeringReferences, nil
+}
+
+// flattenDependencies collects all dependencies from an addon config and its nested dependencies
+// into a flat list, avoiding duplicates by tracking version locators
+func flattenDependencies(addonConfig *AddonConfig) []AddonConfig {
+	// Use a map to track unique dependencies by version locator
+	uniqueDeps := make(map[string]AddonConfig)
+
+	// Helper function to recursively collect dependencies
+	var collectDependencies func(addon *AddonConfig)
+	collectDependencies = func(addon *AddonConfig) {
+		for _, dep := range addon.Dependencies {
+			// Only add this dependency if we haven't seen it before
+			if _, exists := uniqueDeps[dep.VersionLocator]; !exists {
+				uniqueDeps[dep.VersionLocator] = dep
+
+				// Recursively collect dependencies of this dependency
+				collectDependencies(&dep)
+			}
+		}
+	}
+
+	// Start the collection process
+	collectDependencies(addonConfig)
+
+	// Convert the map to a slice
+	result := make([]AddonConfig, 0, len(uniqueDeps))
+	for _, dep := range uniqueDeps {
+		result = append(result, dep)
+	}
+
+	return result
+}
+
+// updateConfigInfoFromResponse processes the deployment response and updates
+// the configuration information for the main addon and its dependencies
+func updateConfigInfoFromResponse(addonConfig *AddonConfig, dependencies []AddonConfig, response *DeployedAddonsDetails) {
+	// Create a map for easier lookup by config name
+	configMap := make(map[string]string)
+	containerMap := make(map[string]string)
+
+	for _, config := range response.Configs {
+		// Check if this is a container config (name ends with " Container")
+		isContainer := strings.HasSuffix(config.Name, " Container")
+
+		if isContainer {
+			// For container configs, extract the base name (without " Container")
+			baseName := strings.TrimSuffix(config.Name, " Container")
+			containerMap[baseName] = config.ConfigID
+		} else {
+			// For regular configs
+			configMap[config.Name] = config.ConfigID
+		}
+	}
+
+	// Update the main addon config
+	if configID, exists := configMap[addonConfig.ConfigName]; exists {
+		addonConfig.ConfigID = configID
+	}
+
+	// Update the main addon's container config
+	if containerID, exists := containerMap[addonConfig.ConfigName]; exists {
+		addonConfig.ContainerConfigID = containerID
+		addonConfig.ContainerConfigName = addonConfig.ConfigName + " Container"
+	}
+
+	// Update all dependencies
+	for i, dep := range dependencies {
+		if configID, exists := configMap[dep.ConfigName]; exists {
+			dependencies[i].ConfigID = configID
+		}
+
+		if containerID, exists := containerMap[dep.ConfigName]; exists {
+			dependencies[i].ContainerConfigID = containerID
+			dependencies[i].ContainerConfigName = dep.ConfigName + " Container"
+		}
+	}
 }

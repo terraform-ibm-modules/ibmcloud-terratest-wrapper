@@ -897,7 +897,15 @@ func (infoSvc *CloudInfoService) LookupMemberNameByID(stackDetails *project.Proj
 			return *member.Name, nil
 		}
 	}
-	return "", fmt.Errorf("member ID %s not found in stack details", memberID)
+	// api lookup the name
+	member, _, err := infoSvc.GetConfig(&ConfigDetails{
+		ProjectID: *stackDetails.Project.ID,
+		ConfigID:  memberID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("member ID %s not found in stack details", memberID)
+	}
+	return *member.Definition.(*project.ProjectConfigDefinitionResponse).Name, nil
 }
 
 // GetSchematicsJobLogsForMember gets the schematics job logs for a member

@@ -7,9 +7,11 @@ import (
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
 )
 
 // RunAddonTest : Run the test for addons
@@ -46,18 +48,117 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		return fmt.Errorf("test setup has failed:%w", setupErr)
 	}
 
-	// Deploy Addon
-	options.Logger.ShortInfo("Deploying the addon")
-	_, err := options.CloudInfoService.DeployAddonToProject(&options.AddonConfig, options.currentProjectConfig)
+	// Deploy Addon to Project
+	options.Logger.ShortInfo("Deploying the addon to project")
+	deployedConfigs, err := options.CloudInfoService.DeployAddonToProject(&options.AddonConfig, options.currentProjectConfig)
 
 	if err != nil {
-		options.Logger.ShortError(fmt.Sprintf("Error deploying the addon: %v", err))
+		options.Logger.ShortError(fmt.Sprintf("Error deploying the addon to project: %v", err))
 		options.Testing.Fail()
-		return fmt.Errorf("error deploying the addon: %w", err)
+		return fmt.Errorf("error deploying the addon to project: %w", err)
 	}
 
+	options.Logger.ShortInfo(fmt.Sprintf("Deployed Configurations to Project ID: %s", options.currentProjectConfig.ProjectID))
+	for _, config := range deployedConfigs.Configs {
+		options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", config.Name, config.ConfigID))
+	}
 	options.Logger.ShortInfo("Addon deployed successfully")
-	options.Logger.ShortInfo("More testing here, deploy undeploy etc")
+
+	options.Logger.ShortInfo("Updating Configurations")
+	// Configure Addon
+	addonID := options.AddonConfig.ConfigID
+	addonName := options.AddonConfig.ConfigName
+	if options.AddonConfig.ContainerConfigID != "" {
+		addonID = options.AddonConfig.ContainerConfigID
+		addonName = options.AddonConfig.ContainerConfigName
+	}
+	// configure API key
+	configDetails := cloudinfo.ConfigDetails{
+		ProjectID: options.currentProjectConfig.ProjectID,
+		Name:      addonName,
+		Inputs:    options.AddonConfig.Inputs,
+		ConfigID:  addonID,
+	}
+
+	configDetails.MemberConfigs = nil
+	for _, config := range deployedConfigs.Configs {
+
+		prjCfg, _, _ := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+			ProjectID: options.currentProjectConfig.ProjectID,
+			Name:      config.Name,
+			ConfigID:  config.ConfigID,
+		})
+		configDetails.Members = append(configDetails.Members, *prjCfg)
+
+		configDetails.MemberConfigs = append(configDetails.MemberConfigs, projectv1.StackConfigMember{
+			ConfigID: core.StringPtr(config.ConfigID),
+			Name:     core.StringPtr(config.Name),
+		})
+	}
+
+	confPatch := projectv1.ProjectConfigDefinitionPatch{
+		Inputs: configDetails.Inputs,
+		Authorizations: &projectv1.ProjectConfigAuth{
+			ApiKey: core.StringPtr(options.CloudInfoService.GetApiKey()),
+			Method: core.StringPtr(projectv1.ProjectConfigAuth_Method_ApiKey),
+		},
+	}
+	prjConfig, response, err := options.CloudInfoService.UpdateConfig(&configDetails, &confPatch)
+	if err != nil {
+		options.Logger.ShortError(fmt.Sprintf("Error updating the configuration: %v", err))
+		options.Testing.Fail()
+		return fmt.Errorf("error updating the configuration: %w", err)
+	}
+	if response.RawResult != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Response: %s", string(response.RawResult)))
+	}
+	options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration: %s", *prjConfig.ID))
+	if prjConfig.StateCode != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration statecode: %s", *prjConfig.StateCode))
+	}
+	if prjConfig.State != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration state: %s", *prjConfig.State))
+	}
+
+	// Trigger Deploy
+	// create TestProjectsOptions to use with the projects trigger deploy and wait
+	deployOptions := testprojects.TestProjectsOptions{
+		Prefix:               options.Prefix,
+		ProjectName:          options.ProjectName,
+		CloudInfoService:     options.CloudInfoService,
+		Logger:               options.Logger,
+		Testing:              options.Testing,
+		DeployTimeoutMinutes: options.DeployTimeoutMinutes,
+		StackPollTimeSeconds: 60,
+	}
+
+	deployOptions.SetCurrentStackConfig(&configDetails)
+	deployOptions.SetCurrentProjectConfig(options.currentProjectConfig)
+
+	errorList := deployOptions.TriggerDeployAndWait()
+	if len(errorList) > 0 {
+		options.Logger.ShortError("Errors occurred during deploy")
+		for _, err := range errorList {
+			options.Logger.ShortError(fmt.Sprintf("  %v", err))
+		}
+		options.Testing.Fail()
+		return fmt.Errorf("errors occurred during deploy")
+	}
+	options.Logger.ShortInfo("Deploy completed successfully")
+
+	options.Logger.ShortInfo("Testing undeployed addons")
+
+	// Trigger Undeploy
+	undeployErrs := deployOptions.TriggerUnDeployAndWait()
+	if len(undeployErrs) > 0 {
+		options.Logger.ShortError("Errors occurred during undeploy")
+		for _, err := range undeployErrs {
+			options.Logger.ShortError(fmt.Sprintf("  %v", err))
+		}
+		options.Testing.Fail()
+		return fmt.Errorf("errors occurred during undeploy")
+	}
+	options.Logger.ShortInfo("Undeploy completed successfully")
 
 	return nil
 }
@@ -104,12 +205,12 @@ func (options *TestAddonOptions) testSetup() error {
 		return fmt.Errorf("error checking for local changes in the repository: %w", err)
 	}
 	// remove ignored files
-	if len(options.IgnorePattern) > 0 {
+	if len(options.LocalChangesIgnorePattern) > 0 {
 		filteredFiles := make([]string, 0)
 		for _, file := range files {
 			shouldKeep := true
 			// ignore files are regex patterns
-			for _, ignorePattern := range options.IgnorePattern {
+			for _, ignorePattern := range options.LocalChangesIgnorePattern {
 				matched, err := regexp.MatchString(ignorePattern, file)
 				if err != nil {
 					options.Logger.ShortWarn(fmt.Sprintf("Error matching pattern %s: %v", ignorePattern, err))
@@ -132,7 +233,7 @@ func (options *TestAddonOptions) testSetup() error {
 
 	if isChanges {
 		if !options.SkipLocalChangeCheck {
-			options.Logger.ShortError("Local changes found in the repository, please commit or stash the changes before running the test")
+			options.Logger.ShortError("Local changes found in the repository, please commit, push or stash the changes before running the test")
 			options.Logger.ShortError("Files with changes:")
 			for _, file := range files {
 				options.Logger.ShortError(fmt.Sprintf("  %s", file))
@@ -168,6 +269,7 @@ func (options *TestAddonOptions) testSetup() error {
 			return err
 		}
 		options.CloudInfoService = cloudInfoSvc
+		options.CloudInfoService.SetLogger(options.Logger)
 	}
 
 	if !options.CatalogUseExisting {
@@ -250,6 +352,8 @@ func (options *TestAddonOptions) testSetup() error {
 	options.currentProject = prj
 	options.currentProjectConfig.ProjectID = *options.currentProject.ID
 	options.Logger.ShortInfo(fmt.Sprintf("Created a new project: %s with ID %s", options.ProjectName, options.currentProjectConfig.ProjectID))
+	projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", options.currentProjectConfig.ProjectID)
+	options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
 
 	return nil
 }
@@ -266,7 +370,7 @@ func (options *TestAddonOptions) TestTearDown() {
 func (options *TestAddonOptions) testTearDown() {
 	// perform the test teardown
 	options.Logger.ShortInfo("Performing test teardown")
-	if options.currentProject.ID != nil {
+	if options.currentProject != nil && options.currentProject.ID != nil {
 		_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
 		if assert.NoError(options.Testing, err) {
 			if assert.Equal(options.Testing, 202, resp.StatusCode) {

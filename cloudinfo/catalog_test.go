@@ -316,6 +316,274 @@ func (suite *CatalogServiceTestSuite) TestImportOffering() {
 	}
 }
 
+// TestFlattenDependencies tests the flattenDependencies function that recursively collects all dependencies
+func (suite *CatalogServiceTestSuite) TestFlattenDependencies() {
+	// Test cases
+	testCases := []struct {
+		name           string
+		addonConfig    *AddonConfig
+		expectedLength int
+	}{
+		{
+			name: "No dependencies",
+			addonConfig: &AddonConfig{
+				OfferingName:   "main-offering",
+				VersionLocator: "locator-1",
+				Dependencies:   []AddonConfig{},
+			},
+			expectedLength: 0,
+		},
+		{
+			name: "Direct dependencies only",
+			addonConfig: &AddonConfig{
+				OfferingName:   "main-offering",
+				VersionLocator: "locator-1",
+				Dependencies: []AddonConfig{
+					{
+						OfferingName:   "dep-1",
+						VersionLocator: "dep-locator-1",
+						Dependencies:   []AddonConfig{},
+					},
+					{
+						OfferingName:   "dep-2",
+						VersionLocator: "dep-locator-2",
+						Dependencies:   []AddonConfig{},
+					},
+				},
+			},
+			expectedLength: 2,
+		},
+		{
+			name: "Nested dependencies",
+			addonConfig: &AddonConfig{
+				OfferingName:   "main-offering",
+				VersionLocator: "locator-1",
+				Dependencies: []AddonConfig{
+					{
+						OfferingName:   "dep-1",
+						VersionLocator: "dep-locator-1",
+						Dependencies: []AddonConfig{
+							{
+								OfferingName:   "nested-dep-1",
+								VersionLocator: "nested-locator-1",
+								Dependencies:   []AddonConfig{},
+							},
+						},
+					},
+					{
+						OfferingName:   "dep-2",
+						VersionLocator: "dep-locator-2",
+						Dependencies: []AddonConfig{
+							{
+								OfferingName:   "nested-dep-2",
+								VersionLocator: "nested-locator-2",
+								Dependencies:   []AddonConfig{},
+							},
+						},
+					},
+				},
+			},
+			expectedLength: 4,
+		},
+		{
+			name: "Duplicated dependencies are only included once",
+			addonConfig: &AddonConfig{
+				OfferingName:   "main-offering",
+				VersionLocator: "locator-1",
+				Dependencies: []AddonConfig{
+					{
+						OfferingName:   "dep-1",
+						VersionLocator: "dep-locator-1",
+						Dependencies: []AddonConfig{
+							{
+								OfferingName:   "shared-dep",
+								VersionLocator: "shared-locator",
+								Dependencies:   []AddonConfig{},
+							},
+						},
+					},
+					{
+						OfferingName:   "dep-2",
+						VersionLocator: "dep-locator-2",
+						Dependencies: []AddonConfig{
+							{
+								OfferingName:   "shared-dep",
+								VersionLocator: "shared-locator", // Same version locator
+								Dependencies:   []AddonConfig{},
+							},
+						},
+					},
+				},
+			},
+			expectedLength: 3, // Only 3 because the shared dependency is only counted once
+		},
+	}
+
+	// Run the test cases
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			result := flattenDependencies(tc.addonConfig)
+			assert.Equal(suite.T(), tc.expectedLength, len(result), "Expected %d dependencies, got %d", tc.expectedLength, len(result))
+
+			// Check that there are no duplicate version locators
+			locatorMap := make(map[string]bool)
+			for _, dep := range result {
+				assert.False(suite.T(), locatorMap[dep.VersionLocator], "Duplicate version locator found: %s", dep.VersionLocator)
+				locatorMap[dep.VersionLocator] = true
+			}
+		})
+	}
+}
+
 func TestCatalogServiceTestSuite(t *testing.T) {
 	suite.Run(t, new(CatalogServiceTestSuite))
+}
+
+// TestUpdateConfigInfoFromResponse tests the updateConfigInfoFromResponse function
+func (suite *CatalogServiceTestSuite) TestUpdateConfigInfoFromResponse() {
+	testCases := []struct {
+		name                string
+		addonConfig         *AddonConfig
+		dependencies        []AddonConfig
+		response            *DeployedAddonsDetails
+		expectedMainConfig  string
+		expectedContainerId string
+		expectedDepIds      map[string]string
+	}{
+		{
+			name: "Main addon and dependencies",
+			addonConfig: &AddonConfig{
+				ConfigName: "main-addon",
+			},
+			dependencies: []AddonConfig{
+				{
+					ConfigName: "dep-1",
+				},
+				{
+					ConfigName: "dep-2",
+				},
+			},
+			response: &DeployedAddonsDetails{
+				ProjectID: "project-123",
+				Configs: []struct {
+					Name     string `json:"name"`
+					ConfigID string `json:"config_id"`
+				}{
+					{
+						Name:     "main-addon",
+						ConfigID: "config-main",
+					},
+					{
+						Name:     "main-addon Container",
+						ConfigID: "container-main",
+					},
+					{
+						Name:     "dep-1",
+						ConfigID: "config-dep-1",
+					},
+					{
+						Name:     "dep-2",
+						ConfigID: "config-dep-2",
+					},
+					{
+						Name:     "dep-2 Container",
+						ConfigID: "container-dep-2",
+					},
+				},
+			},
+			expectedMainConfig:  "config-main",
+			expectedContainerId: "container-main",
+			expectedDepIds: map[string]string{
+				"dep-1": "config-dep-1",
+				"dep-2": "config-dep-2",
+			},
+		},
+		{
+			name: "Only main addon without container",
+			addonConfig: &AddonConfig{
+				ConfigName: "main-addon",
+			},
+			dependencies: []AddonConfig{},
+			response: &DeployedAddonsDetails{
+				ProjectID: "project-123",
+				Configs: []struct {
+					Name     string `json:"name"`
+					ConfigID string `json:"config_id"`
+				}{
+					{
+						Name:     "main-addon",
+						ConfigID: "config-main",
+					},
+				},
+			},
+			expectedMainConfig:  "config-main",
+			expectedContainerId: "",
+			expectedDepIds:      map[string]string{},
+		},
+		{
+			name: "Unmatched config names",
+			addonConfig: &AddonConfig{
+				ConfigName: "main-addon",
+			},
+			dependencies: []AddonConfig{
+				{
+					ConfigName: "dep-1",
+				},
+			},
+			response: &DeployedAddonsDetails{
+				ProjectID: "project-123",
+				Configs: []struct {
+					Name     string `json:"name"`
+					ConfigID string `json:"config_id"`
+				}{
+					{
+						Name:     "other-addon",
+						ConfigID: "config-other",
+					},
+					{
+						Name:     "dep-999",
+						ConfigID: "config-dep-999",
+					},
+				},
+			},
+			expectedMainConfig:  "",
+			expectedContainerId: "",
+			expectedDepIds:      map[string]string{},
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			// Create copies of the configs for modification during test
+			addonConfig := *tc.addonConfig
+			dependencies := make([]AddonConfig, len(tc.dependencies))
+			for i, dep := range tc.dependencies {
+				dependencies[i] = dep
+			}
+
+			// Call the function to test
+			updateConfigInfoFromResponse(&addonConfig, dependencies, tc.response)
+
+			// Check the main addon's config
+			assert.Equal(suite.T(), tc.expectedMainConfig, addonConfig.ConfigID)
+			assert.Equal(suite.T(), tc.expectedContainerId, addonConfig.ContainerConfigID)
+
+			// If container ID is expected to be set, check that container name is set correctly
+			if tc.expectedContainerId != "" {
+				assert.Equal(suite.T(), addonConfig.ConfigName+" Container", addonConfig.ContainerConfigName)
+			} else {
+				assert.Empty(suite.T(), addonConfig.ContainerConfigName)
+			}
+
+			// Check the dependencies
+			for i, dep := range dependencies {
+				expectedID, exists := tc.expectedDepIds[dep.ConfigName]
+				if exists {
+					assert.Equal(suite.T(), expectedID, dependencies[i].ConfigID, "Dependency %s has incorrect ConfigID", dep.ConfigName)
+				} else {
+					assert.Empty(suite.T(), dependencies[i].ConfigID, "Dependency %s should have empty ConfigID", dep.ConfigName)
+				}
+			}
+		})
+	}
 }
