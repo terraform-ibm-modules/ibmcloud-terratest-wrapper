@@ -120,6 +120,16 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration state: %s", *prjConfig.State))
 	}
 
+	if options.PreDeployHook != nil {
+		options.Logger.ShortInfo("Running PreDeployHook")
+		hookErr := options.PreDeployHook(options)
+		if hookErr != nil {
+			options.Testing.Fail()
+			return hookErr
+		}
+		options.Logger.ShortInfo("Finished PreDeployHook")
+	}
+
 	// Trigger Deploy
 	// create TestProjectsOptions to use with the projects trigger deploy and wait
 	deployOptions := testprojects.TestProjectsOptions{
@@ -146,6 +156,30 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	}
 	options.Logger.ShortInfo("Deploy completed successfully")
 
+	if options.PostDeployHook != nil {
+		options.Logger.ShortInfo("Running PostDeployHook")
+		hookErr := options.PostDeployHook(options)
+		if hookErr != nil {
+			options.Testing.Fail()
+			return hookErr
+		}
+		options.Logger.ShortInfo("Finished PostDeployHook")
+	}
+
+	// Additional tests
+
+	// Test All Refs are valid
+
+	if options.PreUndeployHook != nil {
+		options.Logger.ShortInfo("Running PreUndeployHook")
+		hookErr := options.PreUndeployHook(options)
+		if hookErr != nil {
+			options.Testing.Fail()
+			return hookErr
+		}
+		options.Logger.ShortInfo("Finished PreUndeployHook")
+	}
+
 	options.Logger.ShortInfo("Testing undeployed addons")
 
 	// Trigger Undeploy
@@ -159,6 +193,16 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		return fmt.Errorf("errors occurred during undeploy")
 	}
 	options.Logger.ShortInfo("Undeploy completed successfully")
+
+	if options.PostUndeployHook != nil {
+		options.Logger.ShortInfo("Running PostUndeployHook")
+		hookErr := options.PostUndeployHook(options)
+		if hookErr != nil {
+			options.Testing.Fail()
+			return hookErr
+		}
+		options.Logger.ShortInfo("Finished PostUndeployHook")
+	}
 
 	return nil
 }
@@ -368,6 +412,7 @@ func (options *TestAddonOptions) TestTearDown() {
 }
 
 func (options *TestAddonOptions) testTearDown() {
+
 	// perform the test teardown
 	options.Logger.ShortInfo("Performing test teardown")
 	if options.currentProject != nil && options.currentProject.ID != nil {
