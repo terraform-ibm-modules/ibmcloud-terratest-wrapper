@@ -120,6 +120,16 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration state: %s", *prjConfig.State))
 	}
 
+	// // Check if the configuration is in a valid state
+	// // Check if its deployable
+	// options.Logger.ShortInfo("Checking if the configuration is deployable")
+	// options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✓"))
+	// // Check if all refs are valid
+	// options.Logger.ShortInfo("Checking if all refs are valid")
+	// options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✓"))
+	// // Check all required inputs are set
+	// options.Logger.ShortInfo("Checking if all required inputs are set")
+	// options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✓"))
 	if options.PreDeployHook != nil {
 		options.Logger.ShortInfo("Running PreDeployHook")
 		hookErr := options.PreDeployHook(options)
@@ -155,6 +165,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		return fmt.Errorf("errors occurred during deploy")
 	}
 	options.Logger.ShortInfo("Deploy completed successfully")
+	options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✓"))
 
 	if options.PostDeployHook != nil {
 		options.Logger.ShortInfo("Running PostDeployHook")
@@ -165,10 +176,6 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		}
 		options.Logger.ShortInfo("Finished PostDeployHook")
 	}
-
-	// Additional tests
-
-	// Test All Refs are valid
 
 	if options.PreUndeployHook != nil {
 		options.Logger.ShortInfo("Running PreUndeployHook")

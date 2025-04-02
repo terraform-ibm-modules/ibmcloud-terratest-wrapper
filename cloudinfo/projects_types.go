@@ -126,3 +126,45 @@ func NewInstallKindStack() *InstallKind {
 	k := InstallKindStack
 	return &k
 }
+
+// newAddonConfig creates a new AddonConfig with the provided parameters and sensible defaults
+// It defaults OfferingInstallKind to InstallKindTerraform if not provided
+func newAddonConfig(name, flavor string, installKind *InstallKind, inputs map[string]interface{}) AddonConfig {
+	config := AddonConfig{
+		OfferingName:   name,
+		OfferingFlavor: flavor,
+		Inputs:         inputs,
+	}
+
+	// Default to Terraform install kind if not provided
+	if installKind == nil {
+		config.OfferingInstallKind = *NewInstallKindTerraform()
+	} else {
+		config.OfferingInstallKind = *installKind
+	}
+
+	return config
+}
+
+// NewAddonConfigTerraform creates a new AddonConfig with Terraform install kind
+func NewAddonConfigTerraform(name, flavor string, inputs map[string]interface{}) AddonConfig {
+	return newAddonConfig(name, flavor, NewInstallKindTerraform(), inputs)
+}
+
+// NewAddonConfigStack creates a new AddonConfig with Stack install kind
+func NewAddonConfigStack(name, flavor string, inputs map[string]interface{}) AddonConfig {
+	return newAddonConfig(name, flavor, NewInstallKindStack(), inputs)
+}
+
+// ConfigStates a flat list of config states
+type ConfigStates struct {
+	States []struct {
+		Name      string `json:"name"`
+		State     string `json:"state"`
+		StateCode string `json:"state_code"`
+	} `json:"states"`
+	// ConfigID is the ID of the config
+	ConfigID string `json:"config_id"`
+	// ConfigName is the name of the config
+	ConfigName string `json:"config_name"`
+}
