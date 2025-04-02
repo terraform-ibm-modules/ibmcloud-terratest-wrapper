@@ -129,11 +129,20 @@ func NewInstallKindStack() *InstallKind {
 
 // newAddonConfig creates a new AddonConfig with the provided parameters and sensible defaults
 // It defaults OfferingInstallKind to InstallKindTerraform if not provided
-func newAddonConfig(name, flavor string, installKind *InstallKind, inputs map[string]interface{}) AddonConfig {
+// prefix is used to create a unique name for the config
+// name is the name of the offering
+// flavor is the flavor of the offering
+// installKind is the kind of installation (Terraform or Stack)
+// inputs is a map of input variables for the offering
+// It returns an AddonConfig struct
+func newAddonConfig(prefix, name, flavor string, installKind *InstallKind, inputs map[string]interface{}) AddonConfig {
 	config := AddonConfig{
+		Prefix:         prefix,
 		OfferingName:   name,
 		OfferingFlavor: flavor,
 		Inputs:         inputs,
+		Enabled:        true,
+		OnByDefault:    true,
 	}
 
 	// Default to Terraform install kind if not provided
@@ -147,13 +156,13 @@ func newAddonConfig(name, flavor string, installKind *InstallKind, inputs map[st
 }
 
 // NewAddonConfigTerraform creates a new AddonConfig with Terraform install kind
-func NewAddonConfigTerraform(name, flavor string, inputs map[string]interface{}) AddonConfig {
-	return newAddonConfig(name, flavor, NewInstallKindTerraform(), inputs)
+func NewAddonConfigTerraform(prefix, name, flavor string, inputs map[string]interface{}) AddonConfig {
+	return newAddonConfig(prefix, name, flavor, NewInstallKindTerraform(), inputs)
 }
 
 // NewAddonConfigStack creates a new AddonConfig with Stack install kind
-func NewAddonConfigStack(name, flavor string, inputs map[string]interface{}) AddonConfig {
-	return newAddonConfig(name, flavor, NewInstallKindStack(), inputs)
+func NewAddonConfigStack(prefix, name, flavor string, inputs map[string]interface{}) AddonConfig {
+	return newAddonConfig(prefix, name, flavor, NewInstallKindStack(), inputs)
 }
 
 // ConfigStates a flat list of config states

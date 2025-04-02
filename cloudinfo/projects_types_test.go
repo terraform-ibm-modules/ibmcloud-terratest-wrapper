@@ -6,7 +6,7 @@ import (
 
 func TestAddonConfigHelpers(t *testing.T) {
 	// Test the Terraform specific helper
-	configTerraform := NewAddonConfigTerraform("test-addon", "test-flavor", map[string]interface{}{
+	configTerraform := NewAddonConfigTerraform("test-prefix", "test-addon", "test-flavor", map[string]interface{}{
 		"prefix": "test-prefix",
 	})
 
@@ -27,7 +27,7 @@ func TestAddonConfigHelpers(t *testing.T) {
 	}
 
 	// Test the Stack specific helper
-	configStack := NewAddonConfigStack("stack-addon", "stack-flavor", map[string]interface{}{
+	configStack := NewAddonConfigStack("stack-prefix", "stack-addon", "stack-flavor", map[string]interface{}{
 		"region": "us-south",
 	})
 

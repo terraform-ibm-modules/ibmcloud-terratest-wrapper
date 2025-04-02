@@ -53,6 +53,7 @@ func TestRunTerraformAddon(t *testing.T) {
 
  // Using the specialized Terraform helper function
  options.AddonConfig = cloudinfo.NewAddonConfigTerraform(
+  options.Prefix,        // prefix for unique resource naming
   "test-addon",           // offering name
   "test-flavor",          // offering flavor
   map[string]interface{}{ // inputs
@@ -77,8 +78,9 @@ func TestRunStackAddon(t *testing.T) {
 
  // Using the specialized Stack helper function
  options.AddonConfig = cloudinfo.NewAddonConfigStack(
-  "test-addon",           // offering name
-  "test-flavor",          // offering flavor
+  options.Prefix,        // prefix for unique resource naming
+  "test-addon",          // offering name
+  "test-flavor",         // offering flavor
   map[string]interface{}{ // inputs
    "prefix": options.Prefix,
    "region": "us-south",
