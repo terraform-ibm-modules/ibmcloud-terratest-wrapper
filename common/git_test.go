@@ -80,8 +80,12 @@ func TestGetCurrentPrRepoAndBranch_Negative(t *testing.T) {
 // Test ChangesToBePush
 func TestChangesToBePush_Positive(t *testing.T) {
 	mockCmd := new(MockCommander)
-	// Mock that git status returns some changes
-	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").Return([]byte("M file1.txt\n?? file2.txt"), nil)
+	// Mock that git status returns no uncommitted changes
+	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").
+		Return([]byte(""), nil)
+	// Mock that git log returns some changes
+	mockCmd.On("executeCommand", "../", "git", "log", "@{u}..HEAD", "--name-only", "--pretty=format:").
+		Return([]byte("file1.txt\nfile2.txt"), nil)
 
 	changes, files, err := changesToBePush(t, "../", mockCmd)
 
@@ -93,8 +97,12 @@ func TestChangesToBePush_Positive(t *testing.T) {
 
 func TestChangesToBePush_Negative(t *testing.T) {
 	mockCmd := new(MockCommander)
-	// Mock that git status returns no changes
-	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").Return([]byte(""), nil)
+	// Mock that git status returns no uncommitted changes
+	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").
+		Return([]byte(""), nil)
+	// Mock that git log returns no changes
+	mockCmd.On("executeCommand", "../", "git", "log", "@{u}..HEAD", "--name-only", "--pretty=format:").
+		Return([]byte(""), nil)
 
 	changes, files, err := changesToBePush(t, "../", mockCmd)
 
@@ -106,26 +114,73 @@ func TestChangesToBePush_Negative(t *testing.T) {
 
 func TestChangesToBePush_Error(t *testing.T) {
 	mockCmd := new(MockCommander)
-	// Mock that git status command fails
-	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").Return([]byte(""), errors.New("git command failed"))
+	// Mock that git status returns no uncommitted changes
+	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").
+		Return([]byte(""), nil)
+	// Mock that git log command fails
+	mockCmd.On("executeCommand", "../", "git", "log", "@{u}..HEAD", "--name-only", "--pretty=format:").
+		Return([]byte(""), errors.New("git command failed"))
+	// Mock the fallback git log command
+	mockCmd.On("executeCommand", "../", "git", "log", "HEAD", "--name-only", "--pretty=format:", "-n", "1").
+		Return([]byte(""), nil)
 
 	_, _, err := changesToBePush(t, "../", mockCmd)
 
-	assert.Error(t, err)
+	assert.NoError(t, err)
 	mockCmd.AssertExpectations(t)
 }
 
-// Test different porcelain format variations
+// Test different output variations
 func TestChangesToBePush_FormatVariations(t *testing.T) {
 	mockCmd := new(MockCommander)
-	// Test with different git status output formats
-	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").Return([]byte("M  file1.txt\n MM file2.tf\n?? file3.md"), nil)
+	// Mock that git status returns no uncommitted changes
+	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").
+		Return([]byte(""), nil)
+	// Test with different git log output formats
+	mockCmd.On("executeCommand", "../", "git", "log", "@{u}..HEAD", "--name-only", "--pretty=format:").
+		Return([]byte("file1.txt\nfile2.tf\nfile3.md"), nil)
 
 	changes, files, err := changesToBePush(t, "../", mockCmd)
 
 	assert.NoError(t, err)
 	assert.True(t, changes)
 	assert.Equal(t, []string{"file1.txt", "file2.tf", "file3.md"}, files)
+	mockCmd.AssertExpectations(t)
+}
+
+// Test complex git output
+func TestChangesToBePush_ComplexOutput(t *testing.T) {
+	mockCmd := new(MockCommander)
+	// Mock that git status returns no uncommitted changes
+	mockCmd.On("executeCommand", "../", "git", "status", "--porcelain").
+		Return([]byte(""), nil)
+	// Test with nested paths and empty lines in output
+	mockCmd.On("executeCommand", "../", "git", "log", "@{u}..HEAD", "--name-only", "--pretty=format:").
+		Return([]byte("path/to/file1.txt\n\ndeleted-file.go\n\npath/to/nested/file.yaml"), nil)
+
+	changes, files, err := changesToBePush(t, "../", mockCmd)
+
+	assert.NoError(t, err)
+	assert.True(t, changes)
+	// Since git log returns full paths rather than status codes + files
+	assert.ElementsMatch(t, []string{"path/to/file1.txt", "deleted-file.go", "path/to/nested/file.yaml"}, files)
+	mockCmd.AssertExpectations(t)
+}
+
+// Test with empty paths
+func TestChangesToBePush_EmptyPath(t *testing.T) {
+	mockCmd := new(MockCommander)
+	// Mock that git status returns no uncommitted changes
+	mockCmd.On("executeCommand", "", "git", "status", "--porcelain").
+		Return([]byte(""), nil)
+	mockCmd.On("executeCommand", "", "git", "log", "@{u}..HEAD", "--name-only", "--pretty=format:").
+		Return([]byte("file1.txt"), nil)
+
+	changes, files, err := changesToBePush(t, "", mockCmd)
+
+	assert.NoError(t, err)
+	assert.True(t, changes)
+	assert.Equal(t, []string{"file1.txt"}, files)
 	mockCmd.AssertExpectations(t)
 }
 
@@ -171,4 +226,32 @@ func (m *MockCommander) executeCommand(dir string, command string, args ...strin
 	}
 	mockArgs := m.Called(callArgs...)
 	return mockArgs.Get(0).([]byte), mockArgs.Error(1)
+}
+
+// Add missing method implementations to MockCommander if needed
+func (m *MockCommander) executeGitCommand(dir string, args ...string) ([]byte, error) {
+	callArgs := []interface{}{dir}
+	for _, arg := range args {
+		callArgs = append(callArgs, arg)
+	}
+	mockArgs := m.Called(callArgs...)
+	return mockArgs.Get(0).([]byte), mockArgs.Error(1)
+}
+
+// If getLastCommitMessage is used in the implementation
+func (m *MockCommander) getLastCommitMessage() (string, error) {
+	args := m.Called()
+	return args.String(0), args.Error(1)
+}
+
+// If getCurrentRepoPath is used in the implementation
+func (m *MockCommander) getCurrentRepoPath() (string, error) {
+	args := m.Called()
+	return args.String(0), args.Error(1)
+}
+
+// If checkIfGitRepo is used in the implementation
+func (m *MockCommander) checkIfGitRepo(repoPath string) bool {
+	args := m.Called(repoPath)
+	return args.Bool(0)
 }

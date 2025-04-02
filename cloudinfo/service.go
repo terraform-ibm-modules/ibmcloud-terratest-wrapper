@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	projects "github.com/IBM/project-go-sdk/projectv1"
@@ -50,6 +51,7 @@ type CloudInfoService struct {
 	// schematics is regional, this map contains schematics services by location
 	schematicsServices map[string]schematicsService
 	ApiKey             string
+	Logger             *common.TestLogger // Logger for CloudInfoService
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -64,6 +66,11 @@ type CloudInfoServiceI interface {
 	GetThreadLock() *sync.Mutex
 	GetClusterIngressStatus(clusterId string) (string, error)
 	GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error)
+	CreateCatalog(catalogName string) (*catalogmanagementv1.Catalog, error)
+	DeleteCatalog(catalogID string) error
+	ImportOffering(catalogID string, zipUrl string, offeringName string, flavorName string, version string, installKind InstallKind) (*catalogmanagementv1.Offering, error)
+	DeployAddonToProject(addonConfig *AddonConfig, projectConfig *ProjectsConfig) (*DeployedAddonsDetails, error)
+	GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error)
 	CreateProjectFromConfig(config *ProjectsConfig) (*projects.Project, *core.DetailedResponse, error)
 	GetProject(projectID string) (*projects.Project, *core.DetailedResponse, error)
 	GetProjectConfigs(projectID string) ([]projects.ProjectConfigSummary, error)
@@ -93,6 +100,9 @@ type CloudInfoServiceI interface {
 	GetReclamationIdFromCRN(CRN string) (string, error)
 	DeleteInstanceFromReclamationId(reclamationID string) error
 	DeleteInstanceFromReclamationByCRN(CRN string) error
+	GetLogger() *common.TestLogger
+	SetLogger(logger *common.TestLogger)
+	GetApiKey() string
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -113,6 +123,7 @@ type CloudInfoServiceOptions struct {
 	SchematicsServices        map[string]schematicsService
 	// StackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	StackDefinitionCreator StackDefinitionCreator
+	Logger                 *common.TestLogger // Logger option for CloudInfoService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -216,6 +227,9 @@ type projectsService interface {
 // catalogService for external Data Catalog V1 Service API. Used for mocking.
 type catalogService interface {
 	GetVersion(getVersionOptions *catalogmanagementv1.GetVersionOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
+	CreateCatalog(createCatalogOptions *catalogmanagementv1.CreateCatalogOptions) (result *catalogmanagementv1.Catalog, response *core.DetailedResponse, err error)
+	DeleteCatalog(deleteCatalogOptions *catalogmanagementv1.DeleteCatalogOptions) (response *core.DetailedResponse, err error)
+	ImportOffering(importOfferingOptions *catalogmanagementv1.ImportOfferingOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
 }
 
 // schematicsService for external Schematics V1 Service API. Used for mocking.
@@ -283,6 +297,13 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		return nil, errors.New("empty API Key supplied")
 	}
 
+	// Set logger if provided, otherwise create a default one
+	if options.Logger != nil {
+		infoSvc.Logger = options.Logger
+	} else {
+		infoSvc.Logger = common.NewTestLogger("CloudInfoService")
+	}
+
 	// if authenticator is not supplied, create new IamAuthenticator with supplied api key
 	if options.Authenticator != nil {
 		infoSvc.authenticator = options.Authenticator
@@ -300,7 +321,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 			Authenticator: infoSvc.authenticator,
 		})
 		if iamErr != nil {
-			log.Println("ERROR: Could not create NewIamIdentityV1 service:", iamErr)
+			infoSvc.Logger.Error(fmt.Sprintf("Could not create NewIamIdentityV1 service: %v", iamErr))
 			return nil, iamErr
 		}
 		infoSvc.iamIdentityService = iamService
@@ -315,7 +336,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 				Authenticator: infoSvc.authenticator,
 			})
 		if err != nil {
-			log.Println("ERROR: Could not create NewIamPolicyManagementV1 service:", err)
+			infoSvc.Logger.Error(fmt.Sprintf("Could not create NewIamPolicyManagementV1 service: %v", err))
 			return nil, err
 		}
 		infoSvc.iamPolicyService = policyService
@@ -330,7 +351,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 			Authenticator: infoSvc.authenticator,
 		})
 		if vpcErr != nil {
-			log.Println("ERROR: Could not create NewVpcV1 service:", vpcErr)
+			infoSvc.Logger.Error(fmt.Sprintf("Could not create NewVpcV1 service: %v", vpcErr))
 			return nil, vpcErr
 		}
 
@@ -347,7 +368,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		})
 
 		if cbrErr != nil {
-			log.Println("ERROR: Could not create contextbasedrestrictionsv1 service:", cbrErr)
+			infoSvc.Logger.Error(fmt.Sprintf("Could not create contextbasedrestrictionsv1 service: %v", cbrErr))
 			return nil, cbrErr
 		}
 
@@ -494,6 +515,11 @@ func NewCloudInfoServiceFromEnv(apiKeyEnv string, options CloudInfoServiceOption
 
 	options.ApiKey = apiKey
 
+	// Make sure to pass the logger along
+	if options.Logger == nil {
+		options.Logger = common.NewTestLogger("CloudInfoService")
+	}
+
 	return NewCloudInfoServiceWithKey(options)
 }
 
@@ -503,4 +529,19 @@ func (infoSvc *CloudInfoService) GetThreadLock() *sync.Mutex {
 
 type StackDefinitionCreator interface {
 	CreateStackDefinitionWrapper(options *projects.CreateStackDefinitionOptions, members []projects.ProjectConfig) (*projects.StackDefinition, *core.DetailedResponse, error)
+}
+
+// GetLogger returns the current logger
+func (infoSvc *CloudInfoService) GetLogger() *common.TestLogger {
+	return infoSvc.Logger
+}
+
+// SetLogger sets a new logger
+func (infoSvc *CloudInfoService) SetLogger(logger *common.TestLogger) {
+	infoSvc.Logger = logger
+}
+
+// GetApiKey returns the current API key
+func (infoSvc *CloudInfoService) GetApiKey() string {
+	return infoSvc.ApiKey
 }

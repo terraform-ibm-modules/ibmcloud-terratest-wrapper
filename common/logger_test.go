@@ -36,7 +36,15 @@ func TestLoggerFunction(t *testing.T) {
 			logFunc: func(logger *TestLogger) {
 				logger.Debug("This is a debug message")
 			},
-			expectedOutput: `\033\[33mDEBUG\033\[0m: \033\[33m\[TestName - v1.0\]\033\[0m .* This is a debug message`,
+			expectedOutput: `\033\[34mDEBUG\033\[0m: \033\[34m\[TestName - v1.0\]\033\[0m .* This is a debug message`,
+		},
+		{
+			name:   "Warn",
+			prefix: "v1.0",
+			logFunc: func(logger *TestLogger) {
+				logger.Warn("This is a warning message")
+			},
+			expectedOutput: `\033\[33mWARN\033\[0m: \033\[33m\[TestName - v1.0\]\033\[0m .* This is a warning message`,
 		},
 		{
 			name:   "ShortInfo",
@@ -80,7 +88,14 @@ func TestLoggerFunction(t *testing.T) {
 			logFunc: func(logger *TestLogger) {
 				logger.ShortDebug("This is a short debug message")
 			},
-			expectedOutput: `\033\[33m\[TestName\]\033\[0m This is a short debug message`,
+			expectedOutput: `\033\[34m\[TestName\]\033\[0m This is a short debug message`,
+		},
+		{
+			name: "ShortWarn",
+			logFunc: func(logger *TestLogger) {
+				logger.ShortWarn("This is a short warning message")
+			},
+			expectedOutput: `\033\[33m\[TestName\]\033\[0m This is a short warning message`,
 		},
 	}
 

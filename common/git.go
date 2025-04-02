@@ -511,36 +511,84 @@ func ChangesToBePush(testing *testing.T, repoDir string) (bool, []string, error)
 }
 
 func changesToBePush(testing *testing.T, repoDir string, git gitOps) (bool, []string, error) {
-	output, err := git.executeCommand(repoDir, "git", "status", "--porcelain")
-	if err != nil {
-		logger.Log(testing, "Failed to determine if there are changes to push:", err)
-		return false, nil, err
+	// Check for uncommitted changes
+	uncommittedOutput, uncommittedErr := git.executeCommand(repoDir, "git", "status", "--porcelain")
+	if uncommittedErr != nil {
+		logger.Log(testing, "Failed to determine if there are uncommitted changes:", uncommittedErr)
+		return false, nil, uncommittedErr
 	}
 
-	// Check for nil output and empty output
-	if output == nil || len(output) == 0 {
-		return false, []string{}, nil
+	// Check for unpushed commits
+	unpushedOutput, unpushedErr := git.executeCommand(repoDir, "git", "log", "@{u}..HEAD", "--name-only", "--pretty=format:")
+
+	// If there's an error, it might be because there's no upstream branch
+	// In that case, let's try to check if there are any commits at all
+	if unpushedErr != nil {
+		logger.Log(testing, "Failed to check unpushed commits, trying alternative approach:", unpushedErr)
+		// Check if there are any commits
+		unpushedOutput, unpushedErr = git.executeCommand(repoDir, "git", "log", "HEAD", "--name-only", "--pretty=format:", "-n", "1")
+		if unpushedErr != nil {
+			logger.Log(testing, "Failed to determine if there are commits:", unpushedErr)
+			// Continue with just the uncommitted changes check
+			unpushedOutput = []byte{}
+		}
 	}
 
-	// Parse output to extract filenames
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	changedFiles := make([]string, 0, len(lines))
+	// Process uncommitted changes
+	hasUncommittedChanges := len(uncommittedOutput) > 0
+	uncommittedFiles := make([]string, 0)
 
-	for _, line := range lines {
-		if len(line) > 0 {
-			// git status --porcelain output has the format: XY filename
-			// where X and Y are status codes and the rest is the filename
-			parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
-			if len(parts) > 1 {
-				// There might be multiple spaces between status and filename
-				filename := strings.TrimSpace(parts[1])
-				changedFiles = append(changedFiles, filename)
-			} else if len(parts) == 1 && len(parts[0]) > 2 {
-				// Handle cases where there's no space after status codes
-				changedFiles = append(changedFiles, strings.TrimSpace(parts[0][2:]))
+	if hasUncommittedChanges {
+		// Parse output to extract filenames for uncommitted changes
+		lines := strings.Split(strings.TrimSpace(string(uncommittedOutput)), "\n")
+
+		for _, line := range lines {
+			if len(line) > 0 {
+				// git status --porcelain output has the format: XY filename
+				// where X and Y are status codes and the rest is the filename
+				parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
+				if len(parts) > 1 {
+					// There might be multiple spaces between status and filename
+					filename := strings.TrimSpace(parts[1])
+					uncommittedFiles = append(uncommittedFiles, filename)
+				} else if len(parts) == 1 && len(parts[0]) > 2 {
+					// Handle cases where there's no space after status codes
+					uncommittedFiles = append(uncommittedFiles, strings.TrimSpace(parts[0][2:]))
+				}
 			}
 		}
 	}
 
-	return true, changedFiles, nil
+	// Process unpushed commits
+	hasUnpushedCommits := len(unpushedOutput) > 0
+	unpushedFiles := make([]string, 0)
+
+	if hasUnpushedCommits && string(unpushedOutput) != "" {
+		// Parse output to extract filenames for unpushed commits
+		lines := strings.Split(strings.TrimSpace(string(unpushedOutput)), "\n")
+		for _, line := range lines {
+			if line != "" {
+				unpushedFiles = append(unpushedFiles, line)
+			}
+		}
+	}
+
+	// Combine both lists of files and remove duplicates
+	allChangedFiles := make([]string, 0, len(uncommittedFiles)+len(unpushedFiles))
+	allChangedFiles = append(allChangedFiles, uncommittedFiles...)
+
+	// Add unpushed files, avoiding duplicates
+	fileMap := make(map[string]bool)
+	for _, file := range uncommittedFiles {
+		fileMap[file] = true
+	}
+
+	for _, file := range unpushedFiles {
+		if !fileMap[file] {
+			allChangedFiles = append(allChangedFiles, file)
+			fileMap[file] = true
+		}
+	}
+
+	return hasUncommittedChanges || hasUnpushedCommits, allChangedFiles, nil
 }

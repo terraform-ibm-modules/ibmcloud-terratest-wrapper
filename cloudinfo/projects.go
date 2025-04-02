@@ -422,6 +422,80 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 	return infoSvc.CreateNewStack(stackConfig)
 }
 
+// GetConfigAndDependenciesStates retrieves the state of a config and its dependencies.
+func (infoSvc *CloudInfoService) GetConfigAndDependenciesStates(configDetails *ConfigDetails) (states ConfigStates, err error) {
+	// Initialize the ConfigStates struct
+	states = ConfigStates{}
+
+	// Get the config details
+	config, _, err := infoSvc.GetConfig(configDetails)
+	if err != nil {
+		return states, fmt.Errorf("error getting config: %w", err)
+	}
+
+	// Set the config ID and name
+	states.ConfigID = *config.ID
+
+	// Check if it's a ProjectConfigDefinitionResponse
+	if defResponse, ok := config.Definition.(*project.ProjectConfigDefinitionResponse); ok {
+		states.ConfigName = *defResponse.Name
+	}
+
+	// Initialize the states array
+	states.States = []struct {
+		Name      string `json:"name"`
+		State     string `json:"state"`
+		StateCode string `json:"state_code"`
+	}{}
+
+	// Add the main config state
+	if config.State != nil {
+		mainState := struct {
+			Name      string `json:"name"`
+			State     string `json:"state"`
+			StateCode string `json:"state_code"`
+		}{
+			Name:      states.ConfigName,
+			State:     *config.State,
+			StateCode: *config.State,
+		}
+		states.States = append(states.States, mainState)
+	}
+
+	// If it's a stack, get all member states
+	if defResponse, ok := config.Definition.(*project.ProjectConfigDefinitionResponse); ok && defResponse.Members != nil {
+		for _, member := range defResponse.Members {
+			memberConfig, _, memberErr := infoSvc.GetConfig(&ConfigDetails{
+				ProjectID: configDetails.ProjectID,
+				ConfigID:  *member.ConfigID,
+			})
+
+			if memberErr != nil {
+				// Log the error but continue with other members
+				log.Printf("Error getting member config %s: %v", *member.ConfigID, memberErr)
+				continue
+			}
+
+			memberName := *member.Name
+			if memberConfig.State != nil {
+				memberState := struct {
+					Name      string `json:"name"`
+					State     string `json:"state"`
+					StateCode string `json:"state_code"`
+				}{
+					Name:      memberName,
+					State:     *memberConfig.State,
+					StateCode: *memberConfig.State,
+				}
+				states.States = append(states.States, memberState)
+			}
+		}
+	}
+
+	return states, nil
+}
+
+// IsDeployable checks if a config and all its members are deployable. If any one memeber is deployable, return true.
 // trackStackInputs tracks inputs that should not be overridden.
 // This function initializes a map of inputs that should be preserved in the stack configuration.
 func trackStackInputs(stackConfig *ConfigDetails) map[string]map[string]interface{} {
@@ -897,7 +971,15 @@ func (infoSvc *CloudInfoService) LookupMemberNameByID(stackDetails *project.Proj
 			return *member.Name, nil
 		}
 	}
-	return "", fmt.Errorf("member ID %s not found in stack details", memberID)
+	// api lookup the name
+	member, _, err := infoSvc.GetConfig(&ConfigDetails{
+		ProjectID: *stackDetails.Project.ID,
+		ConfigID:  memberID,
+	})
+	if err != nil {
+		return "", fmt.Errorf("member ID %s not found in stack details", memberID)
+	}
+	return *member.Definition.(*project.ProjectConfigDefinitionResponse).Name, nil
 }
 
 // GetSchematicsJobLogsForMember gets the schematics job logs for a member

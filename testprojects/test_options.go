@@ -2,10 +2,11 @@ package testprojects
 
 import (
 	"fmt"
-	"github.com/IBM/go-sdk-core/v5/core"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/IBM/go-sdk-core/v5/core"
 
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -214,4 +215,12 @@ func (options *TestProjectsOptions) Clone() (*TestProjectsOptions, error) {
 	newOptions.Testing = options.Testing
 
 	return newOptions, nil
+}
+
+func (options *TestProjectsOptions) SetCurrentStackConfig(currentStackConfig *cloudinfo.ConfigDetails) {
+	options.currentStackConfig = currentStackConfig
+}
+
+func (options *TestProjectsOptions) SetCurrentProjectConfig(currentProjectConfig *cloudinfo.ProjectsConfig) {
+	options.currentProjectConfig = currentProjectConfig
 }
