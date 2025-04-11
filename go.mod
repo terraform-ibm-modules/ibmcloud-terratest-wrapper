@@ -12,8 +12,8 @@ require (
 	github.com/IBM/platform-services-go-sdk v0.79.0
 	github.com/IBM/project-go-sdk v0.3.6
 	github.com/IBM/schematics-go-sdk v0.4.0
-	github.com/IBM/vpc-go-sdk v0.66.0
-	github.com/go-git/go-git/v5 v5.14.0
+	github.com/IBM/vpc-go-sdk v0.67.0
+	github.com/go-git/go-git/v5 v5.15.0
 	github.com/go-openapi/errors v0.22.1
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/google/go-cmp v0.7.0
@@ -28,12 +28,12 @@ require (
 require (
 	dario.cat/mergo v1.0.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/ProtonMail/go-crypto v1.1.5 // indirect
+	github.com/ProtonMail/go-crypto v1.1.6 // indirect
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
-	github.com/cloudflare/circl v1.6.0 // indirect
+	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
@@ -91,7 +91,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.29.0 // indirect
 	go.opentelemetry.io/otel/trace v1.29.0 // indirect
 	golang.org/x/mod v0.18.0 // indirect
-	golang.org/x/net v0.37.0 // indirect
+	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
