@@ -27,6 +27,7 @@ func (suite *ProjectsServiceTestSuite) SetupTest() {
 		authenticator: &core.IamAuthenticator{
 			ApiKey: "mockApiKey",
 		},
+		ApiKey:                 "mockApiKey",
 		stackDefinitionCreator: suite.mockCreator,
 	}
 	suite.mockCreator = new(MockStackDefinitionCreator)

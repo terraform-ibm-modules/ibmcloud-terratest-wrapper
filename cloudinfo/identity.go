@@ -14,7 +14,7 @@ func (infoSvc *CloudInfoService) getApiKeyDetail() (*iamidentityv1.APIKey, error
 	} else {
 		// retrieve API key from current authentication and return/set
 		apiKey, _, err := infoSvc.iamIdentityService.GetAPIKeysDetails(&iamidentityv1.GetAPIKeysDetailsOptions{
-			IamAPIKey: &infoSvc.authenticator.ApiKey, // pragma: allowlist secret
+			IamAPIKey: &infoSvc.ApiKey, // pragma: allowlist secret
 		})
 		if err != nil {
 			return nil, err

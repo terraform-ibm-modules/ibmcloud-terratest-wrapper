@@ -102,18 +102,16 @@ func (infoSvc *CloudInfoService) DeleteProject(projectID string) (result *projec
 
 // CreateConfig creates a project config
 func (infoSvc *CloudInfoService) CreateConfig(configDetails *ConfigDetails) (result *project.ProjectConfig, response *core.DetailedResponse, err error) { //
-	// if authatization is not provided, use API key, if its set
+	// if authorization is not provided, use API key, if it's set
 	// Best effort to try set an authorization method
 	// 1. If the user has provided an authorization method, use it
-	// 2. If not try use infoSvc.authenticator.ApiKey
+	// 2. If not try use infoSvc.ApiKey
 	if configDetails.Authorizations == nil {
-		if infoSvc.authenticator != nil {
-			if infoSvc.authenticator.ApiKey != "" {
-				authMethod := project.ProjectConfigAuth_Method_ApiKey
-				configDetails.Authorizations = &project.ProjectConfigAuth{
-					ApiKey: &infoSvc.authenticator.ApiKey,
-					Method: &authMethod,
-				}
+		if infoSvc.ApiKey != "" {
+			authMethod := project.ProjectConfigAuth_Method_ApiKey
+			configDetails.Authorizations = &project.ProjectConfigAuth{
+				ApiKey: &infoSvc.ApiKey,
+				Method: &authMethod,
 			}
 		}
 	}
@@ -355,7 +353,7 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 	if stackConfig.Authorizations == nil {
 		// Set default authorizations if not provided
 		stackConfig.Authorizations = &project.ProjectConfigAuth{
-			ApiKey: &infoSvc.authenticator.ApiKey,
+			ApiKey: &infoSvc.ApiKey,
 			Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
 		}
 	}
@@ -1241,4 +1239,151 @@ func convertSliceToString(input interface{}) interface{} {
 		return fmt.Sprintf("[%s]", strings.Join(elements, ", "))
 	}
 	return input
+}
+
+// GetProjectByName gets a project by name
+func (infoSvc *CloudInfoService) GetProjectByName(projectName string) (*project.Project, error) {
+	// Since we don't have access to a ListProjects method without the pager functionality,
+	// we'll need to use a different approach.
+	// This is a simple workaround that assumes the UUID is provided, not the name.
+	// If it's actually a name, we'll return an error suggesting using the project ID instead.
+
+	if isUUID(projectName) {
+		// Treat it as an ID and get the project directly
+		getProjectOptions := &project.GetProjectOptions{
+			ID: core.StringPtr(projectName),
+		}
+		project, _, err := infoSvc.projectsService.GetProject(getProjectOptions)
+		return project, err
+	}
+
+	// If it's not a UUID, we can't efficiently find it without the pager
+	// Return an informative error
+	infoSvc.Logger.ShortWarn(fmt.Sprintf("Cannot search for project by name '%s'. Please use the project ID instead. The NewProjectsPager function is not implemented in this version.", projectName))
+	return nil, fmt.Errorf("project lookup by name is not supported, please use project ID instead of '%s'", projectName)
+}
+
+// GetProjectInfo gets project information and caches it
+func (infoSvc *CloudInfoService) GetProjectInfo(projectID string, projectCache map[string]*ProjectInfo) (*ProjectInfo, error) {
+	// Check cache first
+	if info, exists := projectCache[projectID]; exists {
+		return info, nil
+	}
+
+	// If it's a name, not an ID, try to look up the project by name
+	if !isUUID(projectID) {
+		projectObj, err := infoSvc.GetProjectByName(projectID)
+		if err != nil {
+			return nil, err
+		}
+		projectID = *projectObj.ID
+	}
+
+	// Get project
+	getProjectOptions := &project.GetProjectOptions{
+		ID: core.StringPtr(projectID),
+	}
+
+	projectObj, _, err := infoSvc.projectsService.GetProject(getProjectOptions)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create and populate project info
+	info := &ProjectInfo{
+		ID:      projectID,
+		Name:    *projectObj.Definition.Name,
+		Region:  *projectObj.Location, // Get the region from the project
+		Configs: make(map[string]string),
+	}
+
+	// Cache project info
+	projectCache[projectID] = info
+
+	// Pre-load configs for this project
+	err = infoSvc.LoadConfigNamesForProject(projectID, info)
+	if err != nil {
+		infoSvc.Logger.ShortWarn(fmt.Sprintf("Error loading config names: %v", err))
+		// Continue anyway since we have the project info
+	}
+
+	return info, nil
+}
+
+// LoadConfigNamesForProject loads config names for a project
+func (infoSvc *CloudInfoService) LoadConfigNamesForProject(projectID string, projectInfo *ProjectInfo) error {
+	listConfigsOptions := &project.ListConfigsOptions{
+		ProjectID: core.StringPtr(projectID),
+	}
+
+	pager, err := infoSvc.projectsService.NewConfigsPager(listConfigsOptions)
+	if err != nil {
+		return err
+	}
+
+	for pager.HasNext() {
+		page, err := pager.GetNext()
+		if err != nil {
+			return err
+		}
+
+		for _, config := range page {
+			if config.ID != nil {
+				// ProjectConfigSummary.Definition is not an interface, we can access its fields directly
+				if config.Definition != nil && config.Definition.Name != nil {
+					projectInfo.Configs[*config.ID] = *config.Definition.Name
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// ExtractNameFromConfigDefinition attempts to extract name from different config definition types
+func (infoSvc *CloudInfoService) ExtractNameFromConfigDefinition(definition interface{}) string {
+	// Try different known types
+	switch d := definition.(type) {
+	case *project.ProjectConfigDefinitionResponse:
+		if d.Name != nil {
+			return *d.Name
+		}
+	case *project.ProjectConfigDefinitionPatch:
+		if d.Name != nil {
+			return *d.Name
+		}
+	case *project.ProjectConfigDefinitionPrototype:
+		if d.Name != nil {
+			return *d.Name
+		}
+	}
+
+	// Log that we couldn't extract the name from this definition type
+	infoSvc.Logger.ShortWarn(fmt.Sprintf("Unable to extract name from config definition type: %T", definition))
+	return ""
+}
+
+// GetConfigName gets a config name by its ID
+func (infoSvc *CloudInfoService) GetConfigName(projectID, configID string) (string, error) {
+	getConfigOptions := &project.GetConfigOptions{
+		ProjectID: core.StringPtr(projectID),
+		ID:        core.StringPtr(configID),
+	}
+
+	config, _, err := infoSvc.projectsService.GetConfig(getConfigOptions)
+	if err != nil {
+		return "", err
+	}
+
+	// Config returned by GetConfig has a different structure from those in ListConfigs
+	// The Definition field in the Config response is an interface that needs proper handling
+	if config.Definition != nil {
+		// Try to extract name based on the concrete type
+		name := infoSvc.ExtractNameFromConfigDefinition(config.Definition)
+		if name != "" {
+			return name, nil
+		}
+	}
+
+	return "", fmt.Errorf("config name not found")
 }
