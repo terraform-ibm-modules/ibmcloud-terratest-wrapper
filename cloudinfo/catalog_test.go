@@ -74,9 +74,9 @@ func (suite *CatalogServiceTestSuite) TestGetCatalogVersionByLocator() {
 		},
 		{
 			name:           "Failure case - empty offering",
-			expectedError:  nil,
+			expectedError:  errors.New("version not found"),
 			mockError:      nil,
-			expectedResult: &catalogmanagementv1.Version{},
+			expectedResult: nil,
 			mockResult:     &catalogmanagementv1.Offering{},
 			mockResponse:   mockResponse,
 		},
