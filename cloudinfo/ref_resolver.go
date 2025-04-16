@@ -137,7 +137,7 @@ func (infoSvc *CloudInfoService) ResolveReferences(region string, references []R
 	// Create a new request
 	req, err := http.NewRequest("POST", serviceURL+"/resolve", bytes.NewReader(jsonPayload))
 	if err != nil {
-		infoSvc.Logger.ShortError(fmt.Sprintf("Failed to create request: %w", err))
+		infoSvc.Logger.ShortError(fmt.Sprintf("Failed to create request: %v", err))
 		infoSvc.Logger.ShortInfo("Request body: " + string(jsonPayload))
 		infoSvc.Logger.ShortInfo("Service URL: " + serviceURL)
 		infoSvc.Logger.ShortInfo("Region: " + region)
@@ -192,6 +192,7 @@ func (infoSvc *CloudInfoService) getProjectInfoFromID(projectID string, projectC
 
 // transformReferencesToQualifiedReferences transforms a slice of reference strings to fully qualified references
 // This function contains the core reference transformation logic and can be tested independently
+// NOTE: Currently does not support stack style relative references eg ref:../../configs/{configID}/inputs/prefix
 func (infoSvc *CloudInfoService) transformReferencesToQualifiedReferences(
 	refStrings []string,
 	projectInfo *ProjectInfo) ([]Reference, error) {

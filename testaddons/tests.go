@@ -215,6 +215,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		// check if any required inputs are not set
 		for _, input := range currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs {
 			options.Logger.ShortInfo(fmt.Sprintf("Input: %v ", input))
+			// TODO: check if input is required and not set
 		}
 	}
 
@@ -256,12 +257,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	// Check if its deployable
 	options.Logger.ShortInfo(fmt.Sprintf("Checked if the configuration is deployable %s", common.ColorizeString(common.Colors.Green, "pass ✔")))
 
-	// // Check if all refs are valid
-	// options.Logger.ShortInfo("Checking if all refs are valid")
-	// options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✔"))
-	// // Check all required inputs are set
-	// options.Logger.ShortInfo("Checking if all required inputs are set")
-	// options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✔"))
+	// Check if all refs are valid
 	if options.PreDeployHook != nil {
 		options.Logger.ShortInfo("Running PreDeployHook")
 		hookErr := options.PreDeployHook(options)

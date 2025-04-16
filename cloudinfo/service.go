@@ -75,6 +75,7 @@ type CloudInfoServiceI interface {
 	GetProject(projectID string) (*projects.Project, *core.DetailedResponse, error)
 	GetProjectConfigs(projectID string) ([]projects.ProjectConfigSummary, error)
 	GetConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	GetConfigName(projectID, configID string) (name string, err error)
 	DeleteProject(projectID string) (*projects.ProjectDeleteResponse, *core.DetailedResponse, error)
 	CreateConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
 	DeployConfig(configDetails *ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
@@ -105,6 +106,9 @@ type CloudInfoServiceI interface {
 	GetApiKey() string
 	ResolveReferences(region string, references []Reference) (*ResolveResponse, error)
 	ResolveReferencesFromStrings(region string, refStrings []string, projectNameOrID string) (*ResolveResponse, error)
+	// TODO: Implement these methods
+	// GetInputs(projectID, configID string) ([]InputDetail, error)
+	// GetOutputs(projectID, configID string) ([]projects.OutputValue, error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
