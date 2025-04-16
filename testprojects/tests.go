@@ -601,7 +601,7 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 			// Log the final undeploy status
 			// print final state of the stack
 			stackDetails, _, cfgErr := options.CloudInfoService.GetConfig(options.currentStackConfig)
-			if err != nil {
+			if cfgErr != nil {
 				return []error{cfgErr}
 			}
 			if stackDetails == nil {

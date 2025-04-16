@@ -2,10 +2,11 @@ package cloudinfo
 
 import (
 	"errors"
+	"testing"
+
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 // TestGetCBRRuleByID tests the GetCBRRuleByID function with a valid rule ID
@@ -109,11 +110,10 @@ func TestSetCBREnforcementMode(t *testing.T) {
 		ID:              core.StringPtr("mock-rule-id"),
 		EnforcementMode: core.StringPtr("disabled"),
 	}
-	eTag := "mock-etag"
 
 	mockCBRService := &cbrServiceMock{
 		rule:             existingRule,
-		detailedResponse: &core.DetailedResponse{StatusCode: 200, Headers: map[string][]string{"eTag": []string{eTag}}},
+		detailedResponse: &core.DetailedResponse{StatusCode: 200, Headers: map[string][]string{"eTag": {"mock-etag"}}},
 		err:              nil,
 	}
 

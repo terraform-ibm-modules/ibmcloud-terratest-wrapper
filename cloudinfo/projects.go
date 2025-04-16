@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -401,7 +402,7 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 
 	// If there are any errors from the validation process, return them
 	if len(errorMessages) > 0 {
-		return nil, nil, fmt.Errorf(strings.Join(errorMessages, "\n"))
+		return nil, nil, errors.New(strings.Join(errorMessages, "\n"))
 	}
 
 	// Sort stack inputs by name for consistency

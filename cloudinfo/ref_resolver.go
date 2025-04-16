@@ -160,7 +160,15 @@ func (infoSvc *CloudInfoService) ResolveReferences(region string, references []R
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				if infoSvc.Logger != nil {
+					infoSvc.Logger.ShortInfo(fmt.Sprintf("Error closing response body: %v", closeErr))
+				}
+			}
+		}
+	}()
 
 	// Check the status code
 	if resp.StatusCode != http.StatusOK {

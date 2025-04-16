@@ -159,10 +159,8 @@ func listResourceInstances(infoSvc *CloudInfoService, options *resourcecontrolle
 		}
 		countPages += 1
 
-		// add all resources to list
-		for _, svcInstance := range listPage.Resources {
-			listResourceInstance = append(listResourceInstance, svcInstance)
-		}
+		// add all resources to list - more efficiently using append with ... syntax
+		listResourceInstance = append(listResourceInstance, listPage.Resources...)
 
 		// get next page of results if necessary
 		// see: https://cloud.ibm.com/apidocs/resource-controller/resource-controller?code=go#list-resource-instances

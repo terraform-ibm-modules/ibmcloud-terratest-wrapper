@@ -553,9 +553,13 @@ func (suite *RefResolverTestSuite) TestResolveReferences() {
 				// Return the predefined response
 				w.WriteHeader(tc.serverStatus)
 				if tc.serverStatus == http.StatusOK {
-					json.NewEncoder(w).Encode(tc.serverBody)
+					if err := json.NewEncoder(w).Encode(tc.serverBody); err != nil {
+						suite.T().Errorf("Failed to encode response: %v", err)
+					}
 				} else {
-					fmt.Fprint(w, tc.serverBody)
+					if _, err := fmt.Fprint(w, tc.serverBody); err != nil {
+						suite.T().Errorf("Failed to write response: %v", err)
+					}
 				}
 			}))
 			defer server.Close()

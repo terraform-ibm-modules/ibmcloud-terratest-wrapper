@@ -8,8 +8,6 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
-const mockProjectID = "mockProjectID"
-
 // Projects API SERVICE MOCK
 type ProjectsServiceMock struct {
 	mock.Mock

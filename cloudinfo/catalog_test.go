@@ -557,9 +557,7 @@ func (suite *CatalogServiceTestSuite) TestUpdateConfigInfoFromResponse() {
 			// Create copies of the configs for modification during test
 			addonConfig := *tc.addonConfig
 			dependencies := make([]AddonConfig, len(tc.dependencies))
-			for i, dep := range tc.dependencies {
-				dependencies[i] = dep
-			}
+			copy(dependencies, tc.dependencies)
 
 			// Call the function to test
 			updateConfigInfoFromResponse(&addonConfig, dependencies, tc.response)
