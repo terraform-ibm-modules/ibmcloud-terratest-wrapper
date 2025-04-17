@@ -29,10 +29,8 @@ func (infoSvc *CloudInfoService) GetCatalogVersionByLocator(versionLocator strin
 	// Check if the response status code is 200 (success)
 	if response.StatusCode == 200 {
 		var version catalogmanagementv1.Version
-		if offering.Kinds != nil {
+		if len(offering.Kinds) > 0 && len(offering.Kinds[0].Versions) > 0 {
 			version = offering.Kinds[0].Versions[0]
-		}
-		if &version != nil {
 			return &version, nil
 		}
 		return nil, fmt.Errorf("version not found")
@@ -327,7 +325,13 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 	if err != nil {
 		return nil, fmt.Errorf("error executing request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				infoSvc.Logger.ShortInfo(fmt.Sprintf("Error closing response body: %v", closeErr))
+			}
+		}
+	}()
 
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
@@ -383,7 +387,18 @@ func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (
 	if err != nil {
 		return nil, fmt.Errorf("error executing request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			if closeErr := resp.Body.Close(); closeErr != nil {
+				infoSvc.Logger.ShortInfo(fmt.Sprintf("Error closing response body: %v", closeErr))
+			}
+		}
+	}()
+
+	// Check if the response is nil
+	if resp == nil {
+		return nil, fmt.Errorf("response is nil")
+	}
 
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)

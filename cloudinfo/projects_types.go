@@ -177,3 +177,13 @@ type ConfigStates struct {
 	// ConfigName is the name of the config
 	ConfigName string `json:"config_name"`
 }
+
+// InputDetail holds details about a configuration input
+type InputDetail struct {
+	Name        string      `json:"name"`
+	Type        string      `json:"type"`
+	Required    bool        `json:"required"`
+	Value       interface{} `json:"value"`
+	Description string      `json:"description,omitempty"`
+	Hidden      bool        `json:"hidden,omitempty"`
+}

@@ -78,6 +78,8 @@ type TestAddonOptions struct {
 
 	// SkipLocalChangeCheck If set to true, the test will not check for local changes before deploying.
 	SkipLocalChangeCheck bool
+	// SkipRefValidation If set to true, the test will not check for reference validation before deploying.
+	SkipRefValidation bool
 	// LocalChangesIgnorePattern List of regex patterns to ignore files or directories when checking for local changes.
 	LocalChangesIgnorePattern []string
 

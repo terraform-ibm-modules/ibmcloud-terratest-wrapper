@@ -32,8 +32,8 @@ import (
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
 // It contains references to other important services and data structures needed to perform these methods.
 type CloudInfoService struct {
-	authenticator             *core.IamAuthenticator // shared authenticator
-	apiKeyDetail              *iamidentityv1.APIKey  // IBMCloud account for user
+	authenticator             IiamAuthenticator     // shared authenticator - can be a real authenticator or a mock
+	apiKeyDetail              *iamidentityv1.APIKey // IBMCloud account for user
 	vpcService                vpcService
 	iamIdentityService        iamIdentityService
 	iamPolicyService          iamPolicyService
@@ -75,6 +75,7 @@ type CloudInfoServiceI interface {
 	GetProject(projectID string) (*projects.Project, *core.DetailedResponse, error)
 	GetProjectConfigs(projectID string) ([]projects.ProjectConfigSummary, error)
 	GetConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	GetConfigName(projectID, configID string) (name string, err error)
 	DeleteProject(projectID string) (*projects.ProjectDeleteResponse, *core.DetailedResponse, error)
 	CreateConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
 	DeployConfig(configDetails *ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
@@ -103,6 +104,11 @@ type CloudInfoServiceI interface {
 	GetLogger() *common.TestLogger
 	SetLogger(logger *common.TestLogger)
 	GetApiKey() string
+	ResolveReferences(region string, references []Reference) (*ResolveResponse, error)
+	ResolveReferencesFromStrings(region string, refStrings []string, projectNameOrID string) (*ResolveResponse, error)
+	// TODO: Implement these methods
+	// GetInputs(projectID, configID string) ([]InputDetail, error)
+	// GetOutputs(projectID, configID string) ([]projects.OutputValue, error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -381,7 +387,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 	} else {
 		// Create a new Bluemix session
 		sess, sessErr := session.New(&bluemix.Config{
-			BluemixAPIKey: infoSvc.authenticator.ApiKey, // pragma: allowlist secret
+			BluemixAPIKey: infoSvc.ApiKey, // pragma: allowlist secret
 		})
 		if sessErr != nil {
 			log.Println("ERROR: Could not create Bluemix session:", sessErr)

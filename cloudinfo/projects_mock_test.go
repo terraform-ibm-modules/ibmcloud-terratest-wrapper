@@ -2,12 +2,11 @@ package cloudinfo
 
 import (
 	"fmt"
+
 	"github.com/IBM/go-sdk-core/v5/core"
 	projects "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/mock"
 )
-
-const mockProjectID = "mockProjectID"
 
 // Projects API SERVICE MOCK
 type ProjectsServiceMock struct {
@@ -228,6 +227,16 @@ func (mock *ProjectsServiceMock) UndeployConfig(unDeployConfigOptions *projects.
 func (mock *ProjectsServiceMock) SyncConfig(syncConfigOptions *projects.SyncConfigOptions) (response *core.DetailedResponse, err error) {
 	args := mock.Called(syncConfigOptions)
 	return args.Get(0).(*core.DetailedResponse), args.Error(1)
+}
+
+func (mock *ProjectsServiceMock) NewListProjectsOptions() *projects.ListProjectsOptions {
+	args := mock.Called()
+	return args.Get(0).(*projects.ListProjectsOptions)
+}
+
+func (mock *ProjectsServiceMock) ListProjects(listProjectsOptions *projects.ListProjectsOptions) (result *projects.ProjectCollection, response *core.DetailedResponse, err error) {
+	args := mock.Called(listProjectsOptions)
+	return args.Get(0).(*projects.ProjectCollection), args.Get(1).(*core.DetailedResponse), args.Error(2)
 }
 
 type MockStackDefinitionCreator struct {

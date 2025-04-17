@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"strings"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
@@ -120,28 +121,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration state: %s", *prjConfig.State))
 	}
 
-	// // Check if the configuration is in a valid state
-	// // Check if its deployable
-	// options.Logger.ShortInfo("Checking if the configuration is deployable")
-	// options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✓"))
-	// // Check if all refs are valid
-	// options.Logger.ShortInfo("Checking if all refs are valid")
-	// options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✓"))
-	// // Check all required inputs are set
-	// options.Logger.ShortInfo("Checking if all required inputs are set")
-	// options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✓"))
-	if options.PreDeployHook != nil {
-		options.Logger.ShortInfo("Running PreDeployHook")
-		hookErr := options.PreDeployHook(options)
-		if hookErr != nil {
-			options.Testing.Fail()
-			return hookErr
-		}
-		options.Logger.ShortInfo("Finished PreDeployHook")
-	}
-
-	// Trigger Deploy
-	// create TestProjectsOptions to use with the projects trigger deploy and wait
+	// create TestProjectsOptions to use with the projects package
 	deployOptions := testprojects.TestProjectsOptions{
 		Prefix:               options.Prefix,
 		ProjectName:          options.ProjectName,
@@ -155,6 +135,140 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	deployOptions.SetCurrentStackConfig(&configDetails)
 	deployOptions.SetCurrentProjectConfig(options.currentProjectConfig)
 
+	allConfigs, err := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
+	if err != nil {
+		options.Logger.ShortError(fmt.Sprintf("Error getting the configuration: %v", err))
+		options.Testing.Fail()
+		return fmt.Errorf("error getting the configuration: %w", err)
+	}
+	options.Logger.ShortInfo(fmt.Sprintf("All Configurations in Project ID: %s", options.currentProjectConfig.ProjectID))
+	options.Logger.ShortInfo("Configurations:")
+
+	// loop through all configs for reference validation and input validation
+	readyToValidate := false
+	waitingOnInputs := make([]string, 0)
+	failedRefs := []string{}
+
+	for _, config := range allConfigs {
+		options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", *config.Definition.Name, *config.ID))
+
+		currentConfigDetails, _, err := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+			ProjectID: options.currentProjectConfig.ProjectID,
+			ConfigID:  *config.ID,
+		})
+
+		if err != nil {
+			options.Logger.ShortError(fmt.Sprintf("Error getting the configuration: %v", err))
+			options.Testing.Fail()
+			return fmt.Errorf("error getting the configuration: %w", err)
+		}
+
+		// Check state for input validation
+		if currentConfigDetails.StateCode != nil && *currentConfigDetails.StateCode == projectv1.ProjectConfig_StateCode_AwaitingValidation {
+			options.Logger.ShortInfo(fmt.Sprintf("Found a configuration ready to validate: %s - ID: %s", *config.Definition.Name, *config.ID))
+			readyToValidate = true
+		}
+		if currentConfigDetails.StateCode != nil && *currentConfigDetails.StateCode == projectv1.ProjectConfig_StateCode_AwaitingInput {
+			waitingOnInputs = append(waitingOnInputs, *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name)
+		}
+
+		// Skip reference validation if the flag is set
+		if !options.SkipRefValidation {
+			options.Logger.ShortInfo("  References:")
+			references := []string{}
+
+			for _, input := range currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs {
+				// if input starts with ref:/
+				if strings.HasPrefix(input.(string), "ref:/") {
+					options.Logger.ShortInfo(fmt.Sprintf("    %s", input))
+					references = append(references, input.(string))
+				}
+			}
+
+			if len(references) > 0 {
+				res_resp, err := options.CloudInfoService.ResolveReferencesFromStrings(*options.currentProject.Location, references, options.currentProjectConfig.ProjectID)
+				if err != nil {
+					options.Logger.ShortError(fmt.Sprintf("Error resolving references: %v", err))
+					options.Testing.Fail()
+					return fmt.Errorf("error resolving references: %w", err)
+				}
+				options.Logger.ShortInfo("  Resolved References:")
+				for _, ref := range res_resp.References {
+					if ref.Code != 200 {
+						options.Logger.ShortError(fmt.Sprintf("%s   %s - Error: %s", common.ColorizeString(common.Colors.Red, "✘"), ref.Reference, ref.State))
+						options.Logger.ShortError(fmt.Sprintf("      Message: %s", ref.Message))
+						options.Logger.ShortError(fmt.Sprintf("      Code: %d", ref.Code))
+						options.Testing.Failed()
+						failedRefs = append(failedRefs, ref.Reference)
+						continue
+					}
+
+					options.Logger.ShortInfo(fmt.Sprintf("%s   %s", common.ColorizeString(common.Colors.Green, "✔"), ref.Reference))
+					options.Logger.ShortInfo(fmt.Sprintf("      State: %s", ref.State))
+					if ref.Value != "" {
+						options.Logger.ShortInfo(fmt.Sprintf("      Value: %s", ref.Value))
+					}
+				}
+			}
+		}
+
+		// check if any required inputs are not set
+		for _, input := range currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs {
+			options.Logger.ShortInfo(fmt.Sprintf("Input: %v ", input))
+			// TODO: check if input is required and not set
+		}
+	}
+
+	if !options.SkipRefValidation && len(failedRefs) > 0 {
+		options.Logger.ShortError("Failed to resolve references:")
+		for _, ref := range failedRefs {
+			options.Logger.ShortError(fmt.Sprintf("  %s", ref))
+		}
+		options.Testing.Failed()
+		return fmt.Errorf("failed to resolve references")
+	}
+
+	if !options.SkipRefValidation {
+		options.Logger.ShortInfo(fmt.Sprintf("  All references resolved successfully %s", common.ColorizeString(common.Colors.Green, "pass ✔")))
+	} else {
+		options.Logger.ShortInfo("Reference validation skipped")
+	}
+
+	if assert.Equal(options.Testing, 0, len(waitingOnInputs), "Found configurations waiting on inputs") {
+		options.Logger.ShortInfo("No configurations waiting on inputs")
+	} else {
+		options.Logger.ShortError("Found configurations waiting on inputs")
+		for _, config := range waitingOnInputs {
+			options.Logger.ShortError(fmt.Sprintf("  %s", config))
+		}
+		options.Testing.Fail()
+		return fmt.Errorf("found configurations waiting on inputs project not correctly configured")
+	}
+
+	if assert.True(options.Testing, readyToValidate, "No configuration found in ready_to_validate state") {
+		options.Logger.ShortInfo("Found a configuration ready to validate")
+	} else {
+		options.Logger.ShortError("No configuration found in ready_to_validate state")
+		options.Testing.Fail()
+		return fmt.Errorf("no configuration found in ready_to_validate state")
+	}
+
+	// Check if the configuration is in a valid state
+	// Check if its deployable
+	options.Logger.ShortInfo(fmt.Sprintf("Checked if the configuration is deployable %s", common.ColorizeString(common.Colors.Green, "pass ✔")))
+
+	// Check if all refs are valid
+	if options.PreDeployHook != nil {
+		options.Logger.ShortInfo("Running PreDeployHook")
+		hookErr := options.PreDeployHook(options)
+		if hookErr != nil {
+			options.Testing.Fail()
+			return hookErr
+		}
+		options.Logger.ShortInfo("Finished PreDeployHook")
+	}
+
+	// Trigger Deploy
 	errorList := deployOptions.TriggerDeployAndWait()
 	if len(errorList) > 0 {
 		options.Logger.ShortError("Errors occurred during deploy")
@@ -165,7 +279,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		return fmt.Errorf("errors occurred during deploy")
 	}
 	options.Logger.ShortInfo("Deploy completed successfully")
-	options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✓"))
+	options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✔"))
 
 	if options.PostDeployHook != nil {
 		options.Logger.ShortInfo("Running PostDeployHook")

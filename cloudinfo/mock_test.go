@@ -141,7 +141,7 @@ func (mock *resourceControllerServiceMock) NewRunReclamationActionOptions(id str
 
 func (mock *resourceControllerServiceMock) ListResourceInstances(options *resourcecontrollerv2.ListResourceInstancesOptions) (*resourcecontrollerv2.ResourceInstancesList, *core.DetailedResponse, error) {
 	var retList *resourcecontrollerv2.ResourceInstancesList
-	var mockCount int64 = 0
+	mockCount := int64(0)
 
 	if options.Name != nil && *options.Name == "ERROR" {
 		return nil, nil, errors.New("mock Resource is error")
@@ -159,9 +159,8 @@ func (mock *resourceControllerServiceMock) ListResourceInstances(options *resour
 }
 
 func (mock *resourceControllerServiceMock) ListReclamations(options *resourcecontrollerv2.ListReclamationsOptions) (*resourcecontrollerv2.ReclamationsList, *core.DetailedResponse, error) {
-
-	var recList *resourcecontrollerv2.ReclamationsList
-	var mockID string = "mock-reclamation-id"
+	recList := &resourcecontrollerv2.ReclamationsList{}
+	mockID := "mock-reclamation-id"
 	mockReclamation := resourcecontrollerv2.Reclamation{ID: &mockID}
 	mockReclamationList := []resourcecontrollerv2.Reclamation{mockReclamation}
 
@@ -170,9 +169,7 @@ func (mock *resourceControllerServiceMock) ListReclamations(options *resourcecon
 	}
 
 	if mock.mockReclamationList == nil {
-
 		recList = &resourcecontrollerv2.ReclamationsList{
-
 			Resources: mockReclamationList,
 		}
 	} else {
@@ -183,13 +180,11 @@ func (mock *resourceControllerServiceMock) ListReclamations(options *resourcecon
 }
 
 func (mock *resourceControllerServiceMock) RunReclamationAction(options *resourcecontrollerv2.RunReclamationActionOptions) (*resourcecontrollerv2.Reclamation, *core.DetailedResponse, error) {
-
 	var reclamation *resourcecontrollerv2.Reclamation
-	var mockID string = "mock-reclamation-id"
+	mockID := "mock-reclamation-id"
 	mockReclamation := resourcecontrollerv2.Reclamation{ID: &mockID}
 
 	if mock.mockReclamation == nil {
-
 		reclamation = &mockReclamation
 	} else {
 		reclamation = mock.mockReclamation
