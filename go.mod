@@ -8,12 +8,12 @@ require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240719075425-078fcb3a55be
 	github.com/IBM-Cloud/power-go-client v1.11.0
 	github.com/IBM/cloud-databases-go-sdk v0.7.1
-	github.com/IBM/go-sdk-core/v5 v5.19.0
-	github.com/IBM/platform-services-go-sdk v0.79.0
+	github.com/IBM/go-sdk-core/v5 v5.19.1
+	github.com/IBM/platform-services-go-sdk v0.79.1
 	github.com/IBM/project-go-sdk v0.3.6
 	github.com/IBM/schematics-go-sdk v0.4.0
-	github.com/IBM/vpc-go-sdk v0.67.0
-	github.com/go-git/go-git/v5 v5.15.0
+	github.com/IBM/vpc-go-sdk v0.67.1
+	github.com/go-git/go-git/v5 v5.16.0
 	github.com/go-openapi/errors v0.22.1
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/google/go-cmp v0.7.0
@@ -53,7 +53,7 @@ require (
 	github.com/go-openapi/validate v0.22.4 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
-	github.com/go-playground/validator/v10 v10.24.0 // indirect
+	github.com/go-playground/validator/v10 v10.26.0 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -98,4 +98,5 @@ require (
 	golang.org/x/tools v0.22.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	sigs.k8s.io/yaml v1.4.0 // indirect
 )
