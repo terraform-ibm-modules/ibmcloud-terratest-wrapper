@@ -422,6 +422,22 @@ func (options *TestAddonOptions) testSetup() error {
 		return fmt.Errorf("error getting current branch and repo: %w", repoErr)
 	}
 	options.currentBranch = &branch
+
+	// Convert repository URL to HTTPS format for catalog import
+	if strings.HasPrefix(repo, "git@") {
+		// Convert SSH format: git@github.com:username/repo.git → https://github.com/username/repo
+		repo = strings.Replace(repo, ":", "/", 1)
+		repo = strings.Replace(repo, "git@", "https://", 1)
+		repo = strings.TrimSuffix(repo, ".git")
+	} else if strings.HasPrefix(repo, "git://") {
+		// Convert Git protocol: git://github.com/username/repo.git → https://github.com/username/repo
+		repo = strings.Replace(repo, "git://", "https://", 1)
+		repo = strings.TrimSuffix(repo, ".git")
+	} else if strings.HasPrefix(repo, "https://") {
+		// HTTPS format - just trim .git suffix if present
+		repo = strings.TrimSuffix(repo, ".git")
+	}
+
 	options.currentBranchUrl = Core.StringPtr(fmt.Sprintf("%s/tree/%s", repo, branch))
 	options.Logger.ShortInfo(fmt.Sprintf("Current branch: %s", branch))
 	options.Logger.ShortInfo(fmt.Sprintf("Current repo: %s", repo))
