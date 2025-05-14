@@ -302,6 +302,7 @@ func testSetup(options *TestSchematicOptions) (*SchematicsTestService, error) {
 	var svc *SchematicsTestService
 	if options.schematicsTestSvc == nil {
 		svc = &SchematicsTestService{}
+		options.schematicsTestSvc = svc
 	} else {
 		svc = options.schematicsTestSvc
 	}
@@ -369,6 +370,13 @@ func testSetup(options *TestSchematicOptions) (*SchematicsTestService, error) {
 	}
 
 	return svc, nil
+}
+
+func (options *TestSchematicOptions) TestTearDown() {
+	oldTearDownValue := options.SkipTestTearDown
+	options.SkipTestTearDown = false
+	testTearDown(options.schematicsTestSvc, options)
+	options.SkipTestTearDown = oldTearDownValue
 }
 
 // testTearDown is a helper function, typically called via golang "defer", that will clean up and remove any existing resources that were
