@@ -496,3 +496,25 @@ func updateConfigInfoFromResponse(addonConfig *AddonConfig, dependencies []Addon
 		}
 	}
 }
+
+func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string) (result *catalogmanagementv1.Offering, err error) {
+
+	token, err := infoSvc.authenticator.GetToken()
+	if err != nil {
+		return nil, fmt.Errorf("error getting auth token: %w", err)
+	}
+
+	options := &catalogmanagementv1.GetOfferingOptions{
+		CatalogIdentifier: &catalogID,
+		OfferingID:        &offeringID,
+		Headers: map[string]string{
+			"Authorization": fmt.Sprintf("Bearer %s", token),
+		},
+	}
+
+	offering, _, err := infoSvc.catalogService.GetOffering(options)
+	if err != nil {
+		return nil, fmt.Errorf("error getting offering: %w", err)
+	}
+	return offering, err
+}
