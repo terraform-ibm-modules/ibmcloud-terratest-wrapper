@@ -69,6 +69,7 @@ type CloudInfoServiceI interface {
 	CreateCatalog(catalogName string) (*catalogmanagementv1.Catalog, error)
 	DeleteCatalog(catalogID string) error
 	ImportOffering(catalogID string, zipUrl string, offeringName string, flavorName string, version string, installKind InstallKind) (*catalogmanagementv1.Offering, error)
+	GetOffering(catalogID string, offeringID string) (*catalogmanagementv1.Offering, *core.DetailedResponse, error)
 	DeployAddonToProject(addonConfig *AddonConfig, projectConfig *ProjectsConfig) (*DeployedAddonsDetails, error)
 	GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error)
 	CreateProjectFromConfig(config *ProjectsConfig) (*projects.Project, *core.DetailedResponse, error)
@@ -236,6 +237,7 @@ type catalogService interface {
 	CreateCatalog(createCatalogOptions *catalogmanagementv1.CreateCatalogOptions) (result *catalogmanagementv1.Catalog, response *core.DetailedResponse, err error)
 	DeleteCatalog(deleteCatalogOptions *catalogmanagementv1.DeleteCatalogOptions) (response *core.DetailedResponse, err error)
 	ImportOffering(importOfferingOptions *catalogmanagementv1.ImportOfferingOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
+	GetOffering(getOfferingOptions *catalogmanagementv1.GetOfferingOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
 }
 
 // schematicsService for external Schematics V1 Service API. Used for mocking.

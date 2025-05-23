@@ -95,6 +95,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			ConfigID: core.StringPtr(config.ConfigID),
 			Name:     core.StringPtr(config.Name),
 		})
+
 	}
 
 	confPatch := projectv1.ProjectConfigDefinitionPatch{

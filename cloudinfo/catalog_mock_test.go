@@ -72,3 +72,19 @@ func (mock *catalogServiceMock) ImportOffering(importOfferingOptions *catalogman
 
 	return offering, response, args.Error(2)
 }
+
+func (mock *catalogServiceMock) GetOffering(getOfferingOptions *catalogmanagementv1.GetOfferingOptions) (*catalogmanagementv1.Offering, *core.DetailedResponse, error) {
+	args := mock.Called(getOfferingOptions)
+
+	var offering *catalogmanagementv1.Offering
+	if args.Get(0) != nil {
+		offering = args.Get(0).(*catalogmanagementv1.Offering)
+	}
+
+	var response *core.DetailedResponse
+	if args.Get(1) != nil {
+		response = args.Get(1).(*core.DetailedResponse)
+	}
+
+	return offering, response, args.Error(2)
+}

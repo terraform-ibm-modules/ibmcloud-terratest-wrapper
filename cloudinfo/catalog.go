@@ -496,3 +496,23 @@ func updateConfigInfoFromResponse(addonConfig *AddonConfig, dependencies []Addon
 		}
 	}
 }
+
+func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error) {
+
+	options := &catalogmanagementv1.GetOfferingOptions{
+		CatalogIdentifier: &catalogID,
+		OfferingID:        &offeringID,
+	}
+
+	offering, response, err := infoSvc.catalogService.GetOffering(options)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error getting offering: %w", err)
+	}
+
+	// Check if the response status code is not 200
+	if response.StatusCode != 200 {
+		return nil, nil, fmt.Errorf("failed to get offering: %s", response.RawResult)
+	}
+
+	return offering, response, err
+}

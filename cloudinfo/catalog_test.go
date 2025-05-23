@@ -316,6 +316,94 @@ func (suite *CatalogServiceTestSuite) TestImportOffering() {
 	}
 }
 
+func (suite *CatalogServiceTestSuite) TestGetOffering() {
+	catalogID := "test-catalog-id"
+	offeringID := "test-offering-id"
+	mockOffering := &catalogmanagementv1.Offering{
+		ID: core.StringPtr(offeringID),
+	}
+	mockResponse := &core.DetailedResponse{StatusCode: 200}
+	mockError := fmt.Errorf("error getting offering")
+
+	testCases := []struct {
+		name           string
+		expectedError  error
+		mockError      error
+		expectedResult *catalogmanagementv1.Offering
+		mockResult     *catalogmanagementv1.Offering
+		mockResponse   *core.DetailedResponse
+		installKind    *InstallKind
+	}{
+		{
+			name:           "Success case - Terraform",
+			expectedError:  nil,
+			mockError:      nil,
+			expectedResult: mockOffering,
+			mockResult:     mockOffering,
+			mockResponse:   mockResponse,
+			installKind:    NewInstallKindTerraform(),
+		},
+		{
+			name:           "Success case - Stack",
+			expectedError:  nil,
+			mockError:      nil,
+			expectedResult: mockOffering,
+			mockResult:     mockOffering,
+			mockResponse:   mockResponse,
+			installKind:    NewInstallKindStack(),
+		},
+		{
+			name:           "Failure case - API error",
+			expectedError:  mockError,
+			mockError:      mockError,
+			expectedResult: nil,
+			mockResult:     nil,
+			mockResponse:   nil,
+			installKind:    NewInstallKindTerraform(),
+		},
+		{
+			name:           "Failure case - non-200 status code",
+			expectedError:  errors.New("failed to get offering: "),
+			mockError:      nil,
+			expectedResult: nil,
+			mockResult:     mockOffering,
+			mockResponse:   &core.DetailedResponse{StatusCode: 400},
+			installKind:    NewInstallKindTerraform(),
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			// Clear previous expectations
+			suite.mockService.ExpectedCalls = nil
+
+			// Fix: Use safer parameter checking that won't panic on nil values
+			suite.mockService.On("GetOffering", mock.MatchedBy(func(opts *catalogmanagementv1.GetOfferingOptions) bool {
+				if opts == nil {
+					return false
+				}
+
+				// Only check required fields that we know should be present
+				catalogIDMatch := opts.CatalogIdentifier != nil && *opts.CatalogIdentifier == catalogID
+				offeringIDMatch := opts.OfferingID != nil && *opts.OfferingID == offeringID
+
+				// We can also check these fields if they are important
+				// But we use safer nil checks to avoid panics
+				return catalogIDMatch && offeringIDMatch
+			})).Return(tc.mockResult, tc.mockResponse, tc.mockError)
+
+			result, _, err := suite.infoSvc.GetOffering(catalogID, offeringID)
+			if tc.expectedError != nil {
+				assert.Error(suite.T(), err)
+				assert.Nil(suite.T(), result)
+			} else {
+				assert.NoError(suite.T(), err)
+				assert.Equal(suite.T(), tc.expectedResult, result)
+			}
+		})
+	}
+}
+
 // TestFlattenDependencies tests the flattenDependencies function that recursively collects all dependencies
 func (suite *CatalogServiceTestSuite) TestFlattenDependencies() {
 	// Test cases
