@@ -95,7 +95,13 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			ConfigID: core.StringPtr(config.ConfigID),
 			Name:     core.StringPtr(config.Name),
 		})
+
 	}
+	offering, err := options.CloudInfoService.GetOffering(*options.offering.CatalogID, *options.offering.ID)
+	if err != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Error retrieving offering: %s from project: %s", options.AddonConfig.OfferingID, deployedConfigs.ProjectID))
+	}
+	print(offering)
 
 	confPatch := projectv1.ProjectConfigDefinitionPatch{
 		Inputs: configDetails.Inputs,
