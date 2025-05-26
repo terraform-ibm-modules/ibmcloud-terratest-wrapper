@@ -150,6 +150,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	waitingOnInputs := make([]string, 0)
 	failedRefs := []string{}
 
+	// get offering required fields
+	offeringInfo := GetOfferingInfo(options)
 	for _, config := range allConfigs {
 		options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", *config.Definition.Name, *config.ID))
 
@@ -213,10 +215,33 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			}
 		}
 
+		// get corresponding offering to current config
+		var targetOffering Offering
+		if currentConfigDetails.Definition == nil {
+			options.Testing.Failed()
+			return fmt.Errorf("currentConfigDetails Definition is nil")
+		}
+		version := strings.Split(currentConfigDetails.Definition.LocatorID, ".")[1]
+		for _, info := range offeringInfo {
+			if info.VersionID == version {
+				targetOffering = info
+			}
+		}
+
 		// check if any required inputs are not set
-		for _, input := range currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs {
-			options.Logger.ShortInfo(fmt.Sprintf("Input: %v ", input))
-			// TODO: check if input is required and not set
+		allInputsPresent := true
+		for _, requiredInput := range targetOffering.RequiredInputs {
+			options.Logger.ShortInfo(fmt.Sprintf("Required Input: %v ", requiredInput))
+			value, exists := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs[requiredInput]
+			if !exists || value == nil || value == "" {
+				options.Logger.ShortInfo(fmt.Sprintf("Missing or empty required input: %s\n", requiredInput))
+				allInputsPresent = false
+			}
+		}
+		if allInputsPresent {
+			options.Logger.ShortInfo(fmt.Sprintf("All required inputs found"))
+		} else {
+			options.Logger.ShortInfo(fmt.Sprintf("Error, some required inputs are missing or empty"))
 		}
 	}
 
@@ -580,4 +605,66 @@ func (options *TestAddonOptions) testTearDown() {
 	} else {
 		options.Logger.ShortInfo("No catalog to delete")
 	}
+}
+
+type Offering struct {
+	CatalogID      string
+	OfferingID     string
+	VersionID      string
+	RequiredInputs []string
+}
+
+func GetOfferingInfo(options *TestAddonOptions) (offerings []Offering) {
+
+	// get top level offering
+	offerings = []Offering{}
+	topLevelVersion := strings.Split(options.AddonConfig.VersionLocator, ".")[1]
+	topLevelOffering := Offering{
+		CatalogID:      *options.offering.CatalogID,
+		OfferingID:     *options.offering.ID,
+		VersionID:      topLevelVersion,
+		RequiredInputs: []string{},
+	}
+	offerings = append(offerings, topLevelOffering)
+
+	// append dependency offerings
+	for _, dependency := range options.AddonConfig.Dependencies {
+		offeringDependencyVersionLocator := strings.Split(dependency.VersionLocator, ".")
+		offeringDependency := Offering{
+			CatalogID:      offeringDependencyVersionLocator[0],
+			OfferingID:     dependency.OfferingID,
+			VersionID:      offeringDependencyVersionLocator[1],
+			RequiredInputs: []string{},
+		}
+		offerings = append(offerings, offeringDependency)
+	}
+
+	for i, offering := range offerings {
+		myOffering, _, err := options.CloudInfoService.GetOffering(offering.CatalogID, offering.OfferingID)
+		if err != nil {
+			options.Logger.ShortInfo(fmt.Sprintf("Error retrieving offering: %s from catalog: %s", offering.OfferingID, offering.CatalogID))
+		}
+		if *myOffering.Kinds[0].InstallKind != "terraform" {
+			options.Logger.ShortInfo(fmt.Sprintf("Error, offering: %s, Expected Kind 'terraform' got '%s'", offering.OfferingID, *myOffering.Kinds[0].InstallKind))
+		}
+		versionFound := false
+		// find version
+		for _, version := range myOffering.Kinds[0].Versions {
+			if *version.ID == offering.VersionID {
+				versionFound = true
+				// get required inputs
+				versionRequiredInputs := []string{}
+				for _, input := range version.Configuration {
+					if *input.Required {
+						versionRequiredInputs = append(versionRequiredInputs, *input.Key)
+					}
+				}
+				offerings[i].RequiredInputs = versionRequiredInputs
+			}
+		}
+		if !versionFound {
+			options.Logger.ShortInfo(fmt.Sprintf("Error, version not found for offering: %s", offering.OfferingID))
+		}
+	}
+	return offerings
 }

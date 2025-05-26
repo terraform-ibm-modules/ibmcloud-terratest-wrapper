@@ -497,6 +497,7 @@ func updateConfigInfoFromResponse(addonConfig *AddonConfig, dependencies []Addon
 	}
 }
 
+// GetOffering gets the details of an Offering from a specified Catalog
 func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error) {
 
 	options := &catalogmanagementv1.GetOfferingOptions{
