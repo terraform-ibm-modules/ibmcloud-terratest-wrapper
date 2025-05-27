@@ -159,7 +159,8 @@ type DeployedAddonsDetails struct {
 	} `json:"configs"`
 }
 
-type OfferingNameVersion struct {
+type OfferingNameVersionFlavor struct {
 	Version string
 	Name    string
+	Flavor  string
 }

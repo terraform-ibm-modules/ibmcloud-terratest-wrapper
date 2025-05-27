@@ -103,7 +103,7 @@ func matchVersion(versions []string, target string) string {
 	return ""
 }
 
-func (options *TestAddonOptions) GetDependencyVersion(depCatalogID string, depOfferingID string, depVersion string) (string, string, error) {
+func (options *TestAddonOptions) GetDependencyVersion(depCatalogID string, depOfferingID string, depVersion string, depFlavor string) (string, string, error) {
 
 	_, response, err := options.CloudInfoService.GetOffering(depCatalogID, depOfferingID)
 	if err != nil {
@@ -125,8 +125,6 @@ func (options *TestAddonOptions) GetDependencyVersion(depCatalogID string, depOf
 			}
 		}
 	}
-	fmt.Println("Version list is ", depVersionList)
-	fmt.Println("target version is ", depVersion)
 
 	bestVersion := matchVersion(depVersionList, depVersion)
 	if bestVersion == "" {
@@ -141,7 +139,7 @@ func (options *TestAddonOptions) GetDependencyVersion(depCatalogID string, depOf
 
 			for _, v := range kind.Versions {
 
-				if *v.Version == bestVersion {
+				if *v.Version == bestVersion && *v.Flavor.Name == depFlavor {
 					versionLocator = *v.VersionLocator
 					break
 				}
@@ -153,7 +151,7 @@ func (options *TestAddonOptions) GetDependencyVersion(depCatalogID string, depOf
 
 }
 
-func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offeringID, versionLocator string, graph map[cloudinfo.OfferingNameVersion][]cloudinfo.OfferingNameVersion, visited map[string]bool) {
+func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offeringID string, versionLocator string, flavor string, graph map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor, visited map[string]bool) {
 
 	if visited[versionLocator] {
 		return
@@ -164,10 +162,6 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	fmt.Println("succeeded")
-
-	fmt.Printf("Type of Result: %T\n", response.Result)
 
 	offering, ok := response.Result.(*catalogmanagementv1.Offering)
 	var version catalogmanagementv1.Version
@@ -197,42 +191,55 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 	offeringVersion := *version.Version
 	offeringName := *offering.Name
 
-	addon := cloudinfo.OfferingNameVersion{
+	addon := cloudinfo.OfferingNameVersionFlavor{
 		Name:    offeringName,
 		Version: offeringVersion,
+		Flavor:  flavor,
 	}
-
-	fmt.Println("addon name is ", addon.Name)
-	fmt.Println("addon version is ", addon.Version)
 
 	for _, dep := range version.SolutionInfo.Dependencies {
 
-		fmt.Println("Checking for dependency ", *dep.Name, "for ", *offering.Name)
 		depCatalogID := *dep.CatalogID
 		depOfferingID := *dep.ID
+		depFlavor := dep.Flavors[0]
 		// GetDependecyVersion function is needed to find VersionLocator of dependency tile
 		// which will be used by current addon and we will recursively process for dependency
 		// this function is also going to handle the case in which dependency version is not pinned
-		depVersion, depVersionLocator, err := options.GetDependencyVersion(depCatalogID, depOfferingID, *dep.Version)
+		depVersion, depVersionLocator, err := options.GetDependencyVersion(depCatalogID, depOfferingID, *dep.Version, depFlavor)
 
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 
-		child := cloudinfo.OfferingNameVersion{
+		child := cloudinfo.OfferingNameVersionFlavor{
 			Name:    *dep.Name,
 			Version: depVersion,
+			Flavor:  depFlavor,
 		}
-
-		fmt.Println("Found dependency for { ", addon.Name, addon.Version, " }", "--->    { ", child.Name, child.Version, " }")
 
 		graph[addon] = append(graph[addon], child)
 
-		options.buildDependencyGraph(depCatalogID, depOfferingID, depVersionLocator, graph, visited)
+		options.buildDependencyGraph(depCatalogID, depOfferingID, depVersionLocator, depFlavor, graph, visited)
 
 	}
 
+}
+
+func (options *TestAddonOptions) printactuallydeployed(src cloudinfo.AddonConfig, visited map[string]bool) {
+
+	if visited[src.VersionLocator] {
+		return
+	} else {
+
+		visited[src.VersionLocator] = true
+
+		fmt.Println(src.OfferingName, src.ResolvedVersion)
+		for _, dep := range src.Dependencies {
+
+			options.printactuallydeployed(dep, visited)
+		}
+	}
 }
 
 // RunAddonTest : Run the test for addons
@@ -501,12 +508,32 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	// get catalog ID from version locator
 	rootCatalogID = strings.SplitN(rootVersionLocator, ".", 2)[0]
 	rootOfferingID = options.AddonConfig.OfferingID
-	graph := make(map[cloudinfo.OfferingNameVersion][]cloudinfo.OfferingNameVersion)
+
+	graph := make(map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor)
 	visited := make(map[string]bool)
-	options.buildDependencyGraph(rootCatalogID, rootOfferingID, rootVersionLocator, graph, visited)
+	options.buildDependencyGraph(rootCatalogID, rootOfferingID, rootVersionLocator, options.AddonConfig.OfferingFlavor, graph, visited)
+
+	for key, value := range graph {
+
+		fmt.Printf("{%s %s}---> ", key.Name, key.Version)
+
+		for _, dep := range value {
+
+			fmt.Printf("{%s %s} ", dep.Name, dep.Version)
+		}
+		fmt.Println()
+		fmt.Println()
+	}
+
+	visited2 := make(map[string]bool)
+
+	fmt.Println("printing the actually deployed configs")
+
+	options.printactuallydeployed(options.AddonConfig, visited2)
 
 	// now validate what is actually deployed by iterating over options.AddonConfig
 	// what is expected which is present in the dependency graph
+
 	errorList := deployOptions.TriggerDeployAndWait()
 	if len(errorList) > 0 {
 		options.Logger.ShortError("Errors occurred during deploy")
@@ -735,6 +762,7 @@ func (options *TestAddonOptions) testSetup() error {
 		newVersionLocator = *options.offering.Kinds[0].Versions[0].VersionLocator
 	}
 	options.AddonConfig.OfferingName = *options.offering.Name
+	options.AddonConfig.OfferingID = *options.offering.ID
 	options.AddonConfig.VersionLocator = newVersionLocator
 	options.AddonConfig.OfferingLabel = *options.offering.Label
 
