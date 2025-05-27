@@ -158,3 +158,8 @@ type DeployedAddonsDetails struct {
 		ConfigID string `json:"config_id"`
 	} `json:"configs"`
 }
+
+type OfferingNameVersion struct {
+	Version string
+	Name    string
+}

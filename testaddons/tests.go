@@ -2,18 +2,238 @@ package testaddons
 
 import (
 	"fmt"
+	"log"
 	"regexp"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	"github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
 )
+
+// parse function is used by matchVersion function to find the most suitable version
+// in case it is not pinned in the dependency
+func parse(v string) (int, int, int, bool) {
+	re := regexp.MustCompile(`^v(\d+)\.(\d+)\.(\d+)$`)
+	matches := re.FindStringSubmatch(v)
+	if matches == nil {
+		return 0, 0, 0, false
+	}
+	major, _ := strconv.Atoi(matches[1])
+	minor, _ := strconv.Atoi(matches[2])
+	patch, _ := strconv.Atoi(matches[3])
+	return major, minor, patch, true
+}
+
+// Main matching function
+// This function takes all the versions avialable for a dependency
+// and returns the suitable version matching target
+// here target can be an actual version or unpinned version like ^v3.0.1 or ~v4.1.4
+func matchVersion(versions []string, target string) string {
+	operator := ""
+	if strings.HasPrefix(target, "^") || strings.HasPrefix(target, "~") {
+		operator = string(target[0])
+		target = target[1:]
+	}
+
+	targetMajor, targetMinor, targetPatch, ok := parse(target)
+	if !ok {
+		return ""
+	}
+
+	candidates := [][]int{}
+	versionMap := map[string][]int{}
+
+	for _, v := range versions {
+		major, minor, patch, valid := parse(v)
+		if !valid {
+			continue
+		}
+		versionTriplet := []int{major, minor, patch}
+		versionMap[v] = versionTriplet
+
+		// Handle version matching based on operator
+		switch operator {
+		case "^":
+			if major == targetMajor {
+				candidates = append(candidates, versionTriplet)
+			}
+		case "~":
+			if major == targetMajor && minor == targetMinor {
+				candidates = append(candidates, versionTriplet)
+			}
+		default:
+			// Exact match
+			if major == targetMajor && minor == targetMinor && patch == targetPatch {
+				return v
+			}
+		}
+	}
+
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	// Sort candidates by major, minor, patch descending
+	sort.SliceStable(candidates, func(i, j int) bool {
+		for k := 0; k < 3; k++ {
+			if candidates[i][k] != candidates[j][k] {
+				return candidates[i][k] > candidates[j][k]
+			}
+		}
+		return false
+	})
+
+	// Convert top candidate back to string and find original version string
+	top := candidates[0]
+	for ver, parts := range versionMap {
+		if parts[0] == top[0] && parts[1] == top[1] && parts[2] == top[2] {
+			return ver
+		}
+	}
+
+	return ""
+}
+
+func (options *TestAddonOptions) GetDependencyVersion(depCatalogID string, depOfferingID string, depVersion string) (string, string, error) {
+
+	_, response, err := options.CloudInfoService.GetOffering(depCatalogID, depOfferingID)
+	if err != nil {
+		return "", "", fmt.Errorf("unable to get the child offering %s", err)
+	}
+
+	depOffering, ok := response.Result.(*catalogmanagementv1.Offering)
+	depVersionList := make([]string, 0)
+	if ok {
+
+		for _, kind := range depOffering.Kinds {
+
+			if *kind.InstallKind == "terraform" {
+
+				for _, v := range kind.Versions {
+
+					depVersionList = append(depVersionList, *v.Version)
+				}
+			}
+		}
+	}
+	fmt.Println("Version list is ", depVersionList)
+	fmt.Println("target version is ", depVersion)
+
+	bestVersion := matchVersion(depVersionList, depVersion)
+	if bestVersion == "" {
+		return "", "", fmt.Errorf("could not find a matching version for dependency %s ", *depOffering.Name)
+	}
+
+	versionLocator := ""
+
+	for _, kind := range depOffering.Kinds {
+
+		if *kind.InstallKind == "terraform" {
+
+			for _, v := range kind.Versions {
+
+				if *v.Version == bestVersion {
+					versionLocator = *v.VersionLocator
+					break
+				}
+			}
+		}
+	}
+
+	return bestVersion, versionLocator, nil
+
+}
+
+func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offeringID, versionLocator string, graph map[cloudinfo.OfferingNameVersion][]cloudinfo.OfferingNameVersion, visited map[string]bool) {
+
+	if visited[versionLocator] {
+		return
+	}
+
+	visited[versionLocator] = true
+	_, response, err := options.CloudInfoService.GetOffering(catalogID, offeringID)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("succeeded")
+
+	fmt.Printf("Type of Result: %T\n", response.Result)
+
+	offering, ok := response.Result.(*catalogmanagementv1.Offering)
+	var version catalogmanagementv1.Version
+	found := false
+	if ok {
+
+		for _, kind := range offering.Kinds {
+
+			if *kind.InstallKind == "terraform" {
+
+				for _, v := range kind.Versions {
+
+					if *v.VersionLocator == versionLocator {
+						version = v
+						found = true
+						break
+					}
+				}
+
+			}
+			if found {
+				break
+			}
+		}
+	}
+
+	offeringVersion := *version.Version
+	offeringName := *offering.Name
+
+	addon := cloudinfo.OfferingNameVersion{
+		Name:    offeringName,
+		Version: offeringVersion,
+	}
+
+	fmt.Println("addon name is ", addon.Name)
+	fmt.Println("addon version is ", addon.Version)
+
+	for _, dep := range version.SolutionInfo.Dependencies {
+
+		fmt.Println("Checking for dependency ", *dep.Name, "for ", *offering.Name)
+		depCatalogID := *dep.CatalogID
+		depOfferingID := *dep.ID
+		// GetDependecyVersion function is needed to find VersionLocator of dependency tile
+		// which will be used by current addon and we will recursively process for dependency
+		// this function is also going to handle the case in which dependency version is not pinned
+		depVersion, depVersionLocator, err := options.GetDependencyVersion(depCatalogID, depOfferingID, *dep.Version)
+
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+		child := cloudinfo.OfferingNameVersion{
+			Name:    *dep.Name,
+			Version: depVersion,
+		}
+
+		fmt.Println("Found dependency for { ", addon.Name, addon.Version, " }", "--->    { ", child.Name, child.Version, " }")
+
+		graph[addon] = append(graph[addon], child)
+
+		options.buildDependencyGraph(depCatalogID, depOfferingID, depVersionLocator, graph, visited)
+
+	}
+
+}
 
 // RunAddonTest : Run the test for addons
 // Creates a new catalog
@@ -270,6 +490,23 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	}
 
 	// Trigger Deploy
+	var rootCatalogID, rootOfferingID, rootVersionLocator string
+	for _, config := range allConfigs {
+
+		if *config.ID == configDetails.ConfigID {
+			rootVersionLocator = *config.Definition.LocatorID
+			break
+		}
+	}
+	// get catalog ID from version locator
+	rootCatalogID = strings.SplitN(rootVersionLocator, ".", 2)[0]
+	rootOfferingID = options.AddonConfig.OfferingID
+	graph := make(map[cloudinfo.OfferingNameVersion][]cloudinfo.OfferingNameVersion)
+	visited := make(map[string]bool)
+	options.buildDependencyGraph(rootCatalogID, rootOfferingID, rootVersionLocator, graph, visited)
+
+	// now validate what is actually deployed by iterating over options.AddonConfig
+	// what is expected which is present in the dependency graph
 	errorList := deployOptions.TriggerDeployAndWait()
 	if len(errorList) > 0 {
 		options.Logger.ShortError("Errors occurred during deploy")
