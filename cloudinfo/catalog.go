@@ -517,3 +517,25 @@ func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string
 
 	return offering, response, err
 }
+
+func (infoSvc *CloudInfoService) GetOfferingRequiredInputs(offering *catalogmanagementv1.Offering, VersionID string, OfferingID string) (requiredInputs []string) {
+	versionFound := false
+	// find version
+	for _, version := range offering.Kinds[0].Versions {
+		if *version.ID == VersionID {
+			versionFound = true
+			// get required inputs
+			requiredInputs := []string{}
+			for _, input := range version.Configuration {
+				if *input.Required {
+					requiredInputs = append(requiredInputs, *input.Key)
+				}
+			}
+			return requiredInputs
+		}
+	}
+	if !versionFound {
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Error, version not found for offering: %s", *offering.ID))
+	}
+	return nil
+}
