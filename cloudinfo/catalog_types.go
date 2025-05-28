@@ -164,3 +164,9 @@ type OfferingNameVersionFlavor struct {
 	Name    string
 	Flavor  string
 }
+
+type DependencyError struct {
+	Addon                 OfferingNameVersionFlavor
+	DependencyRequired    OfferingNameVersionFlavor
+	DependenciesAvailable []OfferingNameVersionFlavor
+}
