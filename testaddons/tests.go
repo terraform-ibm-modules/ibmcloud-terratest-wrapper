@@ -2,7 +2,6 @@ package testaddons
 
 import (
 	"fmt"
-	"log"
 	"regexp"
 	"runtime"
 	"sort"
@@ -160,7 +159,7 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 	visited[versionLocator] = true
 	_, response, err := options.CloudInfoService.GetOffering(catalogID, offeringID)
 	if err != nil {
-		log.Fatal(err)
+		options.Logger.ShortError(fmt.Sprintf("error: %v\n", err))
 	}
 
 	offering, ok := response.Result.(*catalogmanagementv1.Offering)
@@ -208,7 +207,7 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 		depVersion, depVersionLocator, err := options.GetDependencyVersionLocator(depCatalogID, depOfferingID, *dep.Version, depFlavor)
 
 		if err != nil {
-			fmt.Println(err)
+			options.Logger.ShortError(fmt.Sprintf("error: %v\n", err))
 			return
 		}
 
@@ -234,7 +233,7 @@ func (options *TestAddonOptions) buildactuallydeployedList(src cloudinfo.AddonCo
 
 		visited[src.VersionLocator] = true
 
-		fmt.Println(src.OfferingName, src.ResolvedVersion, src.OfferingFlavor)
+		options.Logger.ShortInfo(fmt.Sprintf("%s %s %s\n", src.OfferingName, src.ResolvedVersion, src.OfferingFlavor))
 		*actuallyDeployedList = append(*actuallyDeployedList, cloudinfo.OfferingNameVersionFlavor{
 			Name:    src.OfferingName,
 			Version: src.ResolvedVersion,
@@ -247,7 +246,7 @@ func (options *TestAddonOptions) buildactuallydeployedList(src cloudinfo.AddonCo
 	}
 }
 
-func validateDependencies(graph map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor, actuallyDeployedList []cloudinfo.OfferingNameVersionFlavor) error {
+func (options *TestAddonOptions) validateDependencies(graph map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor, actuallyDeployedList []cloudinfo.OfferingNameVersionFlavor) error {
 
 	dependencyErrors := make([]cloudinfo.DependencyError, 0)
 	for addon, dependencies := range graph {
@@ -291,22 +290,22 @@ func validateDependencies(graph map[cloudinfo.OfferingNameVersionFlavor][]cloudi
 	if len(dependencyErrors) != 0 {
 
 		for _, err := range dependencyErrors {
-			fmt.Printf(
+			errormsg := fmt.Sprintf(
 				"Addon [%s:%s:%s] requires [%s:%s:%s], but it's not available.\n",
 				err.Addon.Name, err.Addon.Version, err.Addon.Flavor,
 				err.DependencyRequired.Name, err.DependencyRequired.Version, err.DependencyRequired.Flavor,
 			)
 
+			options.Logger.Error(errormsg)
+
 			if len(err.DependenciesAvailable) > 0 {
-				fmt.Println("Available alternatives:")
+				options.Logger.ShortInfo("Available alternatives:")
 				for _, available := range err.DependenciesAvailable {
-					fmt.Printf("  - [%s:%s:%s]\n", available.Name, available.Version, available.Flavor)
+					options.Logger.ShortInfo(fmt.Sprintf("  - [%s:%s:%s]\n", available.Name, available.Version, available.Flavor))
 				}
 			} else {
-				fmt.Println("No alternatives are available.")
+				options.Logger.ShortError("No alternatives are available")
 			}
-
-			fmt.Println()
 		}
 
 		return fmt.Errorf("expected infrastructure is not same as actually deployed")
@@ -568,7 +567,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo("Finished PreDeployHook")
 	}
 
-	// Trigger Deploy
+	// validate if expected dependencies are deployed for each addon
 	var rootCatalogID, rootOfferingID, rootVersionLocator string
 	for _, config := range allConfigs {
 
@@ -595,17 +594,17 @@ func (options *TestAddonOptions) RunAddonTest() error {
 
 	for key, value := range graph {
 
-		fmt.Printf("{%s %s %s} ---> needs ", key.Name, key.Version, key.Flavor)
+		options.Logger.Info(fmt.Sprintf("{%s %s %s} ---> needs ", key.Name, key.Version, key.Flavor))
 
 		for _, dep := range value {
 
-			fmt.Printf("{%s %s %s} ", dep.Name, dep.Version, dep.Flavor)
+			options.Logger.Info(fmt.Sprintf("{%s %s %s} ", dep.Name, dep.Version, dep.Flavor))
 		}
 		fmt.Println()
 	}
 
 	// now validate what is actually deployed by iterating over expected dependency graph and actually deployed List
-	err = validateDependencies(graph, actuallyDeployedList)
+	err = options.validateDependencies(graph, actuallyDeployedList)
 
 	if err != nil {
 		return err
