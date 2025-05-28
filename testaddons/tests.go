@@ -237,6 +237,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		allInputsPresent := true
 		for _, requiredInput := range targetAddon.RequiredInputs {
 			options.Logger.ShortInfo(fmt.Sprintf("Required Input: %v ", requiredInput))
+			if requiredInput == "ibmcloud_api_key" {
+				continue
+			}
 			value, exists := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs[requiredInput]
 			if !exists || value == nil || value == "" {
 				options.Logger.ShortInfo(fmt.Sprintf("Missing or empty required input: %s\n", requiredInput))
@@ -244,7 +247,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			}
 		}
 		if allInputsPresent {
-			options.Logger.ShortInfo("All required inputs found")
+			options.Logger.ShortInfo("All required inputs set")
 		} else {
 			options.Logger.ShortInfo("Error, some required inputs are missing or empty")
 			options.Testing.Failed()
