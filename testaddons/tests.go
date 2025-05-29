@@ -106,7 +106,7 @@ func (options *TestAddonOptions) GetDependencyVersionLocator(depCatalogID string
 
 	_, response, err := options.CloudInfoService.GetOffering(depCatalogID, depOfferingID)
 	if err != nil {
-		return "", "", fmt.Errorf("unable to get the child offering %s", err)
+		return "", "", fmt.Errorf("unable to get the dependency offering %s", err)
 	}
 
 	depOffering, ok := response.Result.(*catalogmanagementv1.Offering)
@@ -198,29 +198,38 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 
 	for _, dep := range version.SolutionInfo.Dependencies {
 
-		depCatalogID := *dep.CatalogID
-		depOfferingID := *dep.ID
-		depFlavor := dep.Flavors[0]
-		// GetDependecyVersion function is needed to find VersionLocator of dependency tile
-		// which will be used by current addon and we will recursively process for dependency
-		// this function is also going to handle the case in which dependency version is not pinned
-		depVersion, depVersionLocator, err := options.GetDependencyVersionLocator(depCatalogID, depOfferingID, *dep.Version, depFlavor)
+		if *dep.OnByDefault {
 
-		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("error: %v\n", err))
-			return
+			depCatalogID := *dep.CatalogID
+			depOfferingID := *dep.ID
+			depFlavor := dep.Flavors[0]
+
+			if dep.DefaultFlavor != nil && *dep.DefaultFlavor != "" {
+				depFlavor = *dep.DefaultFlavor
+			}
+
+			// GetDependecyVersion function is needed to find VersionLocator of dependency tile
+			// which will be used by current addon and we will recursively process for dependency
+			// this function is also going to handle the case in which dependency version is not pinned
+			depVersion, depVersionLocator, err := options.GetDependencyVersionLocator(depCatalogID, depOfferingID, *dep.Version, depFlavor)
+
+			options.Logger.ShortInfo(fmt.Sprintf("Searching for dependency %s for addon %s\n", *dep.Name, offeringName))
+			if err != nil {
+				options.Logger.ShortError(fmt.Sprintf("error: %v\n", err))
+				return
+			}
+
+			child := cloudinfo.OfferingNameVersionFlavor{
+				Name:    *dep.Name,
+				Version: depVersion,
+				Flavor:  depFlavor,
+			}
+
+			graph[addon] = append(graph[addon], child)
+
+			options.buildDependencyGraph(depCatalogID, depOfferingID, depVersionLocator, depFlavor, graph, visited)
+
 		}
-
-		child := cloudinfo.OfferingNameVersionFlavor{
-			Name:    *dep.Name,
-			Version: depVersion,
-			Flavor:  depFlavor,
-		}
-
-		graph[addon] = append(graph[addon], child)
-
-		options.buildDependencyGraph(depCatalogID, depOfferingID, depVersionLocator, depFlavor, graph, visited)
-
 	}
 
 }
@@ -594,11 +603,11 @@ func (options *TestAddonOptions) RunAddonTest() error {
 
 	for key, value := range graph {
 
-		options.Logger.Info(fmt.Sprintf("{%s %s %s} ---> needs ", key.Name, key.Version, key.Flavor))
+		options.Logger.Info(fmt.Sprintf("{%s %s %s} needs ", key.Name, key.Version, key.Flavor))
 
 		for _, dep := range value {
 
-			options.Logger.Info(fmt.Sprintf("{%s %s %s} ", dep.Name, dep.Version, dep.Flavor))
+			options.Logger.ShortInfo(fmt.Sprintf("{%s %s %s} ", dep.Name, dep.Version, dep.Flavor))
 		}
 		fmt.Println()
 	}
