@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
 type CatalogServiceTestSuite struct {
@@ -399,6 +400,80 @@ func (suite *CatalogServiceTestSuite) TestGetOffering() {
 			} else {
 				assert.NoError(suite.T(), err)
 				assert.Equal(suite.T(), tc.expectedResult, result)
+			}
+		})
+	}
+}
+
+func TestGetOfferingInputs(t *testing.T) {
+	tests := []struct {
+		name         string
+		versionID    string
+		offering     *catalogmanagementv1.Offering
+		expectInputs bool
+		expectedLog  string
+	}{
+		{
+			name:      "Version found - returns inputs",
+			versionID: "v1",
+			offering: &catalogmanagementv1.Offering{
+				ID: core.StringPtr("off1"),
+				Kinds: []catalogmanagementv1.Kind{
+					{
+						Versions: []catalogmanagementv1.Version{
+							{
+								ID: core.StringPtr("v1"),
+								Configuration: []catalogmanagementv1.Configuration{
+									{
+										Key:          core.StringPtr("input1"),
+										Type:         core.StringPtr("string"),
+										DefaultValue: "default",
+										Description:  core.StringPtr("An input"),
+										Required:     core.BoolPtr(true),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expectInputs: true,
+		},
+		{
+			name:      "Version not found - returns nil and logs message",
+			versionID: "not-found",
+			offering: &catalogmanagementv1.Offering{
+				ID: core.StringPtr("off2"),
+				Kinds: []catalogmanagementv1.Kind{
+					{
+						Versions: []catalogmanagementv1.Version{
+							{
+								ID:            core.StringPtr("v1"),
+								Configuration: []catalogmanagementv1.Configuration{},
+							},
+						},
+					},
+				},
+			},
+			expectInputs: false,
+			expectedLog:  "Error, version not found for offering: off2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger := common.NewTestLogger("test")
+			service := &CloudInfoService{
+				Logger: logger,
+			}
+			inputs := service.GetOfferingInputs(tt.offering, tt.versionID, *tt.offering.ID)
+
+			if tt.expectInputs {
+				assert.NotNil(t, inputs)
+				assert.Len(t, inputs, 1)
+				assert.Equal(t, "input1", inputs[0].Key)
+			} else {
+				assert.Nil(t, inputs)
 			}
 		})
 	}
