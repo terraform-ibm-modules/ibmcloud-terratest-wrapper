@@ -248,6 +248,11 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 	return nil
 }
 
+// This function is going to iterate over options.AddonConfig and its dependencies
+// It is going to append all the actually deployed configuration in the actuallyDeployedList
+// Later actuallyDeployedList is used for validation whether expected dependencies are available or not which is present in the graph created above
+// visited map is used to avoid circular dependencies so that we don't get stuck in endless recursive calls
+
 func (options *TestAddonOptions) buildactuallydeployedList(src cloudinfo.AddonConfig, visited map[string]bool, actuallyDeployedList *[]cloudinfo.OfferingNameVersionFlavor) {
 
 	if visited[src.VersionLocator] {
@@ -268,6 +273,9 @@ func (options *TestAddonOptions) buildactuallydeployedList(src cloudinfo.AddonCo
 		}
 	}
 }
+
+// This function is going to use expected dependency graph and actually deployed Configurations
+// and will log the errors in case some expected dependency is not deployed
 
 func (options *TestAddonOptions) validateDependencies(graph map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor, actuallyDeployedList []cloudinfo.OfferingNameVersionFlavor) error {
 
