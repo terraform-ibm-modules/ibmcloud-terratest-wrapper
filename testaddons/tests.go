@@ -236,20 +236,18 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		// check if any required inputs are not set
 		allInputsPresent := true
 		for _, input := range targetAddon.OfferingInputs {
-			required, ok := input["Required"].(*bool)
-			if !ok || !*required {
+			if !input.Required {
 				continue
 			}
-			key, _ := input["Key"].(*string)
-			options.Logger.ShortInfo(fmt.Sprintf("Required Input: %v ", *key))
-			if *key == "ibmcloud_api_key" {
+			options.Logger.ShortInfo(fmt.Sprintf("Required Input: %v ", input.Key))
+			if input.Key == "ibmcloud_api_key" {
 				continue
 			}
 
-			value, exists := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs[*key]
-			if !exists || value == nil || value == "" {
-				if input["DefaultValue"] == nil || input["DefaultValue"].(string) == "" {
-					options.Logger.ShortError(fmt.Sprintf("Missing or empty required input: %s\n", *key))
+			value, exists := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs[input.Key]
+			if !exists || value.(string) == "" {
+				if input.DefaultValue == nil || input.DefaultValue.(string) == "" || input.DefaultValue.(string) == "__NOT_SET__" {
+					options.Logger.ShortError(fmt.Sprintf("Missing or empty required input: %s\n", input.Key))
 					allInputsPresent = false
 				}
 			}

@@ -518,35 +518,28 @@ func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string
 	return offering, response, err
 }
 
-func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1.Offering, VersionID string, OfferingID string) (inputs []map[string]interface{}) {
-	versionFound := false
-	// find version
+func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1.Offering, VersionID string, OfferingID string) []CatalogInput {
 	for _, version := range offering.Kinds[0].Versions {
-		if *version.ID == VersionID {
-			versionFound = true
-			// get inputs
-			inputs := []map[string]interface{}{}
+		if version.ID != nil && *version.ID == VersionID {
+			inputs := []CatalogInput{}
 			for _, configuration := range version.Configuration {
-				input := map[string]interface{}{
-					"Key":             configuration.Key,
-					"Type":            configuration.Type,
-					"DefaultValue":    configuration.DefaultValue,
-					"DisplayName":     configuration.DisplayName,
-					"ValueConstraint": configuration.ValueConstraint,
-					"Description":     configuration.Description,
-					"Required":        configuration.Required,
-					"Options":         configuration.Options,
-					"Hidden":          configuration.Hidden,
-					"CustomConfig":    configuration.CustomConfig,
-					"TypeMetadata":    configuration.TypeMetadata,
+				input := CatalogInput{
+					Key:          *configuration.Key,
+					Type:         *configuration.Type,
+					DefaultValue: configuration.DefaultValue,
+					Required:     *configuration.Required,
+					Description:  *configuration.Description,
 				}
 				inputs = append(inputs, input)
 			}
 			return inputs
 		}
 	}
-	if !versionFound {
+
+	if offering.ID != nil {
 		infoSvc.Logger.ShortInfo(fmt.Sprintf("Error, version not found for offering: %s", *offering.ID))
+	} else {
+		infoSvc.Logger.ShortInfo("Error, version not found for offering with nil ID")
 	}
 	return nil
 }

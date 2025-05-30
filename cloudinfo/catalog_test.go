@@ -425,16 +425,11 @@ func TestGetOfferingInputs(t *testing.T) {
 								ID: core.StringPtr("v1"),
 								Configuration: []catalogmanagementv1.Configuration{
 									{
-										Key:             core.StringPtr("input1"),
-										Type:            core.StringPtr("string"),
-										DefaultValue:    "default",
-										DisplayName:     core.StringPtr("Input 1"),
-										ValueConstraint: core.StringPtr(""),
-										Description:     core.StringPtr("An input"),
-										Required:        core.BoolPtr(true),
-										Hidden:          core.BoolPtr(false),
-										CustomConfig:    nil,
-										TypeMetadata:    nil,
+										Key:          core.StringPtr("input1"),
+										Type:         core.StringPtr("string"),
+										DefaultValue: "default",
+										Description:  core.StringPtr("An input"),
+										Required:     core.BoolPtr(true),
 									},
 								},
 							},
@@ -476,7 +471,7 @@ func TestGetOfferingInputs(t *testing.T) {
 			if tt.expectInputs {
 				assert.NotNil(t, inputs)
 				assert.Len(t, inputs, 1)
-				assert.Equal(t, "input1", *inputs[0]["Key"].(*string))
+				assert.Equal(t, "input1", inputs[0].Key)
 			} else {
 				assert.Nil(t, inputs)
 			}
