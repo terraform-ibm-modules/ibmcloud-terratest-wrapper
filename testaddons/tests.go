@@ -102,6 +102,10 @@ func matchVersion(versions []string, target string) string {
 	return ""
 }
 
+// This function is going to return the Version Locator of the dependency which will be further used
+// in the buildDependencyGraph function to build the expected graph
+// Here depVersion could a pinned version like(v1.0.3) or unpinned version like(^v2.1.4 or ~v1.5.6)
+// It uses matchVersion function to find the suitable version available in case it is not pinned
 func (options *TestAddonOptions) GetDependencyVersionLocator(depCatalogID string, depOfferingID string, depVersion string, depFlavor string) (string, string, error) {
 
 	_, response, err := options.CloudInfoService.GetOffering(depCatalogID, depOfferingID)
@@ -150,6 +154,12 @@ func (options *TestAddonOptions) GetDependencyVersionLocator(depCatalogID string
 
 }
 
+// this function is going to build the expected dependency graph
+// it takes the catalogID, offeringID, versionLocator of root tile as arguments
+// Calls GetOffering function for the top tile and process all dependencies
+// Recursively iterate to the dependencies which are on by default
+// GetOffering returns all the versions of the tile so versionLocator is needed for finding which version to use
+// visited map is used here to avoid circular loops, If we have encountered a versionLocator already we will return
 func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offeringID string, versionLocator string, flavor string, graph map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor, visited map[string]bool) error {
 
 	if visited[versionLocator] {
