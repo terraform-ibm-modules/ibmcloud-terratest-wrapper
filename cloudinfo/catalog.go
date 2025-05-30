@@ -148,8 +148,9 @@ func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonCo
 	// Process required references first (they take precedence)
 	for _, component := range componentsReferences.Required.OfferingReferences {
 		found := false
+
 		for i := range addonConfig.Dependencies {
-			if addonConfig.Dependencies[i].OfferingName == component.Name {
+			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
 				// Update the version locator for this dependency
 				addonConfig.Dependencies[i].VersionLocator = component.OfferingReference.VersionLocator
 				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
@@ -165,13 +166,14 @@ func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonCo
 			}
 		}
 
-		if !found {
+		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
 			componentsToAdd = append(componentsToAdd, component)
 		}
 	}
 
 	// Process optional references
 	for _, component := range componentsReferences.Optional.OfferingReferences {
+
 		// Skip if this is already in required references (we processed those already)
 		if existingDependencies[component.Name] {
 			continue
@@ -179,7 +181,7 @@ func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonCo
 
 		found := false
 		for i := range addonConfig.Dependencies {
-			if addonConfig.Dependencies[i].OfferingName == component.Name {
+			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
 				// Update the version locator for this dependency
 				addonConfig.Dependencies[i].VersionLocator = component.OfferingReference.VersionLocator
 				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
@@ -198,7 +200,7 @@ func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonCo
 			}
 		}
 
-		if !found {
+		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) && (component.OfferingReference.OnByDefault) {
 			// set required to on by default true
 			component.OfferingReference.OnByDefault = true
 			componentsToAdd = append(componentsToAdd, component)
