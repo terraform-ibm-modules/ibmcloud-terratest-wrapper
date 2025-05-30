@@ -518,20 +518,31 @@ func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string
 	return offering, response, err
 }
 
-func (infoSvc *CloudInfoService) GetOfferingRequiredInputs(offering *catalogmanagementv1.Offering, VersionID string, OfferingID string) (requiredInputs []string) {
+func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1.Offering, VersionID string, OfferingID string) (inputs []map[string]interface{}) {
 	versionFound := false
 	// find version
 	for _, version := range offering.Kinds[0].Versions {
 		if *version.ID == VersionID {
 			versionFound = true
-			// get required inputs
-			requiredInputs := []string{}
-			for _, input := range version.Configuration {
-				if *input.Required {
-					requiredInputs = append(requiredInputs, *input.Key)
+			// get inputs
+			inputs := []map[string]interface{}{}
+			for _, configuration := range version.Configuration {
+				input := map[string]interface{}{
+					"Key":             configuration.Key,
+					"Type":            configuration.Type,
+					"DefaultValue":    configuration.DefaultValue,
+					"DisplayName":     configuration.DisplayName,
+					"ValueConstraint": configuration.ValueConstraint,
+					"Description":     configuration.Description,
+					"Required":        configuration.Required,
+					"Options":         configuration.Options,
+					"Hidden":          configuration.Hidden,
+					"CustomConfig":    configuration.CustomConfig,
+					"TypeMetadata":    configuration.TypeMetadata,
 				}
+				inputs = append(inputs, input)
 			}
-			return requiredInputs
+			return inputs
 		}
 	}
 	if !versionFound {

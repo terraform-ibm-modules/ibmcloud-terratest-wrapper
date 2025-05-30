@@ -235,22 +235,31 @@ func (options *TestAddonOptions) RunAddonTest() error {
 
 		// check if any required inputs are not set
 		allInputsPresent := true
-		for _, requiredInput := range targetAddon.RequiredInputs {
-			options.Logger.ShortInfo(fmt.Sprintf("Required Input: %v ", requiredInput))
-			if requiredInput == "ibmcloud_api_key" {
+		for _, input := range targetAddon.OfferingInputs {
+			required, ok := input["Required"].(*bool)
+			if !ok || !*required {
 				continue
 			}
-			value, exists := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs[requiredInput]
-			if !exists || value == nil || value == "" {
-				options.Logger.ShortInfo(fmt.Sprintf("Missing or empty required input: %s\n", requiredInput))
-				allInputsPresent = false
+			key, _ := input["Key"].(*string)
+			options.Logger.ShortInfo(fmt.Sprintf("Required Input: %v ", *key))
+			if *key == "ibmcloud_api_key" {
+				continue
 			}
+
+			value, exists := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs[*key]
+			if !exists || value == nil || value == "" {
+				if input["DefaultValue"] == nil || input["DefaultValue"].(string) == "" {
+					options.Logger.ShortError(fmt.Sprintf("Missing or empty required input: %s\n", *key))
+					allInputsPresent = false
+				}
+			}
+
 		}
 		if allInputsPresent {
-			options.Logger.ShortInfo("All required inputs set")
+			options.Logger.ShortInfo(fmt.Sprintf("All required inputs set for addon: %s\n", *currentConfigDetails.ID))
 		} else {
-			options.Logger.ShortInfo("Error, some required inputs are missing or empty")
-			options.Testing.Failed()
+			options.Logger.ShortError(fmt.Sprintf("Error, some required inputs are missing or empty for addon: %s\n", *currentConfigDetails.ID))
+			options.Testing.Fail()
 		}
 	}
 
@@ -634,7 +643,7 @@ func SetOfferingDetails(options *TestAddonOptions) {
 	if *topLevelOffering.Kinds[0].InstallKind != "terraform" {
 		options.Logger.ShortInfo(fmt.Sprintf("Error, top level offering: %s, Expected Kind 'terraform' got '%s'", *options.offering.ID, *topLevelOffering.Kinds[0].InstallKind))
 	}
-	options.AddonConfig.RequiredInputs = options.CloudInfoService.GetOfferingRequiredInputs(topLevelOffering, topLevelVersion, *options.offering.ID)
+	options.AddonConfig.OfferingInputs = options.CloudInfoService.GetOfferingInputs(topLevelOffering, topLevelVersion, *options.offering.ID)
 	options.AddonConfig.VersionID = topLevelVersion
 	options.AddonConfig.CatalogID = *options.offering.CatalogID
 
@@ -647,7 +656,7 @@ func SetOfferingDetails(options *TestAddonOptions) {
 		if err != nil {
 			options.Logger.ShortInfo(fmt.Sprintf("Error retrieving dependency offering: %s from catalog: %s", *myOffering.ID, dependencyCatalogID))
 		}
-		options.AddonConfig.Dependencies[i].RequiredInputs = options.CloudInfoService.GetOfferingRequiredInputs(myOffering, dependencyVersionID, dependencyCatalogID)
+		options.AddonConfig.Dependencies[i].OfferingInputs = options.CloudInfoService.GetOfferingInputs(myOffering, dependencyVersionID, dependencyCatalogID)
 		options.AddonConfig.Dependencies[i].VersionID = dependencyVersionID
 		options.AddonConfig.Dependencies[i].CatalogID = dependencyCatalogID
 	}
