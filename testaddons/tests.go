@@ -634,14 +634,14 @@ func SetOfferingDetails(options *TestAddonOptions) {
 	if len(locatorParts) > 1 {
 		topLevelVersion = locatorParts[1]
 	} else {
-		options.Logger.ShortInfo(fmt.Sprintf("Error, Cloud not parse VersionLocator: %s", options.AddonConfig.VersionLocator))
+		options.Logger.ShortError(fmt.Sprintf("Error, Could not parse VersionLocator: %s", options.AddonConfig.VersionLocator))
 	}
 	topLevelOffering, _, err := options.CloudInfoService.GetOffering(*options.offering.CatalogID, *options.offering.ID)
 	if err != nil {
-		options.Logger.ShortInfo(fmt.Sprintf("Error retrieving top level offering: %s from catalog: %s", *options.offering.ID, *options.offering.CatalogID))
+		options.Logger.ShortError(fmt.Sprintf("Error retrieving top level offering: %s from catalog: %s", *options.offering.ID, *options.offering.CatalogID))
 	}
 	if *topLevelOffering.Kinds[0].InstallKind != "terraform" {
-		options.Logger.ShortInfo(fmt.Sprintf("Error, top level offering: %s, Expected Kind 'terraform' got '%s'", *options.offering.ID, *topLevelOffering.Kinds[0].InstallKind))
+		options.Logger.ShortError(fmt.Sprintf("Error, top level offering: %s, Expected Kind 'terraform' got '%s'", *options.offering.ID, *topLevelOffering.Kinds[0].InstallKind))
 	}
 	options.AddonConfig.OfferingInputs = options.CloudInfoService.GetOfferingInputs(topLevelOffering, topLevelVersion, *options.offering.ID)
 	options.AddonConfig.VersionID = topLevelVersion
@@ -654,7 +654,7 @@ func SetOfferingDetails(options *TestAddonOptions) {
 		dependencyVersionID := offeringDependencyVersionLocator[1]
 		myOffering, _, err := options.CloudInfoService.GetOffering(dependencyCatalogID, dependency.OfferingID)
 		if err != nil {
-			options.Logger.ShortInfo(fmt.Sprintf("Error retrieving dependency offering: %s from catalog: %s", *myOffering.ID, dependencyCatalogID))
+			options.Logger.ShortError(fmt.Sprintf("Error retrieving dependency offering: %s from catalog: %s", *myOffering.ID, dependencyCatalogID))
 		}
 		options.AddonConfig.Dependencies[i].OfferingInputs = options.CloudInfoService.GetOfferingInputs(myOffering, dependencyVersionID, dependencyCatalogID)
 		options.AddonConfig.Dependencies[i].VersionID = dependencyVersionID
