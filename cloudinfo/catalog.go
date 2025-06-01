@@ -497,6 +497,7 @@ func updateConfigInfoFromResponse(addonConfig *AddonConfig, dependencies []Addon
 	}
 }
 
+// GetOffering gets the details of an Offering from a specified Catalog
 func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error) {
 
 	options := &catalogmanagementv1.GetOfferingOptions{
@@ -515,4 +516,30 @@ func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string
 	}
 
 	return offering, response, err
+}
+
+func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1.Offering, VersionID string, OfferingID string) []CatalogInput {
+	for _, version := range offering.Kinds[0].Versions {
+		if version.ID != nil && *version.ID == VersionID {
+			inputs := []CatalogInput{}
+			for _, configuration := range version.Configuration {
+				input := CatalogInput{
+					Key:          *configuration.Key,
+					Type:         *configuration.Type,
+					DefaultValue: configuration.DefaultValue,
+					Required:     *configuration.Required,
+					Description:  *configuration.Description,
+				}
+				inputs = append(inputs, input)
+			}
+			return inputs
+		}
+	}
+
+	if offering.ID != nil {
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Error, version not found for offering: %s", *offering.ID))
+	} else {
+		infoSvc.Logger.ShortInfo("Error, version not found for offering with nil ID")
+	}
+	return nil
 }
