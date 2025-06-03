@@ -547,45 +547,46 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 
 // This function is going to return the Version Locator of the dependency which will be further used
 // in the buildDependencyGraph function to build the expected graph
-// Here depVersion could a pinned version like(v1.0.3) or unpinned version like(^v2.1.4 or ~v1.5.6)
-// It uses matchVersion function to find the suitable version available in case it is not pinned
-func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(depCatalogID string, depOfferingID string, depVersion string, depFlavor string) (string, string, error) {
+// Here version could a pinned version like(v1.0.3) , unpinned version like(^v2.1.4 or ~v1.5.6)
+// range based matching is also supported >=v1.1.2,<=v4.3.1 or <=v3.1.4,>=v1.1.0
+// It uses MatchVersion function in common package to find the suitable version available in case it is not pinned
+func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID string, offeringID string, version string, flavor string) (string, string, error) {
 
-	_, response, err := infoSvc.GetOffering(depCatalogID, depOfferingID)
+	_, response, err := infoSvc.GetOffering(catalogID, offeringID)
 	if err != nil {
 		return "", "", fmt.Errorf("unable to get the dependency offering %s", err)
 	}
 
-	depOffering, ok := response.Result.(*catalogmanagementv1.Offering)
-	depVersionList := make([]string, 0)
+	offering, ok := response.Result.(*catalogmanagementv1.Offering)
+	versionList := make([]string, 0)
 	if ok {
 
-		for _, kind := range depOffering.Kinds {
+		for _, kind := range offering.Kinds {
 
 			if *kind.InstallKind == "terraform" {
 
 				for _, v := range kind.Versions {
 
-					depVersionList = append(depVersionList, *v.Version)
+					versionList = append(versionList, *v.Version)
 				}
 			}
 		}
 	}
 
-	bestVersion := common.MatchVersion(depVersionList, depVersion)
+	bestVersion := common.MatchVersion(versionList, version)
 	if bestVersion == "" {
-		return "", "", fmt.Errorf("could not find a matching version for dependency %s ", *depOffering.Name)
+		return "", "", fmt.Errorf("could not find a matching version for dependency %s ", *offering.Name)
 	}
 
 	versionLocator := ""
 
-	for _, kind := range depOffering.Kinds {
+	for _, kind := range offering.Kinds {
 
 		if *kind.InstallKind == "terraform" {
 
 			for _, v := range kind.Versions {
 
-				if *v.Version == bestVersion && *v.Flavor.Name == depFlavor {
+				if *v.Version == bestVersion && *v.Flavor.Name == flavor {
 					versionLocator = *v.VersionLocator
 					break
 				}
