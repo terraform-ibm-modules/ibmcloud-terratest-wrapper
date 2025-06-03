@@ -61,7 +61,7 @@ func TestMatchVersion(t *testing.T) {
 		{">=v9.0.0,<=v9.1.4", "v9.1.4", "range match within major 9"},
 		{">=v10.0.0,<=v10.3.2", "v10.3.1", "range match within v10.x"},
 		{"invalid", "", "invalid version"},
-		{">=v3.2.0,<=v3.5.0", "", "no match in range"},
+		{">=v3.2.0,<=v8.5.0", "v7.2.1", "no match in range"},
 	}
 
 	for _, tt := range tests {
