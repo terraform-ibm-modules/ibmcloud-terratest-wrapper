@@ -12,6 +12,7 @@ import (
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
 // GetCatalogVersionByLocator gets a version by its locator using the Catalog Management service
@@ -542,4 +543,57 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 		infoSvc.Logger.ShortInfo("Error, version not found for offering with nil ID")
 	}
 	return nil
+}
+
+// This function is going to return the Version Locator of the dependency which will be further used
+// in the buildDependencyGraph function to build the expected graph
+// Here version could a pinned version like(v1.0.3) , unpinned version like(^v2.1.4 or ~v1.5.6)
+// range based matching is also supported >=v1.1.2,<=v4.3.1 or <=v3.1.4,>=v1.1.0
+// It uses MatchVersion function in common package to find the suitable version available in case it is not pinned
+func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID string, offeringID string, version string, flavor string) (string, string, error) {
+
+	_, response, err := infoSvc.GetOffering(catalogID, offeringID)
+	if err != nil {
+		return "", "", fmt.Errorf("unable to get the dependency offering %s", err)
+	}
+
+	offering, ok := response.Result.(*catalogmanagementv1.Offering)
+	versionList := make([]string, 0)
+	if ok {
+
+		for _, kind := range offering.Kinds {
+
+			if *kind.InstallKind == "terraform" {
+
+				for _, v := range kind.Versions {
+
+					versionList = append(versionList, *v.Version)
+				}
+			}
+		}
+	}
+
+	bestVersion := common.MatchVersion(versionList, version)
+	if bestVersion == "" {
+		return "", "", fmt.Errorf("could not find a matching version for dependency %s ", *offering.Name)
+	}
+
+	versionLocator := ""
+
+	for _, kind := range offering.Kinds {
+
+		if *kind.InstallKind == "terraform" {
+
+			for _, v := range kind.Versions {
+
+				if *v.Version == bestVersion && *v.Flavor.Name == flavor {
+					versionLocator = *v.VersionLocator
+					break
+				}
+			}
+		}
+	}
+
+	return bestVersion, versionLocator, nil
+
 }

@@ -2,10 +2,11 @@ package testprojects
 
 import (
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const ValidStackDefinition = "testdata/stack_definition_valid.json"

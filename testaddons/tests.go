@@ -8,12 +8,230 @@ import (
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	"github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
 )
+
+// this function is going to build the expected dependency graph
+// it takes the catalogID, offeringID, versionLocator of root tile as arguments
+// Calls GetOffering function for the top tile and process all dependencies
+// Recursively iterate to the dependencies which are on by default
+// GetOffering returns all the versions of the tile so versionLocator is needed for finding which version to use
+// visited map is used here to avoid circular loops, If we have encountered a versionLocator already we will return
+func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offeringID string, versionLocator string, flavor string, graph map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor, expectedDeployedList *[]cloudinfo.OfferingNameVersionFlavor, visited map[string]bool) error {
+
+	if visited[versionLocator] {
+		return nil
+	}
+
+	visited[versionLocator] = true
+	_, response, err := options.CloudInfoService.GetOffering(catalogID, offeringID)
+	if err != nil {
+		options.Logger.ShortError(fmt.Sprintf("error: %v\n", err))
+	}
+
+	offering, ok := response.Result.(*catalogmanagementv1.Offering)
+	var version catalogmanagementv1.Version
+	found := false
+	if ok {
+
+		for _, kind := range offering.Kinds {
+
+			if *kind.InstallKind == "terraform" {
+
+				for _, v := range kind.Versions {
+
+					if *v.VersionLocator == versionLocator {
+						version = v
+						found = true
+						break
+					}
+				}
+
+			}
+			if found {
+				break
+			}
+		}
+	}
+
+	offeringVersion := *version.Version
+	offeringName := *offering.Name
+
+	addon := cloudinfo.OfferingNameVersionFlavor{
+		Name:    offeringName,
+		Version: offeringVersion,
+		Flavor:  flavor,
+	}
+	*expectedDeployedList = append(*expectedDeployedList, addon)
+	for _, dep := range version.SolutionInfo.Dependencies {
+
+		if *dep.OnByDefault {
+
+			depCatalogID := *dep.CatalogID
+			depOfferingID := *dep.ID
+			depFlavor := dep.Flavors[0]
+
+			if dep.DefaultFlavor != nil && *dep.DefaultFlavor != "" {
+				depFlavor = *dep.DefaultFlavor
+			}
+
+			// GetDependecyVersion function is needed to find VersionLocator of dependency tile
+			// which will be used by current addon and we will recursively process for dependency
+			// this function is also going to handle the case in which dependency version is not pinned
+			depVersion, depVersionLocator, err := options.CloudInfoService.GetOfferingVersionLocatorByConstraint(depCatalogID, depOfferingID, *dep.Version, depFlavor)
+
+			options.Logger.ShortInfo(fmt.Sprintf("Searching for dependency %s for addon %s\n", *dep.Name, offeringName))
+			if err != nil {
+				options.Logger.ShortError(fmt.Sprintf("error: %v\n", err))
+				return err
+			}
+
+			child := cloudinfo.OfferingNameVersionFlavor{
+				Name:    *dep.Name,
+				Version: depVersion,
+				Flavor:  depFlavor,
+			}
+
+			graph[addon] = append(graph[addon], child)
+
+			err = options.buildDependencyGraph(depCatalogID, depOfferingID, depVersionLocator, depFlavor, graph, expectedDeployedList, visited)
+			if err != nil {
+				return err
+			}
+
+		}
+	}
+
+	return nil
+}
+
+// This function is going to iterate over options.AddonConfig and its dependencies
+// It is going to append all the actually deployed configuration in the actuallyDeployedList
+// Later actuallyDeployedList is used for validation whether expected dependencies are available or not which is present in the graph created above
+// visited map is used to avoid circular dependencies so that we don't get stuck in endless recursive calls
+
+func (options *TestAddonOptions) buildActuallydeployedList(src cloudinfo.AddonConfig, visited map[string]bool, actuallyDeployedList *[]cloudinfo.OfferingNameVersionFlavor) {
+
+	if visited[src.VersionLocator] {
+		return
+	} else {
+
+		visited[src.VersionLocator] = true
+
+		options.Logger.ShortInfo(fmt.Sprintf("%s %s %s\n", src.OfferingName, src.ResolvedVersion, src.OfferingFlavor))
+		*actuallyDeployedList = append(*actuallyDeployedList, cloudinfo.OfferingNameVersionFlavor{
+			Name:    src.OfferingName,
+			Version: src.ResolvedVersion,
+			Flavor:  src.OfferingFlavor,
+		})
+		for _, dep := range src.Dependencies {
+
+			options.buildActuallydeployedList(dep, visited, actuallyDeployedList)
+		}
+	}
+}
+
+// This function is going to use expected dependency graph and actually deployed Configurations
+// and will log the errors in case some expected dependency is not deployed
+
+func (options *TestAddonOptions) validateDependencies(graph map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor, expectedDeployedList []cloudinfo.OfferingNameVersionFlavor, actuallyDeployedList []cloudinfo.OfferingNameVersionFlavor) error {
+
+	dependencyErrors := make([]cloudinfo.DependencyError, 0)
+	for addon, dependencies := range graph {
+
+		for _, dep := range dependencies {
+
+			found := false
+
+			for _, dep2 := range actuallyDeployedList {
+
+				if dep == dep2 {
+					found = true
+					break
+				}
+			}
+
+			if !found {
+
+				availableVersions := make([]cloudinfo.OfferingNameVersionFlavor, 0)
+
+				for _, dep2 := range actuallyDeployedList {
+
+					if dep2.Name == dep.Name {
+						availableVersions = append(availableVersions, cloudinfo.OfferingNameVersionFlavor{
+							Name:    dep2.Name,
+							Version: dep2.Version,
+							Flavor:  dep2.Flavor,
+						})
+					}
+				}
+				dependencyErrors = append(dependencyErrors, cloudinfo.DependencyError{
+					Addon:                 addon,
+					DependencyRequired:    dep,
+					DependenciesAvailable: availableVersions,
+				})
+			}
+		}
+
+	}
+
+	if len(dependencyErrors) != 0 {
+
+		for _, err := range dependencyErrors {
+			errormsg := fmt.Sprintf(
+				"Addon [%s:%s:%s] requires [%s:%s:%s], but it's not available.\n",
+				err.Addon.Name, err.Addon.Version, err.Addon.Flavor,
+				err.DependencyRequired.Name, err.DependencyRequired.Version, err.DependencyRequired.Flavor,
+			)
+
+			options.Logger.Error(errormsg)
+
+			if len(err.DependenciesAvailable) > 0 {
+				options.Logger.ShortInfo("Available alternatives:")
+				for _, available := range err.DependenciesAvailable {
+					options.Logger.ShortInfo(fmt.Sprintf("  - [%s:%s:%s]\n", available.Name, available.Version, available.Flavor))
+				}
+			} else {
+				options.Logger.ShortError("No alternatives are available")
+			}
+		}
+
+		return fmt.Errorf("expected infrastructure is not same as actually deployed")
+	}
+
+	options.Logger.ShortInfo("comparing the actually deployed configs and expected deployed configs")
+	equal := true
+
+	for _, actualConfig := range actuallyDeployedList {
+		found := false
+		for _, expectedConfig := range expectedDeployedList {
+			if actualConfig == expectedConfig {
+				found = true
+				break
+			}
+		}
+		if !found {
+			options.Logger.ShortError(fmt.Sprintf("Unexpected config Deployed : [%s:%s:%s]\n", actualConfig.Name, actualConfig.Version, actualConfig.Flavor))
+			equal = false
+		}
+	}
+
+	// If lengths differ, they are not equal
+	if len(expectedDeployedList) != len(actuallyDeployedList) {
+		equal = false
+	}
+
+	if !equal {
+		return fmt.Errorf("expected configurations and actual configurations are not same")
+	}
+
+	return nil
+}
 
 // RunAddonTest : Run the test for addons
 // Creates a new catalog
@@ -310,7 +528,56 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo("Finished PreDeployHook")
 	}
 
-	// Trigger Deploy
+	// validate if expected dependencies are deployed for each addon
+	if !options.SkipDependencyValidation {
+		options.Logger.ShortInfo("Starting with dependency validation")
+		var rootCatalogID, rootOfferingID, rootVersionLocator string
+		rootVersionLocator = options.AddonConfig.VersionLocator
+		rootCatalogID = options.AddonConfig.CatalogID
+		rootOfferingID = options.AddonConfig.OfferingID
+
+		graph := make(map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor)
+		expectedDeployedList := make([]cloudinfo.OfferingNameVersionFlavor, 0)
+		visited := make(map[string]bool)
+		err = options.buildDependencyGraph(rootCatalogID, rootOfferingID, rootVersionLocator, options.AddonConfig.OfferingFlavor, graph, &expectedDeployedList, visited)
+		if err != nil {
+			return err
+		}
+
+		for key, value := range graph {
+			var line strings.Builder
+
+			line.WriteString(fmt.Sprintf("{%s %s %s} needs", key.Name, key.Version, key.Flavor))
+
+			for _, dep := range value {
+
+				line.WriteString(fmt.Sprintf(" {%s %s %s}", dep.Name, dep.Version, dep.Flavor))
+			}
+			options.Logger.ShortInfo(line.String())
+		}
+
+		visited2 := make(map[string]bool)
+
+		actuallyDeployedList := make([]cloudinfo.OfferingNameVersionFlavor, 0)
+
+		options.Logger.Info("Printing the expected deployed configs")
+		for _, config := range expectedDeployedList {
+
+			options.Logger.ShortInfo(fmt.Sprintf("%s %s %s\n", config.Name, config.Version, config.Flavor))
+		}
+
+		options.Logger.Info("Printing the actually deployed configs")
+
+		options.buildActuallydeployedList(options.AddonConfig, visited2, &actuallyDeployedList)
+
+		// now validate what is actually deployed by iterating over expected dependency graph and actually deployed List
+		err = options.validateDependencies(graph, expectedDeployedList, actuallyDeployedList)
+
+		if err != nil {
+			return err
+		}
+	}
+
 	errorList := deployOptions.TriggerDeployAndWait()
 	if len(errorList) > 0 {
 		options.Logger.ShortError("Errors occurred during deploy")
@@ -525,6 +792,7 @@ func (options *TestAddonOptions) testSetup() error {
 		return fmt.Errorf("AddonConfig.OfferingName is not set")
 	}
 	version := fmt.Sprintf("v0.0.1-dev-%s", options.Prefix)
+	options.AddonConfig.ResolvedVersion = version
 	options.Logger.ShortInfo(fmt.Sprintf("Importing the offering flavor: %s from branch: %s as version: %s", options.AddonConfig.OfferingFlavor, *options.currentBranchUrl, version))
 	offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, options.AddonConfig.OfferingName, options.AddonConfig.OfferingFlavor, version, options.AddonConfig.OfferingInstallKind)
 	if err != nil {
@@ -539,6 +807,7 @@ func (options *TestAddonOptions) testSetup() error {
 		newVersionLocator = *options.offering.Kinds[0].Versions[0].VersionLocator
 	}
 	options.AddonConfig.OfferingName = *options.offering.Name
+	options.AddonConfig.OfferingID = *options.offering.ID
 	options.AddonConfig.VersionLocator = newVersionLocator
 	options.AddonConfig.OfferingLabel = *options.offering.Label
 	options.AddonConfig.OfferingID = *options.offering.ID
