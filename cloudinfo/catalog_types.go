@@ -159,14 +159,8 @@ type DeployedAddonsDetails struct {
 	} `json:"configs"`
 }
 
-type OfferingNameVersionFlavor struct {
-	Version string
-	Name    string
-	Flavor  string
-}
-
 type DependencyError struct {
-	Addon                 OfferingNameVersionFlavor
-	DependencyRequired    OfferingNameVersionFlavor
-	DependenciesAvailable []OfferingNameVersionFlavor
+	Addon                 OfferingReferenceDetail
+	DependencyRequired    OfferingReferenceDetail
+	DependenciesAvailable []OfferingReferenceDetail
 }

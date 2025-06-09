@@ -150,7 +150,7 @@ func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonCo
 	for _, component := range componentsReferences.Required.OfferingReferences {
 		found := false
 		for i := range addonConfig.Dependencies {
-			if addonConfig.Dependencies[i].OfferingName == component.Name {
+			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
 				// Update the version locator for this dependency
 				addonConfig.Dependencies[i].VersionLocator = component.OfferingReference.VersionLocator
 				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
@@ -166,7 +166,7 @@ func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonCo
 			}
 		}
 
-		if !found {
+		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
 			componentsToAdd = append(componentsToAdd, component)
 		}
 	}
@@ -180,7 +180,7 @@ func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonCo
 
 		found := false
 		for i := range addonConfig.Dependencies {
-			if addonConfig.Dependencies[i].OfferingName == component.Name {
+			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
 				// Update the version locator for this dependency
 				addonConfig.Dependencies[i].VersionLocator = component.OfferingReference.VersionLocator
 				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
@@ -199,7 +199,7 @@ func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonCo
 			}
 		}
 
-		if !found {
+		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) && (component.OfferingReference.OnByDefault) {
 			// set required to on by default true
 			component.OfferingReference.OnByDefault = true
 			componentsToAdd = append(componentsToAdd, component)
@@ -250,6 +250,7 @@ func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonCo
 //	}
 //
 // ]
+
 func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, projectConfig *ProjectsConfig) (*DeployedAddonsDetails, error) {
 	// Initialize a map to track processed version locators and prevent circular dependencies
 	processedLocators := make(map[string]bool)
@@ -552,23 +553,19 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 // It uses MatchVersion function in common package to find the suitable version available in case it is not pinned
 func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID string, offeringID string, version string, flavor string) (string, string, error) {
 
-	_, response, err := infoSvc.GetOffering(catalogID, offeringID)
+	offering, _, err := infoSvc.GetOffering(catalogID, offeringID)
 	if err != nil {
 		return "", "", fmt.Errorf("unable to get the dependency offering %s", err)
 	}
 
-	offering, ok := response.Result.(*catalogmanagementv1.Offering)
 	versionList := make([]string, 0)
-	if ok {
+	for _, kind := range offering.Kinds {
 
-		for _, kind := range offering.Kinds {
+		if *kind.InstallKind == "terraform" {
 
-			if *kind.InstallKind == "terraform" {
+			for _, v := range kind.Versions {
 
-				for _, v := range kind.Versions {
-
-					versionList = append(versionList, *v.Version)
-				}
+				versionList = append(versionList, *v.Version)
 			}
 		}
 	}

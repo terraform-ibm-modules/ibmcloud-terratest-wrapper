@@ -22,7 +22,7 @@ import (
 // Recursively iterate to the dependencies which are on by default
 // GetOffering returns all the versions of the tile so versionLocator is needed for finding which version to use
 // visited map is used here to avoid circular loops, If we have encountered a versionLocator already we will return
-func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offeringID string, versionLocator string, flavor string, graph map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor, expectedDeployedList *[]cloudinfo.OfferingNameVersionFlavor, visited map[string]bool) error {
+func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offeringID string, versionLocator string, flavor string, graph map[*cloudinfo.OfferingReferenceDetail][]cloudinfo.OfferingReferenceDetail, expectedDeployedList *[]cloudinfo.OfferingReferenceDetail, visited map[string]bool) error {
 
 	if visited[versionLocator] {
 		return nil
@@ -62,10 +62,10 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 	offeringVersion := *version.Version
 	offeringName := *offering.Name
 
-	addon := cloudinfo.OfferingNameVersionFlavor{
+	addon := cloudinfo.OfferingReferenceDetail{
 		Name:    offeringName,
 		Version: offeringVersion,
-		Flavor:  flavor,
+		Flavor:  cloudinfo.Flavor{Name: flavor},
 	}
 	*expectedDeployedList = append(*expectedDeployedList, addon)
 	for _, dep := range version.SolutionInfo.Dependencies {
@@ -91,13 +91,13 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 				return err
 			}
 
-			child := cloudinfo.OfferingNameVersionFlavor{
+			child := cloudinfo.OfferingReferenceDetail{
 				Name:    *dep.Name,
 				Version: depVersion,
-				Flavor:  depFlavor,
+				Flavor:  cloudinfo.Flavor{Name: depFlavor},
 			}
 
-			graph[addon] = append(graph[addon], child)
+			graph[&addon] = append(graph[&addon], child)
 
 			err = options.buildDependencyGraph(depCatalogID, depOfferingID, depVersionLocator, depFlavor, graph, expectedDeployedList, visited)
 			if err != nil {
@@ -115,7 +115,7 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 // Later actuallyDeployedList is used for validation whether expected dependencies are available or not which is present in the graph created above
 // visited map is used to avoid circular dependencies so that we don't get stuck in endless recursive calls
 
-func (options *TestAddonOptions) buildActuallydeployedList(src cloudinfo.AddonConfig, visited map[string]bool, actuallyDeployedList *[]cloudinfo.OfferingNameVersionFlavor) {
+func (options *TestAddonOptions) buildActuallydeployedList(src cloudinfo.AddonConfig, visited map[string]bool, actuallyDeployedList *[]cloudinfo.OfferingReferenceDetail) {
 
 	if visited[src.VersionLocator] {
 		return
@@ -124,10 +124,10 @@ func (options *TestAddonOptions) buildActuallydeployedList(src cloudinfo.AddonCo
 		visited[src.VersionLocator] = true
 
 		options.Logger.ShortInfo(fmt.Sprintf("%s %s %s\n", src.OfferingName, src.ResolvedVersion, src.OfferingFlavor))
-		*actuallyDeployedList = append(*actuallyDeployedList, cloudinfo.OfferingNameVersionFlavor{
+		*actuallyDeployedList = append(*actuallyDeployedList, cloudinfo.OfferingReferenceDetail{
 			Name:    src.OfferingName,
 			Version: src.ResolvedVersion,
-			Flavor:  src.OfferingFlavor,
+			Flavor:  cloudinfo.Flavor{Name: src.OfferingFlavor},
 		})
 		for _, dep := range src.Dependencies {
 
@@ -139,7 +139,7 @@ func (options *TestAddonOptions) buildActuallydeployedList(src cloudinfo.AddonCo
 // This function is going to use expected dependency graph and actually deployed Configurations
 // and will log the errors in case some expected dependency is not deployed
 
-func (options *TestAddonOptions) validateDependencies(graph map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor, expectedDeployedList []cloudinfo.OfferingNameVersionFlavor, actuallyDeployedList []cloudinfo.OfferingNameVersionFlavor) error {
+func (options *TestAddonOptions) validateDependencies(graph map[*cloudinfo.OfferingReferenceDetail][]cloudinfo.OfferingReferenceDetail, expectedDeployedList []cloudinfo.OfferingReferenceDetail, actuallyDeployedList []cloudinfo.OfferingReferenceDetail) error {
 
 	dependencyErrors := make([]cloudinfo.DependencyError, 0)
 	for addon, dependencies := range graph {
@@ -150,7 +150,7 @@ func (options *TestAddonOptions) validateDependencies(graph map[cloudinfo.Offeri
 
 			for _, dep2 := range actuallyDeployedList {
 
-				if dep == dep2 {
+				if dep.Name == dep2.Name && dep.Version == dep2.Version && dep.Flavor.Name == dep2.Flavor.Name {
 					found = true
 					break
 				}
@@ -158,20 +158,20 @@ func (options *TestAddonOptions) validateDependencies(graph map[cloudinfo.Offeri
 
 			if !found {
 
-				availableVersions := make([]cloudinfo.OfferingNameVersionFlavor, 0)
+				availableVersions := make([]cloudinfo.OfferingReferenceDetail, 0)
 
 				for _, dep2 := range actuallyDeployedList {
 
 					if dep2.Name == dep.Name {
-						availableVersions = append(availableVersions, cloudinfo.OfferingNameVersionFlavor{
+						availableVersions = append(availableVersions, cloudinfo.OfferingReferenceDetail{
 							Name:    dep2.Name,
 							Version: dep2.Version,
-							Flavor:  dep2.Flavor,
+							Flavor:  cloudinfo.Flavor{Name: dep2.Flavor.Name},
 						})
 					}
 				}
 				dependencyErrors = append(dependencyErrors, cloudinfo.DependencyError{
-					Addon:                 addon,
+					Addon:                 *addon,
 					DependencyRequired:    dep,
 					DependenciesAvailable: availableVersions,
 				})
@@ -185,8 +185,8 @@ func (options *TestAddonOptions) validateDependencies(graph map[cloudinfo.Offeri
 		for _, err := range dependencyErrors {
 			errormsg := fmt.Sprintf(
 				"Addon [%s:%s:%s] requires [%s:%s:%s], but it's not available.\n",
-				err.Addon.Name, err.Addon.Version, err.Addon.Flavor,
-				err.DependencyRequired.Name, err.DependencyRequired.Version, err.DependencyRequired.Flavor,
+				err.Addon.Name, err.Addon.Version, err.Addon.Flavor.Name,
+				err.DependencyRequired.Name, err.DependencyRequired.Version, err.DependencyRequired.Flavor.Name,
 			)
 
 			options.Logger.Error(errormsg)
@@ -194,7 +194,7 @@ func (options *TestAddonOptions) validateDependencies(graph map[cloudinfo.Offeri
 			if len(err.DependenciesAvailable) > 0 {
 				options.Logger.ShortInfo("Available alternatives:")
 				for _, available := range err.DependenciesAvailable {
-					options.Logger.ShortInfo(fmt.Sprintf("  - [%s:%s:%s]\n", available.Name, available.Version, available.Flavor))
+					options.Logger.ShortInfo(fmt.Sprintf("  - [%s:%s:%s]\n", available.Name, available.Version, available.Flavor.Name))
 				}
 			} else {
 				options.Logger.ShortError("No alternatives are available")
@@ -210,13 +210,13 @@ func (options *TestAddonOptions) validateDependencies(graph map[cloudinfo.Offeri
 	for _, actualConfig := range actuallyDeployedList {
 		found := false
 		for _, expectedConfig := range expectedDeployedList {
-			if actualConfig == expectedConfig {
+			if actualConfig.Name == expectedConfig.Name && actualConfig.Version == expectedConfig.Version && actualConfig.Flavor.Name == expectedConfig.Flavor.Name {
 				found = true
 				break
 			}
 		}
 		if !found {
-			options.Logger.ShortError(fmt.Sprintf("Unexpected config Deployed : [%s:%s:%s]\n", actualConfig.Name, actualConfig.Version, actualConfig.Flavor))
+			options.Logger.ShortError(fmt.Sprintf("Unexpected config Deployed : [%s:%s:%s]\n", actualConfig.Name, actualConfig.Version, actualConfig.Flavor.Name))
 			equal = false
 		}
 	}
@@ -463,11 +463,13 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			}
 
 			value, exists := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs[input.Key]
-			if !exists || value.(string) == "" {
-				if input.DefaultValue == nil || input.DefaultValue.(string) == "" || input.DefaultValue.(string) == "__NOT_SET__" {
+			if !exists || fmt.Sprintf("%v", value) == "" {
+				fmt.Println("hello world")
+				if input.DefaultValue == nil || fmt.Sprintf("%v", input.DefaultValue) == "" || fmt.Sprintf("%v", input.DefaultValue) == "__NOT_SET__" {
 					options.Logger.ShortError(fmt.Sprintf("Missing or empty required input: %s\n", input.Key))
 					allInputsPresent = false
 				}
+				fmt.Println("hi world")
 			}
 
 		}
@@ -536,8 +538,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		rootCatalogID = options.AddonConfig.CatalogID
 		rootOfferingID = options.AddonConfig.OfferingID
 
-		graph := make(map[cloudinfo.OfferingNameVersionFlavor][]cloudinfo.OfferingNameVersionFlavor)
-		expectedDeployedList := make([]cloudinfo.OfferingNameVersionFlavor, 0)
+		graph := make(map[*cloudinfo.OfferingReferenceDetail][]cloudinfo.OfferingReferenceDetail)
+		expectedDeployedList := make([]cloudinfo.OfferingReferenceDetail, 0)
 		visited := make(map[string]bool)
 		err = options.buildDependencyGraph(rootCatalogID, rootOfferingID, rootVersionLocator, options.AddonConfig.OfferingFlavor, graph, &expectedDeployedList, visited)
 		if err != nil {
@@ -547,23 +549,23 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		for key, value := range graph {
 			var line strings.Builder
 
-			line.WriteString(fmt.Sprintf("{%s %s %s} needs", key.Name, key.Version, key.Flavor))
+			line.WriteString(fmt.Sprintf("{%s %s %s} needs", key.Name, key.Version, key.Flavor.Name))
 
 			for _, dep := range value {
 
-				line.WriteString(fmt.Sprintf(" {%s %s %s}", dep.Name, dep.Version, dep.Flavor))
+				line.WriteString(fmt.Sprintf(" {%s %s %s}", dep.Name, dep.Version, dep.Flavor.Name))
 			}
 			options.Logger.ShortInfo(line.String())
 		}
 
 		visited2 := make(map[string]bool)
 
-		actuallyDeployedList := make([]cloudinfo.OfferingNameVersionFlavor, 0)
+		actuallyDeployedList := make([]cloudinfo.OfferingReferenceDetail, 0)
 
 		options.Logger.Info("Printing the expected deployed configs")
 		for _, config := range expectedDeployedList {
 
-			options.Logger.ShortInfo(fmt.Sprintf("%s %s %s\n", config.Name, config.Version, config.Flavor))
+			options.Logger.ShortInfo(fmt.Sprintf("%s %s %s\n", config.Name, config.Version, config.Flavor.Name))
 		}
 
 		options.Logger.Info("Printing the actually deployed configs")

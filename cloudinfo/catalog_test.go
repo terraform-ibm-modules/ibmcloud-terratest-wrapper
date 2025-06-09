@@ -748,3 +748,145 @@ func (suite *CatalogServiceTestSuite) TestUpdateConfigInfoFromResponse() {
 		})
 	}
 }
+
+func (suite *CatalogServiceTestSuite) TestGetOfferingVersionLocatorByConstraint_TableDriven() {
+	catalogID := "test-catalog-id"
+	offeringID := "test-offering-id"
+
+	// Expanded mock offering with multiple versions and flavors
+	mockOffering := &catalogmanagementv1.Offering{
+		ID:   core.StringPtr(offeringID),
+		Name: core.StringPtr("mock-offering"),
+		Kinds: []catalogmanagementv1.Kind{
+			{
+				InstallKind: core.StringPtr("terraform"),
+				Versions: []catalogmanagementv1.Version{
+					{
+						Version: core.StringPtr("v8.20.2"),
+						Flavor: &catalogmanagementv1.Flavor{
+							Name:  core.StringPtr("instance"),
+							Label: core.StringPtr("Single instance"),
+							Index: core.Int64Ptr(0),
+						},
+						OfferingID:     core.StringPtr("test-offering-id"),
+						CatalogID:      core.StringPtr("test-catalog-id"),
+						VersionLocator: core.StringPtr("locator-v8.20.2"),
+					},
+					{
+						Version: core.StringPtr("v8.18.0"),
+						Flavor: &catalogmanagementv1.Flavor{
+							Name:  core.StringPtr("instance"),
+							Label: core.StringPtr("Single instance"),
+							Index: core.Int64Ptr(0),
+						},
+						OfferingID:     core.StringPtr("test-offering-id"),
+						CatalogID:      core.StringPtr("test-catalog-id"),
+						VersionLocator: core.StringPtr("locator-v8.18.0"),
+					},
+					{
+						Version: core.StringPtr("v7.50.1"),
+						Flavor: &catalogmanagementv1.Flavor{
+							Name:  core.StringPtr("instance"),
+							Label: core.StringPtr("Single instance"),
+							Index: core.Int64Ptr(0),
+						},
+						OfferingID:     core.StringPtr("test-offering-id"),
+						CatalogID:      core.StringPtr("test-catalog-id"),
+						VersionLocator: core.StringPtr("locator-v7.50.1"),
+					},
+					{
+						Version: core.StringPtr("v8.18.0"),
+						Flavor: &catalogmanagementv1.Flavor{
+							Name:  core.StringPtr("multi"),
+							Label: core.StringPtr("Multi instance"),
+							Index: core.Int64Ptr(1),
+						},
+						OfferingID:     core.StringPtr("test-offering-id"),
+						CatalogID:      core.StringPtr("test-catalog-id"),
+						VersionLocator: core.StringPtr("locator-v8.18.0-multi"),
+					},
+				},
+			},
+		},
+	}
+
+	mockResponse := &core.DetailedResponse{StatusCode: 200}
+	var mockError error
+
+	// Setup the mock once
+	suite.mockService.ExpectedCalls = nil
+	suite.mockService.On("GetOffering", mock.MatchedBy(func(opts *catalogmanagementv1.GetOfferingOptions) bool {
+		if opts == nil {
+			return false
+		}
+		return opts.CatalogIdentifier != nil && *opts.CatalogIdentifier == catalogID &&
+			opts.OfferingID != nil && *opts.OfferingID == offeringID
+	})).Return(mockOffering, mockResponse, mockError)
+
+	// Test cases table
+	testCases := []struct {
+		name            string
+		requestedVer    string
+		requestedFlavor string
+		expectedVer     string
+		expectedLocator string
+		expectErr       bool
+	}{
+		{
+			name:            "Exact version match",
+			requestedVer:    "v8.20.2",
+			requestedFlavor: "instance",
+			expectedVer:     "v8.20.2",
+			expectedLocator: "locator-v8.20.2",
+			expectErr:       false,
+		},
+		{
+			name:            "Caret version match ^v8.18.0 (allow patch updates)",
+			requestedVer:    "^v8.18.0",
+			requestedFlavor: "instance",
+			expectedVer:     "v8.20.2", // latest >= 8.18.0 and <9.0.0
+			expectedLocator: "locator-v8.20.2",
+			expectErr:       false,
+		},
+		{
+			name:            "Tilde version match ~v8.18.0 (allow patch updates only)",
+			requestedVer:    "~v8.18.0",
+			requestedFlavor: "instance",
+			expectedVer:     "v8.18.0",
+			expectedLocator: "locator-v8.18.0",
+			expectErr:       false,
+		},
+		{
+			name:            "Flavor multi instance",
+			requestedVer:    "v8.18.0",
+			requestedFlavor: "multi",
+			expectedVer:     "v8.18.0",
+			expectedLocator: "locator-v8.18.0-multi",
+			expectErr:       false,
+		},
+		{
+			name:            "No matching version",
+			requestedVer:    "v9.0.0",
+			requestedFlavor: "instance",
+			expectErr:       true,
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			bestVersion, versionLocator, err := suite.infoSvc.GetOfferingVersionLocatorByConstraint(
+				catalogID, offeringID, tc.requestedVer, tc.requestedFlavor,
+			)
+
+			if tc.expectErr {
+				suite.Error(err)
+			} else {
+				suite.NoError(err)
+				suite.Equal(tc.expectedVer, bestVersion)
+				suite.Equal(tc.expectedLocator, versionLocator)
+			}
+		})
+	}
+
+	suite.mockService.AssertExpectations(suite.T())
+}
