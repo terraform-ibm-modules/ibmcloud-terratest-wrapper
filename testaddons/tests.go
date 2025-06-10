@@ -29,33 +29,29 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 	}
 
 	visited[versionLocator] = true
-	_, response, err := options.CloudInfoService.GetOffering(catalogID, offeringID)
+	offering, _, err := options.CloudInfoService.GetOffering(catalogID, offeringID)
 	if err != nil {
 		options.Logger.ShortError(fmt.Sprintf("error: %v\n", err))
 	}
 
-	offering, ok := response.Result.(*catalogmanagementv1.Offering)
 	var version catalogmanagementv1.Version
 	found := false
-	if ok {
+	for _, kind := range offering.Kinds {
 
-		for _, kind := range offering.Kinds {
+		if *kind.InstallKind == "terraform" {
 
-			if *kind.InstallKind == "terraform" {
+			for _, v := range kind.Versions {
 
-				for _, v := range kind.Versions {
-
-					if *v.VersionLocator == versionLocator {
-						version = v
-						found = true
-						break
-					}
+				if *v.VersionLocator == versionLocator {
+					version = v
+					found = true
+					break
 				}
+			}
 
-			}
-			if found {
-				break
-			}
+		}
+		if found {
+			break
 		}
 	}
 
@@ -230,6 +226,7 @@ func (options *TestAddonOptions) validateDependencies(graph map[*cloudinfo.Offer
 		return fmt.Errorf("expected configurations and actual configurations are not same")
 	}
 
+	options.Logger.ShortInfo("actually deployed configs are same as expected deployed configs")
 	return nil
 }
 

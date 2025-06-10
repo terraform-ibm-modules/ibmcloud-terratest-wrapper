@@ -773,7 +773,7 @@ func (suite *CatalogServiceTestSuite) TestGetOfferingVersionLocatorByConstraint_
 						VersionLocator: core.StringPtr("locator-v8.20.2"),
 					},
 					{
-						Version: core.StringPtr("v8.18.0"),
+						Version: core.StringPtr("8.18.0"),
 						Flavor: &catalogmanagementv1.Flavor{
 							Name:  core.StringPtr("instance"),
 							Label: core.StringPtr("Single instance"),
@@ -781,7 +781,7 @@ func (suite *CatalogServiceTestSuite) TestGetOfferingVersionLocatorByConstraint_
 						},
 						OfferingID:     core.StringPtr("test-offering-id"),
 						CatalogID:      core.StringPtr("test-catalog-id"),
-						VersionLocator: core.StringPtr("locator-v8.18.0"),
+						VersionLocator: core.StringPtr("locator-8.18.0"),
 					},
 					{
 						Version: core.StringPtr("v7.50.1"),
@@ -797,7 +797,7 @@ func (suite *CatalogServiceTestSuite) TestGetOfferingVersionLocatorByConstraint_
 					{
 						Version: core.StringPtr("v8.18.0"),
 						Flavor: &catalogmanagementv1.Flavor{
-							Name:  core.StringPtr("multi"),
+							Name:  core.StringPtr("multi-instance"),
 							Label: core.StringPtr("Multi instance"),
 							Index: core.Int64Ptr(1),
 						},
@@ -852,8 +852,8 @@ func (suite *CatalogServiceTestSuite) TestGetOfferingVersionLocatorByConstraint_
 			name:            "Tilde version match ~v8.18.0 (allow patch updates only)",
 			requestedVer:    "~v8.18.0",
 			requestedFlavor: "instance",
-			expectedVer:     "v8.18.0",
-			expectedLocator: "locator-v8.18.0",
+			expectedVer:     "8.18.0",
+			expectedLocator: "locator-8.18.0",
 			expectErr:       false,
 		},
 		{
@@ -875,7 +875,7 @@ func (suite *CatalogServiceTestSuite) TestGetOfferingVersionLocatorByConstraint_
 		{
 			name:            "Flavor multi instance",
 			requestedVer:    "v8.18.0",
-			requestedFlavor: "multi",
+			requestedFlavor: "multi-instance",
 			expectedVer:     "v8.18.0",
 			expectedLocator: "locator-v8.18.0-multi",
 			expectErr:       false,

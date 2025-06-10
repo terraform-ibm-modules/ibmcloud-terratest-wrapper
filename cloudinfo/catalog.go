@@ -568,20 +568,18 @@ func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID
 
 				if *v.Flavor.Name == flavor {
 					versionList = append(versionList, *v.Version)
-					strippedVersion := strings.TrimPrefix(*v.Version, "v")
-					versionLocatorMap[strippedVersion] = *v.VersionLocator
+					versionLocatorMap[*v.Version] = *v.VersionLocator
 				}
 			}
 		}
 	}
 
-	bestVersion := common.MatchVersion(versionList, version_constraint)
+	bestVersion := common.GetLatestVersionByConstraint(versionList, version_constraint)
 	if bestVersion == "" {
 		return "", "", fmt.Errorf("could not find a matching version for dependency %s ", *offering.Name)
 	}
 
 	versionLocator := versionLocatorMap[bestVersion]
-	bestVersion = "v" + bestVersion
 	return bestVersion, versionLocator, nil
 
 }

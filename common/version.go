@@ -34,7 +34,14 @@ func parseSemver(version string) (major int, minor int, fix int, valid bool) {
 // - A single-sided range (e.g., ">=1.2.3" or "<=4.5.6")
 //
 // Returns an empty string if no suitable version is found or the target format is invalid.
-func MatchVersion(versions []string, target string) string {
+func GetLatestVersionByConstraint(versions []string, target string) string {
+
+	// creating a backupversions slice so that v can be stripped
+	// for matching semver
+	// at the end we would check if we need to append v to the returned output if it is present in versions slice
+	backupVersions := make([]string, len(versions))
+	copy(backupVersions, versions)
+
 	var matchTargetType string                    // "exact", "^", "~", "range", "min_range", "max_range"
 	var targetMajor, targetMinor, targetPatch int // for exact, ^, ~ matches
 	var minMajor, minMinor, minPatch int          // for range matches
@@ -46,9 +53,8 @@ func MatchVersion(versions []string, target string) string {
 		return strings.ReplaceAll(ver, "v", "")
 	}
 
-	// Clean the input versions slice in place
-	for i := range versions {
-		versions[i] = cleanVersion(versions[i])
+	for i := range backupVersions {
+		backupVersions[i] = cleanVersion(backupVersions[i])
 	}
 
 	// Clean the target string in place
@@ -148,21 +154,23 @@ func MatchVersion(versions []string, target string) string {
 	candidates := [][]int{}
 	// Maps cleaned version string to its triplet.
 	// We no longer need a map to store original versions as we're returning cleaned ones.
-	versionTripletsMap := make(map[string][]int)
+	versionsMap := make(map[string]string)
 
-	for _, v := range versions { // `versions` now contains cleaned strings
+	for index, v := range backupVersions { // `versions` now contains cleaned strings
 		major, minor, patch, valid := parseSemver(v)
 		if !valid {
 			continue // Skip invalid available versions
 		}
+
 		versionTriplet := []int{major, minor, patch}
-		versionTripletsMap[v] = versionTriplet // Store triplet for cleaned version
+		// doing a mapping for cleanedVersion list to originalVersion list
+		versionsMap[v] = versions[index]
 
 		// Handle version matching based on matchTargetType
 		switch matchTargetType {
 		case "exact":
 			if major == targetMajor && minor == targetMinor && patch == targetPatch {
-				return v // For exact matches, return the cleaned string directly
+				return versionsMap[v] // For exact matches, return the cleaned string directly
 			}
 		case "^": // Major version must match, find latest minor/patch
 			if major == targetMajor && (minor > targetMinor || (minor == targetMinor && patch >= targetPatch)) {
@@ -254,10 +262,13 @@ func MatchVersion(versions []string, target string) string {
 
 	// Convert the top candidate (largest version) back to its cleaned string format
 	top := candidates[0]
-	for cleanedVer, parts := range versionTripletsMap {
-		if parts[0] == top[0] && parts[1] == top[1] && parts[2] == top[2] {
-			return cleanedVer // Return the cleaned version string directly
+	for cleanedVer, originalVer := range versionsMap {
+
+		maj, min, patch, _ := parseSemver(cleanedVer)
+		if top[0] == maj && top[1] == min && top[2] == patch {
+			return originalVer
 		}
+
 	}
 
 	return ""
