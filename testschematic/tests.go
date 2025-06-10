@@ -60,9 +60,6 @@ func (options *TestSchematicOptions) validateVariables(varFileLocation string) e
 			return fmt.Errorf("variable %s passed in test but not declared in variables.tf", passedVar)
 		}
 	}
-
-	fmt.Println(passedVars)
-	fmt.Println(declaredVars)
 	return nil
 
 }
