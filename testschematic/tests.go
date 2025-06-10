@@ -3,6 +3,7 @@ package testschematic
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -13,6 +14,58 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper"
 )
+
+// variable validation function for validating if some variable is passed to test which is not
+// declared in variables.tf. Currently schematics does not fail the test in such a case where
+// normal terraform run would give an error saying passed variable does not exist in variables.tf file
+func (options *TestSchematicOptions) validateVariables(varFileLocation string) error {
+
+	variableFileContent, err := os.ReadFile(varFileLocation)
+	if err != nil {
+		return fmt.Errorf("error reading the variable file: %s", varFileLocation)
+	}
+
+	re := regexp.MustCompile(`variable\s+"([^"]+)"`)
+	matches := re.FindAllStringSubmatch(string(variableFileContent), -1)
+
+	declaredVars := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) > 1 {
+			declaredVars = append(declaredVars, match[1])
+		}
+	}
+
+	passedVars := make([]string, 0)
+
+	for _, varInfo := range options.TerraformVars {
+
+		passedVars = append(passedVars, varInfo.Name)
+	}
+
+	// check if there is some variable passed to the test but is not declared in variables.tf
+
+	for _, passedVar := range passedVars {
+
+		found := false
+
+		for _, declaredVar := range declaredVars {
+			if passedVar == declaredVar {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+
+			return fmt.Errorf("variable %s passed in test but not declared in variables.tf", passedVar)
+		}
+	}
+
+	fmt.Println(passedVars)
+	fmt.Println(declaredVars)
+	return nil
+
+}
 
 // RunSchematicTest will use the supplied options to run an end-to-end Terraform test of a project in an
 // IBM Cloud Schematics Workspace.
@@ -117,6 +170,17 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 		if upgradeCheckoutErr != nil {
 			return fmt.Errorf("error cloning base repo for upgrade test: %w", upgradeCheckoutErr)
 		}
+	}
+
+	if performUpgradeTest {
+		options.Testing.Logf("Starting with variable validation for branch: %s ", svc.BaseTerraformRepoBranch)
+	} else {
+		options.Testing.Logf("Starting with variable validation for branch: %s ", svc.TestTerraformRepoBranch)
+	}
+	varFileLocation := tarPath + "/" + options.TemplateFolder + "/variables.tf"
+	err := options.validateVariables(varFileLocation)
+	if err != nil {
+		return err
 	}
 
 	// ------- TAR FILE UPLOAD --------
@@ -230,6 +294,13 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 			// UPGRADE TEST: upload new Tar file based on current code (original project path)
 			options.Testing.Log("[SCHEMATICS] Switching to source code for UPGRADE TEST")
 			// ------- TAR FILE UPLOAD --------
+
+			options.Testing.Logf("Starting with variable validation for branch: %s ", svc.TestTerraformRepoBranch)
+			varFileLocation = projectPath + "/" + options.TemplateFolder
+			err := options.validateVariables(varFileLocation)
+			if err != nil {
+				return err
+			}
 			upgradeTarballName, upgradeTarUploadErr := svc.CreateUploadTarFile(projectPath)
 			// set defer first so that file always gets removed even if error
 			if len(upgradeTarballName) > 0 {
