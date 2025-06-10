@@ -80,7 +80,7 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 				depFlavor = *dep.DefaultFlavor
 			}
 
-			// GetDependecyVersion function is needed to find VersionLocator of dependency tile
+			// Below function call is needed to find VersionLocator of dependency tile
 			// which will be used by current addon and we will recursively process for dependency
 			// this function is also going to handle the case in which dependency version is not pinned
 			depVersion, depVersionLocator, err := options.CloudInfoService.GetOfferingVersionLocatorByConstraint(depCatalogID, depOfferingID, *dep.Version, depFlavor)
