@@ -464,12 +464,10 @@ func (options *TestAddonOptions) RunAddonTest() error {
 
 			value, exists := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs[input.Key]
 			if !exists || fmt.Sprintf("%v", value) == "" {
-				fmt.Println("hello world")
 				if input.DefaultValue == nil || fmt.Sprintf("%v", input.DefaultValue) == "" || fmt.Sprintf("%v", input.DefaultValue) == "__NOT_SET__" {
 					options.Logger.ShortError(fmt.Sprintf("Missing or empty required input: %s\n", input.Key))
 					allInputsPresent = false
 				}
-				fmt.Println("hi world")
 			}
 
 		}
