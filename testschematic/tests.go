@@ -3,6 +3,7 @@ package testschematic
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime/debug"
 	"strings"
@@ -174,7 +175,7 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 	} else {
 		options.Testing.Logf("Starting with variable validation for branch: %s ", svc.TestTerraformRepoBranch)
 	}
-	varFileLocation := tarPath + "/" + options.TemplateFolder + "/variables.tf"
+	varFileLocation := filepath.Join(strings.TrimSuffix(tarPath, "/"), "/", strings.Trim(options.TemplateFolder, "/"), "/", "variables.tf")
 	err := options.validateVariables(varFileLocation)
 	if err != nil {
 		return err
@@ -293,7 +294,7 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 			// ------- TAR FILE UPLOAD --------
 
 			options.Testing.Logf("Starting with variable validation for branch: %s ", svc.TestTerraformRepoBranch)
-			varFileLocation = projectPath + "/" + options.TemplateFolder
+			varFileLocation := filepath.Join(strings.TrimSuffix(projectPath, "/"), "/", strings.Trim(options.TemplateFolder, "/"), "/", "variables.tf")
 			err := options.validateVariables(varFileLocation)
 			if err != nil {
 				return err
