@@ -857,6 +857,22 @@ func (suite *CatalogServiceTestSuite) TestGetOfferingVersionLocatorByConstraint_
 			expectErr:       false,
 		},
 		{
+			name:            "Range version match >=v8.15.0,<=v8.22.0 (allow patch updates only)",
+			requestedVer:    ">=8.15.0,<=8.22.0",
+			requestedFlavor: "instance",
+			expectedVer:     "v8.20.2",
+			expectedLocator: "locator-v8.20.2",
+			expectErr:       false,
+		},
+		{
+			name:            "Range version match <=v7.90.0,>=1.22.0 (allow patch updates only)",
+			requestedVer:    "<=7.90.0,>=1.22.0",
+			requestedFlavor: "instance",
+			expectedVer:     "v7.50.1",
+			expectedLocator: "locator-v7.50.1",
+			expectErr:       false,
+		},
+		{
 			name:            "Flavor multi instance",
 			requestedVer:    "v8.18.0",
 			requestedFlavor: "multi",

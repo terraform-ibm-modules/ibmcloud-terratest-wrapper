@@ -548,10 +548,10 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 
 // This function is going to return the Version Locator of the dependency which will be further used
 // in the buildDependencyGraph function to build the expected graph
-// Here version could a pinned version like(v1.0.3) , unpinned version like(^v2.1.4 or ~v1.5.6)
+// Here version_constraint could a pinned version like(v1.0.3) , unpinned version like(^v2.1.4 or ~v1.5.6)
 // range based matching is also supported >=v1.1.2,<=v4.3.1 or <=v3.1.4,>=v1.1.0
 // It uses MatchVersion function in common package to find the suitable version available in case it is not pinned
-func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID string, offeringID string, version string, flavor string) (string, string, error) {
+func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID string, offeringID string, version_constraint string, flavor string) (string, string, error) {
 
 	offering, _, err := infoSvc.GetOffering(catalogID, offeringID)
 	if err != nil {
@@ -559,38 +559,29 @@ func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID
 	}
 
 	versionList := make([]string, 0)
+	versionLocatorMap := make(map[string]string)
 	for _, kind := range offering.Kinds {
 
 		if *kind.InstallKind == "terraform" {
 
 			for _, v := range kind.Versions {
 
-				versionList = append(versionList, *v.Version)
-			}
-		}
-	}
-
-	bestVersion := common.MatchVersion(versionList, version)
-	if bestVersion == "" {
-		return "", "", fmt.Errorf("could not find a matching version for dependency %s ", *offering.Name)
-	}
-
-	versionLocator := ""
-
-	for _, kind := range offering.Kinds {
-
-		if *kind.InstallKind == "terraform" {
-
-			for _, v := range kind.Versions {
-
-				if *v.Version == bestVersion && *v.Flavor.Name == flavor {
-					versionLocator = *v.VersionLocator
-					break
+				if *v.Flavor.Name == flavor {
+					versionList = append(versionList, *v.Version)
+					strippedVersion := strings.TrimPrefix(*v.Version, "v")
+					versionLocatorMap[strippedVersion] = *v.VersionLocator
 				}
 			}
 		}
 	}
 
+	bestVersion := common.MatchVersion(versionList, version_constraint)
+	if bestVersion == "" {
+		return "", "", fmt.Errorf("could not find a matching version for dependency %s ", *offering.Name)
+	}
+
+	versionLocator := versionLocatorMap[bestVersion]
+	bestVersion = "v" + bestVersion
 	return bestVersion, versionLocator, nil
 
 }
