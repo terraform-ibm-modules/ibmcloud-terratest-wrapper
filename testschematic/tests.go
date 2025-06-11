@@ -43,6 +43,7 @@ func (options *TestSchematicOptions) validateVariables(varFileLocation string) e
 		passedVars = append(passedVars, varInfo.Name)
 	}
 
+	extraVariables := make([]string, 0)
 	// check if there is some variable passed to the test but is not declared in variables.tf
 
 	for _, passedVar := range passedVars {
@@ -58,8 +59,14 @@ func (options *TestSchematicOptions) validateVariables(varFileLocation string) e
 
 		if !found {
 
-			return fmt.Errorf("variable %s passed in test but not declared in variables.tf", passedVar)
+			extraVariables = append(extraVariables, passedVar)
 		}
+	}
+	if len(extraVariables) > 0 {
+
+		vars := strings.Join(extraVariables, ", ")
+		return fmt.Errorf("variable [%s] passed in test but not declared in variables.tf", vars)
+
 	}
 	return nil
 
@@ -170,15 +177,13 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 		}
 	}
 
-	if performUpgradeTest {
-		options.Testing.Logf("Starting with variable validation for branch: %s ", svc.BaseTerraformRepoBranch)
-	} else {
+	if !performUpgradeTest {
 		options.Testing.Logf("Starting with variable validation for branch: %s ", svc.TestTerraformRepoBranch)
-	}
-	varFileLocation := filepath.Join(strings.TrimSuffix(tarPath, "/"), "/", strings.Trim(options.TemplateFolder, "/"), "/", "variables.tf")
-	err := options.validateVariables(varFileLocation)
-	if err != nil {
-		return err
+		varFileLocation := filepath.Join(projectPath, options.TemplateFolder, "variables.tf")
+		err := options.validateVariables(varFileLocation)
+		if err != nil {
+			return err
+		}
 	}
 
 	// ------- TAR FILE UPLOAD --------
@@ -294,7 +299,7 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 			// ------- TAR FILE UPLOAD --------
 
 			options.Testing.Logf("Starting with variable validation for branch: %s ", svc.TestTerraformRepoBranch)
-			varFileLocation := filepath.Join(strings.TrimSuffix(projectPath, "/"), "/", strings.Trim(options.TemplateFolder, "/"), "/", "variables.tf")
+			varFileLocation := filepath.Join(projectPath, options.TemplateFolder, "variables.tf")
 			err := options.validateVariables(varFileLocation)
 			if err != nil {
 				return err
