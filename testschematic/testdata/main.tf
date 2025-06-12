@@ -1,5 +1,1 @@
-variable "var2" {
-  description = "test variable"
-  type        = string
-  default     = "abcd"
-}
+# main.tf required for linting to pass
