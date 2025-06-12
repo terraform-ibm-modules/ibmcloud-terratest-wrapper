@@ -1,6 +1,8 @@
 package testschematic
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -243,5 +245,24 @@ func TestSchematicFullTest(t *testing.T) {
 		assert.True(t, schematicSvc.applyComplete)
 		assert.True(t, schematicSvc.destroyComplete)
 		assert.True(t, schematicSvc.workspaceDeleteComplete)
+	})
+
+	t.Run("Pass Variable Validation", func(t *testing.T) {
+		mockSchematicServiceReset(schematicSvc, options)
+		schematicSvc.skipVariableValiation = false
+		dir, _ := os.Getwd()
+		dir = filepath.Join(dir, "testdata")
+		err := schematicSvc.validateVariables(dir, options.TerraformVars)
+		assert.NoError(t, err)
+	})
+
+	t.Run("Fail Variable Validation", func(t *testing.T) {
+		mockSchematicServiceReset(schematicSvc, options)
+		schematicSvc.skipVariableValiation = false
+		options.TerraformVars = append(options.TerraformVars, TestSchematicTerraformVar{Name: "var3", Value: "val3", DataType: "string", Secure: false})
+		dir, _ := os.Getwd()
+		dir = filepath.Join(dir, "testdata")
+		err := schematicSvc.validateVariables(dir, options.TerraformVars)
+		assert.Error(t, err)
 	})
 }
