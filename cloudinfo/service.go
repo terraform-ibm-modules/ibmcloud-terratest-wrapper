@@ -52,6 +52,9 @@ type CloudInfoService struct {
 	schematicsServices map[string]schematicsService
 	ApiKey             string
 	Logger             *common.TestLogger // Logger for CloudInfoService
+	// activeRefResolverRegion tracks the currently active region for ref resolution after failover
+	activeRefResolverRegion string
+	refResolverLock         sync.Mutex
 }
 
 // interface for the cloudinfo service (can be mocked in tests)

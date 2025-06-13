@@ -13,18 +13,46 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
+// MockCatalogCloudInfoService is a mock implementation for testing catalog functionality
+type MockCatalogCloudInfoService struct {
+	CloudInfoService
+	MockGetComponentReferences func(versionLocator string) (*OfferingReferenceResponse, error)
+}
+
+// GetComponentReferences overrides the implementation to use our mock function
+func (m *MockCatalogCloudInfoService) GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error) {
+	if m.MockGetComponentReferences != nil {
+		return m.MockGetComponentReferences(versionLocator)
+	}
+	return m.CloudInfoService.GetComponentReferences(versionLocator)
+}
+
+// MockComponentReferenceGetter is a simple mock that implements ComponentReferenceGetter interface
+type MockComponentReferenceGetter struct {
+	MockGetComponentReferences func(versionLocator string) (*OfferingReferenceResponse, error)
+}
+
+func (m *MockComponentReferenceGetter) GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error) {
+	if m.MockGetComponentReferences != nil {
+		return m.MockGetComponentReferences(versionLocator)
+	}
+	return nil, fmt.Errorf("not mocked")
+}
+
 type CatalogServiceTestSuite struct {
 	suite.Suite
 	mockService *catalogServiceMock
-	infoSvc     *CloudInfoService
+	infoSvc     *MockCatalogCloudInfoService
 }
 
 func (suite *CatalogServiceTestSuite) SetupTest() {
 	suite.mockService = new(catalogServiceMock)
-	suite.infoSvc = &CloudInfoService{
-		catalogService: suite.mockService,
-		authenticator: &core.IamAuthenticator{
-			ApiKey: "mockApiKey",
+	suite.infoSvc = &MockCatalogCloudInfoService{
+		CloudInfoService: CloudInfoService{
+			catalogService: suite.mockService,
+			authenticator: &MockAuthenticator{
+				Token: "mock-token",
+			},
 		},
 	}
 }
@@ -719,11 +747,12 @@ func (suite *CatalogServiceTestSuite) TestUpdateConfigInfoFromResponse() {
 		suite.Run(tc.name, func() {
 			// Create copies of the configs for modification during test
 			addonConfig := *tc.addonConfig
-			dependencies := make([]AddonConfig, len(tc.dependencies))
-			copy(dependencies, tc.dependencies)
+			// Set up dependencies in the addonConfig structure
+			addonConfig.Dependencies = make([]AddonConfig, len(tc.dependencies))
+			copy(addonConfig.Dependencies, tc.dependencies)
 
 			// Call the function to test
-			updateConfigInfoFromResponse(&addonConfig, dependencies, tc.response)
+			updateConfigInfoFromResponse(&addonConfig, tc.response)
 
 			// Check the main addon's config
 			assert.Equal(suite.T(), tc.expectedMainConfig, addonConfig.ConfigID)
@@ -737,12 +766,12 @@ func (suite *CatalogServiceTestSuite) TestUpdateConfigInfoFromResponse() {
 			}
 
 			// Check the dependencies
-			for i, dep := range dependencies {
+			for i, dep := range addonConfig.Dependencies {
 				expectedID, exists := tc.expectedDepIds[dep.ConfigName]
 				if exists {
-					assert.Equal(suite.T(), expectedID, dependencies[i].ConfigID, "Dependency %s has incorrect ConfigID", dep.ConfigName)
+					assert.Equal(suite.T(), expectedID, addonConfig.Dependencies[i].ConfigID, "Dependency %s has incorrect ConfigID", dep.ConfigName)
 				} else {
-					assert.Empty(suite.T(), dependencies[i].ConfigID, "Dependency %s should have empty ConfigID", dep.ConfigName)
+					assert.Empty(suite.T(), addonConfig.Dependencies[i].ConfigID, "Dependency %s should have empty ConfigID", dep.ConfigName)
 				}
 			}
 		})
@@ -905,4 +934,114 @@ func (suite *CatalogServiceTestSuite) TestGetOfferingVersionLocatorByConstraint_
 	}
 
 	suite.mockService.AssertExpectations(suite.T())
+}
+
+// TestProcessComponentReferencesUserOverrides tests that user-defined dependency settings are preserved
+// while metadata fields are populated from component references
+func (suite *CatalogServiceTestSuite) TestProcessComponentReferencesUserOverrides() {
+	// Create a mock service that returns component references
+	mockReferences := &OfferingReferenceResponse{
+		Optional: OptionalReferences{
+			OfferingReferences: []OfferingReferenceItem{
+				{
+					Name: "database",
+					OfferingReference: OfferingReferenceDetail{
+						Name:           "database",
+						VersionLocator: "catalog123.version456",
+						ID:             "offering789",
+						Version:        "1.0.0",
+						OnByDefault:    true, // Component reference says it should be on by default
+						Flavor: Flavor{
+							Name: "standard",
+						},
+						Label: "Database Service",
+					},
+				},
+				{
+					Name: "monitoring",
+					OfferingReference: OfferingReferenceDetail{
+						Name:           "monitoring",
+						VersionLocator: "catalog123.version999",
+						ID:             "offering888",
+						Version:        "2.0.0",
+						OnByDefault:    true, // Component reference says it should be on by default
+						Flavor: Flavor{
+							Name: "basic",
+						},
+						Label: "Monitoring Service",
+					},
+				},
+			},
+		},
+	}
+
+	// Create a mock component reference getter
+	mockGetter := &MockComponentReferenceGetter{
+		MockGetComponentReferences: func(versionLocator string) (*OfferingReferenceResponse, error) {
+			if versionLocator == "main-locator" {
+				return mockReferences, nil
+			}
+			// For dependency version locators, return empty references (no nested dependencies)
+			if versionLocator == "catalog123.version456" || versionLocator == "catalog123.version999" {
+				return &OfferingReferenceResponse{
+					Required: RequiredReferences{
+						OfferingReferences: []OfferingReferenceItem{},
+					},
+					Optional: OptionalReferences{
+						OfferingReferences: []OfferingReferenceItem{},
+					},
+				}, nil
+			}
+			return nil, fmt.Errorf("unexpected version locator: %s", versionLocator)
+		},
+	}
+
+	// Create addon config with user-defined dependencies
+	addonConfig := &AddonConfig{
+		VersionLocator: "main-locator",
+		Dependencies: []AddonConfig{
+			{
+				OfferingName: "database",
+				Enabled:      core.BoolPtr(false), // User explicitly disabled this
+				OnByDefault:  core.BoolPtr(false), // User explicitly set to false
+				// VersionLocator is empty - framework should populate metadata
+			}, {
+				OfferingName: "monitoring",
+				Enabled:      core.BoolPtr(true), // User explicitly enabled this
+				// OnByDefault is nil - framework can set this
+				// VersionLocator is empty - framework should populate metadata
+			},
+		},
+	}
+
+	processedLocators := make(map[string]bool)
+
+	// Call processComponentReferencesWithGetter with the mock
+	err := suite.infoSvc.processComponentReferencesWithGetter(addonConfig, processedLocators, mockGetter)
+	assert.NoError(suite.T(), err)
+
+	// Verify user settings are preserved
+	assert.NotNil(suite.T(), addonConfig.Dependencies[0].Enabled, "Enabled should not be nil")
+	assert.False(suite.T(), *addonConfig.Dependencies[0].Enabled, "User-defined Enabled: false should be preserved")
+
+	assert.NotNil(suite.T(), addonConfig.Dependencies[0].OnByDefault, "OnByDefault should not be nil")
+	assert.False(suite.T(), *addonConfig.Dependencies[0].OnByDefault, "User-defined OnByDefault: false should be preserved")
+
+	assert.NotNil(suite.T(), addonConfig.Dependencies[1].Enabled, "Enabled should not be nil")
+	assert.True(suite.T(), *addonConfig.Dependencies[1].Enabled, "User-defined Enabled: true should be preserved")
+
+	// Verify framework populated OnByDefault for the dependency where user didn't set it
+	assert.NotNil(suite.T(), addonConfig.Dependencies[1].OnByDefault, "OnByDefault should be populated by framework")
+	assert.True(suite.T(), *addonConfig.Dependencies[1].OnByDefault, "Framework should set OnByDefault from component reference")
+
+	// Verify metadata fields are populated from component references
+	assert.Equal(suite.T(), "catalog123.version456", addonConfig.Dependencies[0].VersionLocator, "VersionLocator should be populated")
+	assert.Equal(suite.T(), "offering789", addonConfig.Dependencies[0].OfferingID, "OfferingID should be populated")
+	assert.Equal(suite.T(), "1.0.0", addonConfig.Dependencies[0].ResolvedVersion, "ResolvedVersion should be populated")
+	assert.Equal(suite.T(), "Database Service", addonConfig.Dependencies[0].OfferingLabel, "OfferingLabel should be populated")
+
+	assert.Equal(suite.T(), "catalog123.version999", addonConfig.Dependencies[1].VersionLocator, "VersionLocator should be populated")
+	assert.Equal(suite.T(), "offering888", addonConfig.Dependencies[1].OfferingID, "OfferingID should be populated")
+	assert.Equal(suite.T(), "2.0.0", addonConfig.Dependencies[1].ResolvedVersion, "ResolvedVersion should be populated")
+	assert.Equal(suite.T(), "Monitoring Service", addonConfig.Dependencies[1].OfferingLabel, "OfferingLabel should be populated")
 }
