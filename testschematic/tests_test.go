@@ -1,8 +1,6 @@
 package testschematic
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,18 +21,20 @@ func TestSchematicFullTest(t *testing.T) {
 	//mockErrorType := new(schematicv1ErrorMock)
 	zero := 0
 
+	terraformVars := []TestSchematicTerraformVar{
+		{Name: "var1", Value: "val1", DataType: "string", Secure: false},
+		{Name: "var2", Value: "val2", DataType: "string", Secure: false},
+	}
 	options := &TestSchematicOptions{
-		Testing:                 new(testing.T),
-		Prefix:                  "unit-test",
-		DefaultRegion:           "test",
-		Region:                  "test",
-		RequiredEnvironmentVars: map[string]string{ibmcloudApiKeyVar: "XXX-XXXXXXX"},
-		TerraformVars: []TestSchematicTerraformVar{
-			{Name: "var1", Value: "val1", DataType: "string", Secure: false},
-			{Name: "var2", Value: "val2", DataType: "string", Secure: false},
-		},
+		Testing:                      new(testing.T),
+		Prefix:                       "unit-test",
+		DefaultRegion:                "test",
+		Region:                       "test",
+		RequiredEnvironmentVars:      map[string]string{ibmcloudApiKeyVar: "XXX-XXXXXXX"},
+		TerraformVars:                terraformVars,
 		Tags:                         []string{"unit-test"},
-		TarIncludePatterns:           []string{"*.md"},
+		TarIncludePatterns:           []string{"*.tf"},
+		TemplateFolder:               "testschematic/testdata/terraform",
 		WaitJobCompleteMinutes:       1,
 		DeleteWorkspaceOnFail:        false,
 		SchematicsApiSvc:             schematicSvc,
@@ -247,22 +247,14 @@ func TestSchematicFullTest(t *testing.T) {
 		assert.True(t, schematicSvc.workspaceDeleteComplete)
 	})
 
-	t.Run("Pass Variable Validation", func(t *testing.T) {
-		mockSchematicServiceReset(schematicSvc, options)
-		schematicSvc.skipVariableValiation = false
-		dir, _ := os.Getwd()
-		dir = filepath.Join(dir, "testdata")
-		err := schematicSvc.validateVariables(dir, options.TerraformVars)
-		assert.NoError(t, err)
-	})
-
 	t.Run("Fail Variable Validation", func(t *testing.T) {
 		mockSchematicServiceReset(schematicSvc, options)
-		schematicSvc.skipVariableValiation = false
+		// add extra variable which is not declared in testdata terraform variables.tf file for failing the test
 		options.TerraformVars = append(options.TerraformVars, TestSchematicTerraformVar{Name: "var3", Value: "val3", DataType: "string", Secure: false})
-		dir, _ := os.Getwd()
-		dir = filepath.Join(dir, "testdata")
-		err := schematicSvc.validateVariables(dir, options.TerraformVars)
+		err := options.RunSchematicTest()
 		assert.Error(t, err)
 	})
+
+	// reset options.TerraformVars to initial value
+	options.TerraformVars = terraformVars
 }
