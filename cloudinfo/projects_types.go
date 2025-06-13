@@ -1,6 +1,7 @@
 package cloudinfo
 
 import (
+	"github.com/IBM/go-sdk-core/v5/core"
 	project "github.com/IBM/project-go-sdk/projectv1"
 )
 
@@ -79,8 +80,8 @@ type AddonConfig struct {
 	ContainerConfigID   string // Temporary support for containers until they are removed
 	ContainerConfigName string
 	ExistingConfigID    string
-	Enabled             bool
-	OnByDefault         bool
+	Enabled             *bool // Use pointer to distinguish between unset (nil), false, and true
+	OnByDefault         *bool // Use pointer to distinguish between unset (nil), false, and true
 	OfferingID          string
 	OfferingName        string
 	OfferingFlavor      string
@@ -144,8 +145,8 @@ func newAddonConfig(prefix, name, flavor string, installKind *InstallKind, input
 		OfferingName:   name,
 		OfferingFlavor: flavor,
 		Inputs:         inputs,
-		Enabled:        true,
-		OnByDefault:    true,
+		Enabled:        core.BoolPtr(true), // Pointer to true
+		OnByDefault:    core.BoolPtr(true), // Pointer to true
 	}
 
 	// Default to Terraform install kind if not provided

@@ -52,6 +52,9 @@ type CloudInfoService struct {
 	schematicsServices map[string]schematicsService
 	ApiKey             string
 	Logger             *common.TestLogger // Logger for CloudInfoService
+	// activeRefResolverRegion tracks the currently active region for ref resolution after failover
+	activeRefResolverRegion string
+	refResolverLock         sync.Mutex
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -71,6 +74,7 @@ type CloudInfoServiceI interface {
 	ImportOffering(catalogID string, zipUrl string, offeringName string, flavorName string, version string, installKind InstallKind) (*catalogmanagementv1.Offering, error)
 	GetOffering(catalogID string, offeringID string) (*catalogmanagementv1.Offering, *core.DetailedResponse, error)
 	GetOfferingInputs(Offering *catalogmanagementv1.Offering, VersionID string, OfferingID string) (inputs []CatalogInput)
+	GetOfferingVersionLocatorByConstraint(string, string, string, string) (string, string, error)
 	DeployAddonToProject(addonConfig *AddonConfig, projectConfig *ProjectsConfig) (*DeployedAddonsDetails, error)
 	GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error)
 	CreateProjectFromConfig(config *ProjectsConfig) (*projects.Project, *core.DetailedResponse, error)
