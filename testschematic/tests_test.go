@@ -33,7 +33,7 @@ func TestSchematicFullTest(t *testing.T) {
 		RequiredEnvironmentVars:      map[string]string{ibmcloudApiKeyVar: "XXX-XXXXXXX"},
 		TerraformVars:                terraformVars,
 		Tags:                         []string{"unit-test"},
-		TarIncludePatterns:           []string{"*.md"},
+		TarIncludePatterns:           []string{"testschematic/testdata/terraform/*.tf"},
 		TemplateFolder:               "testschematic/testdata/terraform",
 		WaitJobCompleteMinutes:       1,
 		DeleteWorkspaceOnFail:        false,
