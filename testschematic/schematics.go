@@ -874,7 +874,7 @@ func getDetailedResponseStatusCode(resp *core.DetailedResponse) int {
 // variable validation function for validating if some variable is passed to test which is not
 // declared in variables.tf. Currently schematics does not fail the test in such a case where
 // normal terraform run would give an error saying passed variable does not exist in variables.tf file
-func (svc *SchematicsTestService) validateVariables(terraformDir string, optionVars []TestSchematicTerraformVar) error {
+func (svc *SchematicsTestService) validateVariables(terraformDir string) error {
 
 	entries, err := os.ReadDir(terraformDir)
 	if err != nil {
@@ -906,6 +906,7 @@ func (svc *SchematicsTestService) validateVariables(terraformDir string, optionV
 		}
 	}
 
+	optionVars := svc.TestOptions.TerraformVars
 	passedVars := make([]string, 0)
 
 	for _, varInfo := range optionVars {

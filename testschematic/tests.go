@@ -123,7 +123,7 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 	if !performUpgradeTest {
 		options.Testing.Logf("Starting with variable validation for branch: %s ", svc.TestTerraformRepoBranch)
 		terraformDir := filepath.Join(projectPath, options.TemplateFolder)
-		err := options.schematicsTestSvc.validateVariables(terraformDir, options.TerraformVars)
+		err := svc.validateVariables(terraformDir)
 		if err != nil {
 			return err
 		}
@@ -243,7 +243,7 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 
 			options.Testing.Logf("Starting with variable validation for branch: %s ", svc.TestTerraformRepoBranch)
 			terraformDir := filepath.Join(projectPath, options.TemplateFolder)
-			err := options.schematicsTestSvc.validateVariables(terraformDir, options.TerraformVars)
+			err := svc.validateVariables(terraformDir)
 			if err != nil {
 				return err
 			}
