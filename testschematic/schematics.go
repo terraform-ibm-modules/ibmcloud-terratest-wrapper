@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -868,4 +869,76 @@ func getDetailedResponseStatusCode(resp *core.DetailedResponse) int {
 	} else {
 		return 500
 	}
+}
+
+// variable validation function for validating if some variable is passed to test which is not
+// declared in variables.tf. Currently schematics does not fail the test in such a case where
+// normal terraform run would give an error saying passed variable does not exist in variables.tf file
+func (svc *SchematicsTestService) validateVariables(terraformDir string) error {
+
+	entries, err := os.ReadDir(terraformDir)
+	if err != nil {
+		return fmt.Errorf("error reading directory: %v", err)
+	}
+
+	re := regexp.MustCompile(`variable\s+"([^"]+)"`)
+	declaredVars := []string{}
+
+	for _, entry := range entries { // loop all .tf files in terraform directory
+		if entry.IsDir() {
+			continue // Skip directories
+		}
+
+		if strings.HasSuffix(entry.Name(), ".tf") {
+			filePath := filepath.Join(terraformDir, entry.Name())
+
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				return fmt.Errorf("error reading file %s: %v", filePath, err)
+			}
+
+			matches := re.FindAllStringSubmatch(string(content), -1)
+			for _, match := range matches {
+				if len(match) > 1 {
+					declaredVars = append(declaredVars, match[1])
+				}
+			}
+		}
+	}
+
+	optionVars := svc.TestOptions.TerraformVars
+	passedVars := make([]string, 0)
+
+	for _, varInfo := range optionVars {
+
+		passedVars = append(passedVars, varInfo.Name)
+	}
+
+	extraVariables := make([]string, 0)
+	// check if there is some variable passed to the test but is not declared in variables.tf
+
+	for _, passedVar := range passedVars {
+
+		found := false
+
+		for _, declaredVar := range declaredVars {
+			if passedVar == declaredVar {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+
+			extraVariables = append(extraVariables, passedVar)
+		}
+	}
+	if len(extraVariables) > 0 {
+
+		vars := strings.Join(extraVariables, ", ")
+		return fmt.Errorf("variable [%s] passed in test but not declared in variables.tf", vars)
+
+	}
+	return nil
+
 }
