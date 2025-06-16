@@ -158,6 +158,11 @@ func needsProjectContext(reference string) bool {
 		return true
 	}
 
+	// Check if it contains stack-style relative paths (../), these need project context
+	if strings.Contains(reference, "../") {
+		return true
+	}
+
 	return false
 }
 
@@ -365,7 +370,7 @@ type HttpError struct {
 }
 
 func (e *HttpError) Error() string {
-	return fmt.Sprintf("invalid status code: %d, body: %s", e.Body, e.StatusCode)
+	return fmt.Sprintf("invalid status code: %d, body: %s", e.StatusCode, e.Body)
 }
 
 // EnhancedHttpError wraps HttpError with additional context for intermittent issues

@@ -339,7 +339,7 @@ func TestTransformReferencesToQualifiedReferences(t *testing.T) {
 				"ref:../../members/1a-primary-da/outputs/ssh_key_id",
 			},
 			expectedRefs: []Reference{
-				{Reference: "ref://project.test-project/../../members/1a-primary-da/outputs/ssh_key_id"},
+				{Reference: "ref://project.test-project/members/1a-primary-da/outputs/ssh_key_id"},
 			},
 		},
 		{
@@ -430,19 +430,24 @@ func transformReferencesForTest(refStrings []string, projectName string) []Refer
 	}
 
 	for _, refString := range refStrings {
-		// Skip already fully qualified references that don't need project context
-		if !needsProjectContext(refString) {
-			references = append(references, Reference{Reference: refString})
+		normalizedRef := normalizeReference(refString)
+
+		// Skip fully-qualified references that don't need project context
+		if !needsProjectContext(normalizedRef) {
+			references = append(references, Reference{Reference: normalizedRef})
 			continue
 		}
 
-		// Handle stack-style relative references
-		if strings.Contains(refString, "../") {
-			normalizedRef := normalizeReference(refString)
+		// At this point we know the reference needs project qualification
+
+		// Handle stack-style relative references (e.g., ref:../../configs/{configID}/inputs/prefix)
+		// This matches the logic in the real transformReferencesToQualifiedReferences function
+		if strings.Contains(normalizedRef, "../") {
 			refPath := strings.TrimPrefix(normalizedRef, "ref:")
 
-			// Handle stack-style config references
+			// Check if this is a stack-style config reference
 			if strings.Contains(refPath, "/configs/") {
+				// Find the configs pattern
 				configsIndex := strings.Index(refPath, "/configs/")
 				configPath := refPath[configsIndex+9:] // +9 for "/configs/"
 				parts := strings.SplitN(configPath, "/", 2)
@@ -465,30 +470,31 @@ func transformReferencesForTest(refStrings []string, projectName string) []Refer
 				}
 			}
 
-			// Handle stack-style member references
+			// Check if this is a stack-style members reference
 			if strings.Contains(refPath, "/members/") {
 				membersIndex := strings.Index(refPath, "/members/")
-				memberPath := refPath[membersIndex+9:] // +9 for "/members/"
-				qualifiedRef := fmt.Sprintf("ref://project.%s/members/%s", projectName, memberPath)
-				references = append(references, Reference{Reference: qualifiedRef})
-				continue
+				if membersIndex != -1 {
+					memberPath := refPath[membersIndex+9:] // +9 for "/members/"
+					memberQualifiedRef := fmt.Sprintf("ref://project.%s/members/%s", projectName, memberPath)
+					references = append(references, Reference{Reference: memberQualifiedRef})
+					continue
+				}
 			}
 
-			// Handle other stack-style references
+			// For other stack-style references, strip the ../ parts and create a project-qualified reference
 			cleanPath := refPath
 			for strings.HasPrefix(cleanPath, "../") {
 				cleanPath = strings.TrimPrefix(cleanPath, "../")
 			}
+			// Remove leading slash if present
 			if strings.HasPrefix(cleanPath, "/") {
 				cleanPath = strings.TrimPrefix(cleanPath, "/")
 			}
-			qualifiedRef := fmt.Sprintf("ref://project.%s/%s", projectName, cleanPath)
-			references = append(references, Reference{Reference: qualifiedRef})
+
+			otherQualifiedRef := fmt.Sprintf("ref://project.%s/%s", projectName, cleanPath)
+			references = append(references, Reference{Reference: otherQualifiedRef})
 			continue
 		}
-
-		// Normalize the reference string
-		normalizedRef := normalizeReference(refString)
 
 		// For test purposes, directly check if this is a config reference with a specific format
 		if configID, found := extractConfigIDFromPath(normalizedRef, "/configs/"); found {
