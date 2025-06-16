@@ -7,5 +7,5 @@ on:
       - created
 jobs:
   call-golang-ci-pipeline:
-    uses: terraform-ibm-modules/common-pipeline-assets/.github/workflows/common-golang-ci.yml@v1.22.3
+    uses: terraform-ibm-modules/common-pipeline-assets/.github/workflows/common-golang-ci.yml@v1.22.5
     secrets: inherit

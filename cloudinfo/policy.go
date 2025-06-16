@@ -1,6 +1,7 @@
 package cloudinfo
 
 import (
+	"errors"
 	"fmt"
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
 )
@@ -27,15 +28,15 @@ func (infoSvc *CloudInfoService) DeleteIamPolicyByID(policyId string) error {
 	case 204:
 		return nil
 	case 400:
-		return fmt.Errorf(ErrPolicyInvalidToDelete)
+		return errors.New(ErrPolicyInvalidToDelete)
 	case 401:
-		return fmt.Errorf(ErrTokenInvalid)
+		return errors.New(ErrTokenInvalid)
 	case 403:
-		return fmt.Errorf(ErrNoAccessToDeletePolicy)
+		return errors.New(ErrNoAccessToDeletePolicy)
 	case 404:
-		return fmt.Errorf(ErrPolicyNotFound)
+		return errors.New(ErrPolicyNotFound)
 	case 429:
-		return fmt.Errorf(ErrTooManyRequests)
+		return errors.New(ErrTooManyRequests)
 	default:
 		return fmt.Errorf("unknown response code %d", response.StatusCode)
 	}

@@ -9,10 +9,15 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"testing"
 
+	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"github.com/gruntwork-io/terratest/modules/logger"
+	"github.com/gruntwork-io/terratest/modules/random"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -29,6 +34,8 @@ type gitOps interface {
 	getOriginURL(repoPath string) string
 	// GetOriginBranch returns the name of the origin branch.
 	getOriginBranch(repoPath string) string
+	// ExecuteCommand executes a command and returns its output.
+	executeCommand(dir string, command string, args ...string) ([]byte, error)
 }
 
 // envOps is an interface that abstracts environment variable operations.
@@ -185,6 +192,13 @@ func (r *realGitOps) getOriginBranch(repoPath string) string {
 	}
 
 	return branch
+}
+
+// Implementation of executeCommand for realGitOps
+func (r *realGitOps) executeCommand(dir string, command string, args ...string) ([]byte, error) {
+	cmd := exec.Command(command, args...)
+	cmd.Dir = dir
+	return cmd.Output()
 }
 
 // realEnvOps provides the real-world implementation of envOps, interacting with actual environment variables.
@@ -384,4 +398,197 @@ func RetrievePrivateKey(sshPvtKey string) (interface{}, error) {
 		return nil, err
 	}
 	return key, err
+}
+
+// SkipUpgradeTest can determine if a terraform or schematics upgrade test should be skipped by analyzing
+// the currently checked out git branch, looking for specific verbage in the commit messages.
+func SkipUpgradeTest(testing *testing.T, source_repo string, source_branch string, branch string) bool {
+
+	// random string to use in remote name
+	remote := fmt.Sprintf("upstream-%s", strings.ToLower(random.UniqueId()))
+	logger.Log(testing, "Remote name:", remote)
+	// Set upstream to the source repo
+	remote_out, remote_err := exec.Command("/bin/sh", "-c", fmt.Sprintf("git remote add %s %s", remote, source_repo)).Output()
+	if remote_err != nil {
+		logger.Log(testing, "Add remote output:\n", remote_out)
+		logger.Log(testing, "Error adding upstream remote:\n", remote_err)
+		return false
+	}
+	// Fetch the source repo
+	fetch_out, fetch_err := exec.Command("/bin/sh", "-c", fmt.Sprintf("git fetch %s -f", remote)).Output()
+	if fetch_err != nil {
+		logger.Log(testing, "Fetch output:\n", fetch_out)
+		logger.Log(testing, "Error fetching upstream:\n", fetch_err)
+		return false
+	} else {
+		logger.Log(testing, "Fetch output:\n", fetch_out)
+	}
+	// Get all the commit messages from the PR branch
+	// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
+	// clone even if the default branch has not been checked out or pulled.
+	cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("git log %s/%s..%s", remote, source_branch, branch))
+	out, _ := cmd.CombinedOutput()
+
+	fmt.Printf("Commit Messages (%s): \n%s", source_branch, string(out))
+	// Skip upgrade Test if BREAKING CHANGE OR SKIP UPGRADE TEST string found in commit messages
+	doNotRunUpgradeTest := false
+	if (strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST")) && !strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
+		doNotRunUpgradeTest = true
+	}
+
+	return doNotRunUpgradeTest
+}
+
+func CloneAndCheckoutBranch(testing *testing.T, repoURL string, branch string, cloneDir string) error {
+
+	authMethod, authErr := DetermineAuthMethod(repoURL)
+	if authErr != nil {
+		logger.Log(testing, "Failed to determine authentication method, trying without authentication...")
+
+		// Convert SSH URL to HTTPS URL
+		if strings.HasPrefix(repoURL, "git@") {
+			repoURL = strings.Replace(repoURL, ":", "/", 1)
+			repoURL = strings.Replace(repoURL, "git@", "https://", 1)
+			repoURL = strings.TrimSuffix(repoURL, ".git") + ".git"
+		}
+
+		// Try to clone without authentication
+		_, errUnauth := git.PlainClone(cloneDir, false, &git.CloneOptions{
+			URL:           repoURL,
+			ReferenceName: plumbing.NewBranchReferenceName(branch),
+			SingleBranch:  true,
+		})
+
+		if errUnauth != nil {
+			// If unauthenticated clone fails and we cannot determine authentication, return the error from the unauthenticated approach
+			return fmt.Errorf("failed to determine authentication method and clone base repo and branch without authentication: %v", errUnauth)
+		} else {
+			logger.Log(testing, "Cloned base repo and branch without authentication")
+		}
+	} else {
+		// Authentication method determined, try with authentication
+		_, errAuth := git.PlainClone(cloneDir, false, &git.CloneOptions{
+			URL:           repoURL,
+			ReferenceName: plumbing.NewBranchReferenceName(branch),
+			SingleBranch:  true,
+			Auth:          authMethod,
+		})
+
+		if errAuth != nil {
+			logger.Log(testing, "Failed to clone base repo and branch with authentication, trying without authentication...")
+			// Convert SSH URL to HTTPS URL
+			if strings.HasPrefix(repoURL, "git@") {
+				repoURL = strings.Replace(repoURL, ":", "/", 1)
+				repoURL = strings.Replace(repoURL, "git@", "https://", 1)
+				repoURL = strings.TrimSuffix(repoURL, ".git") + ".git"
+			}
+
+			// Try to clone without authentication
+			_, errUnauth := git.PlainClone(cloneDir, false, &git.CloneOptions{
+				URL:           repoURL,
+				ReferenceName: plumbing.NewBranchReferenceName(branch),
+				SingleBranch:  true,
+			})
+
+			if errUnauth != nil {
+				// If unauthenticated clone also fails, return the error from the authenticated approach
+				return fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
+			} else {
+				logger.Log(testing, "Cloned base repo and branch without authentication")
+			}
+		} else {
+			logger.Log(testing, "Cloned base repo and branch with authentication")
+		}
+	}
+
+	return nil
+}
+
+// ChangesToBePush determines if there are any changes to push to the remote repository.
+// Returns a boolean indicating if there are changes and a slice of filenames that have changes.
+func ChangesToBePush(testing *testing.T, repoDir string) (bool, []string, error) {
+	return changesToBePush(testing, repoDir, &realGitOps{})
+}
+
+func changesToBePush(testing *testing.T, repoDir string, git gitOps) (bool, []string, error) {
+	// Check for uncommitted changes
+	uncommittedOutput, uncommittedErr := git.executeCommand(repoDir, "git", "status", "--porcelain")
+	if uncommittedErr != nil {
+		logger.Log(testing, "Failed to determine if there are uncommitted changes:", uncommittedErr)
+		return false, nil, uncommittedErr
+	}
+
+	// Check for unpushed commits
+	unpushedOutput, unpushedErr := git.executeCommand(repoDir, "git", "log", "@{u}..HEAD", "--name-only", "--pretty=format:")
+
+	// If there's an error, it might be because there's no upstream branch
+	// In that case, let's try to check if there are any commits at all
+	if unpushedErr != nil {
+		logger.Log(testing, "Failed to check unpushed commits, trying alternative approach:", unpushedErr)
+		// Check if there are any commits
+		unpushedOutput, unpushedErr = git.executeCommand(repoDir, "git", "log", "HEAD", "--name-only", "--pretty=format:", "-n", "1")
+		if unpushedErr != nil {
+			logger.Log(testing, "Failed to determine if there are commits:", unpushedErr)
+			// Continue with just the uncommitted changes check
+			unpushedOutput = []byte{}
+		}
+	}
+
+	// Process uncommitted changes
+	hasUncommittedChanges := len(uncommittedOutput) > 0
+	uncommittedFiles := make([]string, 0)
+
+	if hasUncommittedChanges {
+		// Parse output to extract filenames for uncommitted changes
+		lines := strings.Split(strings.TrimSpace(string(uncommittedOutput)), "\n")
+
+		for _, line := range lines {
+			if len(line) > 0 {
+				// git status --porcelain output has the format: XY filename
+				// where X and Y are status codes and the rest is the filename
+				parts := strings.SplitN(strings.TrimSpace(line), " ", 2)
+				if len(parts) > 1 {
+					// There might be multiple spaces between status and filename
+					filename := strings.TrimSpace(parts[1])
+					uncommittedFiles = append(uncommittedFiles, filename)
+				} else if len(parts) == 1 && len(parts[0]) > 2 {
+					// Handle cases where there's no space after status codes
+					uncommittedFiles = append(uncommittedFiles, strings.TrimSpace(parts[0][2:]))
+				}
+			}
+		}
+	}
+
+	// Process unpushed commits
+	hasUnpushedCommits := len(unpushedOutput) > 0
+	unpushedFiles := make([]string, 0)
+
+	if hasUnpushedCommits && string(unpushedOutput) != "" {
+		// Parse output to extract filenames for unpushed commits
+		lines := strings.Split(strings.TrimSpace(string(unpushedOutput)), "\n")
+		for _, line := range lines {
+			if line != "" {
+				unpushedFiles = append(unpushedFiles, line)
+			}
+		}
+	}
+
+	// Combine both lists of files and remove duplicates
+	allChangedFiles := make([]string, 0, len(uncommittedFiles)+len(unpushedFiles))
+	allChangedFiles = append(allChangedFiles, uncommittedFiles...)
+
+	// Add unpushed files, avoiding duplicates
+	fileMap := make(map[string]bool)
+	for _, file := range uncommittedFiles {
+		fileMap[file] = true
+	}
+
+	for _, file := range unpushedFiles {
+		if !fileMap[file] {
+			allChangedFiles = append(allChangedFiles, file)
+			fileMap[file] = true
+		}
+	}
+
+	return hasUncommittedChanges || hasUnpushedCommits, allChangedFiles, nil
 }

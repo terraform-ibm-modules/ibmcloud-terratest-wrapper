@@ -1,210 +1,26 @@
 package testhelper
 
 import (
-	"encoding/json"
 	"fmt"
-	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
-	"github.com/gruntwork-io/terratest/modules/random"
-	tfjson "github.com/hashicorp/terraform-json"
 	"os"
-	"os/exec"
 	"path"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 
-	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/gruntwork-io/terratest/modules/files"
 
-	"github.com/go-git/go-git/v5"
 	"github.com/gruntwork-io/terratest/modules/logger"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
-
-func (options *TestOptions) skipUpgradeTest(source_repo string, source_branch string, branch string) bool {
-
-	// random string to use in remote name
-	remote := fmt.Sprintf("upstream-%s", strings.ToLower(random.UniqueId()))
-	logger.Log(options.Testing, "Remote name:", remote)
-	// Set upstream to the source repo
-	remote_out, remote_err := exec.Command("/bin/sh", "-c", fmt.Sprintf("git remote add %s %s", remote, source_repo)).Output()
-	if remote_err != nil {
-		logger.Log(options.Testing, "Add remote output:\n", remote_out)
-		logger.Log(options.Testing, "Error adding upstream remote:\n", remote_err)
-		return false
-	}
-	// Fetch the source repo
-	fetch_out, fetch_err := exec.Command("/bin/sh", "-c", fmt.Sprintf("git fetch %s -f", remote)).Output()
-	if fetch_err != nil {
-		logger.Log(options.Testing, "Fetch output:\n", fetch_out)
-		logger.Log(options.Testing, "Error fetching upstream:\n", fetch_err)
-		return false
-	} else {
-		logger.Log(options.Testing, "Fetch output:\n", fetch_out)
-	}
-	// Get all the commit messages from the PR branch
-	// NOTE: using the "origin" of the default branch as the start point, which will exist in a fresh
-	// clone even if the default branch has not been checked out or pulled.
-	cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("git log %s/%s..%s", remote, source_branch, branch))
-	out, _ := cmd.CombinedOutput()
-
-	fmt.Printf("Commit Messages (%s): \n%s", source_branch, string(out))
-	// Skip upgrade Test if BREAKING CHANGE OR SKIP UPGRADE TEST string found in commit messages
-	doNotRunUpgradeTest := false
-	if (strings.Contains(string(out), "BREAKING CHANGE") || strings.Contains(string(out), "SKIP UPGRADE TEST")) && !strings.Contains(string(out), "UNSKIP UPGRADE TEST") {
-		doNotRunUpgradeTest = true
-	}
-
-	return doNotRunUpgradeTest
-}
-
-// sanitizeResourceChanges sanitizes the sensitive data in a Terraform JSON Change and returns the sanitized JSON.
-func sanitizeResourceChanges(change *tfjson.Change, mergedSensitive map[string]interface{}) (string, error) {
-	// Marshal the Change to JSON bytes
-	changesBytes, err := json.MarshalIndent(change, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	changesJson := string(changesBytes)
-
-	// Perform sanitization of sensitive data
-	changesJson, err = common.SanitizeSensitiveData(changesJson, mergedSensitive)
-	return changesJson, err
-}
-
-// handleSanitizationError logs an error message if a sanitization error occurs.
-func handleSanitizationError(err error, location string, options *TestOptions) {
-	if err != nil {
-		errorMessage := fmt.Sprintf("Error sanitizing sensitive data in %s", location)
-		logger.Log(options.Testing, errorMessage)
-	}
-}
-
-// checkConsistency Fails the test if any destroys are detected and the resource is not exempt.
-// If any addresses are provided in IgnoreUpdates.List then fail on updates too unless the resource is exempt
-func (options *TestOptions) CheckConsistency(plan *terraform.PlanStruct) {
-	options.checkConsistency(plan)
-}
-
-// checkConsistency check consistency
-func (options *TestOptions) checkConsistency(plan *terraform.PlanStruct) {
-	validChange := false
-
-	for _, resource := range plan.ResourceChangesMap {
-		// get JSON string of full changes for the logs
-		changesBytes, changesErr := json.MarshalIndent(resource.Change, "", "  ")
-		// if it errors in the marshall step, just put a placeholder and move on, not important
-		changesJson := "--UNAVAILABLE--"
-		if changesErr == nil {
-			changesJson = string(changesBytes)
-		}
-
-		var resourceDetails string
-
-		// Treat all keys in the BeforeSensitive and AfterSensitive maps as sensitive
-		// Assuming BeforeSensitive and AfterSensitive are of type interface{}
-		beforeSensitive, beforeSensitiveOK := resource.Change.BeforeSensitive.(map[string]interface{})
-		afterSensitive, afterSensitiveOK := resource.Change.AfterSensitive.(map[string]interface{})
-
-		// Create the mergedSensitive map
-		mergedSensitive := make(map[string]interface{})
-
-		// Check if BeforeSensitive is of the expected type
-		if beforeSensitiveOK {
-			// Copy the keys and values from BeforeSensitive to the mergedSensitive map.
-			for key, value := range beforeSensitive {
-				mergedSensitive[key] = value
-			}
-		}
-
-		// Check if AfterSensitive is of the expected type
-		if afterSensitiveOK {
-			// Copy the keys and values from AfterSensitive to the mergedSensitive map.
-			for key, value := range afterSensitive {
-				mergedSensitive[key] = value
-			}
-		}
-
-		// Perform sanitization
-		sanitizedChangesJson, err := sanitizeResourceChanges(resource.Change, mergedSensitive)
-		if err != nil {
-			sanitizedChangesJson = "Error sanitizing sensitive data"
-			logger.Log(options.Testing, sanitizedChangesJson)
-		}
-		formatChangesJson, err := common.FormatJsonStringPretty(sanitizedChangesJson)
-
-		var formatChangesJsonString string
-		if err != nil {
-			logger.Log(options.Testing, "Error formatting JSON, use unformatted")
-			formatChangesJsonString = sanitizedChangesJson
-		} else {
-			formatChangesJsonString = string(formatChangesJson)
-		}
-
-		diff, diffErr := common.GetBeforeAfterDiff(changesJson)
-
-		if diffErr != nil {
-			diff = fmt.Sprintf("Error getting diff: %s", diffErr)
-		} else {
-			// Split the changesJson into "Before" and "After" parts
-			beforeAfter := strings.Split(diff, "After: ")
-
-			// Perform sanitization on "After" part
-			var after string
-			if len(beforeAfter) > 1 {
-				after, err = common.SanitizeSensitiveData(beforeAfter[1], mergedSensitive)
-				handleSanitizationError(err, "after diff", options)
-			} else {
-				after = fmt.Sprintf("Could not parse after from diff") // dont print incase diff contains sensitive values
-			}
-
-			// Perform sanitization on "Before" part
-			var before string
-			if len(beforeAfter) > 0 {
-				before, err = common.SanitizeSensitiveData(strings.TrimPrefix(beforeAfter[0], "Before: "), mergedSensitive)
-				handleSanitizationError(err, "before diff", options)
-			} else {
-				before = fmt.Sprintf("Could not parse before from diff") // dont print incase diff contains sensitive values
-			}
-
-			// Reassemble the sanitized diff string
-			diff = "  Before: \n\t" + before + "\n  After: \n\t" + after
-		}
-		resourceDetails = fmt.Sprintf("\nName: %s\nAddress: %s\nActions: %s\nDIFF:\n%s\n\nChange Detail:\n%s", resource.Name, resource.Address, resource.Change.Actions, diff, formatChangesJsonString)
-
-		var errorMessage string
-		if !options.IgnoreDestroys.IsExemptedResource(resource.Address) {
-			errorMessage = fmt.Sprintf("Resource(s) identified to be destroyed %s", resourceDetails)
-			assert.False(options.Testing, resource.Change.Actions.Delete(), errorMessage)
-			assert.False(options.Testing, resource.Change.Actions.DestroyBeforeCreate(), errorMessage)
-			assert.False(options.Testing, resource.Change.Actions.CreateBeforeDestroy(), errorMessage)
-			validChange = true
-		}
-		if !options.IgnoreUpdates.IsExemptedResource(resource.Address) {
-			errorMessage = fmt.Sprintf("Resource(s) identified to be updated %s", resourceDetails)
-			assert.False(options.Testing, resource.Change.Actions.Update(), errorMessage)
-			validChange = true
-		}
-		// We only want to check pure Adds (creates without destroy) if the consistency test is
-		// NOT the result of an Upgrade, as some adds are expected when doing the Upgrade test
-		// (such as new resources were added as part of the pull request)
-		if !options.IsUpgradeTest {
-			if !options.IgnoreAdds.IsExemptedResource(resource.Address) {
-				errorMessage = fmt.Sprintf("Resource(s) identified to be created %s", resourceDetails)
-				assert.False(options.Testing, resource.Change.Actions.Create(), errorMessage)
-				validChange = true
-			}
-		}
-	}
-	// Run plan again to output the nice human-readable plan if there are valid changes
-	if validChange {
-		terraform.Plan(options.Testing, options.TerraformOptions)
-	}
-}
 
 // Function to setup testing environment.
 //
@@ -222,7 +38,12 @@ func (options *TestOptions) TestSetup() {
 // testSetup Setup test
 func (options *TestOptions) testSetup() {
 	if !options.SkipTestSetup {
-		os.Setenv("API_DATA_IS_SENSITIVE", "true")
+
+		if options.ApiDataIsSensitive == nil {
+			os.Setenv("API_DATA_IS_SENSITIVE", "true")
+		} else {
+			os.Setenv("API_DATA_IS_SENSITIVE", strconv.FormatBool(*options.ApiDataIsSensitive))
+		}
 		// If calling test had not provided its own TerraformOptions, use the default settings
 		if options.TerraformOptions == nil {
 			// Construct the terraform options with default retryable errors to handle the most common
@@ -374,7 +195,7 @@ func (options *TestOptions) testTearDown() {
 			}
 			logger.Log(options.Testing, "START: Destroy")
 			destroyOutput, destroyError := terraform.DestroyE(options.Testing, options.TerraformOptions)
-			if assert.NoError(options.Testing, destroyError) == false {
+			if !assert.NoError(options.Testing, destroyError) {
 				logger.Log(options.Testing, destroyError)
 				// On destroy resource group failure, list remaining resources
 				if common.StringContainsIgnoreCase(destroyError.Error(), "Error Deleting resource group") {
@@ -464,7 +285,7 @@ func (options *TestOptions) testTearDown() {
 
 // print_resources internal helper function that prints the resources in the resource group
 func print_resources(t *testing.T, resourceGroup string, resources []resourcecontrollerv2.ResourceInstance, err error) {
-	logger.Log(t, fmt.Sprintf("---------------------------"))
+	logger.Log(t, "---------------------------")
 	if err != nil {
 		logger.Log(t, fmt.Sprintf("Error listing resources in Resource Group %s, %s\n"+
 			"Is this Resource Group already deleted?", resourceGroup, err))
@@ -474,7 +295,7 @@ func print_resources(t *testing.T, resourceGroup string, resources []resourcecon
 		logger.Log(t, fmt.Sprintf("Resources in Resource Group %s:", resourceGroup))
 		cloudinfo.PrintResources(resources)
 	}
-	logger.Log(t, fmt.Sprintf("---------------------------"))
+	logger.Log(t, "---------------------------")
 }
 
 // RunTestUpgrade runs the upgrade test to ensure that the Terraform configurations being tested
@@ -529,7 +350,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Base Branch:", baseBranch)
 	}
 
-	if options.skipUpgradeTest(baseRepo, baseBranch, prBranch) {
+	if common.SkipUpgradeTest(options.Testing, baseRepo, baseBranch, prBranch) {
 		options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
 	} else {
 		skipped = false
@@ -631,64 +452,9 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			}
 		}
 
-		authMethod, err := common.DetermineAuthMethod(baseRepo)
-		if err != nil {
-			logger.Log(options.Testing, "Failed to determine authentication method, trying without authentication...")
-
-			// Convert SSH URL to HTTPS URL
-			if strings.HasPrefix(baseRepo, "git@") {
-				baseRepo = strings.Replace(baseRepo, ":", "/", 1)
-				baseRepo = strings.Replace(baseRepo, "git@", "https://", 1)
-				baseRepo = strings.TrimSuffix(baseRepo, ".git") + ".git"
-			}
-
-			// Try to clone without authentication
-			_, errUnauth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
-				URL:           baseRepo,
-				ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
-				SingleBranch:  true,
-			})
-
-			if errUnauth != nil {
-				// If unauthenticated clone fails and we cannot determine authentication, return the error from the unauthenticated approach
-				return nil, fmt.Errorf("failed to determine authentication method and clone base repo and branch without authentication: %v", errUnauth)
-			} else {
-				logger.Log(options.Testing, "Cloned base repo and branch without authentication")
-			}
-		} else {
-			// Authentication method determined, try with authentication
-			_, errAuth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
-				URL:           baseRepo,
-				ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
-				SingleBranch:  true,
-				Auth:          authMethod,
-			})
-
-			if errAuth != nil {
-				logger.Log(options.Testing, "Failed to clone base repo and branch with authentication, trying without authentication...")
-				// Convert SSH URL to HTTPS URL
-				if strings.HasPrefix(baseRepo, "git@") {
-					baseRepo = strings.Replace(baseRepo, ":", "/", 1)
-					baseRepo = strings.Replace(baseRepo, "git@", "https://", 1)
-					baseRepo = strings.TrimSuffix(baseRepo, ".git") + ".git"
-				}
-
-				// Try to clone without authentication
-				_, errUnauth := git.PlainClone(baseTempDir, false, &git.CloneOptions{
-					URL:           baseRepo,
-					ReferenceName: plumbing.NewBranchReferenceName(baseBranch),
-					SingleBranch:  true,
-				})
-
-				if errUnauth != nil {
-					// If unauthenticated clone also fails, return the error from the authenticated approach
-					return nil, fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
-				} else {
-					logger.Log(options.Testing, "Cloned base repo and branch without authentication")
-				}
-			} else {
-				logger.Log(options.Testing, "Cloned base repo and branch with authentication")
-			}
+		cloneBaseErr := common.CloneAndCheckoutBranch(options.Testing, baseRepo, baseBranch, baseTempDir)
+		if cloneBaseErr != nil {
+			return nil, cloneBaseErr
 		}
 
 		// Set TerraformDir to the appropriate directory within baseTempDir
@@ -713,6 +479,17 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
 			options.testTearDown()
 			return nil, resultErr
+		}
+
+		// set outputs after this apply so they are available for hooks
+		var outputErr error
+		// Turn off logging for this step so sensitive data is not logged
+		options.TerraformOptions.Logger = logger.Discard
+		options.LastTestTerraformOutputs, outputErr = terraform.OutputAllE(options.Testing, options.TerraformOptions)
+		options.TerraformOptions.Logger = logger.Default // turn log back on
+
+		if outputErr != nil {
+			logger.Log(options.Testing, "failed to get terraform output: ", outputErr)
 		}
 
 		if options.PostApplyHook != nil {
@@ -761,7 +538,11 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		}
 
 		logger.Log(options.Testing, "Parsing plan output to determine if any resources identified for destroy (PR branch)...")
-		options.checkConsistency(result)
+		hasConsistencyChanges := CheckConsistency(result, options)
+
+		if hasConsistencyChanges {
+			terraform.Plan(options.Testing, options.TerraformOptions)
+		}
 
 		// Check if optional upgrade support on PR Branch is needed
 		if options.CheckApplyResultForUpgrade && !options.Testing.Failed() {
@@ -809,7 +590,12 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 		options.testTearDown()
 		return result, err
 	}
-	options.checkConsistency(result)
+	hasConsistencyChanges := CheckConsistency(result, options)
+
+	if hasConsistencyChanges {
+		terraform.Plan(options.Testing, options.TerraformOptions)
+	}
+
 	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
 
 	options.testTearDown()
@@ -877,6 +663,20 @@ func (options *TestOptions) runTest() (string, error) {
 	assert.Nil(options.Testing, err, "Failed", err)
 	logger.Log(options.Testing, "FINISHED: Init / Apply")
 
+	// set outputs after the apply
+	if err == nil {
+		var outputErr error
+
+		// Turn off logging for this step so sensitive data is not logged
+		options.TerraformOptions.Logger = logger.Discard
+		options.LastTestTerraformOutputs, outputErr = terraform.OutputAllE(options.Testing, options.TerraformOptions)
+		options.TerraformOptions.Logger = logger.Default // turn log back on
+
+		if outputErr != nil {
+			logger.Log(options.Testing, "failed to get terraform output: ", outputErr)
+		}
+	}
+
 	if err == nil && options.PostApplyHook != nil {
 		logger.Log(options.Testing, "Running PostApplyHook")
 		hook_err := options.PostApplyHook(options)
@@ -894,4 +694,52 @@ func (options *TestOptions) setTerraformDir(tempDir string) {
 	options.TerraformOptions.TerraformDir = tempDir
 	options.TerraformDir = tempDir
 	options.WorkspacePath = tempDir
+}
+
+// CheckClusterIngressHealthyDefaultTimeout checks the ingress status of the specified cluster using default clusterCheckTimeoutMinutes and clusterCheckDelayMinutes values of 10 minutes and a delay of 1 minute between status checks respectively.
+// This method is a convenience wrapper around the `CheckClusterIngressHealthy` method.
+// Parameters:
+// - clusterId: The ID or name of the cluster whose ingress status is to be checked.
+func (options *TestOptions) CheckClusterIngressHealthyDefaultTimeout(clusterId string) {
+	options.CheckClusterIngressHealthy(clusterId, 10, 1)
+}
+
+// CheckClusterIngressHealthy checks the ingress status of the specified cluster and asserts that it becomes healthy within a specified timeout period.
+// This method performs the following steps:
+// 1. Continuously checks the ingress status of the cluster identified by `clusterId`.
+// 2. If the ingress status is "healthy", the method sets the result as healthy and exits the loop.
+// 3. If the ingress status is "critical" or an error occurs, the method retries the check after a delay, continuing until either the status becomes "healthy" or the specified timeout is reached.
+// 4. If the timeout is reached and the status is still "critical" or an error persists, the method exits the loop.
+// Parameters:
+// - clusterId: The ID or name of the cluster whose ingress status is to be checked.
+// - clusterCheckTimeoutMinutes: The maximum time allowed for checking the ingress status, in minutes.
+// - clusterCheckDelayMinutes: The duration to wait between status checks, in minutes.
+// Assertions:
+// - The method asserts that the ingress status of the cluster becomes healthy within the specified timeout. If the status does not become healthy within the timeout, the assertion fails.
+func (options *TestOptions) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutMinutes int, clusterCheckDelayMinutes int) {
+
+	testHelperOptions := &TesthelperTerraformOptions{
+		CloudInfoService: options.CloudInfoService,
+	}
+	cloudInfoSvc, svcErr := configureCloudInfoService(options.RequiredEnvironmentVars[ibmcloudApiKeyVar], options.BestRegionYAMLPath, *testHelperOptions)
+	if !assert.NoError(options.Testing, svcErr) {
+		return
+	}
+
+	startTime := time.Now()
+	healthy := false
+	for {
+		ingressStatus, err := cloudInfoSvc.GetClusterIngressStatus(clusterId)
+		if ingressStatus == "healthy" {
+			healthy = true
+			break
+		} else if ingressStatus == "critical" || err != nil {
+			if time.Since(startTime) > time.Duration(clusterCheckTimeoutMinutes)*time.Minute {
+				break
+			}
+			logger.Log(options.Testing, "Cluster Ingress is critical, retrying after delay...")
+			time.Sleep(time.Duration(clusterCheckDelayMinutes) * time.Minute)
+		}
+	}
+	assert.True(options.Testing, healthy, "Cluster Ingress failed to become healthy")
 }

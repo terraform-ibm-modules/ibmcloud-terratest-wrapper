@@ -152,23 +152,26 @@ func sanitizeJSON(data interface{}, secureList map[string]interface{}) {
 	switch v := data.(type) {
 	case map[string]interface{}:
 		for key := range v {
-			if _, ok := secureList[key]; ok {
-				// Generate a random salt value
-				salt := make([]byte, 16) // You can choose the salt length as needed
-				_, err := rand.Read(salt)
-				if err != nil {
-					fmt.Println("Error generating salt:", err)
-					return
-				}
+			// NOTE: before and after sensitive sections do not contain values, only booleans denoting sensitive, so skip these sections
+			if key != "before_sensitive" && key != "after_sensitive" && key != "after_unknown" {
+				if _, ok := secureList[key]; ok {
+					// Generate a random salt value
+					salt := make([]byte, 16) // You can choose the salt length as needed
+					_, err := rand.Read(salt)
+					if err != nil {
+						fmt.Println("Error generating salt:", err)
+						return
+					}
 
-				// Concatenate the salt and input
-				saltedInput := append(salt, []byte(fmt.Sprintf("%v", v[key]))...)
-				// Replace sensitive values with SANITIZE_STRING+Hash of the value.
-				hashedValue := sha256.Sum224(saltedInput)
-				v[key] = SANITIZE_STRING + fmt.Sprintf("-%x", hashedValue)
-			} else {
-				// Recursively sanitize nested data.
-				sanitizeJSON(v[key], secureList)
+					// Concatenate the salt and input
+					saltedInput := append(salt, []byte(fmt.Sprintf("%v", v[key]))...)
+					// Replace sensitive values with SANITIZE_STRING+Hash of the value.
+					hashedValue := sha256.Sum224(saltedInput)
+					v[key] = SANITIZE_STRING + fmt.Sprintf("-%x", hashedValue)
+				} else {
+					// Recursively sanitize nested data.
+					sanitizeJSON(v[key], secureList)
+				}
 			}
 		}
 	case []interface{}:
@@ -178,4 +181,10 @@ func sanitizeJSON(data interface{}, secureList map[string]interface{}) {
 			v[i] = item
 		}
 	}
+}
+
+// PrintStructAsJson prints a struct as a formatted JSON string
+func PrintStructAsJson(data interface{}) {
+	b, _ := json.MarshalIndent(data, "", "  ")
+	fmt.Println(string(b))
 }

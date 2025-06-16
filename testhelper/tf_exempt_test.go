@@ -1,8 +1,9 @@
 package testhelper
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 var ex = Exemptions{List: []string{"i_am_exempt", "i.am.also.exempt"}}

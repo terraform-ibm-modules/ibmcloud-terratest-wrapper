@@ -10,15 +10,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/crypto/openpgp"
-	"golang.org/x/crypto/openpgp/packet"
-	"golang.org/x/crypto/ssh"
-	"gopkg.in/yaml.v3"
 	"io"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/openpgp"
+	"golang.org/x/crypto/openpgp/packet"
+	"golang.org/x/crypto/ssh"
+	"gopkg.in/yaml.v3"
 
 	"github.com/stretchr/testify/require"
 )
@@ -126,12 +127,12 @@ func ConditionalAdd(amap map[string]interface{}, key string, value string, compa
 	}
 }
 
-// ConvertArrayToJsonString is a helper function that will take an array of Golang data types, and return a string
-// of the array formatted as a JSON array.
-// Helpful to convert Golang arrays into a format that Terraform can consume.
-func ConvertArrayToJsonString(arr interface{}) (string, error) {
+// ConvertValueToJsonString is a helper function that will take an interface of any Golang data types, and return a string
+// of the array formatted as a JSON value.
+// Helpful to convert Golang composite types into a format that Terraform can consume.
+func ConvertValueToJsonString(val interface{}) (string, error) {
 	// first marshal array into json compatible
-	json, jsonErr := json.Marshal(arr)
+	json, jsonErr := json.Marshal(val)
 	if jsonErr != nil {
 		return "", jsonErr
 	}
@@ -145,10 +146,32 @@ func ConvertArrayToJsonString(arr interface{}) (string, error) {
 // IsArray is a simple helper function that will determine if a given Golang value is a slice or array.
 func IsArray(v interface{}) bool {
 
-	theType := reflect.TypeOf(v).Kind()
+	// avoid panic, check for nil first
+	if v != nil {
+		theType := reflect.TypeOf(v).Kind()
 
-	if (theType == reflect.Slice) || (theType == reflect.Array) {
-		return true
+		if (theType == reflect.Slice) || (theType == reflect.Array) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsCompositeType is a simple helper function that will determine if a given Golang value is a non-primitive (composite) type.
+func IsCompositeType(v interface{}) bool {
+
+	// avoid panic, check for nil first
+	if v != nil {
+		theType := reflect.TypeOf(v).Kind()
+
+		if (theType == reflect.Slice) ||
+			(theType == reflect.Array) ||
+			(theType == reflect.Map) ||
+			(theType == reflect.Struct) ||
+			(theType == reflect.Interface) {
+			return true
+		}
 	}
 
 	return false

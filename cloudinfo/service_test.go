@@ -31,7 +31,9 @@ func TestNewServiceWithEnv(t *testing.T) {
 		ContainerClient:           new(containerClientMock),
 	}
 
-	os.Setenv("TEST_KEY_VAL", "dummy_key")
+	if err := os.Setenv("TEST_KEY_VAL", "dummy_key"); err != nil {
+		t.Fatalf("Failed to set environment variable: %v", err)
+	}
 	_, err := NewCloudInfoServiceFromEnv("TEST_KEY_VAL", serviceOptions)
 
 	require.Nil(t, err, "Error returned getting new service")

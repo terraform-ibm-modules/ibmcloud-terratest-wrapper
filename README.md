@@ -1,7 +1,7 @@
 # IBM Cloud Terratest wrapper
 
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
-[![latest release](https://img.shields.io/github/v/release/terraform-ibm-modules/ibmcloud-terratest-wrapper?logo=GitHub&sort=semver)](https://github.com/terraform-ibm-modules/terraform-ibm-module-template/releases/latest)
+[![latest release](https://img.shields.io/github/v/release/terraform-ibm-modules/ibmcloud-terratest-wrapper?logo=GitHub&sort=semver)](https://github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/releases/latest)
 [![Renovate enabled](https://img.shields.io/badge/renovate-enabled-brightgreen.svg)](https://renovatebot.com/)
 [![semantic-release](https://img.shields.io/badge/%20%20%F0%9F%93%A6%F0%9F%9A%80-semantic--release-e10079.svg)](https://github.com/semantic-release/semantic-release)
 [![Go reference](https://pkg.go.dev/badge/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/.svg)](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper#section-directories)
@@ -9,6 +9,13 @@
 This Go module provides helper functions as a wrapper around the [Terratest](https://terratest.gruntwork.io/) library.
 
 The project helps to simplify and standardize your Terratest unit tests. It is used by default by Terraform modules in this GitHub organization. For more information about how the tests are used in the IBM Cloud Terraform modules project, see [validation tests](https://terraform-ibm-modules.github.io/documentation/#/tests) in the project docs.
+
+## Test-Specific Documentation
+
+For detailed information on specific testing frameworks:
+- [Schematics Testing](docs/schematics/schematicsTests.md) - Documentation for IBM Cloud Schematics testing
+- [Stack Testing](docs/projects/stackTests.md) - Documentation for IBM Cloud Projects stack testing
+- [Addon Testing](docs/projects/addonTests.md) - Documentation for IBM Cloud Projects addon testing
 
 ## Test your own projects
 
@@ -105,101 +112,6 @@ if assert.NoErrorf(t, outputErr, "Some outputs not found or nil.") {
 ```
 ---
 
-### OpenTofu
-
-Enable OpenTofu with the TestOptions, then OpenTofu on the systems path will be used for the test.
-```go
-func TestRunBasicTofu(t *testing.T) {
-	t.Parallel()
-
-	options := testhelper.TestOptionsDefault(&testhelper.TestOptions{
-        Testing:            t,                      // the test object for unit test
-        EnableOpenTofu:     true,                   // enable open Tofu
-        TerraformDir:       "examples/basic",       // location of example to test
-        Prefix:             "my-test",              // will have 6 char random string appended
-        BestRegionYAMLPath: "location/of/yaml.yml", // YAML file to configure dynamic region selection
-        // Region: "us-south", // if you set Region, dynamic selection will be skipped
-    })
-
-    options.TerraformVars = map[string]interface{}{
-        "variable_1":   "foo",
-        "resource_prefix": options.Prefix,
-        "ibm_region": options.Region,
-    }
-
-    // idempotent test
-    output, err := options.RunTestConsistency()
-    assert.Nil(t, err, "This should not have errored")
-    assert.NotNil(t, output, "Expected some output")
-}
-
-```
-The `TerraformBinary` can also be set directly if Terrform/OpenTofu is not in the system path. If this is set the `EnableOpenTofu` option will be ignored.
-```go
-func TestRunBasicTerraformBinary(t *testing.T) {
-	t.Parallel()
-
-	options := testhelper.TestOptionsDefault(&testhelper.TestOptions{
-        Testing:            t,                      // the test object for unit test
-        TerraformBinary:    "/custom/path/tofu",    // set the path to the Terraform binary
-        TerraformDir:       "examples/basic",       // location of example to test
-        Prefix:             "my-test",              // will have 6 char random string appended
-        BestRegionYAMLPath: "location/of/yaml.yml", // YAML file to configure dynamic region selection
-        // Region: "us-south", // if you set Region, dynamic selection will be skipped
-    })
-
-    options.TerraformVars = map[string]interface{}{
-        "variable_1":   "foo",
-        "resource_prefix": options.Prefix,
-        "ibm_region": options.Region,
-    }
-
-    // idempotent test
-    output, err := options.RunTestConsistency()
-    assert.Nil(t, err, "This should not have errored")
-    assert.NotNil(t, output, "Expected some output")
-}
-
-```
-___
-
-### Run in IBM Cloud Schematics
-
-The code to run a test inside IBM Schematics is similar to the [basic example](#testrunbasic), but uses the `testschematic` package.
-
-1.  Complete the steps shown earlier to [add this wrapper](#setup) to your project.
-1.  Initialize a [testschematic/TestSchematicOptions](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic#TestSchematicOptions) object with appropriate values.
-
-    You can configure TestSchematicOptions by using the [default constructor](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic#TestSchematicOptionsDefault).
-1.  Call the `RunSchematicTest()` method of the `TestSchematicOptions` object and check the results.
-
-#### Example for IBM Schematics
-
-```go
-func TestRunBasicInSchematic(t *testing.T) {
-	t.Parallel()
-
-	options := testschematic.TestSchematicOptionsDefault(&testschematic.TestSchematicOptions{
-        Testing:            t,                      // the test object for unit test
-        Prefix:             "my-test",              // will have 6 char random string appended
-        BestRegionYAMLPath: "location/of/yaml.yml", // YAML file to configure dynamic region selection
-        // Region: "us-south", // if you set Region, dynamic selection will be skipped
-        TarIncludePatterns: []string{"*.tf", "scripts/*.sh", "examples/basic/*.tf"},
-        TemplateFolder: "examples/basic",
-    })
-
-    options.TerraformVars = []testschematic.TestSchematicTerraformVar{
-        {Name: "ibmcloud_api_key", Value: options.RequiredEnvironmentVars["TF_VAR_ibmcloud_api_key"], DataType: "string", Secure: true},
-        {Name: "ibm_region", Value: options.Region, DataType: "string"},
-    }
-
-    // idempotent test
-	output, err := options.RunSchematicTest()
-	assert.Nil(t, err, "This should not have errored")
-	assert.NotNil(t, output, "Expected some output")
-}
-```
-___
 ### Test a module upgrade
 
 When a new version of your Terraform module is released, you can test whether the upgrade destroys resources. Consumers of your module might not want key resources deleted in an upgrade, even if the resources are replaced.
@@ -251,11 +163,6 @@ For more customization, see the `ibmcloud-terratest-wrapper` reference at pkg.go
 - [Terratest examples](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#pkg-overview)
 - [IBM Schematics Workspace examples](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testschematic#pkg-overview)
 
----
-## IBM Cloud Projects
-IBM Cloud Projects support has been added but should be considered alpha. It is using pre-release APIs and may change in the future.
-It is not recommended to use this feature. Breaking changes are expected and upgrade paths are not guaranteed.
-___
 ## Contributing
 
 You can report issues and request features for this module in [issues](/issues/new/choose) in this repo. Changes that are accepted and merged are published to the pkg.go.dev reference by the merge pipeline and semantic versioning automation, which creates a new GitHub release.

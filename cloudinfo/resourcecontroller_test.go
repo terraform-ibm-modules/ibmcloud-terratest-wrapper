@@ -1,8 +1,9 @@
 package cloudinfo
 
 import (
-	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"testing"
+
+	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/stretchr/testify/assert"
@@ -157,4 +158,38 @@ func TestListResourcesByGroupName(t *testing.T) {
 		assert.NotEmpty(t, twoTotalList)
 		assert.Equal(t, len(twoTotalList), 2)
 	})
+}
+
+func TestGetReclamationIDFromCrn(t *testing.T) {
+
+	infoSvc := CloudInfoService{
+		resourceControllerService: &resourceControllerServiceMock{},
+	}
+
+	var CRN string = "crn:v1:bluemix:public:my-service:theregion:a/accountnum:guid::"
+
+	_, err := infoSvc.GetReclamationIdFromCRN(CRN)
+	assert.Nil(t, err)
+
+}
+
+func TestDeleteInstanceFromReclamation(t *testing.T) {
+
+	infoSvc := CloudInfoService{
+		resourceControllerService: &resourceControllerServiceMock{},
+	}
+
+	err := infoSvc.DeleteInstanceFromReclamationId("abc")
+	assert.Nil(t, err)
+
+}
+
+func TestDeleteInstanceFromReclamationByCrn(t *testing.T) {
+
+	infoSvc := CloudInfoService{
+		resourceControllerService: &resourceControllerServiceMock{},
+	}
+
+	err := infoSvc.DeleteInstanceFromReclamationByCRN("crn:v1:bluemix:public:my-service:theregion:a/accountnum:guid::")
+	assert.Nil(t, err)
 }

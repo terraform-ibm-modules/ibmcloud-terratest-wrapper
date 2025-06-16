@@ -27,7 +27,7 @@ func TestApiKeyDetail(t *testing.T) {
 
 	// second test, if IAM service returns error, this does as well
 	t.Run("IAMServiceError", func(t *testing.T) {
-		infoSvc.authenticator.ApiKey = "ERROR" // pragma: allowlist secret
+		infoSvc.ApiKey = "ERROR" // pragma: allowlist secret
 		errorKey, errorErr := infoSvc.getApiKeyDetail()
 		assert.NotNil(t, errorErr)
 		assert.Nil(t, errorKey)
@@ -35,7 +35,7 @@ func TestApiKeyDetail(t *testing.T) {
 
 	// third test, success and valid return key
 	t.Run("NewKeyDetail", func(t *testing.T) {
-		infoSvc.authenticator.ApiKey = "VALID_KEY" // pragma: allowlist secret
+		infoSvc.ApiKey = "VALID_KEY" // pragma: allowlist secret
 		validKey, validErr := infoSvc.getApiKeyDetail()
 		assert.Nil(t, validErr)
 		assert.NotNil(t, validKey)

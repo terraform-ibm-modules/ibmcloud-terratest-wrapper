@@ -43,6 +43,7 @@ func TestRunTest(t *testing.T) {
 }
 
 func TestRunTestTofu(t *testing.T) {
+	t.Skip("Skipping TOFU test until binary is added back into pipeline image")
 	t.Parallel()
 	os.Setenv("TF_VAR_ibmcloud_api_key", "12345")
 	options := TestOptionsDefaultWithVars(&TestOptions{

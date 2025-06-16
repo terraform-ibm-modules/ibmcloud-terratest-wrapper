@@ -31,6 +31,8 @@ type TestOptions struct {
 	// See examples in cloudinfo/testdata for proper format.
 	BestRegionYAMLPath string
 
+	ApiDataIsSensitive *bool
+
 	// Used with dynamic region selection, if any errors occur this will be the region used (fail-open)
 	DefaultRegion string
 
@@ -75,6 +77,7 @@ type TestOptions struct {
 	// Use OpenTofu binary on the system path. This is used to enable the OpenTofu binary to be used for testing.
 	// If OpenTofu is not installed, the test will fail.
 	// If TerraformOptions is passed with the value for TerraformBinary set, this value will be ignored.
+	// Deprecated: This will be removed in future versions, please use TerraformBinary instead.
 	EnableOpenTofu bool
 	// Use this to specify the path to the Terraform binary to use for testing. This is exclusive with EnableOpenTofu.
 	TerraformBinary string
@@ -170,6 +173,43 @@ type TestOptions struct {
 	PostApplyHook   func(options *TestOptions) error // In upgrade tests, this hook will be called after the base apply
 	PreDestroyHook  func(options *TestOptions) error // If this fails, the destroy will continue
 	PostDestroyHook func(options *TestOptions) error
+}
+
+type CheckConsistencyOptions struct {
+	// REQUIRED: a pointer to an initialized testing object.
+	// Typically, you would assign the test object used in the unit test.
+	Testing *testing.T
+
+	// For Consistency Checks: Specify terraform resource names to ignore for consistency checks.
+	// You can ignore specific resources in both idempotent and upgrade consistency checks by adding their names to these
+	// lists. There are separate lists for adds, updates, and destroys.
+	//
+	// This can be useful if you have resources like `null_resource` that are marked with a lifecycle that causes a refresh on every run.
+	// Normally this would fail a consistency check but can be ignored by adding to one of these lists.
+	//
+	// Name format is terraform style, for example: `module.some_module.null_resource.foo`
+	IgnoreAdds     Exemptions
+	IgnoreDestroys Exemptions
+	IgnoreUpdates  Exemptions
+
+	IsUpgradeTest bool // Identifies if current test is an UPGRADE test, used for special processing
+}
+
+// CheckConsistencyOptionsI is an interface that a testoption struct can implement that will return the appropriate
+// CheckConsistencyOptions object populated with correct values
+type CheckConsistencyOptionsI interface {
+	GetCheckConsistencyOptions() *CheckConsistencyOptions
+}
+
+// To support consistency check options interface
+func (options *TestOptions) GetCheckConsistencyOptions() *CheckConsistencyOptions {
+	return &CheckConsistencyOptions{
+		Testing:        options.Testing,
+		IgnoreAdds:     options.IgnoreAdds,
+		IgnoreDestroys: options.IgnoreDestroys,
+		IgnoreUpdates:  options.IgnoreUpdates,
+		IsUpgradeTest:  options.IsUpgradeTest,
+	}
 }
 
 // Default constructor for TestOptions struct. This constructor takes in an existing TestOptions object with minimal values set, and returns

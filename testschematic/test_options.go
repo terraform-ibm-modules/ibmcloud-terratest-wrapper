@@ -20,7 +20,6 @@ const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
 const defaultGitUserEnvKey = "GIT_TOKEN_USER"
 const defaultGitTokenEnvKey = "GIT_TOKEN"
 const DefaultWaitJobCompleteMinutes = int16(120) // default 2 hrs wait time
-const DefaultSchematicsApiURL = "https://schematics.cloud.ibm.com"
 
 // TestSchematicOptions is the main data struct containing all options related to running a Terraform unit test wihtin IBM Schematics Workspaces
 type TestSchematicOptions struct {
@@ -55,6 +54,10 @@ type TestSchematicOptions struct {
 	// If left empty, this will be populated by dynamic region selection by default constructor and can be referenced later.
 	Region string
 
+	// Set this value to force a specific region for the Schematics Workspace.
+	// Default will choose a random valid region for the workspace.
+	WorkspaceLocation string
+
 	// Only required if using the WithVars constructor, as this value will then populate the `resource_group` input variable.
 	ResourceGroup string
 
@@ -85,12 +88,15 @@ type TestSchematicOptions struct {
 	WaitJobCompleteMinutes int16
 
 	// Base URL of the schematics REST API. Set to override default.
-	// Default: https://schematics.cloud.ibm.com
+	// Default will be based on the appropriate endpoint for the chosen `WorkspaceRegion`
 	SchematicsApiURL string
 
 	// Set this to true if you would like to delete the test Schematic Workspace if the test fails.
 	// By default this will be false, and if a failure happens the workspace and logs will be preserved for analysis.
 	DeleteWorkspaceOnFail bool
+
+	// If you want to skip test teardown (both resource destroy and workspace deletion)
+	SkipTestTearDown bool
 
 	// This value is used to set the terraform version attribute for the workspace and template.
 	// If left empty, an empty value will be set in the template which will cause the Schematic jobs to use the highest available version.
@@ -112,6 +118,33 @@ type TestSchematicOptions struct {
 	SchematicsApiSvc  SchematicsApiSvcI           // OPTIONAL: service pointer for interacting with external schematics api
 	schematicsTestSvc *SchematicsTestService      // internal property to specify pointer to test service, used for test mocking
 
+	// For Consistency Checks: Specify terraform resource names to ignore for consistency checks.
+	// You can ignore specific resources in both idempotent and upgrade consistency checks by adding their names to these
+	// lists. There are separate lists for adds, updates, and destroys.
+	//
+	// This can be useful if you have resources like `null_resource` that are marked with a lifecycle that causes a refresh on every run.
+	// Normally this would fail a consistency check but can be ignored by adding to one of these lists.
+	//
+	// Name format is terraform style, for example: `module.some_module.null_resource.foo`
+	IgnoreAdds     testhelper.Exemptions
+	IgnoreDestroys testhelper.Exemptions
+	IgnoreUpdates  testhelper.Exemptions
+
+	// Use these options to specify a base terraform repo and branch to use for upgrade tests.
+	// If not supplied, the default logic will be used to determine the base repo and branch.
+	// Will be overridden by environment variables BASE_TERRAFORM_REPO and BASE_TERRAFORM_BRANCH if set.
+	//
+	// For repositories that require authentication:
+	// - For HTTPS repositories, set the GIT_TOKEN environment variable to your Personal Access Token (PAT).
+	// - For SSH repositories, set the SSH_PRIVATE_KEY environment variable to your SSH private key value.
+	//   If the SSH_PRIVATE_KEY environment variable is not set, the default SSH key located at ~/.ssh/id_rsa will be used.
+	//   Ensure that the appropriate public key is added to the repository's list of authorized keys.
+	//
+	// BaseTerraformRepo:   The URL of the base Terraform repository.
+	BaseTerraformRepo string
+	// BaseTerraformBranch: The branch within the base Terraform repository to use for upgrade tests.
+	BaseTerraformBranch string
+
 	// These optional fields can be used to override the default retry settings for making Schematics API calls.
 	// If SDK/API calls to Schematics result in errors, such as retrieving existing workspace details,
 	// the test framework will retry those calls for a set number of times, with a wait time between calls.
@@ -121,6 +154,35 @@ type TestSchematicOptions struct {
 	// Current Default: 5 retries, 5 second wait
 	SchematicSvcRetryCount       *int
 	SchematicSvcRetryWaitSeconds *int
+
+	// By default the logs from schematics jobs will only be printed to the test log if there is a failure in the job.
+	// Set this value to `true` to have all schematics job logs (plan/apply/destroy) printed to the test log.
+	PrintAllSchematicsLogs bool
+
+	// These properties will be set to true by the test when an upgrade test was performed.
+	// You can then inspect this value after the test run, if needed, to make further code decisions.
+	// NOTE: this is not an option field that is meant to be set from a unit test, it is informational only
+	IsUpgradeTest      bool
+	UpgradeTestSkipped bool // Informs the calling test that conditions were met to skip the upgrade test
+
+	// Set to true if you wish for an Upgrade test to do a final `terraform apply` after the consistency check on the new (not base) branch.
+	CheckApplyResultForUpgrade bool
+
+	// LastTestTerraformOutputs is a map of the last terraform outputs from the last apply of the test.
+	// Note: Plans do not create output. As a side effect of this the upgrade test will have the outputs from the base terraform apply not the upgrade.
+	// Unless the upgrade test is run with the `CheckApplyResultForUpgrade` set to true.
+	LastTestTerraformOutputs map[string]interface{}
+
+	// Hooks These allow us to inject custom code into the test process
+	// example to set a hook:
+	// options.PreApplyHook = func(options *TestSchematicOptions) error {
+	//     // do something
+	//     return nil
+	// }
+	PreApplyHook    func(options *TestSchematicOptions) error // In upgrade tests, this hook will be called before the base apply
+	PostApplyHook   func(options *TestSchematicOptions) error // In upgrade tests, this hook will be called after the base apply
+	PreDestroyHook  func(options *TestSchematicOptions) error // If this fails, the destroy will continue
+	PostDestroyHook func(options *TestSchematicOptions) error
 }
 
 type TestSchematicTerraformVar struct {
@@ -141,6 +203,17 @@ type WorkspaceEnvironmentVariable struct {
 	Value  string // value of env var
 	Hidden bool   // metadata to hide this env var
 	Secure bool   // metadata to mark value as sensitive
+}
+
+// To support consistency check options interface
+func (options *TestSchematicOptions) GetCheckConsistencyOptions() *testhelper.CheckConsistencyOptions {
+	return &testhelper.CheckConsistencyOptions{
+		Testing:        options.Testing,
+		IgnoreAdds:     options.IgnoreAdds,
+		IgnoreDestroys: options.IgnoreDestroys,
+		IgnoreUpdates:  options.IgnoreUpdates,
+		IsUpgradeTest:  options.IsUpgradeTest,
+	}
 }
 
 // TestSchematicOptionsDefault is a constructor for struct TestSchematicOptions. This function will accept an existing instance of
@@ -183,10 +256,6 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 
 	if newOptions.WaitJobCompleteMinutes <= 0 {
 		newOptions.WaitJobCompleteMinutes = DefaultWaitJobCompleteMinutes
-	}
-
-	if len(newOptions.SchematicsApiURL) == 0 {
-		newOptions.SchematicsApiURL = DefaultSchematicsApiURL
 	}
 
 	return newOptions

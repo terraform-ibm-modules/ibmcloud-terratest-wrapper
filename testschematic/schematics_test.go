@@ -63,14 +63,14 @@ func TestSchematicCreateWorkspace(t *testing.T) {
 	mockErrorType := new(schematicErrorMock)
 
 	t.Run("WorkspaceCreated", func(t *testing.T) {
-		result, err := svc.CreateTestWorkspace("good", "any-rg", ".", "terraform_v1.2", []string{"tag1", "tag2"})
+		result, err := svc.CreateTestWorkspace("good", "any-rg", "us-south", ".", "terraform_v1.2", []string{"tag1", "tag2"})
 		if assert.NoError(t, err) {
 			assert.Equal(t, mockWorkspaceID, *result.ID)
 		}
 	})
 
 	t.Run("WorkspaceCreatedEmptyDefaults", func(t *testing.T) {
-		result, err := svc.CreateTestWorkspace("good", "any-rg", "", "", []string{"tag1", "tag2"})
+		result, err := svc.CreateTestWorkspace("good", "any-rg", "", "", "", []string{"tag1", "tag2"})
 		if assert.NoError(t, err) {
 			assert.Equal(t, mockWorkspaceID, *result.ID)
 		}
@@ -78,7 +78,7 @@ func TestSchematicCreateWorkspace(t *testing.T) {
 
 	t.Run("ExternalServiceError", func(t *testing.T) {
 		schematicSvc.failCreateWorkspace = true
-		_, err := svc.CreateTestWorkspace("error", "any-rg", ".", "terraform_v1.2", []string{"tag1"})
+		_, err := svc.CreateTestWorkspace("error", "any-rg", "us-south", ".", "terraform_v1.2", []string{"tag1"})
 		assert.ErrorAs(t, err, &mockErrorType)
 	})
 }
@@ -360,6 +360,41 @@ func TestSchematicGetJobDetail(t *testing.T) {
 	t.Run("ServiceError", func(t *testing.T) {
 		schematicSvc.failGetWorkspaceActivity = true
 		_, err := svc.GetWorkspaceJobDetail(mockActivityID)
+		assert.ErrorAs(t, err, &mockErrorType)
+	})
+}
+
+func TestSchematicGetWorkspaceOutputs(t *testing.T) {
+	zero := 0
+	schematicSvc := new(schematicServiceMock)
+	authSvc := new(iamAuthenticatorMock)
+	svc := &SchematicsTestService{
+		SchematicsApiSvc: schematicSvc,
+		ApiAuthenticator: authSvc,
+		WorkspaceID:      mockWorkspaceID,
+		TemplateID:       mockTemplateID,
+		TestOptions: &TestSchematicOptions{
+			Testing:                      new(testing.T),
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
+	}
+	mockErrorType := new(schematicErrorMock)
+
+	t.Run("OutputsReturned", func(t *testing.T) {
+		result, err := svc.GetLatestWorkspaceOutputs()
+		if assert.NoError(t, err) {
+			if assert.NotNil(t, result) {
+				if assert.Len(t, result, 1) {
+					assert.Equal(t, "the_mock_value", result["mock_output"])
+				}
+			}
+		}
+	})
+
+	t.Run("ServiceError", func(t *testing.T) {
+		schematicSvc.failGetOutputsCommand = true
+		_, err := svc.GetLatestWorkspaceOutputs()
 		assert.ErrorAs(t, err, &mockErrorType)
 	})
 }

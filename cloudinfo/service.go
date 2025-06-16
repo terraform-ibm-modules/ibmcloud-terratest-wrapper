@@ -3,11 +3,16 @@ package cloudinfo
 
 import (
 	"errors"
-	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
-	projects "github.com/IBM/project-go-sdk/projectv1"
+	"fmt"
 	"log"
 	"os"
 	"sync"
+
+	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
+
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
+	projects "github.com/IBM/project-go-sdk/projectv1"
 
 	"github.com/IBM-Cloud/bluemix-go"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
@@ -27,8 +32,8 @@ import (
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
 // It contains references to other important services and data structures needed to perform these methods.
 type CloudInfoService struct {
-	authenticator             *core.IamAuthenticator // shared authenticator
-	apiKeyDetail              *iamidentityv1.APIKey  // IBMCloud account for user
+	authenticator             IiamAuthenticator     // shared authenticator - can be a real authenticator or a mock
+	apiKeyDetail              *iamidentityv1.APIKey // IBMCloud account for user
 	vpcService                vpcService
 	iamIdentityService        iamIdentityService
 	iamPolicyService          iamPolicyService
@@ -37,11 +42,16 @@ type CloudInfoService struct {
 	cbrService                cbrService
 	containerClient           containerClient
 	catalogService            catalogService
-	regionsData               []RegionData
-	lock                      sync.Mutex
-	icdService                icdService
-	projectsService           projectsService
-	ApiKey                    string
+	// stackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
+	stackDefinitionCreator StackDefinitionCreator
+	regionsData            []RegionData
+	lock                   sync.Mutex
+	icdService             icdService
+	projectsService        projectsService
+	// schematics is regional, this map contains schematics services by location
+	schematicsServices map[string]schematicsService
+	ApiKey             string
+	Logger             *common.TestLogger // Logger for CloudInfoService
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -52,27 +62,55 @@ type CloudInfoServiceI interface {
 	LoadRegionPrefsFromFile(string) error
 	HasRegionData() bool
 	RemoveRegionForTest(string)
+	ReplaceCBRRule(updatedExistingRule *contextbasedrestrictionsv1.Rule, eTag *string) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	GetThreadLock() *sync.Mutex
+	GetClusterIngressStatus(clusterId string) (string, error)
 	GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error)
-	CreateDefaultProject(string, string, string) (*projects.Project, *core.DetailedResponse, error)
+	CreateCatalog(catalogName string) (*catalogmanagementv1.Catalog, error)
+	DeleteCatalog(catalogID string) error
+	ImportOffering(catalogID string, zipUrl string, offeringName string, flavorName string, version string, installKind InstallKind) (*catalogmanagementv1.Offering, error)
+	GetOffering(catalogID string, offeringID string) (*catalogmanagementv1.Offering, *core.DetailedResponse, error)
+	GetOfferingInputs(Offering *catalogmanagementv1.Offering, VersionID string, OfferingID string) (inputs []CatalogInput)
+	DeployAddonToProject(addonConfig *AddonConfig, projectConfig *ProjectsConfig) (*DeployedAddonsDetails, error)
+	GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error)
+	CreateProjectFromConfig(config *ProjectsConfig) (*projects.Project, *core.DetailedResponse, error)
 	GetProject(projectID string) (*projects.Project, *core.DetailedResponse, error)
 	GetProjectConfigs(projectID string) ([]projects.ProjectConfigSummary, error)
-	GetConfig(projectID string, configID string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	GetConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	GetConfigName(projectID, configID string) (name string, err error)
 	DeleteProject(projectID string) (*projects.ProjectDeleteResponse, *core.DetailedResponse, error)
-	CreateConfig(projectID string, name string, description string, stackLocatorID string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	CreateDaConfig(projectID string, locatorID string, name string, description string, authorizations projects.ProjectConfigAuth, inputs map[string]interface{}, settings map[string]interface{}) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	CreateConfigFromCatalogJson(projectID string, catalogJsonPath string, stackLocatorID string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	UpdateConfig(projectID string, configID string, configuration projects.ProjectConfigDefinitionPatchIntf) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
-	ApproveConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	IsConfigApproved(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isApproved bool)
-	ValidateProjectConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	IsConfigValidated(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isValidated bool)
-	DeployConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	IsConfigDeployed(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isDeployed bool)
-	UndeployConfig(projectID string, configID string) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
-	IsUndeploying(projectID string, configID string) (projectConfig *projects.ProjectConfigVersion, isUndeploying bool)
-	CreateStackFromConfigFileWithInputs(projectID string, stackConfigPath string, catalogJsonPath string, stackInputs map[string]interface{}) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
-	GetProjectConfigVersion(projectID string, configID string, version int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	CreateConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	DeployConfig(configDetails *ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	CreateDaConfig(configDetails *ConfigDetails) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	CreateConfigFromCatalogJson(configDetails *ConfigDetails, catalogJson string) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	UpdateConfig(configDetails *ConfigDetails, configuration projects.ProjectConfigDefinitionPatchIntf) (result *projects.ProjectConfig, response *core.DetailedResponse, err error)
+	ValidateProjectConfig(configDetails *ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	IsConfigDeployed(configDetails *ConfigDetails) (projectConfig *projects.ProjectConfigVersion, isDeployed bool)
+	UndeployConfig(details *ConfigDetails) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	IsUndeploying(details *ConfigDetails) (projectConfig *projects.ProjectConfigVersion, isUndeploying bool)
+	CreateStackFromConfigFile(stackConfig *ConfigDetails, stackConfigPath string, catalogJsonPath string) (result *projects.StackDefinition, response *core.DetailedResponse, err error)
+	GetProjectConfigVersion(configDetails *ConfigDetails, version int64) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+	GetStackMembers(stackConfig *ConfigDetails) ([]*projects.ProjectConfig, error)
+	SyncConfig(projectID string, configID string) (response *core.DetailedResponse, err error)
+	LookupMemberNameByID(stackDetails *projects.ProjectConfig, memberID string) (string, error)
+	GetSchematicsJobLogs(jobID string, location string) (result *schematics.JobLog, response *core.DetailedResponse, err error)
+	GetSchematicsJobLogsText(jobID string, location string) (logs string, err error)
+	ArePipelineActionsRunning(stackConfig *ConfigDetails) (bool, error)
+	GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string) (string, string)
+	GetSchematicsJobFileData(jobID string, fileType string, location string) (*schematics.JobFileData, error)
+	GetSchematicsJobPlanJson(jobID string, location string) (string, error)
+	GetSchematicsServiceByLocation(location string) (schematicsService, error)
+	GetReclamationIdFromCRN(CRN string) (string, error)
+	DeleteInstanceFromReclamationId(reclamationID string) error
+	DeleteInstanceFromReclamationByCRN(CRN string) error
+	GetLogger() *common.TestLogger
+	SetLogger(logger *common.TestLogger)
+	GetApiKey() string
+	ResolveReferences(region string, references []Reference) (*ResolveResponse, error)
+	ResolveReferencesFromStrings(region string, refStrings []string, projectNameOrID string) (*ResolveResponse, error)
+	// TODO: Implement these methods
+	// GetInputs(projectID, configID string) ([]InputDetail, error)
+	// GetOutputs(projectID, configID string) ([]projects.OutputValue, error)
 }
 
 // CloudInfoServiceOptions structure used as input params for service constructor.
@@ -90,6 +128,10 @@ type CloudInfoServiceOptions struct {
 	IcdService                icdService
 	ProjectsService           projectsService
 	CatalogService            catalogService
+	SchematicsServices        map[string]schematicsService
+	// StackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
+	StackDefinitionCreator StackDefinitionCreator
+	Logger                 *common.TestLogger // Logger option for CloudInfoService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -124,7 +166,11 @@ type iamPolicyService interface {
 // resourceControllerService for external Resource Controller V2 Service API. Used for mocking.
 type resourceControllerService interface {
 	NewListResourceInstancesOptions() *resourcecontrollerv2.ListResourceInstancesOptions
+	NewListReclamationsOptions() *resourcecontrollerv2.ListReclamationsOptions
+	NewRunReclamationActionOptions(string, string) *resourcecontrollerv2.RunReclamationActionOptions
+	ListReclamations(*resourcecontrollerv2.ListReclamationsOptions) (*resourcecontrollerv2.ReclamationsList, *core.DetailedResponse, error)
 	ListResourceInstances(*resourcecontrollerv2.ListResourceInstancesOptions) (*resourcecontrollerv2.ResourceInstancesList, *core.DetailedResponse, error)
+	RunReclamationAction(*resourcecontrollerv2.RunReclamationActionOptions) (*resourcecontrollerv2.Reclamation, *core.DetailedResponse, error)
 }
 
 // resourceManagerService for external Resource Manager V2 Service API. Used for mocking.
@@ -141,6 +187,7 @@ type ibmPICloudConnectionClient interface {
 // containerClient interface for external Kubernetes Cluster Service API. Used for mocking.
 type containerClient interface {
 	Clusters() containerv2.Clusters
+	Albs() containerv2.Alb
 }
 
 // cbrService interface for external Context Based Restrictions Service API. Used for mocking.
@@ -181,11 +228,25 @@ type projectsService interface {
 	Approve(approveOptions *projects.ApproveOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
 	DeployConfig(deployConfigOptions *projects.DeployConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
 	UndeployConfig(unDeployConfigOptions *projects.UndeployConfigOptions) (result *projects.ProjectConfigVersion, response *core.DetailedResponse, err error)
+
+	SyncConfig(syncConfigOptions *projects.SyncConfigOptions) (response *core.DetailedResponse, err error)
 }
 
 // catalogService for external Data Catalog V1 Service API. Used for mocking.
 type catalogService interface {
 	GetVersion(getVersionOptions *catalogmanagementv1.GetVersionOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
+	CreateCatalog(createCatalogOptions *catalogmanagementv1.CreateCatalogOptions) (result *catalogmanagementv1.Catalog, response *core.DetailedResponse, err error)
+	DeleteCatalog(deleteCatalogOptions *catalogmanagementv1.DeleteCatalogOptions) (response *core.DetailedResponse, err error)
+	ImportOffering(importOfferingOptions *catalogmanagementv1.ImportOfferingOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
+	GetOffering(getOfferingOptions *catalogmanagementv1.GetOfferingOptions) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error)
+}
+
+// schematicsService for external Schematics V1 Service API. Used for mocking.
+type schematicsService interface {
+	ListJobLogs(listJobLogsOptions *schematics.ListJobLogsOptions) (result *schematics.JobLog, response *core.DetailedResponse, err error)
+	GetJobFiles(getJobFilesOptions *schematics.GetJobFilesOptions) (result *schematics.JobFileData, response *core.DetailedResponse, err error)
+	GetEnableGzipCompression() bool
+	GetServiceURL() string
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -228,6 +289,11 @@ func (regions SortedRegionsDataByPriority) Swap(i, j int) {
 	regions[i], regions[j] = regions[j], regions[i]
 }
 
+// Returns a constant of supported locations for schematics service
+func GetSchematicsLocations() []string {
+	return []string{"us", "eu"}
+}
+
 // NewCloudInfoServiceWithKey is a factory function used for creating a new initialized service structure.
 // This function can be called if an IBM Cloud API Key is known and passed in directly.
 // Returns a pointer to an initialized CloudInfoService and error.
@@ -238,6 +304,13 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 	if len(options.ApiKey) == 0 {
 		log.Println("ERROR: empty API KEY")
 		return nil, errors.New("empty API Key supplied")
+	}
+
+	// Set logger if provided, otherwise create a default one
+	if options.Logger != nil {
+		infoSvc.Logger = options.Logger
+	} else {
+		infoSvc.Logger = common.NewTestLogger("CloudInfoService")
 	}
 
 	// if authenticator is not supplied, create new IamAuthenticator with supplied api key
@@ -257,7 +330,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 			Authenticator: infoSvc.authenticator,
 		})
 		if iamErr != nil {
-			log.Println("ERROR: Could not create NewIamIdentityV1 service:", iamErr)
+			infoSvc.Logger.Error(fmt.Sprintf("Could not create NewIamIdentityV1 service: %v", iamErr))
 			return nil, iamErr
 		}
 		infoSvc.iamIdentityService = iamService
@@ -272,7 +345,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 				Authenticator: infoSvc.authenticator,
 			})
 		if err != nil {
-			log.Println("ERROR: Could not create NewIamPolicyManagementV1 service:", err)
+			infoSvc.Logger.Error(fmt.Sprintf("Could not create NewIamPolicyManagementV1 service: %v", err))
 			return nil, err
 		}
 		infoSvc.iamPolicyService = policyService
@@ -287,7 +360,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 			Authenticator: infoSvc.authenticator,
 		})
 		if vpcErr != nil {
-			log.Println("ERROR: Could not create NewVpcV1 service:", vpcErr)
+			infoSvc.Logger.Error(fmt.Sprintf("Could not create NewVpcV1 service: %v", vpcErr))
 			return nil, vpcErr
 		}
 
@@ -304,7 +377,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		})
 
 		if cbrErr != nil {
-			log.Println("ERROR: Could not create contextbasedrestrictionsv1 service:", cbrErr)
+			infoSvc.Logger.Error(fmt.Sprintf("Could not create contextbasedrestrictionsv1 service: %v", cbrErr))
 			return nil, cbrErr
 		}
 
@@ -317,7 +390,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 	} else {
 		// Create a new Bluemix session
 		sess, sessErr := session.New(&bluemix.Config{
-			BluemixAPIKey: infoSvc.authenticator.ApiKey, // pragma: allowlist secret
+			BluemixAPIKey: infoSvc.ApiKey, // pragma: allowlist secret
 		})
 		if sessErr != nil {
 			log.Println("ERROR: Could not create Bluemix session:", sessErr)
@@ -406,6 +479,37 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.catalogService = catalogClient
 
 	}
+
+	// Schematics is a regional endpoint service, and cross-location API calls do not work.
+	// Here we will set up multiple services for the known geographic locations (US and EU)
+	if options.SchematicsServices != nil {
+		infoSvc.schematicsServices = options.SchematicsServices
+	} else {
+		infoSvc.schematicsServices = make(map[string]schematicsService)
+		for _, schematicsLocation := range GetSchematicsLocations() {
+			schematicsUrl, schematicsUrlErr := GetSchematicServiceURLForRegion(schematicsLocation)
+			if schematicsUrlErr != nil {
+				return nil, fmt.Errorf("error determining Schematics URL:%w", schematicsUrlErr)
+			}
+			schematicsClient, schematicsErr := schematics.NewSchematicsV1(&schematics.SchematicsV1Options{
+				Authenticator: infoSvc.authenticator,
+				URL:           schematicsUrl,
+			})
+			if schematicsErr != nil {
+				log.Println("Error creating schematics client:", schematicsErr)
+				return nil, fmt.Errorf("error creating schematics client:%w", schematicsErr)
+			}
+
+			infoSvc.schematicsServices[schematicsLocation] = schematicsClient
+		}
+	}
+
+	if options.StackDefinitionCreator != nil {
+		infoSvc.stackDefinitionCreator = options.StackDefinitionCreator
+	} else {
+		infoSvc.stackDefinitionCreator = infoSvc
+	}
+
 	return infoSvc, nil
 }
 
@@ -420,9 +524,33 @@ func NewCloudInfoServiceFromEnv(apiKeyEnv string, options CloudInfoServiceOption
 
 	options.ApiKey = apiKey
 
+	// Make sure to pass the logger along
+	if options.Logger == nil {
+		options.Logger = common.NewTestLogger("CloudInfoService")
+	}
+
 	return NewCloudInfoServiceWithKey(options)
 }
 
 func (infoSvc *CloudInfoService) GetThreadLock() *sync.Mutex {
 	return &infoSvc.lock
+}
+
+type StackDefinitionCreator interface {
+	CreateStackDefinitionWrapper(options *projects.CreateStackDefinitionOptions, members []projects.ProjectConfig) (*projects.StackDefinition, *core.DetailedResponse, error)
+}
+
+// GetLogger returns the current logger
+func (infoSvc *CloudInfoService) GetLogger() *common.TestLogger {
+	return infoSvc.Logger
+}
+
+// SetLogger sets a new logger
+func (infoSvc *CloudInfoService) SetLogger(logger *common.TestLogger) {
+	infoSvc.Logger = logger
+}
+
+// GetApiKey returns the current API key
+func (infoSvc *CloudInfoService) GetApiKey() string {
+	return infoSvc.ApiKey
 }

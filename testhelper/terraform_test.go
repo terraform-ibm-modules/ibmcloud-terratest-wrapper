@@ -1,8 +1,9 @@
 package testhelper
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGetTerraformOutputs(t *testing.T) {
@@ -40,7 +41,7 @@ func TestGetTerraformOutputs(t *testing.T) {
 		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Contains(t, missingKeys, "test4")
 		assert.Error(t, err)
-		assert.Equal(t, "Output: \x1b[1;34m'test4'\x1b[0m was not expected to be nil\n", err.Error())
+		assert.Equal(t, "output: \x1b[1;34m'test4'\x1b[0m was not expected to be nil", err.Error())
 	})
 
 	t.Run("Not all outputs exist", func(t *testing.T) {
@@ -57,7 +58,7 @@ func TestGetTerraformOutputs(t *testing.T) {
 		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Contains(t, missingKeys, "test4")
 		assert.Error(t, err)
-		assert.Equal(t, "Output: \x1b[1;34m'test4'\x1b[0m was not found\n", err.Error())
+		assert.Equal(t, "output: \x1b[1;34m'test4'\x1b[0m was not found", err.Error())
 	})
 
 	t.Run("Mixed errors", func(t *testing.T) {
@@ -76,6 +77,6 @@ func TestGetTerraformOutputs(t *testing.T) {
 		missingKeys, err := ValidateTerraformOutputs(outputs, expectedKeys...)
 		assert.Contains(t, missingKeys, "test4")
 		assert.Error(t, err)
-		assert.Equal(t, "Output: \u001B[1;34m'test3'\u001B[0m was not expected to be blank string\nOutput: \x1b[1;34m'test4'\x1b[0m was not found\nOutput: \x1b[1;34m'test5'\x1b[0m was not found\nOutput: \x1b[1;34m'test6'\x1b[0m was not expected to be nil\nOutput: \u001B[1;34m'test7'\u001B[0m was not expected to be blank string\n", err.Error())
+		assert.Equal(t, "output: \u001B[1;34m'test3'\u001B[0m was not expected to be blank string\noutput: \x1b[1;34m'test4'\x1b[0m was not found\noutput: \x1b[1;34m'test5'\x1b[0m was not found\noutput: \x1b[1;34m'test6'\x1b[0m was not expected to be nil\noutput: \u001B[1;34m'test7'\u001B[0m was not expected to be blank string", err.Error())
 	})
 }
