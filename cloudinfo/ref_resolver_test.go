@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -338,7 +339,7 @@ func TestTransformReferencesToQualifiedReferences(t *testing.T) {
 				"ref:../../members/1a-primary-da/outputs/ssh_key_id",
 			},
 			expectedRefs: []Reference{
-				{Reference: "ref://project.test-project/../../members/1a-primary-da/outputs/ssh_key_id"},
+				{Reference: "ref://project.test-project/members/1a-primary-da/outputs/ssh_key_id"},
 			},
 		},
 		{
@@ -366,6 +367,21 @@ func TestTransformReferencesToQualifiedReferences(t *testing.T) {
 			},
 			expectedRefs: []Reference{
 				{Reference: "ref://project.test-project/configs/unknown-config-id/inputs/prefix"},
+			},
+		},
+		{
+			name: "Stack-style relative references",
+			refStrings: []string{
+				"ref:../../configs/3b80ac50-cbe0-4993-8c5a-5a15f08c6b17/inputs/prefix",
+				"ref:../../members/1a-primary-da/outputs/ssh_key_id",
+				"ref:../../../configs/deploy-arch-ibm-mock-module-parent-741f/authorizations/auth1",
+				"ref:../outputs/stack_output",
+			},
+			expectedRefs: []Reference{
+				{Reference: "ref://project.test-project/configs/config1/inputs/prefix"},
+				{Reference: "ref://project.test-project/members/1a-primary-da/outputs/ssh_key_id"},
+				{Reference: "ref://project.test-project/configs/mock-module-parent/authorizations/auth1"},
+				{Reference: "ref://project.test-project/outputs/stack_output"},
 			},
 		},
 		{
@@ -414,20 +430,71 @@ func transformReferencesForTest(refStrings []string, projectName string) []Refer
 	}
 
 	for _, refString := range refStrings {
-		// Special case for relative path references in test
-		if refString == "ref:../../members/1a-primary-da/outputs/ssh_key_id" {
-			references = append(references, Reference{Reference: "ref://project." + projectName + "/../../members/1a-primary-da/outputs/ssh_key_id"})
-			continue
-		}
-
-		// Skip already fully qualified references that don't need project context
-		if !needsProjectContext(refString) {
-			references = append(references, Reference{Reference: refString})
-			continue
-		}
-
-		// Normalize the reference string
 		normalizedRef := normalizeReference(refString)
+
+		// Skip fully-qualified references that don't need project context
+		if !needsProjectContext(normalizedRef) {
+			references = append(references, Reference{Reference: normalizedRef})
+			continue
+		}
+
+		// At this point we know the reference needs project qualification
+
+		// Handle stack-style relative references (e.g., ref:../../configs/{configID}/inputs/prefix)
+		// This matches the logic in the real transformReferencesToQualifiedReferences function
+		if strings.Contains(normalizedRef, "../") {
+			refPath := strings.TrimPrefix(normalizedRef, "ref:")
+
+			// Check if this is a stack-style config reference
+			if strings.Contains(refPath, "/configs/") {
+				// Find the configs pattern
+				configsIndex := strings.Index(refPath, "/configs/")
+				configPath := refPath[configsIndex+9:] // +9 for "/configs/"
+				parts := strings.SplitN(configPath, "/", 2)
+				if len(parts) >= 1 {
+					configID := parts[0]
+					var resourcePath string
+					if len(parts) > 1 {
+						resourcePath = "/" + parts[1]
+					}
+
+					// Try to resolve config ID to name
+					configName := configID
+					if name, exists := configMapping[configID]; exists {
+						configName = name
+					}
+
+					qualifiedRef := fmt.Sprintf("ref://project.%s/configs/%s%s", projectName, configName, resourcePath)
+					references = append(references, Reference{Reference: qualifiedRef})
+					continue
+				}
+			}
+
+			// Check if this is a stack-style members reference
+			if strings.Contains(refPath, "/members/") {
+				membersIndex := strings.Index(refPath, "/members/")
+				if membersIndex != -1 {
+					memberPath := refPath[membersIndex+9:] // +9 for "/members/"
+					memberQualifiedRef := fmt.Sprintf("ref://project.%s/members/%s", projectName, memberPath)
+					references = append(references, Reference{Reference: memberQualifiedRef})
+					continue
+				}
+			}
+
+			// For other stack-style references, strip the ../ parts and create a project-qualified reference
+			cleanPath := refPath
+			for strings.HasPrefix(cleanPath, "../") {
+				cleanPath = strings.TrimPrefix(cleanPath, "../")
+			}
+			// Remove leading slash if present
+			if strings.HasPrefix(cleanPath, "/") {
+				cleanPath = strings.TrimPrefix(cleanPath, "/")
+			}
+
+			otherQualifiedRef := fmt.Sprintf("ref://project.%s/%s", projectName, cleanPath)
+			references = append(references, Reference{Reference: otherQualifiedRef})
+			continue
+		}
 
 		// For test purposes, directly check if this is a config reference with a specific format
 		if configID, found := extractConfigIDFromPath(normalizedRef, "/configs/"); found {
@@ -786,6 +853,437 @@ func (suite *RefResolverTestSuite) TestResolveReferencesFromStrings() {
 
 			// Verify that all expected mock calls were made
 			suite.mockService.AssertExpectations(suite.T())
+		})
+	}
+}
+
+// Tests for retry logic
+func TestResolveReferencesRetry(t *testing.T) {
+	mockReferences := []Reference{
+		{Reference: "ref://project.myproject/configs/config1/inputs/var1"},
+	}
+
+	// Test case 1: Successful after retry
+	t.Run("SuccessfulAfterRetry", func(t *testing.T) {
+		callCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+			if callCount <= 2 {
+				// First two calls return API key validation error
+				w.WriteHeader(http.StatusInternalServerError)
+				response := map[string]interface{}{
+					"errors": []map[string]interface{}{
+						{
+							"state":   "Failed to validate api key token.",
+							"code":    "failed_request",
+							"message": "Failed to validate api key token.",
+						},
+					},
+					"status_code": 500,
+					"trace":       "04b67c6d-9ee6-4e76-9629-b2f206fca571.9d20fa65-e74a-4a2c-95d4-82205f5edac8",
+				}
+				_ = json.NewEncoder(w).Encode(response)
+			} else {
+				// Third call succeeds
+				w.WriteHeader(http.StatusOK)
+				response := ResolveResponse{
+					CorrelationID: "corr-123",
+					RequestID:     "req-456",
+					References: []BatchReferenceResolvedItem{
+						{
+							Reference: "ref://project.myproject/configs/config1/inputs/var1",
+							Value:     "value1",
+							State:     "resolved",
+							Code:      200,
+						},
+					},
+				}
+				_ = json.NewEncoder(w).Encode(response)
+			}
+		}))
+		defer server.Close()
+
+		// Save original values
+		origHttpClient := CloudInfo_HttpClient
+		origGetURL := CloudInfo_GetRefResolverServiceURLForRegion
+		defer func() {
+			CloudInfo_HttpClient = origHttpClient
+			CloudInfo_GetRefResolverServiceURLForRegion = origGetURL
+		}()
+
+		// Set up mocks
+		CloudInfo_GetRefResolverServiceURLForRegion = func(region string) (string, error) {
+			return server.URL, nil
+		}
+		CloudInfo_HttpClient = &http.Client{}
+
+		infoSvc := &CloudInfoService{
+			authenticator: &MockAuthenticator{
+				Token: "mock-token",
+			},
+			Logger: common.NewTestLogger("TestRetry"),
+		}
+
+		result, err := infoSvc.ResolveReferences("dev", mockReferences)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "corr-123", result.CorrelationID)
+		assert.Equal(t, 3, callCount) // Should have made 3 calls total
+	})
+
+	// Test case 2: Fail after all retries exhausted
+	t.Run("FailAfterAllRetries", func(t *testing.T) {
+		callCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+			// Always return API key validation error
+			w.WriteHeader(http.StatusInternalServerError)
+			response := map[string]interface{}{
+				"errors": []map[string]interface{}{
+					{
+						"state":   "Failed to validate api key token.",
+						"code":    "failed_request",
+						"message": "Failed to validate api key token.",
+					},
+				},
+				"status_code": 500,
+				"trace":       "04b67c6d-9ee6-4e76-9629-b2f206fca571.9d20fa65-e74a-4a2c-95d4-82205f5edac8",
+			}
+			_ = json.NewEncoder(w).Encode(response)
+		}))
+		defer server.Close()
+
+		// Save original values
+		origHttpClient := CloudInfo_HttpClient
+		origGetURL := CloudInfo_GetRefResolverServiceURLForRegion
+		defer func() {
+			CloudInfo_HttpClient = origHttpClient
+			CloudInfo_GetRefResolverServiceURLForRegion = origGetURL
+		}()
+
+		// Set up mocks
+		CloudInfo_GetRefResolverServiceURLForRegion = func(region string) (string, error) {
+			return server.URL, nil
+		}
+		CloudInfo_HttpClient = &http.Client{}
+
+		infoSvc := &CloudInfoService{
+			authenticator: &MockAuthenticator{
+				Token: "mock-token",
+			},
+			Logger: common.NewTestLogger("TestRetry"),
+		}
+
+		result, err := infoSvc.ResolveReferences("dev", mockReferences)
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Equal(t, 4, callCount) // Should have made 4 calls total (initial + 3 retries)
+
+		// Check that it's an HttpError with the right status code
+		var httpErr *HttpError
+		assert.ErrorAs(t, err, &httpErr)
+		assert.Equal(t, 500, httpErr.StatusCode)
+	})
+
+	// Test case 3: Non-retryable error - should not retry
+	t.Run("NonRetryableError", func(t *testing.T) {
+		callCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+			// Return a 404 error (not retryable)
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte("Not Found"))
+		}))
+		defer server.Close()
+
+		// Save original values
+		origHttpClient := CloudInfo_HttpClient
+		origGetURL := CloudInfo_GetRefResolverServiceURLForRegion
+		defer func() {
+			CloudInfo_HttpClient = origHttpClient
+			CloudInfo_GetRefResolverServiceURLForRegion = origGetURL
+		}()
+
+		// Set up mocks
+		CloudInfo_GetRefResolverServiceURLForRegion = func(region string) (string, error) {
+			return server.URL, nil
+		}
+		CloudInfo_HttpClient = &http.Client{}
+
+		infoSvc := &CloudInfoService{
+			authenticator: &MockAuthenticator{
+				Token: "mock-token",
+			},
+			Logger: common.NewTestLogger("TestRetry"),
+		}
+
+		result, err := infoSvc.ResolveReferences("dev", mockReferences)
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+		assert.Equal(t, 1, callCount) // Should have made only 1 call (no retries for non-retryable errors)
+
+		// Check that it's an HttpError with the right status code
+		var httpErr *HttpError
+		assert.ErrorAs(t, err, &httpErr)
+		assert.Equal(t, 404, httpErr.StatusCode)
+	})
+}
+
+// TestResolveReferencesRetryWithTokenRefresh tests that the retry logic correctly
+// forces a token refresh when encountering API key validation failures
+func TestResolveReferencesRetryWithTokenRefresh(t *testing.T) {
+	mockReferences := []Reference{
+		{Reference: "ref://project.myproject/configs/config1/inputs/var1"},
+	}
+
+	t.Run("TokenRefreshOnApiKeyValidationError", func(t *testing.T) {
+		callCount := 0
+		tokenRefreshCount := 0
+
+		// Create a mock authenticator that tracks token refresh attempts
+		mockAuth := &MockTokenTrackingAuthenticator{
+			ApiKey: "test-api-key",
+			TokenRefreshCallback: func() {
+				tokenRefreshCount++
+			},
+		}
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+			if callCount <= 2 {
+				// First two calls return API key validation error
+				w.WriteHeader(http.StatusInternalServerError)
+				response := map[string]interface{}{
+					"errors": []map[string]interface{}{
+						{
+							"state":   "Failed to validate api key token.",
+							"code":    "failed_request",
+							"message": "Failed to validate api key token.",
+						},
+					},
+					"status_code": 500,
+					"trace":       "token-refresh-test-trace",
+				}
+				_ = json.NewEncoder(w).Encode(response)
+			} else {
+				// Third call succeeds
+				w.WriteHeader(http.StatusOK)
+				response := ResolveResponse{
+					CorrelationID: "corr-token-refresh",
+					RequestID:     "req-token-refresh",
+					References: []BatchReferenceResolvedItem{
+						{
+							Reference: "ref://project.myproject/configs/config1/inputs/var1",
+							Value:     "refreshed-token-value",
+							State:     "resolved",
+							Code:      200,
+						},
+					},
+				}
+				_ = json.NewEncoder(w).Encode(response)
+			}
+		}))
+		defer server.Close()
+
+		// Save original values
+		origHttpClient := CloudInfo_HttpClient
+		origGetURL := CloudInfo_GetRefResolverServiceURLForRegion
+		defer func() {
+			CloudInfo_HttpClient = origHttpClient
+			CloudInfo_GetRefResolverServiceURLForRegion = origGetURL
+		}()
+
+		// Set up mocks
+		CloudInfo_GetRefResolverServiceURLForRegion = func(region string) (string, error) {
+			return server.URL, nil
+		}
+		CloudInfo_HttpClient = &http.Client{}
+
+		infoSvc := &CloudInfoService{
+			authenticator: mockAuth,
+			Logger:        common.NewTestLogger("TestTokenRefresh"),
+		}
+
+		result, err := infoSvc.ResolveReferences("dev", mockReferences)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "corr-token-refresh", result.CorrelationID)
+		assert.Equal(t, 3, callCount) // Should have made 3 calls total (initial + 2 retries)
+
+		// Verify that token refresh was attempted on API key validation errors
+		// Note: The current implementation creates a new authenticator instance rather than
+		// calling a refresh method, so we verify the behavior indirectly by ensuring
+		// the retry logic completes successfully after the token validation errors
+		assert.Equal(t, "refreshed-token-value", result.References[0].Value)
+	})
+}
+
+// MockTokenTrackingAuthenticator is a test authenticator that tracks token refresh attempts
+type MockTokenTrackingAuthenticator struct {
+	ApiKey               string
+	TokenRefreshCallback func()
+}
+
+func (m *MockTokenTrackingAuthenticator) GetToken() (string, error) {
+	return "mock-token-" + m.ApiKey, nil
+}
+
+func (m *MockTokenTrackingAuthenticator) AuthenticationType() string {
+	return "Bearer"
+}
+
+func (m *MockTokenTrackingAuthenticator) Authenticate(request *http.Request) error {
+	token, _ := m.GetToken()
+	request.Header.Set("Authorization", "Bearer "+token)
+	return nil
+}
+
+func (m *MockTokenTrackingAuthenticator) Validate() error {
+	return nil
+}
+
+// Tests for transformStackStyleReference
+func TestTransformStackStyleReference(t *testing.T) {
+	projectInfo := &ProjectInfo{
+		ID:   "test-project-id",
+		Name: "test-project",
+		Configs: map[string]string{
+			"3b80ac50-cbe0-4993-8c5a-5a15f08c6b17": "config1",
+			"another-config-uuid-12345":            "config2",
+		},
+	}
+
+	encodedProjectName := url.QueryEscape(projectInfo.Name)
+
+	// Create a mock CloudInfoService for testing
+	infoSvc := &CloudInfoService{}
+
+	testCases := []struct {
+		name        string
+		reference   string
+		expectedRef string
+		expectError bool
+	}{
+		{
+			name:        "Stack-style config reference with known UUID",
+			reference:   "ref:../../configs/3b80ac50-cbe0-4993-8c5a-5a15f08c6b17/inputs/prefix",
+			expectedRef: "ref://project.test-project/configs/config1/inputs/prefix",
+			expectError: false,
+		},
+		{
+			name:        "Stack-style config reference with unknown config ID",
+			reference:   "ref:../../configs/unknown-config-id/outputs/value",
+			expectedRef: "ref://project.test-project/configs/unknown-config-id/outputs/value",
+			expectError: false,
+		},
+		{
+			name:        "Stack-style members reference",
+			reference:   "ref:../../members/1a-primary-da/outputs/ssh_key_id",
+			expectedRef: "ref://project.test-project/members/1a-primary-da/outputs/ssh_key_id",
+			expectError: false,
+		},
+		{
+			name:        "Complex stack-style reference with multiple levels",
+			reference:   "ref:../../../configs/another-config-uuid-12345/authorizations/auth1",
+			expectedRef: "ref://project.test-project/configs/config2/authorizations/auth1",
+			expectError: false,
+		},
+		{
+			name:        "Stack-style reference with just relative navigation",
+			reference:   "ref:../../some/path/value",
+			expectedRef: "ref://project.test-project/some/path/value",
+			expectError: false,
+		},
+		{
+			name:        "Single level relative reference",
+			reference:   "ref:../outputs/value",
+			expectedRef: "ref://project.test-project/outputs/value",
+			expectError: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := infoSvc.transformStackStyleReference(tc.reference, encodedProjectName, projectInfo)
+
+			if tc.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedRef, result)
+			}
+		})
+	}
+}
+
+// Tests for isDevTestStagingRegion
+func TestIsDevTestStagingRegion(t *testing.T) {
+	testCases := []struct {
+		name     string
+		region   string
+		expected bool
+	}{
+		{"Dev region", "dev", true},
+		{"Test region", "test", true},
+		{"Staging region", "staging", true},
+		{"Production region us-south", "us-south", false},
+		{"Production region eu-de", "eu-de", false},
+		{"Long format production region", "ibm:yp:us-south", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := isDevTestStagingRegion(tc.region)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+// Tests for getPreferredFallbackRegions
+func TestGetPreferredFallbackRegions(t *testing.T) {
+	testCases := []struct {
+		name           string
+		region         string
+		expectedFirst  string // First fallback should be geographically closest
+		expectedLength int
+	}{
+		{
+			name:           "US South fallbacks",
+			region:         "us-south",
+			expectedFirst:  "us-east",
+			expectedLength: 5,
+		},
+		{
+			name:           "EU DE fallbacks",
+			region:         "eu-de",
+			expectedFirst:  "eu-gb",
+			expectedLength: 5,
+		},
+		{
+			name:           "Long format US South fallbacks",
+			region:         "ibm:yp:us-south",
+			expectedFirst:  "us-east",
+			expectedLength: 5,
+		},
+		{
+			name:           "Unknown region fallbacks",
+			region:         "unknown-region",
+			expectedFirst:  "us-south",
+			expectedLength: 6,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := getPreferredFallbackRegions(tc.region)
+			assert.Equal(t, tc.expectedLength, len(result))
+			if len(result) > 0 {
+				assert.Equal(t, tc.expectedFirst, result[0])
+			}
 		})
 	}
 }

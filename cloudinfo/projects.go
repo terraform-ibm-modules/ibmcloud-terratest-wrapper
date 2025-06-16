@@ -1388,30 +1388,3 @@ func (infoSvc *CloudInfoService) GetConfigName(projectID, configID string) (stri
 
 	return "", fmt.Errorf("config name not found")
 }
-
-// TODO: Implement the following functions
-// // GetInputs returns all input details for a given config
-// func (infoSvc *CloudInfoService) GetInputs(projectID, configID string) ([]InputDetail, error) {
-// 	config, _, err := infoSvc.GetConfig(&ConfigDetails{ProjectID: projectID, ConfigID: configID})
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	_, ok := config.Definition.(*project.ProjectConfigDefinitionResponse)
-// 	if !ok {
-// 		return nil, fmt.Errorf("unexpected config definition type")
-// 	}
-
-// 	return nil, nil
-// }
-
-// // GetOutputs returns all output details for a given config
-// func (infoSvc *CloudInfoService) GetOutputs(projectID, configID string) ([]project.OutputValue, error) {
-// 	config, _, err := infoSvc.GetConfig(&ConfigDetails{ProjectID: projectID, ConfigID: configID})
-// 	if err != nil {
-// 		return nil, err
-// 	}
-
-// 	// Return the outputs directly from the config
-// 	return config.Outputs, nil
-// }

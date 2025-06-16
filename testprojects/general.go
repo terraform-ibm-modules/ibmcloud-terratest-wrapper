@@ -5,9 +5,10 @@ import (
 	"fmt"
 
 	//	Import stack struct form cloudinfo
-	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"log"
 	"os"
+
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 )
 
 func GetVersionLocatorFromStackDefinitionForMemberName(pathToStackDefinition string, memberName string) (string, error) {

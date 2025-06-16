@@ -59,6 +59,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		return fmt.Errorf("error deploying the addon to project: %w", err)
 	}
 
+	// Store deployed configs for later use in dependency validation
+	options.deployedConfigs = deployedConfigs
+
 	options.Logger.ShortInfo(fmt.Sprintf("Deployed Configurations to Project ID: %s", options.currentProjectConfig.ProjectID))
 	for _, config := range deployedConfigs.Configs {
 		options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", config.Name, config.ConfigID))
@@ -181,16 +184,28 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			references := []string{}
 
 			for _, input := range currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs {
-				// if input starts with ref:/
-				if strings.HasPrefix(input.(string), "ref:/") {
-					options.Logger.ShortInfo(fmt.Sprintf("    %s", input))
-					references = append(references, input.(string))
+				// Check if input is a string before checking for ref:/ prefix
+				if inputStr, ok := input.(string); ok && strings.HasPrefix(inputStr, "ref:/") {
+					options.Logger.ShortInfo(fmt.Sprintf("    %s", inputStr))
+					references = append(references, inputStr)
 				}
 			}
 
 			if len(references) > 0 {
 				res_resp, err := options.CloudInfoService.ResolveReferencesFromStrings(*options.currentProject.Location, references, options.currentProjectConfig.ProjectID)
 				if err != nil {
+					// Check if this is the known intermittent API key validation error
+					// This can occur as either a direct HttpError or as an EnhancedHttpError with the additional message
+					errStr := err.Error()
+					if (strings.Contains(errStr, "Failed to validate api key token") && strings.Contains(errStr, "500")) ||
+						strings.Contains(errStr, "This is a known intermittent issue with IBM Cloud's reference resolution service") {
+						options.Logger.ShortWarn(fmt.Sprintf("Skipping reference validation due to intermittent IBM Cloud service error: %v", err))
+						options.Logger.ShortWarn("This is a known transient issue with IBM Cloud's reference resolution service.")
+						options.Logger.ShortWarn("The test will continue and will fail later if references actually fail to resolve during deployment.")
+						// Skip reference validation for this config and continue with the test
+						continue
+					}
+					// For other errors, fail the test as before
 					options.Logger.ShortError(fmt.Sprintf("Error resolving references: %v", err))
 					options.Testing.Fail()
 					return fmt.Errorf("error resolving references: %w", err)
@@ -245,8 +260,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			}
 
 			value, exists := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs[input.Key]
-			if !exists || value.(string) == "" {
-				if input.DefaultValue == nil || input.DefaultValue.(string) == "" || input.DefaultValue.(string) == "__NOT_SET__" {
+			if !exists || fmt.Sprintf("%v", value) == "" {
+				if input.DefaultValue == nil || fmt.Sprintf("%v", input.DefaultValue) == "" || fmt.Sprintf("%v", input.DefaultValue) == "__NOT_SET__" {
 					options.Logger.ShortError(fmt.Sprintf("Missing or empty required input: %s\n", input.Key))
 					allInputsPresent = false
 				}
@@ -299,7 +314,124 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	// Check if its deployable
 	options.Logger.ShortInfo(fmt.Sprintf("Checked if the configuration is deployable %s", common.ColorizeString(common.Colors.Green, "pass ✔")))
 
-	// Check if all refs are valid
+	// validate if expected dependencies are deployed for each addon
+	if !options.SkipDependencyValidation {
+		options.Logger.ShortInfo("Starting with dependency validation")
+		var rootCatalogID, rootOfferingID, rootVersionLocator string
+		rootVersionLocator = options.AddonConfig.VersionLocator
+		rootCatalogID = options.AddonConfig.CatalogID
+		rootOfferingID = options.AddonConfig.OfferingID
+
+		// Build dependency graph using the cleaner return-values approach
+		visited := make(map[string]bool)
+		graphResult, err := options.buildDependencyGraph(rootCatalogID, rootOfferingID, rootVersionLocator, options.AddonConfig.OfferingFlavor, &options.AddonConfig, visited)
+		if err != nil {
+			return err
+		}
+
+		// Extract results from the returned struct
+		graph := graphResult.Graph
+		expectedDeployedList := graphResult.ExpectedDeployedList
+
+		options.Logger.ShortInfo("Expected dependency tree:")
+		options.PrintDependencyTree(graph, expectedDeployedList)
+
+		options.Logger.ShortInfo("Building the actually deployed configs")
+
+		if options.deployedConfigs == nil {
+			return fmt.Errorf("deployed configs not available - cannot validate dependencies")
+		}
+
+		actuallyDeployedResult := options.buildActuallyDeployedListFromResponse(options.deployedConfigs)
+		if len(actuallyDeployedResult.Errors) > 0 {
+			options.Logger.ShortError("Failed to build deployed list from response:")
+			for _, errMsg := range actuallyDeployedResult.Errors {
+				options.Logger.ShortError(fmt.Sprintf("  - %s", errMsg))
+			}
+			return fmt.Errorf("failed to build actually deployed list: %s", strings.Join(actuallyDeployedResult.Errors, "; "))
+		}
+
+		if len(actuallyDeployedResult.Warnings) > 0 {
+			options.Logger.ShortInfo("Built deployed list from deployment response with warnings:")
+			for _, warning := range actuallyDeployedResult.Warnings {
+				options.Logger.ShortWarn(fmt.Sprintf("Warning: %s", warning))
+			}
+		} else {
+			options.Logger.ShortInfo("Built deployed list from deployment response")
+		}
+
+		// First validate what is actually deployed to get the validation results
+		validationResult := options.validateDependencies(graph, expectedDeployedList, actuallyDeployedResult.ActuallyDeployedList)
+
+		options.Logger.ShortInfo("Actually deployed configurations (with status):")
+		// Create deployment status maps for the tree view
+		deployedMap := make(map[string]bool)
+		for _, deployed := range actuallyDeployedResult.ActuallyDeployedList {
+			key := fmt.Sprintf("%s:%s:%s", deployed.Name, deployed.Version, deployed.Flavor.Name)
+			deployedMap[key] = true
+		}
+
+		errorMap := make(map[string]cloudinfo.DependencyError)
+		for _, depErr := range validationResult.DependencyErrors {
+			key := fmt.Sprintf("%s:%s:%s", depErr.Addon.Name, depErr.Addon.Version, depErr.Addon.Flavor.Name)
+			errorMap[key] = depErr
+		}
+
+		missingMap := make(map[string]bool)
+		for _, missing := range validationResult.MissingConfigs {
+			key := fmt.Sprintf("%s:%s:%s", missing.Name, missing.Version, missing.Flavor.Name)
+			missingMap[key] = true
+		}
+
+		// Find the root addon and print tree with status
+		allDependencies := make(map[string]bool)
+		for _, deps := range graph {
+			for _, dep := range deps {
+				key := fmt.Sprintf("%s:%s:%s", dep.Name, dep.Version, dep.Flavor.Name)
+				allDependencies[key] = true
+			}
+		}
+
+		var rootAddon *cloudinfo.OfferingReferenceDetail
+		for _, addon := range expectedDeployedList {
+			key := fmt.Sprintf("%s:%s:%s", addon.Name, addon.Version, addon.Flavor.Name)
+			if !allDependencies[key] {
+				rootAddon = &addon
+				break
+			}
+		}
+
+		if rootAddon == nil && len(expectedDeployedList) > 0 {
+			rootAddon = &expectedDeployedList[0]
+		}
+
+		if rootAddon != nil {
+			options.printAddonTreeWithStatus(*rootAddon, graph, "", true, make(map[string]bool), deployedMap, errorMap, missingMap)
+		}
+
+		// Print validation results
+		options.Logger.ShortInfo("Dependency validation results:")
+		for _, message := range validationResult.Messages {
+			if validationResult.IsValid {
+				options.Logger.ShortInfo(message)
+			} else {
+				options.Logger.ShortError(message)
+			}
+		}
+
+		// Print validation errors - either consolidated summary or detailed individual messages
+		if !validationResult.IsValid {
+			if options.EnhancedTreeValidationOutput {
+				options.printDependencyTreeWithValidationStatus(graph, expectedDeployedList, actuallyDeployedResult.ActuallyDeployedList, validationResult)
+			} else if options.VerboseValidationErrors {
+				options.printDetailedValidationErrors(validationResult)
+			} else {
+				options.printConsolidatedValidationSummary(validationResult)
+			}
+			return fmt.Errorf("expected configurations and actual configurations are not same")
+		}
+	}
+
 	if options.PreDeployHook != nil {
 		options.Logger.ShortInfo("Running PreDeployHook")
 		hookErr := options.PreDeployHook(options)
@@ -310,18 +442,24 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo("Finished PreDeployHook")
 	}
 
-	// Trigger Deploy
-	errorList := deployOptions.TriggerDeployAndWait()
-	if len(errorList) > 0 {
-		options.Logger.ShortError("Errors occurred during deploy")
-		for _, err := range errorList {
-			options.Logger.ShortError(fmt.Sprintf("  %v", err))
+	options.Logger.ShortInfo("Dependency validation completed successfully")
+
+	if !options.SkipInfrastructureDeployment {
+		errorList := deployOptions.TriggerDeployAndWait()
+		if len(errorList) > 0 {
+			options.Logger.ShortError("Errors occurred during deploy")
+			for _, err := range errorList {
+				options.Logger.ShortError(fmt.Sprintf("  %v", err))
+			}
+			options.Testing.Fail()
+			return fmt.Errorf("errors occurred during deploy")
 		}
-		options.Testing.Fail()
-		return fmt.Errorf("errors occurred during deploy")
+		options.Logger.ShortInfo("Deploy completed successfully")
+		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✔"))
+	} else {
+		options.Logger.ShortInfo("Infrastructure deployment skipped")
+		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Yellow, "skip ⚠"))
 	}
-	options.Logger.ShortInfo("Deploy completed successfully")
-	options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✔"))
 
 	if options.PostDeployHook != nil {
 		options.Logger.ShortInfo("Running PostDeployHook")
@@ -346,16 +484,21 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	options.Logger.ShortInfo("Testing undeployed addons")
 
 	// Trigger Undeploy
-	undeployErrs := deployOptions.TriggerUnDeployAndWait()
-	if len(undeployErrs) > 0 {
-		options.Logger.ShortError("Errors occurred during undeploy")
-		for _, err := range undeployErrs {
-			options.Logger.ShortError(fmt.Sprintf("  %v", err))
+	if !options.SkipInfrastructureDeployment {
+		undeployErrs := deployOptions.TriggerUnDeployAndWait()
+		if len(undeployErrs) > 0 {
+			options.Logger.ShortError("Errors occurred during undeploy")
+			for _, err := range undeployErrs {
+				options.Logger.ShortError(fmt.Sprintf("  %v", err))
+			}
+			options.Testing.Fail()
+			return fmt.Errorf("errors occurred during undeploy")
 		}
-		options.Testing.Fail()
-		return fmt.Errorf("errors occurred during undeploy")
+		options.Logger.ShortInfo("Undeploy completed successfully")
+	} else {
+		options.Logger.ShortInfo("Infrastructure undeploy skipped")
+		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Yellow, "skip ⚠"))
 	}
-	options.Logger.ShortInfo("Undeploy completed successfully")
 
 	if options.PostUndeployHook != nil {
 		options.Logger.ShortInfo("Running PostUndeployHook")
@@ -525,6 +668,7 @@ func (options *TestAddonOptions) testSetup() error {
 		return fmt.Errorf("AddonConfig.OfferingName is not set")
 	}
 	version := fmt.Sprintf("v0.0.1-dev-%s", options.Prefix)
+	options.AddonConfig.ResolvedVersion = version
 	options.Logger.ShortInfo(fmt.Sprintf("Importing the offering flavor: %s from branch: %s as version: %s", options.AddonConfig.OfferingFlavor, *options.currentBranchUrl, version))
 	offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, options.AddonConfig.OfferingName, options.AddonConfig.OfferingFlavor, version, options.AddonConfig.OfferingInstallKind)
 	if err != nil {
@@ -539,6 +683,7 @@ func (options *TestAddonOptions) testSetup() error {
 		newVersionLocator = *options.offering.Kinds[0].Versions[0].VersionLocator
 	}
 	options.AddonConfig.OfferingName = *options.offering.Name
+	options.AddonConfig.OfferingID = *options.offering.ID
 	options.AddonConfig.VersionLocator = newVersionLocator
 	options.AddonConfig.OfferingLabel = *options.offering.Label
 	options.AddonConfig.OfferingID = *options.offering.ID
@@ -578,6 +723,11 @@ func (options *TestAddonOptions) testSetup() error {
 	options.Logger.ShortInfo(fmt.Sprintf("Created a new project: %s with ID %s", options.ProjectName, options.currentProjectConfig.ProjectID))
 	projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", options.currentProjectConfig.ProjectID)
 	options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
+	region := options.currentProjectConfig.Location
+	if region == "" {
+		region = "unknown"
+	}
+	options.Logger.ShortInfo(fmt.Sprintf("Project Region: %s", region))
 
 	return nil
 }
@@ -621,41 +771,5 @@ func (options *TestAddonOptions) testTearDown() {
 		}
 	} else {
 		options.Logger.ShortInfo("No catalog to delete")
-	}
-}
-
-func SetOfferingDetails(options *TestAddonOptions) {
-
-	// set top level offering required inputs
-	var topLevelVersion string
-	locatorParts := strings.Split(options.AddonConfig.VersionLocator, ".")
-	if len(locatorParts) > 1 {
-		topLevelVersion = locatorParts[1]
-	} else {
-		options.Logger.ShortError(fmt.Sprintf("Error, Could not parse VersionLocator: %s", options.AddonConfig.VersionLocator))
-	}
-	topLevelOffering, _, err := options.CloudInfoService.GetOffering(*options.offering.CatalogID, *options.offering.ID)
-	if err != nil {
-		options.Logger.ShortError(fmt.Sprintf("Error retrieving top level offering: %s from catalog: %s", *options.offering.ID, *options.offering.CatalogID))
-	}
-	if *topLevelOffering.Kinds[0].InstallKind != "terraform" {
-		options.Logger.ShortError(fmt.Sprintf("Error, top level offering: %s, Expected Kind 'terraform' got '%s'", *options.offering.ID, *topLevelOffering.Kinds[0].InstallKind))
-	}
-	options.AddonConfig.OfferingInputs = options.CloudInfoService.GetOfferingInputs(topLevelOffering, topLevelVersion, *options.offering.ID)
-	options.AddonConfig.VersionID = topLevelVersion
-	options.AddonConfig.CatalogID = *options.offering.CatalogID
-
-	// set dependency offerings required inputs
-	for i, dependency := range options.AddonConfig.Dependencies {
-		offeringDependencyVersionLocator := strings.Split(dependency.VersionLocator, ".")
-		dependencyCatalogID := offeringDependencyVersionLocator[0]
-		dependencyVersionID := offeringDependencyVersionLocator[1]
-		myOffering, _, err := options.CloudInfoService.GetOffering(dependencyCatalogID, dependency.OfferingID)
-		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error retrieving dependency offering: %s from catalog: %s", *myOffering.ID, dependencyCatalogID))
-		}
-		options.AddonConfig.Dependencies[i].OfferingInputs = options.CloudInfoService.GetOfferingInputs(myOffering, dependencyVersionID, dependencyCatalogID)
-		options.AddonConfig.Dependencies[i].VersionID = dependencyVersionID
-		options.AddonConfig.Dependencies[i].CatalogID = dependencyCatalogID
 	}
 }
