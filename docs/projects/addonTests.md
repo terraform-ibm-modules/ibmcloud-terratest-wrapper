@@ -358,12 +358,23 @@ The `TestAddonOptions` structure provides several configuration options that you
 - `SkipTestTearDown` - Skip cleanup after tests
 - `SkipUndeploy` - Skip the undeploy step
 - `SkipProjectDelete` - Don't delete the project after testing
+- `SkipInfrastructureDeployment` - Skip infrastructure deployment and undeploy operations while performing all other validations
 - `SkipLocalChangeCheck` - Skip checking for uncommitted local changes
 - `SkipRefValidation` - Skip reference validation before deploying
 - `SkipDependencyValidation` - Skip dependency validation before deploying
 - `VerboseValidationErrors` - Show detailed individual error messages instead of consolidated summary
 - `EnhancedTreeValidationOutput` - Show dependency tree with validation status annotations
 - `LocalChangesIgnorePattern` - Regex patterns for files to ignore in local change check
+
+#### Infrastructure Deployment
+
+The framework performs both deploy and undeploy operations by default. You can skip the infrastructure deployment and undeploy while still performing all other validations:
+
+```golang
+options.SkipInfrastructureDeployment = true
+```
+
+**Note**: This option skips both the deployment (`TriggerDeployAndWait()`) and undeploy (`TriggerUnDeployAndWait()`) operations. All other validations including reference validation, dependency validation, and hook execution will still be performed.
 
 ### Validation Options
 
@@ -468,7 +479,7 @@ Error resolving references: invalid status code: 500, body: {"errors":[{"state":
 
 1. **Automatic Retry**: The framework automatically retries reference resolution up to 6 times (initial attempt + 5 retries) with exponential backoff (starting at 2 seconds between attempts) to handle these temporary failures.
 
-2. **Automatic Skip (New)**: As of the latest version, when this specific error occurs after exhausting all retries, the framework will automatically skip reference validation for that configuration and continue with the test. The test logs will show warnings indicating that reference validation was skipped due to the intermittent service issue. The test will still fail later if the references are actually invalid during deployment.
+2. **Automatic Skip**: When this specific error occurs after exhausting all retries, the framework will automatically skip reference validation for that configuration and continue with the test. The test logs will show warnings indicating that reference validation was skipped due to the intermittent service issue. The test will still fail later if the references are actually invalid during deployment.
 
 3. **Manual Skip**: For development/testing scenarios where you want to completely disable reference validation, you can use:
 
@@ -477,5 +488,3 @@ Error resolving references: invalid status code: 500, body: {"errors":[{"state":
    ```
 
    **Note**: This disables reference validation entirely for all configurations, whereas the automatic skip (option 2) only skips validation when the specific intermittent error occurs.
-
-**When to Contact Support**: If this error persists across multiple test runs over an extended period, it may indicate a broader service issue and should be reported to IBM Cloud support.

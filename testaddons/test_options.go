@@ -76,6 +76,10 @@ type TestAddonOptions struct {
 	SkipUndeploy      bool
 	SkipProjectDelete bool
 
+	// SkipInfrastructureDeployment If set to true, the test will skip the infrastructure deployment and undeploy operations.
+	// All other validations and setup will still be performed.
+	SkipInfrastructureDeployment bool
+
 	// SkipLocalChangeCheck If set to true, the test will not check for local changes before deploying.
 	SkipLocalChangeCheck bool
 	// SkipRefValidation If set to true, the test will not check for reference validation before deploying.
