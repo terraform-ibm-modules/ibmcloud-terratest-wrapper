@@ -76,16 +76,27 @@ type TestAddonOptions struct {
 	SkipUndeploy      bool
 	SkipProjectDelete bool
 
+	// SkipInfrastructureDeployment If set to true, the test will skip the infrastructure deployment and undeploy operations.
+	// All other validations and setup will still be performed.
+	SkipInfrastructureDeployment bool
+
 	// SkipLocalChangeCheck If set to true, the test will not check for local changes before deploying.
 	SkipLocalChangeCheck bool
 	// SkipRefValidation If set to true, the test will not check for reference validation before deploying.
 	SkipRefValidation bool
+	// SkipDependencyValidatio If set to true, the test will not check for dependency validation before deploying
+	SkipDependencyValidation bool
+	// VerboseValidationErrors If set to true, shows detailed individual error messages instead of consolidated summary
+	VerboseValidationErrors bool
+	// EnhancedTreeValidationOutput If set to true, shows dependency tree with validation status annotations
+	EnhancedTreeValidationOutput bool
 	// LocalChangesIgnorePattern List of regex patterns to ignore files or directories when checking for local changes.
 	LocalChangesIgnorePattern []string
 
 	// internal use
 	currentProject       *project.Project
 	currentProjectConfig *cloudinfo.ProjectsConfig
+	deployedConfigs      *cloudinfo.DeployedAddonsDetails // Store deployed configs for validation
 
 	currentBranch    *string
 	currentBranchUrl *string

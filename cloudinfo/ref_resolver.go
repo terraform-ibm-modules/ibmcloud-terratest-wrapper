@@ -10,7 +10,18 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/IBM/go-sdk-core/v5/core"
 )
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 // getServiceURLForRegion returns the service URL for the specified region
 func getRefResolverServiceURLForRegion(region string) (string, error) {
@@ -47,11 +58,71 @@ func getRefResolverServiceURLForRegion(region string) (string, error) {
 	return "", fmt.Errorf("service URL for region '%s' not found. Supported regions: %s", region, strings.Join(supportedRegions, ", "))
 }
 
+// isDevTestStagingRegion checks if a region is a development, test, or staging environment
+func isDevTestStagingRegion(region string) bool {
+	devTestStagingRegions := []string{"dev", "test", "staging"}
+	for _, envRegion := range devTestStagingRegions {
+		if region == envRegion {
+			return true
+		}
+	}
+	return false
+}
+
+// getPreferredFallbackRegions returns a list of preferred fallback regions for the given region
+// Regions are ordered by geographic proximity and reliability
+func getPreferredFallbackRegions(region string) []string {
+	// Regional fallback preferences based on geographic proximity
+	fallbackMap := map[string][]string{
+		// US regions
+		"us-south":        {"us-east", "ca-tor", "eu-de", "eu-gb", "mon01"},
+		"ibm:yp:us-south": {"us-east", "ca-tor", "eu-de", "eu-gb", "mon01"},
+		"us-east":         {"us-south", "ca-tor", "eu-de", "eu-gb", "mon01"},
+		"ibm:yp:us-east":  {"us-south", "ca-tor", "eu-de", "eu-gb", "mon01"},
+
+		// Canadian regions
+		"ca-tor":        {"us-east", "us-south", "eu-de", "eu-gb", "mon01"},
+		"ibm:yp:ca-tor": {"us-east", "us-south", "eu-de", "eu-gb", "mon01"},
+
+		// European regions
+		"eu-de":        {"eu-gb", "us-south", "us-east", "ca-tor", "mon01"},
+		"ibm:yp:eu-de": {"eu-gb", "us-south", "us-east", "ca-tor", "mon01"},
+		"eu-gb":        {"eu-de", "us-south", "us-east", "ca-tor", "mon01"},
+		"ibm:yp:eu-gb": {"eu-de", "us-south", "us-east", "ca-tor", "mon01"},
+
+		// Montreal (special case)
+		"mon01":        {"ca-tor", "us-east", "us-south", "eu-de", "eu-gb"},
+		"ibm:yp:mon01": {"ca-tor", "us-east", "us-south", "eu-de", "eu-gb"},
+	}
+
+	if fallbacks, exists := fallbackMap[region]; exists {
+		return fallbacks
+	}
+
+	// Default fallback order if region not specifically mapped
+	return []string{"us-south", "us-east", "eu-de", "eu-gb", "ca-tor", "mon01"}
+}
+
 // Define variables that can be overridden in tests
 var (
 	CloudInfo_GetRefResolverServiceURLForRegion = getRefResolverServiceURLForRegion
 	CloudInfo_HttpClient                        = &http.Client{}
 )
+
+const (
+	defaultRetryCount       = 3
+	defaultInitialRetryWait = 2 // seconds
+)
+
+// shouldRetryReferenceResolution checks if we should retry based on the error response
+func shouldRetryReferenceResolution(statusCode int, body string) bool {
+	// Retry on 500 errors, specifically API key validation issues
+	if statusCode == 500 {
+		return strings.Contains(body, "Failed to validate api key token")
+	}
+	// Add other retryable conditions here if needed
+	return false
+}
 
 // normalizeReference ensures a reference has the correct format
 func normalizeReference(reference string) string {
@@ -87,6 +158,11 @@ func needsProjectContext(reference string) bool {
 		return true
 	}
 
+	// Check if it contains stack-style relative paths (../), these need project context
+	if strings.Contains(reference, "../") {
+		return true
+	}
+
 	return false
 }
 
@@ -110,8 +186,209 @@ func replaceConfigIDWithName(reference, configID, configName string) string {
 	return strings.Replace(reference, pattern, replacement, 1)
 }
 
-// ResolveReferences resolves a list of references using the ref-resolver API
+// ResolveReferences resolves a list of references using the ref-resolver API with region failover
 func (infoSvc *CloudInfoService) ResolveReferences(region string, references []Reference) (*ResolveResponse, error) {
+	// Check if we have an active region from previous failover
+	infoSvc.refResolverLock.Lock()
+	activeRegion := infoSvc.activeRefResolverRegion
+	infoSvc.refResolverLock.Unlock()
+
+	// If we have an active region from previous failover, use it instead of the requested region
+	if activeRegion != "" && activeRegion != region {
+		if infoSvc.Logger != nil {
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Using active region %s instead of requested region %s (from previous successful failover)", activeRegion, region))
+		}
+		region = activeRegion
+	}
+
+	// For dev/test/staging environments, use traditional retry logic
+	if isDevTestStagingRegion(region) {
+		return infoSvc.resolveReferencesWithRetry(region, references, defaultRetryCount)
+	}
+
+	// For production regions, try once then failover to alternative regions
+	return infoSvc.resolveReferencesWithRegionFailover(region, references)
+}
+
+// resolveReferencesWithRetry implements the actual reference resolution with retry logic
+func (infoSvc *CloudInfoService) resolveReferencesWithRetry(region string, references []Reference, maxRetries int) (*ResolveResponse, error) {
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		result, err := infoSvc.doResolveReferences(region, references)
+
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+
+		// Check if this is the last attempt
+		if attempt == maxRetries {
+			break
+		}
+
+		// Parse the error to check if it's retryable
+		if httpErr, ok := err.(*HttpError); ok {
+			if shouldRetryReferenceResolution(httpErr.StatusCode, httpErr.Body) {
+				waitTime := time.Duration(defaultInitialRetryWait*(1<<attempt)) * time.Second // exponential backoff
+				if infoSvc.Logger != nil {
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Reference resolution failed with retryable error (attempt %d/%d), retrying in %v...",
+						attempt+1, maxRetries+1, waitTime))
+
+					// Enhanced debugging for API key validation failures
+					if strings.Contains(httpErr.Body, "Failed to validate api key token") {
+						infoSvc.Logger.ShortWarn("  → Detected API key validation failure (known intermittent issue)")
+					}
+				}
+
+				// Force token refresh for API key validation errors by creating a new authenticator instance
+				// This addresses a known issue where cached tokens expire during retry attempts
+				if infoSvc.authenticator != nil && strings.Contains(httpErr.Body, "Failed to validate api key token") {
+					if infoSvc.Logger != nil {
+						infoSvc.Logger.ShortInfo("Forcing token refresh due to API key validation failure")
+					}
+					// Create a new authenticator to force fresh token retrieval
+					if iamAuth, ok := infoSvc.authenticator.(*core.IamAuthenticator); ok {
+						newAuth := &core.IamAuthenticator{
+							ApiKey: iamAuth.ApiKey,
+						}
+						infoSvc.authenticator = newAuth
+						if infoSvc.Logger != nil {
+							infoSvc.Logger.ShortInfo("  Created new IAM authenticator for fresh token")
+						}
+					}
+				}
+
+				time.Sleep(waitTime)
+				continue
+			} else if infoSvc.Logger != nil {
+				infoSvc.Logger.ShortError(fmt.Sprintf("Reference resolution failed with non-retryable error: %v", err))
+				infoSvc.Logger.ShortError(fmt.Sprintf("  HTTP Status: %d", httpErr.StatusCode))
+				infoSvc.Logger.ShortError(fmt.Sprintf("  Response body: %s", httpErr.Body))
+			}
+		} else if infoSvc.Logger != nil {
+			infoSvc.Logger.ShortError(fmt.Sprintf("Reference resolution failed with non-HTTP error: %v", err))
+		}
+
+		// If it's not a retryable error, return immediately
+		break
+	}
+
+	// Check if the final error is an API key validation failure and enhance the error message
+	if httpErr, ok := lastErr.(*HttpError); ok {
+		if shouldRetryReferenceResolution(httpErr.StatusCode, httpErr.Body) {
+			return nil, &EnhancedHttpError{
+				HttpError: httpErr,
+				Message:   "This is a known intermittent issue with IBM Cloud's reference resolution service. Please re-run the test as the issue is typically transient",
+			}
+		}
+	}
+
+	return nil, lastErr
+}
+
+// resolveReferencesWithRegionFailover implements region failover for production environments
+func (infoSvc *CloudInfoService) resolveReferencesWithRegionFailover(primaryRegion string, references []Reference) (*ResolveResponse, error) {
+	var lastErr error
+	var attempts []string
+
+	// Try primary region first with one retry for API key validation failures
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Attempting reference resolution in primary region: %s", primaryRegion))
+	}
+
+	result, err := infoSvc.resolveReferencesWithRetry(primaryRegion, references, 1)
+	if err == nil {
+		return result, nil
+	}
+
+	lastErr = err
+	attempts = append(attempts, primaryRegion)
+
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.ShortWarn(fmt.Sprintf("Primary region %s failed, trying fallback regions...", primaryRegion))
+	}
+
+	// Get preferred fallback regions
+	fallbackRegions := getPreferredFallbackRegions(primaryRegion)
+
+	// Try each fallback region once
+	for _, fallbackRegion := range fallbackRegions {
+		if infoSvc.Logger != nil {
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Attempting reference resolution in fallback region: %s", fallbackRegion))
+		}
+
+		result, err := infoSvc.doResolveReferences(fallbackRegion, references)
+		if err == nil {
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.ShortInfo(fmt.Sprintf("Reference resolution successful in fallback region: %s", fallbackRegion))
+			}
+
+			// Set the successful fallback region as the active region for future requests
+			infoSvc.refResolverLock.Lock()
+			infoSvc.activeRefResolverRegion = fallbackRegion
+			infoSvc.refResolverLock.Unlock()
+
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.ShortInfo(fmt.Sprintf("Set active ref-resolver region to %s for subsequent requests", fallbackRegion))
+			}
+
+			return result, nil
+		}
+
+		lastErr = err
+		attempts = append(attempts, fallbackRegion)
+
+		if infoSvc.Logger != nil {
+			infoSvc.Logger.ShortWarn(fmt.Sprintf("Fallback region %s failed: %v", fallbackRegion, err))
+		}
+	}
+
+	// All regions failed, return enhanced error with attempt details
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.ShortError(fmt.Sprintf("Reference resolution failed in all attempted regions: %v", attempts))
+	}
+
+	// Check if the final error is an API key validation failure and enhance the error message
+	if httpErr, ok := lastErr.(*HttpError); ok {
+		if shouldRetryReferenceResolution(httpErr.StatusCode, httpErr.Body) {
+			return nil, &EnhancedHttpError{
+				HttpError: httpErr,
+				Message:   fmt.Sprintf("This is a known intermittent issue with IBM Cloud's reference resolution service. Attempted regions: %v. Please re-run the test as the issue is typically transient", attempts),
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("reference resolution failed in all regions %v: %w", attempts, lastErr)
+}
+
+// HttpError represents an HTTP error with status code and body
+type HttpError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *HttpError) Error() string {
+	return fmt.Sprintf("invalid status code: %d, body: %s", e.StatusCode, e.Body)
+}
+
+// EnhancedHttpError wraps HttpError with additional context for intermittent issues
+type EnhancedHttpError struct {
+	*HttpError
+	Message string
+}
+
+func (e *EnhancedHttpError) Error() string {
+	return fmt.Sprintf("%s. %s", e.HttpError.Error(), e.Message)
+}
+
+func (e *EnhancedHttpError) Unwrap() error {
+	return e.HttpError
+}
+
+// doResolveReferences performs the actual reference resolution without retry logic
+func (infoSvc *CloudInfoService) doResolveReferences(region string, references []Reference) (*ResolveResponse, error) {
 	// Get service URL for the region using the variable that can be overridden in tests
 	serviceURL, err := CloudInfo_GetRefResolverServiceURLForRegion(region)
 	if err != nil {
@@ -129,18 +406,19 @@ func (infoSvc *CloudInfoService) ResolveReferences(region string, references []R
 		return nil, fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	// Log the payload for debugging
+	// Basic request logging
 	if infoSvc.Logger != nil {
-		infoSvc.Logger.ShortInfo("Sending reference resolution request")
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Resolving %d references for region %s", len(references), region))
 	}
 
 	// Create a new request
 	req, err := http.NewRequest("POST", serviceURL+"/resolve", bytes.NewReader(jsonPayload))
 	if err != nil {
-		infoSvc.Logger.ShortError(fmt.Sprintf("Failed to create request: %v", err))
-		infoSvc.Logger.ShortInfo("Request body: " + string(jsonPayload))
-		infoSvc.Logger.ShortInfo("Service URL: " + serviceURL)
-		infoSvc.Logger.ShortInfo("Region: " + region)
+		if infoSvc.Logger != nil {
+			infoSvc.Logger.ShortError(fmt.Sprintf("Failed to create HTTP request: %v", err))
+			infoSvc.Logger.ShortError(fmt.Sprintf("  Service URL: %s", serviceURL))
+			infoSvc.Logger.ShortError(fmt.Sprintf("  Payload size: %d bytes", len(jsonPayload)))
+		}
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
@@ -151,6 +429,9 @@ func (infoSvc *CloudInfoService) ResolveReferences(region string, references []R
 	// Set the authentication token
 	token, err := infoSvc.authenticator.GetToken()
 	if err != nil {
+		if infoSvc.Logger != nil {
+			infoSvc.Logger.ShortError(fmt.Sprintf("Failed to get authentication token: %v", err))
+		}
 		return nil, fmt.Errorf("failed to get token: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -173,19 +454,113 @@ func (infoSvc *CloudInfoService) ResolveReferences(region string, references []R
 	// Check the status code
 	if resp.StatusCode != http.StatusOK {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("invalid status code: %d, body: %s", resp.StatusCode, string(bodyBytes))
+		bodyStr := string(bodyBytes)
+
+		// Enhanced error logging with full diagnostic details
+		if infoSvc.Logger != nil {
+			infoSvc.Logger.ShortError("===== Reference Resolution Failed =====")
+			infoSvc.Logger.ShortError(fmt.Sprintf("HTTP Status: %d", resp.StatusCode))
+			infoSvc.Logger.ShortError(fmt.Sprintf("Service URL: %s", serviceURL))
+			infoSvc.Logger.ShortError(fmt.Sprintf("Region: %s", region))
+			infoSvc.Logger.ShortError(fmt.Sprintf("Number of references: %d", len(references)))
+
+			// For API key validation failures, log details at warning level instead of error level
+			if resp.StatusCode == 500 && strings.Contains(bodyStr, "Failed to validate api key token") {
+				// Log all references being resolved
+				infoSvc.Logger.ShortWarn("References being resolved:")
+				for i, ref := range references {
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
+				}
+
+				// Log authentication details (masked for security)
+				if len(token) > 10 {
+					maskedToken := token[:6] + "..." + token[len(token)-4:]
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Token: %s", maskedToken))
+				}
+
+				// Log API key metadata for debugging
+				if iamAuth, ok := infoSvc.authenticator.(*core.IamAuthenticator); ok {
+					if len(iamAuth.ApiKey) > 0 {
+						infoSvc.Logger.ShortWarn(fmt.Sprintf("API key length: %d characters", len(iamAuth.ApiKey)))
+						infoSvc.Logger.ShortWarn(fmt.Sprintf("API key prefix: %s...", iamAuth.ApiKey[:min(6, len(iamAuth.ApiKey))]))
+					}
+				}
+
+				// Log response details
+				infoSvc.Logger.ShortWarn(fmt.Sprintf("Response body: %s", bodyStr))
+				infoSvc.Logger.ShortWarn(fmt.Sprintf("Response headers: %v", resp.Header))
+			} else {
+				// For non-API key validation failures, keep error level logging
+				// Log all references being resolved
+				infoSvc.Logger.ShortError("References being resolved:")
+				for i, ref := range references {
+					infoSvc.Logger.ShortError(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
+				}
+
+				// Log authentication details (masked for security)
+				if len(token) > 10 {
+					maskedToken := token[:6] + "..." + token[len(token)-4:]
+					infoSvc.Logger.ShortError(fmt.Sprintf("Token: %s", maskedToken))
+				}
+
+				// Log API key metadata for debugging
+				if iamAuth, ok := infoSvc.authenticator.(*core.IamAuthenticator); ok {
+					if len(iamAuth.ApiKey) > 0 {
+						infoSvc.Logger.ShortError(fmt.Sprintf("API key length: %d characters", len(iamAuth.ApiKey)))
+						infoSvc.Logger.ShortError(fmt.Sprintf("API key prefix: %s...", iamAuth.ApiKey[:min(6, len(iamAuth.ApiKey))]))
+					}
+				}
+
+				// Log response details
+				infoSvc.Logger.ShortError(fmt.Sprintf("Response body: %s", bodyStr))
+				infoSvc.Logger.ShortError(fmt.Sprintf("Response headers: %v", resp.Header))
+			}
+
+			// Special handling for API key validation errors
+			if resp.StatusCode == 500 && strings.Contains(bodyStr, "Failed to validate api key token") {
+				infoSvc.Logger.ShortWarn("========================================")
+				infoSvc.Logger.ShortWarn("API KEY VALIDATION FAILURE DETECTED")
+				infoSvc.Logger.ShortWarn("This is a known intermittent issue with IBM Cloud's reference resolution service.")
+				infoSvc.Logger.ShortWarn("The API key is valid (or tests wouldn't have reached this point).")
+				infoSvc.Logger.ShortWarn("Re-running the test typically resolves this transient issue.")
+				infoSvc.Logger.ShortWarn("========================================")
+			}
+		}
+
+		return nil, &HttpError{
+			StatusCode: resp.StatusCode,
+			Body:       bodyStr,
+		}
 	}
 
 	// Read the entire response body
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
+		if infoSvc.Logger != nil {
+			infoSvc.Logger.ShortError(fmt.Sprintf("Failed to read response body: %v", err))
+		}
 		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Success logging - minimal but informative
+	if infoSvc.Logger != nil {
+		var response ResolveResponse
+		if err := json.Unmarshal(bodyBytes, &response); err == nil {
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("References resolved successfully (%d references, %d bytes)",
+				len(response.References), len(bodyBytes)))
+		} else {
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("References resolved successfully (%d bytes)", len(bodyBytes)))
+		}
 	}
 
 	// Parse the response
 	var response ResolveResponse
 	err = json.Unmarshal(bodyBytes, &response)
 	if err != nil {
+		if infoSvc.Logger != nil {
+			infoSvc.Logger.ShortError(fmt.Sprintf("Failed to parse JSON response: %v", err))
+			infoSvc.Logger.ShortError(fmt.Sprintf("Raw response: %s", string(bodyBytes)))
+		}
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -198,9 +573,88 @@ func (infoSvc *CloudInfoService) getProjectInfoFromID(projectID string, projectC
 	return infoSvc.GetProjectInfo(projectID, projectCache)
 }
 
+// transformStackStyleReference handles stack-style relative references like ref:../../configs/{configID}/inputs/prefix
+func (infoSvc *CloudInfoService) transformStackStyleReference(normalizedRef, encodedProjectName string, projectInfo *ProjectInfo) (string, error) {
+	// Extract the path after "ref:"
+	refPath := strings.TrimPrefix(normalizedRef, "ref:")
+
+	// Check if this is a stack-style reference with configs
+	if strings.Contains(refPath, "/configs/") {
+		// Pattern: ../../configs/{configID}/inputs/prefix or ../../members/{memberName}/...
+
+		// Find the configs part
+		configsIndex := strings.Index(refPath, "/configs/")
+		if configsIndex == -1 {
+			return "", fmt.Errorf("no /configs/ found in reference path")
+		}
+
+		// Extract everything after /configs/
+		configPath := refPath[configsIndex+9:] // +9 for "/configs/"
+
+		// Split to get configID and the rest of the path
+		parts := strings.SplitN(configPath, "/", 2)
+		if len(parts) < 1 {
+			return "", fmt.Errorf("invalid config path format")
+		}
+
+		configID := parts[0]
+		var resourcePath string
+		if len(parts) > 1 {
+			resourcePath = "/" + parts[1]
+		}
+
+		// Try to resolve config ID to name
+		configName := configID // default fallback
+		if name, exists := projectInfo.Configs[configID]; exists {
+			configName = name
+		} else if isUUID(configID) {
+			// Try to fetch the config details if it looks like a UUID
+			name, err := infoSvc.GetConfigName(projectInfo.ID, configID)
+			if err == nil && name != "" {
+				configName = name
+				projectInfo.Configs[configID] = name
+			}
+		}
+
+		// Create qualified reference
+		qualifiedRef := fmt.Sprintf("ref://project.%s/configs/%s%s", encodedProjectName, configName, resourcePath)
+		return qualifiedRef, nil
+	}
+
+	// Handle other stack-style patterns like ../../members/{memberName}/outputs/{output}
+	if strings.Contains(refPath, "/members/") {
+		// Pattern: ../../members/{memberName}/outputs/{output}
+		membersIndex := strings.Index(refPath, "/members/")
+		if membersIndex == -1 {
+			return "", fmt.Errorf("no /members/ found in reference path")
+		}
+
+		// Extract everything after /members/
+		memberPath := refPath[membersIndex+9:] // +9 for "/members/"
+
+		// Create qualified reference preserving the member path structure
+		qualifiedRef := fmt.Sprintf("ref://project.%s/members/%s", encodedProjectName, memberPath)
+		return qualifiedRef, nil
+	}
+
+	// For other stack-style references, strip the ../ parts and create a project-qualified reference
+	// Remove leading ../ patterns
+	cleanPath := refPath
+	for strings.HasPrefix(cleanPath, "../") {
+		cleanPath = strings.TrimPrefix(cleanPath, "../")
+	}
+
+	// Remove leading slash if present
+	if strings.HasPrefix(cleanPath, "/") {
+		cleanPath = strings.TrimPrefix(cleanPath, "/")
+	}
+
+	qualifiedRef := fmt.Sprintf("ref://project.%s/%s", encodedProjectName, cleanPath)
+	return qualifiedRef, nil
+}
+
 // transformReferencesToQualifiedReferences transforms a slice of reference strings to fully qualified references
 // This function contains the core reference transformation logic and can be tested independently
-// NOTE: Currently does not support stack style relative references eg ref:../../configs/{configID}/inputs/prefix
 func (infoSvc *CloudInfoService) transformReferencesToQualifiedReferences(
 	refStrings []string,
 	projectInfo *ProjectInfo) ([]Reference, error) {
@@ -222,6 +676,22 @@ func (infoSvc *CloudInfoService) transformReferencesToQualifiedReferences(
 		}
 
 		// At this point we know the reference needs project qualification
+
+		// Handle stack-style relative references (e.g., ref:../../configs/{configID}/inputs/prefix)
+		if strings.Contains(normalizedRef, "../") {
+			qualifiedRef, err := infoSvc.transformStackStyleReference(normalizedRef, encodedProjectName, projectInfo)
+			if err != nil {
+				if infoSvc.Logger != nil {
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Failed to transform stack-style reference %s: %v", normalizedRef, err))
+				}
+				// Fall back to basic project qualification
+				qualifiedRef = fmt.Sprintf("ref://project.%s/%s", encodedProjectName, strings.TrimPrefix(normalizedRef, "ref:"))
+			}
+			references = append(references, Reference{
+				Reference: qualifiedRef,
+			})
+			continue
+		}
 
 		// Check if this is a config reference
 		if strings.HasPrefix(normalizedRef, "ref:/configs/") {
@@ -330,9 +800,16 @@ func (infoSvc *CloudInfoService) ResolveReferencesFromStrings(
 	// Initialize a cache to hold project info to avoid redundant API calls
 	projectCache := make(map[string]*ProjectInfo)
 
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Starting reference resolution for project: %s (%d references)", projectID, len(refStrings)))
+	}
+
 	// Get project info first
 	projectInfo, err := infoSvc.getProjectInfoFromID(projectID, projectCache)
 	if err != nil {
+		if infoSvc.Logger != nil {
+			infoSvc.Logger.ShortError(fmt.Sprintf("Failed to get project info for project ID %s: %v", projectID, err))
+		}
 		return nil, fmt.Errorf("failed to get project info: %v", err)
 	}
 
@@ -342,6 +819,9 @@ func (infoSvc *CloudInfoService) ResolveReferencesFromStrings(
 
 	references, err := infoSvc.transformReferencesToQualifiedReferences(refStrings, projectInfo)
 	if err != nil {
+		if infoSvc.Logger != nil {
+			infoSvc.Logger.ShortError(fmt.Sprintf("Failed to transform references: %v", err))
+		}
 		return nil, fmt.Errorf("failed to transform references: %v", err)
 	}
 
