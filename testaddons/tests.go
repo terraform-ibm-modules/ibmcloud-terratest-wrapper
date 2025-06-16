@@ -443,17 +443,23 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	}
 
 	options.Logger.ShortInfo("Dependency validation completed successfully")
-	errorList := deployOptions.TriggerDeployAndWait()
-	if len(errorList) > 0 {
-		options.Logger.ShortError("Errors occurred during deploy")
-		for _, err := range errorList {
-			options.Logger.ShortError(fmt.Sprintf("  %v", err))
+
+	if !options.SkipInfrastructureDeployment {
+		errorList := deployOptions.TriggerDeployAndWait()
+		if len(errorList) > 0 {
+			options.Logger.ShortError("Errors occurred during deploy")
+			for _, err := range errorList {
+				options.Logger.ShortError(fmt.Sprintf("  %v", err))
+			}
+			options.Testing.Fail()
+			return fmt.Errorf("errors occurred during deploy")
 		}
-		options.Testing.Fail()
-		return fmt.Errorf("errors occurred during deploy")
+		options.Logger.ShortInfo("Deploy completed successfully")
+		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✔"))
+	} else {
+		options.Logger.ShortInfo("Infrastructure deployment skipped")
+		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Yellow, "skip ⚠"))
 	}
-	options.Logger.ShortInfo("Deploy completed successfully")
-	options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✔"))
 
 	if options.PostDeployHook != nil {
 		options.Logger.ShortInfo("Running PostDeployHook")
@@ -478,16 +484,21 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	options.Logger.ShortInfo("Testing undeployed addons")
 
 	// Trigger Undeploy
-	undeployErrs := deployOptions.TriggerUnDeployAndWait()
-	if len(undeployErrs) > 0 {
-		options.Logger.ShortError("Errors occurred during undeploy")
-		for _, err := range undeployErrs {
-			options.Logger.ShortError(fmt.Sprintf("  %v", err))
+	if !options.SkipInfrastructureDeployment {
+		undeployErrs := deployOptions.TriggerUnDeployAndWait()
+		if len(undeployErrs) > 0 {
+			options.Logger.ShortError("Errors occurred during undeploy")
+			for _, err := range undeployErrs {
+				options.Logger.ShortError(fmt.Sprintf("  %v", err))
+			}
+			options.Testing.Fail()
+			return fmt.Errorf("errors occurred during undeploy")
 		}
-		options.Testing.Fail()
-		return fmt.Errorf("errors occurred during undeploy")
+		options.Logger.ShortInfo("Undeploy completed successfully")
+	} else {
+		options.Logger.ShortInfo("Infrastructure undeploy skipped")
+		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Yellow, "skip ⚠"))
 	}
-	options.Logger.ShortInfo("Undeploy completed successfully")
 
 	if options.PostUndeployHook != nil {
 		options.Logger.ShortInfo("Running PostUndeployHook")
