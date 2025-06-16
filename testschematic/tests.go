@@ -3,6 +3,7 @@ package testschematic
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"testing"
@@ -119,6 +120,15 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 		}
 	}
 
+	if !performUpgradeTest {
+		options.Testing.Logf("Starting with variable validation for branch: %s ", svc.TestTerraformRepoBranch)
+		terraformDir := filepath.Join(projectPath, options.TemplateFolder)
+		err := svc.validateVariables(terraformDir)
+		if err != nil {
+			return err
+		}
+	}
+
 	// ------- TAR FILE UPLOAD --------
 	tarballName, tarUploadErr := svc.CreateUploadTarFile(tarPath)
 	// set defer first so that file always gets removed even if error
@@ -230,6 +240,13 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 			// UPGRADE TEST: upload new Tar file based on current code (original project path)
 			options.Testing.Log("[SCHEMATICS] Switching to source code for UPGRADE TEST")
 			// ------- TAR FILE UPLOAD --------
+
+			options.Testing.Logf("Starting with variable validation for branch: %s ", svc.TestTerraformRepoBranch)
+			terraformDir := filepath.Join(projectPath, options.TemplateFolder)
+			err := svc.validateVariables(terraformDir)
+			if err != nil {
+				return err
+			}
 			upgradeTarballName, upgradeTarUploadErr := svc.CreateUploadTarFile(projectPath)
 			// set defer first so that file always gets removed even if error
 			if len(upgradeTarballName) > 0 {

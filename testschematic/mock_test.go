@@ -76,7 +76,6 @@ func mockSchematicServiceReset(mock *schematicServiceMock, options *TestSchemati
 	mock.applyComplete = false
 	mock.destroyComplete = false
 	mock.workspaceDeleteComplete = false
-
 	options.Testing = new(testing.T)
 }
 
