@@ -158,3 +158,9 @@ type DeployedAddonsDetails struct {
 		ConfigID string `json:"config_id"`
 	} `json:"configs"`
 }
+
+type DependencyError struct {
+	Addon                 OfferingReferenceDetail
+	DependencyRequired    OfferingReferenceDetail
+	DependenciesAvailable []OfferingReferenceDetail
+}
