@@ -426,13 +426,20 @@ The framework checks for uncommitted local changes before deploying to ensure re
 options.SkipLocalChangeCheck = true
 ```
 
-You can also specify patterns to ignore certain files during the local change check:
+You can also specify additional patterns to ignore certain files during the local change check. Note that the following patterns are ignored by default:
+
+- `^common-dev-assets/.*` - common development assets directory
+- `^tests/.*` - tests directory
+- `.*\\.json$` - JSON files
+- `.*\\.out$` - output files
+
+To add additional ignore patterns:
 
 ```golang
 options.LocalChangesIgnorePattern = []string{
-    "^tests/.*",        // ignore all files in tests directory
     ".*\\.md$",         // ignore all markdown files
     "^docs/.*",         // ignore all files in docs directory
+    "^temp/.*",         // ignore temporary files directory
 }
 ```
 
