@@ -8,16 +8,9 @@
       "groupName": "gomod"
     },
     {
-      "matchUpdateTypes": ["major"],
-      "matchPackageNames": ["github.com/IBM/vpc-go-sdk"],
-      "enabled": false,
-      "description": "Temporarily disable major version updates of vpc-go-sdk (see https://github.com/IBM/vpc-go-sdk/issues/49)"
-    },
-    {
-      "matchUpdateTypes": ["major", "minor", "patch"],
-      "matchPackageNames": ["github.com/IBM/project-go-sdk"],
-      "enabled": false,
-      "description": "Temporarily disable version updates of project-go-sdk (see https://github.ibm.com/GoldenEye/issues/issues/9475)"
+      "matchPackageNames": ["github.com/IBM-Cloud/bluemix-go"],
+      "allowedVersions": "<=v0.0.0-20240719075425-078fcb3a55be",
+      "description": "Pin bluemix-go to working version until issue #454 is resolved (compilation errors in containerv2) https://github.com/IBM-Cloud/bluemix-go/issues/454"
     }
   ]
 }

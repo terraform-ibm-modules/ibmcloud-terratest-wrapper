@@ -116,11 +116,18 @@ const (
 
 // shouldRetryReferenceResolution checks if we should retry based on the error response
 func shouldRetryReferenceResolution(statusCode int, body string) bool {
-	// Retry on 500 errors, specifically API key validation issues
-	if statusCode == 500 {
-		return strings.Contains(body, "Failed to validate api key token")
+	// Retry on 404 errors where project provider instances cannot be found
+	// This typically occurs when checking project details too quickly after project creation,
+	// before the resolver API has been updated with the new project information (timing issue)
+	if statusCode == 404 && strings.Contains(body, "could not be found") {
+		return strings.Contains(body, "Specified provider") && strings.Contains(body, "project")
 	}
-	// Add other retryable conditions here if needed
+
+	// Retry on all 5xx server errors (including API key validation issues)
+	if statusCode >= 500 && statusCode < 600 {
+		return true
+	}
+
 	return false
 }
 
@@ -215,7 +222,8 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRetry(region string, refer
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		result, err := infoSvc.doResolveReferences(region, references)
+		isRetryAttempt := attempt < maxRetries // True for all but the last attempt
+		result, err := infoSvc.doResolveReferencesWithContext(region, references, isRetryAttempt)
 
 		if err == nil {
 			return result, nil
@@ -236,9 +244,15 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRetry(region string, refer
 					infoSvc.Logger.ShortWarn(fmt.Sprintf("Reference resolution failed with retryable error (attempt %d/%d), retrying in %v...",
 						attempt+1, maxRetries+1, waitTime))
 
-					// Enhanced debugging for API key validation failures
+					// Enhanced debugging for different types of failures
 					if strings.Contains(httpErr.Body, "Failed to validate api key token") {
 						infoSvc.Logger.ShortWarn("  → Detected API key validation failure (known intermittent issue)")
+					} else if httpErr.StatusCode == 404 && strings.Contains(httpErr.Body, "could not be found") {
+						infoSvc.Logger.ShortWarn("  → Detected project reference not found (timing issue)")
+						infoSvc.Logger.ShortWarn("  → This occurs when checking project details too quickly after creation")
+						infoSvc.Logger.ShortWarn("  → The resolver API needs time to be updated with new project information")
+					} else if httpErr.StatusCode >= 500 {
+						infoSvc.Logger.ShortWarn("  → Detected server error (potentially transient)")
 					}
 				}
 
@@ -263,6 +277,8 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRetry(region string, refer
 				time.Sleep(waitTime)
 				continue
 			} else if infoSvc.Logger != nil {
+				// Only log non-retryable errors at error level during the final attempt
+				// For earlier attempts, we still want to break out, but this helps with debugging
 				infoSvc.Logger.ShortError(fmt.Sprintf("Reference resolution failed with non-retryable error: %v", err))
 				infoSvc.Logger.ShortError(fmt.Sprintf("  HTTP Status: %d", httpErr.StatusCode))
 				infoSvc.Logger.ShortError(fmt.Sprintf("  Response body: %s", httpErr.Body))
@@ -275,13 +291,31 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRetry(region string, refer
 		break
 	}
 
-	// Check if the final error is an API key validation failure and enhance the error message
+	// Check if the final error is a retryable error and enhance the error message
 	if httpErr, ok := lastErr.(*HttpError); ok {
 		if shouldRetryReferenceResolution(httpErr.StatusCode, httpErr.Body) {
+			var enhancedMessage string
+			if strings.Contains(httpErr.Body, "Failed to validate api key token") {
+				enhancedMessage = "This is a known intermittent issue with IBM Cloud's reference resolution service. Please re-run the test as the issue is typically transient"
+			} else if httpErr.StatusCode == 404 && strings.Contains(httpErr.Body, "could not be found") {
+				enhancedMessage = "This is a known intermittent issue where project references temporarily cannot be found during provisioning. Please re-run the test as the issue is typically transient"
+			} else {
+				enhancedMessage = "This appears to be a transient service issue. Please re-run the test as the issue is typically transient"
+			}
+
 			return nil, &EnhancedHttpError{
 				HttpError: httpErr,
-				Message:   "This is a known intermittent issue with IBM Cloud's reference resolution service. Please re-run the test as the issue is typically transient",
+				Message:   enhancedMessage,
 			}
+		}
+	}
+
+	// Log final failure at error level
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.ShortError(fmt.Sprintf("Reference resolution failed after %d attempts: %v", maxRetries+1, lastErr))
+		if httpErr, ok := lastErr.(*HttpError); ok {
+			infoSvc.Logger.ShortError(fmt.Sprintf("  Final HTTP Status: %d", httpErr.StatusCode))
+			infoSvc.Logger.ShortError(fmt.Sprintf("  Final Response body: %s", httpErr.Body))
 		}
 	}
 
@@ -389,6 +423,11 @@ func (e *EnhancedHttpError) Unwrap() error {
 
 // doResolveReferences performs the actual reference resolution without retry logic
 func (infoSvc *CloudInfoService) doResolveReferences(region string, references []Reference) (*ResolveResponse, error) {
+	return infoSvc.doResolveReferencesWithContext(region, references, false)
+}
+
+// doResolveReferencesWithContext performs the actual reference resolution with context for logging level
+func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, references []Reference, isRetryAttempt bool) (*ResolveResponse, error) {
 	// Get service URL for the region using the variable that can be overridden in tests
 	serviceURL, err := CloudInfo_GetRefResolverServiceURLForRegion(region)
 	if err != nil {
@@ -456,74 +495,150 @@ func (infoSvc *CloudInfoService) doResolveReferences(region string, references [
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		bodyStr := string(bodyBytes)
 
-		// Enhanced error logging with full diagnostic details
+		// Enhanced error logging with context-aware log levels
 		if infoSvc.Logger != nil {
-			infoSvc.Logger.ShortError("===== Reference Resolution Failed =====")
-			infoSvc.Logger.ShortError(fmt.Sprintf("HTTP Status: %d", resp.StatusCode))
-			infoSvc.Logger.ShortError(fmt.Sprintf("Service URL: %s", serviceURL))
-			infoSvc.Logger.ShortError(fmt.Sprintf("Region: %s", region))
-			infoSvc.Logger.ShortError(fmt.Sprintf("Number of references: %d", len(references)))
+			// Determine if this error should be retried
+			isRetryableError := shouldRetryReferenceResolution(resp.StatusCode, bodyStr)
 
-			// For API key validation failures, log details at warning level instead of error level
-			if resp.StatusCode == 500 && strings.Contains(bodyStr, "Failed to validate api key token") {
-				// Log all references being resolved
-				infoSvc.Logger.ShortWarn("References being resolved:")
-				for i, ref := range references {
-					infoSvc.Logger.ShortWarn(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
-				}
-
-				// Log authentication details (masked for security)
-				if len(token) > 10 {
-					maskedToken := token[:6] + "..." + token[len(token)-4:]
-					infoSvc.Logger.ShortWarn(fmt.Sprintf("Token: %s", maskedToken))
-				}
-
-				// Log API key metadata for debugging
-				if iamAuth, ok := infoSvc.authenticator.(*core.IamAuthenticator); ok {
-					if len(iamAuth.ApiKey) > 0 {
-						infoSvc.Logger.ShortWarn(fmt.Sprintf("API key length: %d characters", len(iamAuth.ApiKey)))
-						infoSvc.Logger.ShortWarn(fmt.Sprintf("API key prefix: %s...", iamAuth.ApiKey[:min(6, len(iamAuth.ApiKey))]))
-					}
-				}
-
-				// Log response details
-				infoSvc.Logger.ShortWarn(fmt.Sprintf("Response body: %s", bodyStr))
-				infoSvc.Logger.ShortWarn(fmt.Sprintf("Response headers: %v", resp.Header))
-			} else {
-				// For non-API key validation failures, keep error level logging
-				// Log all references being resolved
-				infoSvc.Logger.ShortError("References being resolved:")
-				for i, ref := range references {
-					infoSvc.Logger.ShortError(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
-				}
-
-				// Log authentication details (masked for security)
-				if len(token) > 10 {
-					maskedToken := token[:6] + "..." + token[len(token)-4:]
-					infoSvc.Logger.ShortError(fmt.Sprintf("Token: %s", maskedToken))
-				}
-
-				// Log API key metadata for debugging
-				if iamAuth, ok := infoSvc.authenticator.(*core.IamAuthenticator); ok {
-					if len(iamAuth.ApiKey) > 0 {
-						infoSvc.Logger.ShortError(fmt.Sprintf("API key length: %d characters", len(iamAuth.ApiKey)))
-						infoSvc.Logger.ShortError(fmt.Sprintf("API key prefix: %s...", iamAuth.ApiKey[:min(6, len(iamAuth.ApiKey))]))
-					}
-				}
-
-				// Log response details
-				infoSvc.Logger.ShortError(fmt.Sprintf("Response body: %s", bodyStr))
-				infoSvc.Logger.ShortError(fmt.Sprintf("Response headers: %v", resp.Header))
+			// Use warning level for retryable errors during retry attempts, error level for final attempts or non-retryable errors
+			logLevel := "error"
+			if isRetryAttempt && isRetryableError {
+				logLevel = "warn"
 			}
 
-			// Special handling for API key validation errors
+			if logLevel == "warn" {
+				infoSvc.Logger.ShortWarn("===== Reference Resolution Failed (Retryable) =====")
+				infoSvc.Logger.ShortWarn(fmt.Sprintf("HTTP Status: %d", resp.StatusCode))
+				infoSvc.Logger.ShortWarn(fmt.Sprintf("Service URL: %s", serviceURL))
+				infoSvc.Logger.ShortWarn(fmt.Sprintf("Region: %s", region))
+				infoSvc.Logger.ShortWarn(fmt.Sprintf("Number of references: %d", len(references)))
+			} else {
+				infoSvc.Logger.ShortError("===== Reference Resolution Failed =====")
+				infoSvc.Logger.ShortError(fmt.Sprintf("HTTP Status: %d", resp.StatusCode))
+				infoSvc.Logger.ShortError(fmt.Sprintf("Service URL: %s", serviceURL))
+				infoSvc.Logger.ShortError(fmt.Sprintf("Region: %s", region))
+				infoSvc.Logger.ShortError(fmt.Sprintf("Number of references: %d", len(references)))
+			}
+
+			// For retryable errors during retry attempts, use warning level for diagnostic details
 			if resp.StatusCode == 500 && strings.Contains(bodyStr, "Failed to validate api key token") {
-				infoSvc.Logger.ShortWarn("========================================")
-				infoSvc.Logger.ShortWarn("API KEY VALIDATION FAILURE DETECTED")
-				infoSvc.Logger.ShortWarn("This is a known intermittent issue with IBM Cloud's reference resolution service.")
-				infoSvc.Logger.ShortWarn("The API key is valid (or tests wouldn't have reached this point).")
-				infoSvc.Logger.ShortWarn("Re-running the test typically resolves this transient issue.")
-				infoSvc.Logger.ShortWarn("========================================")
+				if logLevel == "warn" {
+					// Log all references being resolved
+					infoSvc.Logger.ShortWarn("References being resolved:")
+					for i, ref := range references {
+						infoSvc.Logger.ShortWarn(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
+					}
+
+					// Log authentication details (masked for security)
+					if len(token) > 10 {
+						maskedToken := token[:6] + "..." + token[len(token)-4:]
+						infoSvc.Logger.ShortWarn(fmt.Sprintf("Token: %s", maskedToken))
+					}
+
+					// Log API key metadata for debugging
+					if iamAuth, ok := infoSvc.authenticator.(*core.IamAuthenticator); ok {
+						if len(iamAuth.ApiKey) > 0 {
+							infoSvc.Logger.ShortWarn(fmt.Sprintf("API key length: %d characters", len(iamAuth.ApiKey)))
+							infoSvc.Logger.ShortWarn(fmt.Sprintf("API key prefix: %s...", iamAuth.ApiKey[:min(6, len(iamAuth.ApiKey))]))
+						}
+					}
+
+					// Log response details
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Response body: %s", bodyStr))
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Response headers: %v", resp.Header))
+				} else {
+					// Final attempt or non-retryable - use error level
+					// Log all references being resolved
+					infoSvc.Logger.ShortError("References being resolved:")
+					for i, ref := range references {
+						infoSvc.Logger.ShortError(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
+					}
+
+					// Log authentication details (masked for security)
+					if len(token) > 10 {
+						maskedToken := token[:6] + "..." + token[len(token)-4:]
+						infoSvc.Logger.ShortError(fmt.Sprintf("Token: %s", maskedToken))
+					}
+
+					// Log API key metadata for debugging
+					if iamAuth, ok := infoSvc.authenticator.(*core.IamAuthenticator); ok {
+						if len(iamAuth.ApiKey) > 0 {
+							infoSvc.Logger.ShortError(fmt.Sprintf("API key length: %d characters", len(iamAuth.ApiKey)))
+							infoSvc.Logger.ShortError(fmt.Sprintf("API key prefix: %s...", iamAuth.ApiKey[:min(6, len(iamAuth.ApiKey))]))
+						}
+					}
+
+					// Log response details
+					infoSvc.Logger.ShortError(fmt.Sprintf("Response body: %s", bodyStr))
+					infoSvc.Logger.ShortError(fmt.Sprintf("Response headers: %v", resp.Header))
+				}
+			} else {
+				// For other types of errors (non-API key validation), handle based on retry context
+				if logLevel == "warn" {
+					// Log all references being resolved at warning level for retry attempts
+					infoSvc.Logger.ShortWarn("References being resolved:")
+					for i, ref := range references {
+						infoSvc.Logger.ShortWarn(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
+					}
+
+					// Log authentication details (masked for security)
+					if len(token) > 10 {
+						maskedToken := token[:6] + "..." + token[len(token)-4:]
+						infoSvc.Logger.ShortWarn(fmt.Sprintf("Token: %s", maskedToken))
+					}
+
+					// Log response details
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Response body: %s", bodyStr))
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Response headers: %v", resp.Header))
+				} else {
+					// Final attempt - log at error level
+					// Log all references being resolved
+					infoSvc.Logger.ShortError("References being resolved:")
+					for i, ref := range references {
+						infoSvc.Logger.ShortError(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
+					}
+
+					// Log authentication details (masked for security)
+					if len(token) > 10 {
+						maskedToken := token[:6] + "..." + token[len(token)-4:]
+						infoSvc.Logger.ShortError(fmt.Sprintf("Token: %s", maskedToken))
+					}
+
+					// Log response details
+					infoSvc.Logger.ShortError(fmt.Sprintf("Response body: %s", bodyStr))
+					infoSvc.Logger.ShortError(fmt.Sprintf("Response headers: %v", resp.Header))
+				}
+			}
+
+			// Special handling for specific known intermittent issues
+			if resp.StatusCode == 500 && strings.Contains(bodyStr, "Failed to validate api key token") {
+				logMessage := func(msg string) {
+					if logLevel == "warn" {
+						infoSvc.Logger.ShortWarn(msg)
+					} else {
+						infoSvc.Logger.ShortError(msg)
+					}
+				}
+				logMessage("========================================")
+				logMessage("API KEY VALIDATION FAILURE DETECTED")
+				logMessage("This is a known intermittent issue with IBM Cloud's reference resolution service.")
+				logMessage("The API key is valid (or tests wouldn't have reached this point).")
+				logMessage("Re-running the test typically resolves this transient issue.")
+				logMessage("========================================")
+			} else if resp.StatusCode == 404 && strings.Contains(bodyStr, "could not be found") {
+				logMessage := func(msg string) {
+					if logLevel == "warn" {
+						infoSvc.Logger.ShortWarn(msg)
+					} else {
+						infoSvc.Logger.ShortError(msg)
+					}
+				}
+				logMessage("========================================")
+				logMessage("PROJECT REFERENCE NOT FOUND DETECTED")
+				logMessage("This is a known intermittent issue where project references cannot be found during provisioning.")
+				logMessage("This commonly occurs when project resources are still being set up.")
+				logMessage("Re-running the test typically resolves this transient issue.")
+				logMessage("========================================")
 			}
 		}
 

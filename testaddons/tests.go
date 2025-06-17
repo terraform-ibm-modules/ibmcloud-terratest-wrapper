@@ -194,13 +194,25 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			if len(references) > 0 {
 				res_resp, err := options.CloudInfoService.ResolveReferencesFromStrings(*options.currentProject.Location, references, options.currentProjectConfig.ProjectID)
 				if err != nil {
-					// Check if this is the known intermittent API key validation error
-					// This can occur as either a direct HttpError or as an EnhancedHttpError with the additional message
+					// Check if this is a known intermittent error that should be skipped
+					// This can occur as either a direct HttpError or as an EnhancedHttpError with additional context
 					errStr := err.Error()
-					if (strings.Contains(errStr, "Failed to validate api key token") && strings.Contains(errStr, "500")) ||
-						strings.Contains(errStr, "This is a known intermittent issue with IBM Cloud's reference resolution service") {
+					isApiKeyError := (strings.Contains(errStr, "Failed to validate api key token") && strings.Contains(errStr, "500"))
+					isProjectNotFoundError := strings.Contains(errStr, "could not be found") && strings.Contains(errStr, "404")
+					isKnownIntermittentError := strings.Contains(errStr, "This is a known intermittent issue") ||
+						strings.Contains(errStr, "known transient issue") ||
+						strings.Contains(errStr, "typically transient")
+
+					if isApiKeyError || isProjectNotFoundError || isKnownIntermittentError {
 						options.Logger.ShortWarn(fmt.Sprintf("Skipping reference validation due to intermittent IBM Cloud service error: %v", err))
-						options.Logger.ShortWarn("This is a known transient issue with IBM Cloud's reference resolution service.")
+						if isApiKeyError {
+							options.Logger.ShortWarn("This is a known transient issue with IBM Cloud's API key validation service.")
+						} else if isProjectNotFoundError {
+							options.Logger.ShortWarn("This is a timing issue where project details are checked too quickly after creation.")
+							options.Logger.ShortWarn("The resolver API needs time to be updated with new project information.")
+						} else {
+							options.Logger.ShortWarn("This is a known transient issue with IBM Cloud's reference resolution service.")
+						}
 						options.Logger.ShortWarn("The test will continue and will fail later if references actually fail to resolve during deployment.")
 						// Skip reference validation for this config and continue with the test
 						continue
