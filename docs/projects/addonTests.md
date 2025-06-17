@@ -467,7 +467,9 @@ options.PostDeployHook = func(options *testaddons.TestAddonOptions) error {
 
 #### API Key Validation Failures
 
-**Issue**: Tests may occasionally fail with the following error:
+**Issue**: Tests may occasionally fail with one of the following errors:
+
+#### API Key Validation Error
 
 ```text
 Error resolving references: invalid status code: 500, body: {"errors":[{"state":"Failed to validate api key token.","code":"failed_request","message":"Failed to validate api key token."}],"status_code":500,"trace":"..."}
@@ -475,11 +477,19 @@ Error resolving references: invalid status code: 500, body: {"errors":[{"state":
 
 **Cause**: This is a known intermittent issue with IBM Cloud's reference resolution service that can occur during the reference validation phase. The service occasionally has temporary issues validating API key tokens, even when the API key is valid.
 
+#### Project Not Found Error
+
+```text
+Error resolving references: invalid status code: 404, body: {"errors":[{"state":"Specified provider instance with id 'project-id' could not be found.","code":"not_found","message":"..."}],"status_code":404,"trace":"..."}
+```
+
+**Cause**: This is a timing issue that occurs when checking project details too quickly after project creation. The resolver API needs time to be updated with new project information, and querying too soon results in a temporary "not found" error.
+
 **Solution**:
 
 1. **Automatic Retry**: The framework automatically retries reference resolution up to 6 times (initial attempt + 5 retries) with exponential backoff (starting at 2 seconds between attempts) to handle these temporary failures.
 
-2. **Automatic Skip**: When this specific error occurs after exhausting all retries, the framework will automatically skip reference validation for that configuration and continue with the test. The test logs will show warnings indicating that reference validation was skipped due to the intermittent service issue. The test will still fail later if the references are actually invalid during deployment.
+2. **Automatic Skip**: When these specific errors occur after exhausting all retries, the framework will automatically skip reference validation for that configuration and continue with the test. The test logs will show warnings indicating that reference validation was skipped due to the intermittent service issue. The test will still fail later if the references are actually invalid during deployment.
 
 3. **Manual Skip**: For development/testing scenarios where you want to completely disable reference validation, you can use:
 
