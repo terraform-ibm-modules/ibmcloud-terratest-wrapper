@@ -232,6 +232,78 @@ func TestNeedsProjectContext(t *testing.T) {
 	}
 }
 
+// Tests for shouldRetryReferenceResolution
+func TestShouldRetryReferenceResolution(t *testing.T) {
+	testCases := []struct {
+		name        string
+		statusCode  int
+		body        string
+		shouldRetry bool
+	}{
+		{
+			name:        "API key validation failure - should retry",
+			statusCode:  500,
+			body:        `{"errors":[{"state":"Failed to validate api key token.","code":"failed_request","message":"Failed to validate api key token."}],"status_code":500}`,
+			shouldRetry: true,
+		},
+		{
+			name:        "Project not found - should retry",
+			statusCode:  404,
+			body:        `{"errors":[{"state":"Specified provider 'project' instance 'test-project' could not be found","code":"not_found"}],"status_code":404}`,
+			shouldRetry: true,
+		},
+		{
+			name:        "General server error - should retry",
+			statusCode:  502,
+			body:        `{"error":"Bad Gateway"}`,
+			shouldRetry: true,
+		},
+		{
+			name:        "Service unavailable - should retry",
+			statusCode:  503,
+			body:        `{"error":"Service Unavailable"}`,
+			shouldRetry: true,
+		},
+		{
+			name:        "Other 500 error without API key issue - should retry",
+			statusCode:  500,
+			body:        `{"error":"Internal Server Error","message":"Database connection failed"}`,
+			shouldRetry: true,
+		},
+		{
+			name:        "404 without project reference - should not retry",
+			statusCode:  404,
+			body:        `{"error":"Not Found","message":"Resource not found"}`,
+			shouldRetry: false,
+		},
+		{
+			name:        "401 Unauthorized - should not retry",
+			statusCode:  401,
+			body:        `{"error":"Unauthorized"}`,
+			shouldRetry: false,
+		},
+		{
+			name:        "400 Bad Request - should not retry",
+			statusCode:  400,
+			body:        `{"error":"Bad Request"}`,
+			shouldRetry: false,
+		},
+		{
+			name:        "200 Success - should not retry",
+			statusCode:  200,
+			body:        `{"status":"success"}`,
+			shouldRetry: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := shouldRetryReferenceResolution(tc.statusCode, tc.body)
+			assert.Equal(t, tc.shouldRetry, result)
+		})
+	}
+}
+
 // Tests for extractConfigID
 func TestExtractConfigID(t *testing.T) {
 	testCases := []struct {
@@ -1029,6 +1101,76 @@ func TestResolveReferencesRetry(t *testing.T) {
 		var httpErr *HttpError
 		assert.ErrorAs(t, err, &httpErr)
 		assert.Equal(t, 404, httpErr.StatusCode)
+	})
+
+	// Test case 4: Project not found error - should retry
+	t.Run("ProjectNotFoundErrorRetry", func(t *testing.T) {
+		callCount := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+			if callCount <= 2 {
+				// First two calls return project not found error
+				w.WriteHeader(http.StatusNotFound)
+				response := map[string]interface{}{
+					"errors": []map[string]interface{}{
+						{
+							"state":   "Specified provider `project` instance `test-project` could not be found",
+							"code":    "not_found",
+							"message": "Specified provider `project` instance `test-project` could not be found",
+						},
+					},
+					"status_code": 404,
+					"trace":       "project-not-found-test-trace",
+				}
+				_ = json.NewEncoder(w).Encode(response)
+			} else {
+				// Third call succeeds
+				w.WriteHeader(http.StatusOK)
+				response := ResolveResponse{
+					CorrelationID: "corr-456",
+					RequestID:     "req-789",
+					References: []BatchReferenceResolvedItem{
+						{
+							Reference: "ref://project.myproject/configs/config1/inputs/var1",
+							Value:     "resolved-after-retry",
+							State:     "resolved",
+							Code:      200,
+						},
+					},
+				}
+				_ = json.NewEncoder(w).Encode(response)
+			}
+		}))
+		defer server.Close()
+
+		// Save original values
+		origHttpClient := CloudInfo_HttpClient
+		origGetURL := CloudInfo_GetRefResolverServiceURLForRegion
+		defer func() {
+			CloudInfo_HttpClient = origHttpClient
+			CloudInfo_GetRefResolverServiceURLForRegion = origGetURL
+		}()
+
+		// Set up mocks
+		CloudInfo_GetRefResolverServiceURLForRegion = func(region string) (string, error) {
+			return server.URL, nil
+		}
+		CloudInfo_HttpClient = &http.Client{}
+
+		infoSvc := &CloudInfoService{
+			authenticator: &MockAuthenticator{
+				Token: "mock-token",
+			},
+			Logger: common.NewTestLogger("TestProjectNotFound"),
+		}
+
+		result, err := infoSvc.ResolveReferences("dev", mockReferences)
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, "corr-456", result.CorrelationID)
+		assert.Equal(t, 3, callCount) // Should have made 3 calls total (initial + 2 retries)
+		assert.Equal(t, "resolved-after-retry", result.References[0].Value)
 	})
 }
 
