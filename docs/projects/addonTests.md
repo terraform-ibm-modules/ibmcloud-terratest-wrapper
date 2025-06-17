@@ -430,7 +430,7 @@ You can also specify additional patterns to ignore certain files during the loca
 
 - `^common-dev-assets/.*` - common development assets directory
 - `^tests/.*` - tests directory
-- `.*\\.json$` - JSON files
+- `.*\\.json$` - JSON files (except `ibm_catalog.json` which is always tracked)
 - `.*\\.out$` - output files
 
 To add additional ignore patterns:
