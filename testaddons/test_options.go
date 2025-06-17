@@ -158,9 +158,19 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	if newOptions.ProjectAutoDeploy == nil {
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
 	}
+	// Always include default ignore patterns and append user patterns if provided
+	defaultIgnorePatterns := []string{
+		"^common-dev-assets/.*", // Ignore changes in common-dev-assets directory
+		"^tests/.*",             // Ignore changes in tests directory
+		".*\\.json$",            // Ignore JSON files
+		".*\\.out$",             // Ignore output files
+	}
+
 	if newOptions.LocalChangesIgnorePattern == nil {
-		// ignore tests directory by default
-		newOptions.LocalChangesIgnorePattern = []string{"^tests/.*"}
+		newOptions.LocalChangesIgnorePattern = defaultIgnorePatterns
+	} else {
+		// Append user patterns to default patterns
+		newOptions.LocalChangesIgnorePattern = append(defaultIgnorePatterns, newOptions.LocalChangesIgnorePattern...)
 	}
 
 	return newOptions
