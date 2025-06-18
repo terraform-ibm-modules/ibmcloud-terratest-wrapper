@@ -340,7 +340,7 @@ ibmcloud resource service-instance-delete "resource-name"
 
 ```golang
 // Use unique prefixes per test
-testCases := []AddonTestCase{
+testCases := []testaddons.AddonTestCase{
     {Name: "Test1", Prefix: "unique1"},
     {Name: "Test2", Prefix: "unique2"},
 }

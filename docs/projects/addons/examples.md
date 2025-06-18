@@ -155,19 +155,15 @@ func TestRunAddonWithCustomDependencyConfig(t *testing.T) {
 func TestRunAddonTests(t *testing.T) {
     t.Parallel()
 
-    testCases := []struct {
-        name         string
-        prefix       string
-        dependencies []cloudinfo.AddonConfig
-    }{
+    testCases := []testaddons.AddonTestCase{
         {
-            name:   "Defaults",
-            prefix: "kmsadd",
+            Name:   "Defaults",
+            Prefix: "kmsadd",
         },
         {
-            name:   "ResourceGroupOnly",
-            prefix: "kmsadd",
-            dependencies: []cloudinfo.AddonConfig{
+            Name:   "ResourceGroupOnly",
+            Prefix: "kmsadd",
+            Dependencies: []cloudinfo.AddonConfig{
                 {
                     OfferingName:   "deploy-arch-ibm-account-infra-base",
                     OfferingFlavor: "resource-group-only",
@@ -176,9 +172,9 @@ func TestRunAddonTests(t *testing.T) {
             },
         },
         {
-            name:   "ResourceGroupWithAccountSettings",
-            prefix: "kmsadd",
-            dependencies: []cloudinfo.AddonConfig{
+            Name:   "ResourceGroupWithAccountSettings",
+            Prefix: "kmsadd",
+            Dependencies: []cloudinfo.AddonConfig{
                 {
                     OfferingName:   "deploy-arch-ibm-account-infra-base",
                     OfferingFlavor: "resource-groups-with-account-settings",
@@ -190,10 +186,10 @@ func TestRunAddonTests(t *testing.T) {
 
     for _, tc := range testCases {
         tc := tc // Capture loop variable for parallel execution
-        t.Run(tc.name, func(t *testing.T) {
+        t.Run(tc.Name, func(t *testing.T) {
             t.Parallel()
 
-            options := setupAddonOptions(t, tc.prefix)
+            options := setupAddonOptions(t, tc.Prefix)
 
             options.AddonConfig = cloudinfo.NewAddonConfigTerraform(
                 options.Prefix,        // prefix for unique resource naming
@@ -206,8 +202,8 @@ func TestRunAddonTests(t *testing.T) {
             )
 
             // Set dependencies if provided
-            if tc.dependencies != nil {
-                options.AddonConfig.Dependencies = tc.dependencies
+            if tc.Dependencies != nil {
+                options.AddonConfig.Dependencies = tc.Dependencies
             }
 
             err := options.RunAddonTest()
