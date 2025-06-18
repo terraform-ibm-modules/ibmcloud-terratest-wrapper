@@ -571,6 +571,13 @@ func (options *TestAddonOptions) testSetup() error {
 		filteredFiles := make([]string, 0)
 		for _, file := range files {
 			shouldKeep := true
+
+			// Special case: always keep ibm_catalog.json files regardless of ignore patterns
+			if strings.HasSuffix(file, "ibm_catalog.json") {
+				filteredFiles = append(filteredFiles, file)
+				continue
+			}
+
 			// ignore files are regex patterns
 			for _, ignorePattern := range options.LocalChangesIgnorePattern {
 				matched, err := regexp.MatchString(ignorePattern, file)
