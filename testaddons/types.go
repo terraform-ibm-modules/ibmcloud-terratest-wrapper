@@ -16,6 +16,8 @@ type AddonTestCase struct {
 	Inputs map[string]interface{}
 	// SkipTearDown can be set to true to skip cleanup for this specific test case
 	SkipTearDown bool
+	// SkipInfrastructureDeployment can be set to true to skip infrastructure deployment and undeploy operations for this specific test case
+	SkipInfrastructureDeployment bool
 }
 
 // AddonTestMatrix provides a convenient way to run multiple addon test cases in parallel

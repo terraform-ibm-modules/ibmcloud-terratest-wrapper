@@ -22,7 +22,8 @@ func TestAddonTestCaseStructure(t *testing.T) {
 		Inputs: map[string]interface{}{
 			"test-input": "test-value",
 		},
-		SkipTearDown: true,
+		SkipTearDown:                 true,
+		SkipInfrastructureDeployment: true,
 	}
 
 	// Verify the structure is properly initialized
@@ -33,6 +34,7 @@ func TestAddonTestCaseStructure(t *testing.T) {
 	assert.Equal(t, "test-flavor", testCase.Dependencies[0].OfferingFlavor)
 	assert.Equal(t, "test-value", testCase.Inputs["test-input"])
 	assert.True(t, testCase.SkipTearDown)
+	assert.True(t, testCase.SkipInfrastructureDeployment)
 }
 
 // TestAddonTestMatrix tests that the new AddonTestMatrix structure is properly defined

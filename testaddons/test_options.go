@@ -210,6 +210,9 @@ func RunAddonTestMatrix(t *testing.T, matrix AddonTestMatrix) {
 			if tc.SkipTearDown {
 				options.SkipTestTearDown = true
 			}
+			if tc.SkipInfrastructureDeployment {
+				options.SkipInfrastructureDeployment = true
+			}
 
 			// Create addon configuration using the provided config function
 			options.AddonConfig = matrix.AddonConfigFunc(options, tc)
