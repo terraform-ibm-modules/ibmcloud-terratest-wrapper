@@ -192,3 +192,46 @@ func (options *TestAddonOptions) Clone() (*TestAddonOptions, error) {
 
 	return newOptions, nil
 }
+
+// RunAddonTestMatrix runs multiple addon test cases in parallel using a matrix approach
+// This is a convenience function that handles the boilerplate of running parallel tests
+func RunAddonTestMatrix(t *testing.T, matrix AddonTestMatrix) {
+	t.Parallel()
+
+	for _, tc := range matrix.TestCases {
+		tc := tc // Capture loop variable for parallel execution
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+
+			// Setup base options using the provided setup function
+			options := matrix.BaseSetupFunc(tc)
+
+			// Apply test case specific settings
+			if tc.SkipTearDown {
+				options.SkipTestTearDown = true
+			}
+
+			// Create addon configuration using the provided config function
+			options.AddonConfig = matrix.AddonConfigFunc(options, tc)
+
+			// Set dependencies if provided in test case
+			if tc.Dependencies != nil {
+				options.AddonConfig.Dependencies = tc.Dependencies
+			}
+
+			// Merge any additional inputs from the test case
+			if tc.Inputs != nil && len(tc.Inputs) > 0 {
+				if options.AddonConfig.Inputs == nil {
+					options.AddonConfig.Inputs = make(map[string]interface{})
+				}
+				for key, value := range tc.Inputs {
+					options.AddonConfig.Inputs[key] = value
+				}
+			}
+
+			// Run the test
+			err := options.RunAddonTest()
+			require.NoError(t, err, "Addon Test had an unexpected error")
+		})
+	}
+}
