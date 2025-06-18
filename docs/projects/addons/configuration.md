@@ -233,6 +233,7 @@ options.LocalChangesIgnorePattern = []string{
 
 **Default ignore patterns:**
 
+- `^common-dev-assets$` - git submodule pointer changes for common-dev-assets
 - `^common-dev-assets/.*` - common development assets
 - `^tests/.*` - tests directory
 - `.*\\.json$` - JSON files (except `ibm_catalog.json`)

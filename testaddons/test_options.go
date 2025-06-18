@@ -160,6 +160,7 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	}
 	// Always include default ignore patterns and append user patterns if provided
 	defaultIgnorePatterns := []string{
+		"^common-dev-assets$",   // Ignore submodule pointer changes for common-dev-assets
 		"^common-dev-assets/.*", // Ignore changes in common-dev-assets directory
 		"^tests/.*",             // Ignore changes in tests directory
 		".*\\.json$",            // Ignore JSON files
