@@ -14,6 +14,8 @@ func TestDefaultIgnorePatternsIncludeSubmodule(t *testing.T) {
 	originalOptions := &TestAddonOptions{
 		Testing: t,
 		Prefix:  "test",
+		// Set RequiredEnvironmentVars to empty map to skip environment variable checks in unit test
+		RequiredEnvironmentVars: make(map[string]string),
 	}
 
 	options := TestAddonsOptionsDefault(originalOptions)

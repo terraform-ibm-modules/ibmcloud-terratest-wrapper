@@ -129,8 +129,11 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	newOptions.AddonConfig.Prefix = newOptions.Prefix
 
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt
-	checkVariables := []string{ibmcloudApiKeyVar}
-	newOptions.RequiredEnvironmentVars = common.GetRequiredEnvVars(newOptions.Testing, checkVariables)
+	// Only check if RequiredEnvironmentVars hasn't been explicitly set (for unit tests that don't need env vars)
+	if newOptions.RequiredEnvironmentVars == nil {
+		checkVariables := []string{ibmcloudApiKeyVar}
+		newOptions.RequiredEnvironmentVars = common.GetRequiredEnvVars(newOptions.Testing, checkVariables)
+	}
 
 	if newOptions.CatalogName == "" {
 		newOptions.CatalogName = fmt.Sprintf("dev-addon-test-%s", newOptions.Prefix)
