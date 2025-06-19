@@ -677,7 +677,7 @@ func (suite *RefResolverTestSuite) TestResolveReferences() {
 			token:         "mock-token",
 			serverStatus:  http.StatusOK,
 			serverBody:    mockResponse,
-			expectedError: true,
+			expectedError: false, // Should succeed via fallback regions
 		},
 	}
 
@@ -703,13 +703,13 @@ func (suite *RefResolverTestSuite) TestResolveReferences() {
 			}))
 			defer server.Close()
 
-			// Mock the URL function - if invalid region, use original function
-			if tc.region == "invalid-region" {
-				CloudInfo_GetRefResolverServiceURLForRegion = suite.origGetURL
-			} else {
-				CloudInfo_GetRefResolverServiceURLForRegion = func(region string) (string, error) {
-					return server.URL, nil
+			// Mock the URL function - even for invalid region, return mock URL to prevent real HTTP calls
+			CloudInfo_GetRefResolverServiceURLForRegion = func(region string) (string, error) {
+				if region == "invalid-region" {
+					// Return error for invalid region to test error handling, but don't make real HTTP calls
+					return "", fmt.Errorf("service URL for region '%s' not found. Supported regions: dev, test, ibm:yp:us-south, ibm:yp:us-east, ibm:yp:eu-de, us-south, eu-gb, ibm:yp:mon01, mon01, staging, ibm:yp:eu-gb, ca-tor, ibm:yp:ca-tor, us-east, eu-de", region)
 				}
+				return server.URL, nil
 			}
 
 			// Create a mock HTTP client with custom transport

@@ -93,6 +93,9 @@ type TestAddonOptions struct {
 	// LocalChangesIgnorePattern List of regex patterns to ignore files or directories when checking for local changes.
 	LocalChangesIgnorePattern []string
 
+	// TestCaseName The name of the test case when running in matrix mode. Used for logging to identify specific test cases.
+	TestCaseName string
+
 	// internal use
 	currentProject       *project.Project
 	currentProjectConfig *cloudinfo.ProjectsConfig
@@ -129,8 +132,11 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	newOptions.AddonConfig.Prefix = newOptions.Prefix
 
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt
-	checkVariables := []string{ibmcloudApiKeyVar}
-	newOptions.RequiredEnvironmentVars = common.GetRequiredEnvVars(newOptions.Testing, checkVariables)
+	// Only check if RequiredEnvironmentVars hasn't been explicitly set (for unit tests that don't need env vars)
+	if newOptions.RequiredEnvironmentVars == nil {
+		checkVariables := []string{ibmcloudApiKeyVar}
+		newOptions.RequiredEnvironmentVars = common.GetRequiredEnvVars(newOptions.Testing, checkVariables)
+	}
 
 	if newOptions.CatalogName == "" {
 		newOptions.CatalogName = fmt.Sprintf("dev-addon-test-%s", newOptions.Prefix)
@@ -160,6 +166,7 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	}
 	// Always include default ignore patterns and append user patterns if provided
 	defaultIgnorePatterns := []string{
+		"^common-dev-assets$",   // Ignore submodule pointer changes for common-dev-assets
 		"^common-dev-assets/.*", // Ignore changes in common-dev-assets directory
 		"^tests/.*",             // Ignore changes in tests directory
 		".*\\.json$",            // Ignore JSON files
@@ -191,4 +198,53 @@ func (options *TestAddonOptions) Clone() (*TestAddonOptions, error) {
 	newOptions.Testing = options.Testing
 
 	return newOptions, nil
+}
+
+// RunAddonTestMatrix runs multiple addon test cases in parallel using a matrix approach
+// This is a convenience function that handles the boilerplate of running parallel tests
+func RunAddonTestMatrix(t *testing.T, matrix AddonTestMatrix) {
+	t.Parallel()
+
+	for _, tc := range matrix.TestCases {
+		tc := tc // Capture loop variable for parallel execution
+		t.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+
+			// Setup base options using the provided setup function
+			options := matrix.BaseSetupFunc(tc)
+
+			// Set the test case name for logging
+			options.TestCaseName = tc.Name
+
+			// Apply test case specific settings
+			if tc.SkipTearDown {
+				options.SkipTestTearDown = true
+			}
+			if tc.SkipInfrastructureDeployment {
+				options.SkipInfrastructureDeployment = true
+			}
+
+			// Create addon configuration using the provided config function
+			options.AddonConfig = matrix.AddonConfigFunc(options, tc)
+
+			// Set dependencies if provided in test case
+			if tc.Dependencies != nil {
+				options.AddonConfig.Dependencies = tc.Dependencies
+			}
+
+			// Merge any additional inputs from the test case
+			if tc.Inputs != nil && len(tc.Inputs) > 0 {
+				if options.AddonConfig.Inputs == nil {
+					options.AddonConfig.Inputs = make(map[string]interface{})
+				}
+				for key, value := range tc.Inputs {
+					options.AddonConfig.Inputs[key] = value
+				}
+			}
+
+			// Run the test
+			err := options.RunAddonTest()
+			require.NoError(t, err, "Addon Test had an unexpected error")
+		})
+	}
 }

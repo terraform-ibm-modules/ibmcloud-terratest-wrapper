@@ -544,7 +544,10 @@ func (options *TestAddonOptions) testSetup() error {
 		options.Logger = common.NewTestLogger(options.Testing.Name())
 	}
 
-	if options.ProjectName != "" {
+	if options.TestCaseName != "" {
+		// Use test case name for matrix tests
+		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.TestCaseName))
+	} else if options.ProjectName != "" {
 		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.ProjectName))
 	} else {
 		options.Logger.SetPrefix("ADDON")

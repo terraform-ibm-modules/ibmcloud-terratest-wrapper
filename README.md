@@ -13,9 +13,29 @@ The project helps to simplify and standardize your Terratest unit tests. It is u
 ## Test-Specific Documentation
 
 For detailed information on specific testing frameworks:
-- [Schematics Testing](docs/schematics/schematicsTests.md) - Documentation for IBM Cloud Schematics testing
-- [Stack Testing](docs/projects/stackTests.md) - Documentation for IBM Cloud Projects stack testing
-- [Addon Testing](docs/projects/addonTests.md) - Documentation for IBM Cloud Projects addon testing
+
+- [Projects Testing](docs/projects.md) - Documentation for IBM Cloud Projects testing (addons and stacks)
+- [Schematics Testing](docs/schematics.md) - Documentation for IBM Cloud Schematics testing
+
+### Quick Links
+
+**Addon Testing:**
+
+- [Addon Testing Overview](docs/projects/addons/overview.md) - Get started with addon testing
+- [Addon Examples](docs/projects/addons/examples.md) - Comprehensive examples
+- [Parallel Testing Guide](docs/projects/addons/parallel-testing.md) - Matrix testing patterns
+
+**Stack Testing:**
+
+- [Stack Testing Overview](docs/projects/stacks/overview.md) - Get started with stack testing
+- [Stack Examples](docs/projects/stacks/examples.md) - Comprehensive examples
+- [Stack Configuration](docs/projects/stacks/configuration.md) - Configuration options
+
+**Schematics Testing:**
+
+- [Schematics Testing Overview](docs/schematics/overview.md) - Get started with schematics testing
+- [Schematics Examples](docs/schematics/examples.md) - Comprehensive examples
+- [Schematics Configuration](docs/schematics/configuration.md) - Configuration options
 
 ## Test your own projects
 
@@ -25,16 +45,15 @@ You can also use this Go project with your own Terraform projects for IBM Cloud.
 
 ### Adding this wrapper to your project
 
-
 The following procedure is a typical way to add this wrapper to your Terraform module for IBM Cloud.
 
-1.  [Create a Go module](https://go.dev/doc/tutorial/create-module) in your Terraform project.
-1.  [Import](https://go.dev/doc/tutorial/call-module-code) this ibmcloud-terratest-wrapper module into your new module.
-1.  [Add a unit test](https://go.dev/doc/tutorial/add-a-test) in your Terraform Go module.
-1.  Initialize a [testhelper/TestOptions](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#TestOptions) object with appropriate values.
+1. [Create a Go module](https://go.dev/doc/tutorial/create-module) in your Terraform project.
+1. [Import](https://go.dev/doc/tutorial/call-module-code) this ibmcloud-terratest-wrapper module into your new module.
+1. [Add a unit test](https://go.dev/doc/tutorial/add-a-test) in your Terraform Go module.
+1. Initialize a [testhelper/TestOptions](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#TestOptions) object with appropriate values.
 
     You can then configure the `TestOptions` object by using the [default constructor](https://pkg.go.dev/github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testhelper#TestOptionsDefault).
-1.  Call one of the `RunTest...()` methods of the `TestOptions` object and check the results.
+1. Call one of the `RunTest...()` methods of the `TestOptions` object and check the results.
 
 ## Region selection at run time
 
@@ -62,6 +81,7 @@ To restrict the query and assign a priority to the regions, supply a YAML file t
 ```
 
 ___
+
 ## Examples
 
 <a name="testrunbasic"></a>
@@ -72,9 +92,9 @@ The following example checks the consistency of an example in the `examples/basi
 
 ```go
 func TestRunBasic(t *testing.T) {
-	t.Parallel()
+ t.Parallel()
 
-	options := testhelper.TestOptionsDefault(&testhelper.TestOptions{
+ options := testhelper.TestOptionsDefault(&testhelper.TestOptions{
         Testing:            t,                      // the test object for unit test
         TerraformDir:       "examples/basic",       // location of example to test
         Prefix:             "my-test",              // will have 6 char random string appended
@@ -94,6 +114,7 @@ func TestRunBasic(t *testing.T) {
     assert.NotNil(t, output, "Expected some output")
 }
 ```
+
 ___
 
 ### Example Handling Terraform Outputs
@@ -111,6 +132,7 @@ if assert.NoErrorf(t, outputErr, "Some outputs not found or nil.") {
     assert.Equal(t, outputs["output2"].(string), "output 2")
 }
 ```
+
 ---
 
 ### Test a module upgrade
@@ -121,13 +143,13 @@ The following test verifies that the tested code (usually your pull request bran
 
 The `RunTestUpgrade()` method completes the following steps:
 
-1.  Copies the current project directory, including the hidden `.git` repository, into a temporary location.
-1.  Stores the Git references of the checked out branch (usually a PR merge branch).
-1.  Clones the `main` branch from the target base repository.
-1.  Runs `terraform apply` with a check to make sure that the module is idempotent.
-1.  Checks out the original branch from the stored Git reference (for example, the PR branch).
-1.  Runs `terraform plan`.
-1.  Analyzes the plan file for consistency.
+1. Copies the current project directory, including the hidden `.git` repository, into a temporary location.
+1. Stores the Git references of the checked out branch (usually a PR merge branch).
+1. Clones the `main` branch from the target base repository.
+1. Runs `terraform apply` with a check to make sure that the module is idempotent.
+1. Checks out the original branch from the stored Git reference (for example, the PR branch).
+1. Runs `terraform plan`.
+1. Analyzes the plan file for consistency.
 
 #### Example version upgrade test
 
@@ -139,8 +161,8 @@ if !options.UpgradeTestSkipped {
 }
 ```
 
+#### Notes
 
-#### Notes:
 **Skipping the test**
 
 The upgrade Test checks the current commit messages and if `BREAKING CHANGE` OR `SKIP UPGRADE TEST` string found in commit messages then it will skip the upgrade test.
@@ -157,6 +179,7 @@ If authentication is required to access the base repo, the code tries to automat
 If this fails it will try unauthenticated. You can manually set the `SSH_PRIVATE_KEY` environment variable to the value of your SSH private key. For HTTPS repositories, set the `GIT_TOKEN` environment variable to your Personal Access Token (PAT).
 If you are using a passphrase-protected SSH key, set the `SSH_PASSPHRASE` environment variable to the actual passphrase used to protect the SSH key..
 ___
+
 ### More examples
 
 For more customization, see the `ibmcloud-terratest-wrapper` reference at pkg.go.dev, including the following examples:
