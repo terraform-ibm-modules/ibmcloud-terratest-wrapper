@@ -93,6 +93,9 @@ type TestAddonOptions struct {
 	// LocalChangesIgnorePattern List of regex patterns to ignore files or directories when checking for local changes.
 	LocalChangesIgnorePattern []string
 
+	// TestCaseName The name of the test case when running in matrix mode. Used for logging to identify specific test cases.
+	TestCaseName string
+
 	// internal use
 	currentProject       *project.Project
 	currentProjectConfig *cloudinfo.ProjectsConfig
@@ -209,6 +212,9 @@ func RunAddonTestMatrix(t *testing.T, matrix AddonTestMatrix) {
 
 			// Setup base options using the provided setup function
 			options := matrix.BaseSetupFunc(tc)
+
+			// Set the test case name for logging
+			options.TestCaseName = tc.Name
 
 			// Apply test case specific settings
 			if tc.SkipTearDown {

@@ -425,7 +425,74 @@ func verifyCleanupComplete(resourceGroup string) error {
 
 ## Advanced Configuration Examples
 
-### Example 10: Custom Validation Options
+### Example 10: Custom Test Case Naming for Logging
+
+```golang
+func TestAddonWithCustomLogging(t *testing.T) {
+    t.Parallel()
+
+    options := setupAddonOptions(t, "custom-logging")
+
+    // Set custom test case name for clear log identification
+    options.TestCaseName = "ProductionScenarioValidation"
+
+    options.AddonConfig = cloudinfo.NewAddonConfigTerraform(
+        options.Prefix,
+        "my-addon",
+        "production",
+        map[string]interface{}{
+            "prefix":      options.Prefix,
+            "environment": "production",
+            "region":      "us-south",
+        },
+    )
+
+    // Log output will show:
+    // [TestAddonWithCustomLogging - ADDON - ProductionScenarioValidation] Starting addon test setup
+    // [TestAddonWithCustomLogging - ADDON - ProductionScenarioValidation] Checking for local changes...
+
+    err := options.RunAddonTest()
+    assert.NoError(t, err)
+}
+
+// Example comparing different scenarios with clear naming
+func TestMultipleScenarios(t *testing.T) {
+    scenarios := []struct {
+        name        string
+        environment string
+        flavor      string
+    }{
+        {"DevelopmentTest", "development", "minimal"},
+        {"StagingTest", "staging", "standard"},
+        {"ProductionTest", "production", "enterprise"},
+    }
+
+    for _, scenario := range scenarios {
+        scenario := scenario // capture loop variable
+        t.Run(scenario.name, func(t *testing.T) {
+            t.Parallel()
+
+            options := setupAddonOptions(t, fmt.Sprintf("multi-%s", scenario.environment))
+            options.TestCaseName = scenario.name // Clear identification in logs
+
+            options.AddonConfig = cloudinfo.NewAddonConfigTerraform(
+                options.Prefix,
+                "my-addon",
+                scenario.flavor,
+                map[string]interface{}{
+                    "prefix":      options.Prefix,
+                    "environment": scenario.environment,
+                },
+            )
+
+            err := options.RunAddonTest()
+            assert.NoError(t, err)
+        })
+    }
+}
+```
+
+### Example 11: Custom Validation Options
 
 ```golang
 func TestAddonWithCustomValidation(t *testing.T) {
@@ -461,7 +528,7 @@ func TestAddonWithCustomValidation(t *testing.T) {
 }
 ```
 
-### Example 11: Skip Infrastructure Deployment
+### Example 12: Skip Infrastructure Deployment
 
 This example shows how to run all validations without actually deploying infrastructure:
 
@@ -488,7 +555,7 @@ func TestAddonValidationOnly(t *testing.T) {
 }
 ```
 
-### Example 12: Custom Project Configuration
+### Example 13: Custom Project Configuration
 
 ```golang
 func TestAddonWithCustomProject(t *testing.T) {
@@ -523,7 +590,7 @@ func TestAddonWithCustomProject(t *testing.T) {
 
 ## Multi-Region Testing Example
 
-### Example 13: Testing Across Multiple Regions
+### Example 14: Testing Across Multiple Regions
 
 ```golang
 func TestMultiRegionAddon(t *testing.T) {
@@ -555,7 +622,7 @@ func TestMultiRegionAddon(t *testing.T) {
 
 ## Error Handling Example
 
-### Example 14: Test with Error Handling and Retry Logic
+### Example 15: Test with Error Handling and Retry Logic
 
 ```golang
 func TestAddonWithErrorHandling(t *testing.T) {

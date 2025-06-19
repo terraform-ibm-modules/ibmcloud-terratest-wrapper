@@ -14,6 +14,29 @@ options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
 })
 ```
 
+### Optional Basic Settings
+
+```golang
+options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "my-test",
+    ResourceGroup: "my-project-rg",
+    TestCaseName:  "CustomScenario",  // Optional: custom name for log identification
+})
+```
+
+**TestCaseName**: Sets a custom identifier for log messages. When specified, log output will show:
+
+```text
+[TestName - ADDON - CustomScenario] Checking for local changes in the repository
+```
+
+This is particularly useful for:
+
+- **Debugging**: Easily identify which test scenario is running
+- **Matrix Tests**: Automatically set by the framework using the test case name
+- **Custom Tests**: Manually set for clear log identification
+
 ### Essential Setup Function
 
 It's recommended to create a setup function for consistency across tests:

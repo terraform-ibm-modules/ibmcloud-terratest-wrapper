@@ -216,6 +216,25 @@ options.SkipDependencyValidation = true
 - Progress updates during long-running operations
 - Error details with context and resolution guidance
 
+**Log Identification:**
+
+The framework uses a hierarchical approach to identify test cases in log output:
+
+1. **TestCaseName (if set)**: `[TestFunction - ADDON - TestCaseName]`
+2. **ProjectName (default)**: `[TestFunction - ADDON - ProjectName]` (e.g., `addonmy-test-xu5oby`)
+3. **Fallback**: `[TestFunction - ADDON]`
+
+```golang
+// Custom test case identification (recommended for clarity)
+options.TestCaseName = "ProductionValidation"
+// Logs: [TestMyAddon - ADDON - ProductionValidation] Starting test...
+
+// Default behavior uses ProjectName with prefix + random suffix
+// Logs: [TestMyAddon - ADDON - addonmy-test-xu5oby] Starting test...
+```
+
+**Matrix Tests**: Automatically use the test case `Name` field for `TestCaseName`, providing clear identification without manual configuration.
+
 **Custom Logging:**
 
 ```golang

@@ -98,12 +98,69 @@ The `AddonTestMatrix` provides a declarative way to define multiple test cases a
 
 Each test case supports several configuration options:
 
-- **Name**: Test case name that appears in test output
+- **Name**: Test case name that appears in test output and log messages
 - **Prefix**: Unique prefix for resource naming in this test case
 - **Dependencies**: Addon dependencies to configure for this test case
 - **Inputs**: Additional inputs to merge with the base addon configuration
 - **SkipTearDown**: Skip cleanup for this specific test case (useful for debugging)
 - **SkipInfrastructureDeployment**: Skip actual infrastructure deployment for validation-only testing
+
+## Test Output and Logging
+
+When running addon tests, each test generates log output with clear identification:
+
+### Log Format
+
+Addon tests use descriptive names in log messages for easy identification:
+
+```text
+[TestRunAddonTests - ADDON - PrimaryScenarioDeploy] Checking for local changes in the repository
+[TestRunAddonTests - ADDON - AlternativeScenarioValidate] Checking for local changes in the repository
+[TestRunAddonTests - ADDON - EdgeCaseValidate] Checking for local changes in the repository
+```
+
+**For Matrix Tests**: The test case `Name` field is automatically used for logging.
+
+**For Individual Tests**: You can set `TestCaseName` manually for custom log identification:
+
+```golang
+func TestCustomAddon(t *testing.T) {
+    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing:      t,
+        Prefix:       "custom-test",
+        TestCaseName: "CustomScenarioValidation", // Custom log identifier
+    })
+
+    // This will show logs like:
+    // [TestCustomAddon - ADDON - CustomScenarioValidation] Checking for local changes...
+
+    err := options.RunAddonTest()
+    require.NoError(t, err)
+}
+```
+
+### Log Prefix Behavior
+
+The framework automatically sets appropriate log prefixes based on context:
+
+- **Matrix Tests**: Uses the test case `Name` field: `"ADDON - [TestCaseName]"`
+- **Regular Tests**: Uses the project name: `"ADDON - [ProjectName]"`
+- **Fallback**: Uses generic prefix: `"ADDON"`
+
+This makes it easy to:
+
+- **Track Progress**: See which specific test case is running
+- **Debug Issues**: Identify which test case encountered problems
+- **Correlate Logs**: Match log entries to specific test scenarios
+
+### Example Output
+
+```text
+[TestRunAddonTests - ADDON - FullDeploymentDefaults] Starting addon test setup
+[TestRunAddonTests - ADDON - ValidationOnlyDefaults] Starting addon test setup
+[TestRunAddonTests - ADDON - FullDeploymentWithDependencies] Checking for local changes in the repository
+[TestRunAddonTests - ADDON - ValidationOnlyWithDependencies] Checking for local changes in the repository
+```
 
 ## Mixed Deployment and Validation Testing
 
@@ -416,6 +473,7 @@ Matrix testing with `AddonTestMatrix` is the **primary and recommended approach*
 ✅ **Scalable**: Easy to add new test scenarios
 
 The matrix pattern allows you to:
+
 - Deploy critical scenarios fully
 - Validate alternative configurations quickly
 - Test complex dependencies without deployment costs
