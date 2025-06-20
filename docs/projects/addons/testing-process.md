@@ -7,7 +7,7 @@ This document explains the detailed testing lifecycle that the addon testing fra
 The framework performs several automated validations to ensure reliable and reproducible tests:
 
 - **Local Change Check**: Verifies that all local changes are committed or pushed before deploying to ensure reproducible builds
-- **Reference Validation**: Validates that all configuration references (inputs starting with `ref:/`) can be resolved before deployment
+- **Reference Validation**: Validates that all configuration references (inputs starting with `ref:/`) can be resolved before deployment. **Important**: When `SkipInfrastructureDeployment` is enabled (validation-only mode), reference validation becomes critical and will not automatically skip intermittent service errors, as this is the only opportunity to catch reference issues.
 - **Dependency Validation**: Ensures that expected dependencies are deployed and configured correctly
 - **Environment Variable Validation**: Checks that required environment variables (like `TF_VAR_ibmcloud_api_key`) are set
 
@@ -199,7 +199,7 @@ options.SkipUndeploy = true
 // Skip project deletion
 options.SkipProjectDelete = true
 
-// Skip infrastructure deployment/undeploy but run all validations
+// Skip infrastructure deployment but perform all validations
 options.SkipInfrastructureDeployment = true
 
 // Skip individual validations
@@ -207,6 +207,14 @@ options.SkipLocalChangeCheck = true
 options.SkipRefValidation = true
 options.SkipDependencyValidation = true
 ```
+
+**Important Notes for Validation-Only Mode:**
+
+When `SkipInfrastructureDeployment` is enabled, the framework operates in validation-only mode where:
+
+- **Reference validation becomes stricter**: Intermittent service errors that would normally be automatically skipped are treated as failures, since there won't be a deployment phase to validate references later
+- **All pre-deployment validations are critical**: Any validation failures should be addressed since they won't be caught during deployment
+- **Dependencies are still processed**: The framework still creates and validates dependency configurations to ensure the complete setup would work
 
 ## Logging and Monitoring
 

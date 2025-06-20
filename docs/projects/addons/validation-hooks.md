@@ -66,13 +66,16 @@ options.SkipRefValidation = true
 
 - Retries up to 6 times with exponential backoff
 - Handles intermittent API issues automatically
-- Automatically skips validation on known transient errors
+- Automatically skips validation on known transient errors **only when infrastructure deployment is enabled**
+- **Validation-only mode**: When `SkipInfrastructureDeployment = true`, intermittent errors are NOT automatically skipped to ensure reference issues are caught
 
 **When to skip:**
 
-- Known issues with reference resolution service
+- Known issues with reference resolution service (only in full deployment mode)
 - Testing scenarios where references aren't critical
 - Debugging non-reference-related issues
+
+**Important**: In validation-only mode (`SkipInfrastructureDeployment = true`), reference validation becomes the only opportunity to catch reference issues, so the framework is more strict about failures.
 
 ### Dependency Validation
 

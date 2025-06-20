@@ -203,7 +203,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 						strings.Contains(errStr, "known transient issue") ||
 						strings.Contains(errStr, "typically transient")
 
-					if isApiKeyError || isProjectNotFoundError || isKnownIntermittentError {
+					// Only skip validation for intermittent errors if infrastructure deployment is enabled
+					// When SkipInfrastructureDeployment=true, reference validation is the only chance to catch issues
+					if (isApiKeyError || isProjectNotFoundError || isKnownIntermittentError) && !options.SkipInfrastructureDeployment {
 						options.Logger.ShortWarn(fmt.Sprintf("Skipping reference validation due to intermittent IBM Cloud service error: %v", err))
 						if isApiKeyError {
 							options.Logger.ShortWarn("This is a known transient issue with IBM Cloud's API key validation service.")
@@ -216,6 +218,10 @@ func (options *TestAddonOptions) RunAddonTest() error {
 						options.Logger.ShortWarn("The test will continue and will fail later if references actually fail to resolve during deployment.")
 						// Skip reference validation for this config and continue with the test
 						continue
+					} else if (isApiKeyError || isProjectNotFoundError || isKnownIntermittentError) && options.SkipInfrastructureDeployment {
+						options.Logger.ShortWarn(fmt.Sprintf("Detected intermittent service error, but cannot skip validation in validation-only mode: %v", err))
+						options.Logger.ShortWarn("Infrastructure deployment is disabled, so reference validation is the only opportunity to catch reference issues.")
+						options.Logger.ShortWarn("Failing the test to ensure reference issues are not missed.")
 					}
 					// For other errors, fail the test as before
 					options.Logger.ShortError(fmt.Sprintf("Error resolving references: %v", err))
