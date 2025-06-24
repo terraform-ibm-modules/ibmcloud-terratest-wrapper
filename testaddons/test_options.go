@@ -57,6 +57,11 @@ type TestAddonOptions struct {
 	// CatalogName The name of the catalog to create and deploy to.
 	CatalogName string
 
+	// SharedCatalog If set to true (default), catalogs and offerings will be shared across tests using the same TestOptions object.
+	// When false, each test will create its own catalog and offering, which is useful for isolation but less efficient.
+	// This applies to both individual tests and matrix tests.
+	SharedCatalog *bool
+
 	// Internal Use
 	// catalog the catalog instance in use.
 	catalog *catalogmanagementv1.Catalog
@@ -64,6 +69,9 @@ type TestAddonOptions struct {
 	// internal use
 	// offering the offering created in the catalog.
 	offering *catalogmanagementv1.Offering
+
+	// Internal flag to track if this is part of a matrix test (catalog shared)
+	isMatrixTest bool
 
 	// AddonConfig The configuration for the addon to deploy.
 	AddonConfig cloudinfo.AddonConfig
@@ -164,6 +172,13 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	if newOptions.ProjectAutoDeploy == nil {
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
 	}
+
+	// We need to handle the bool default properly - default SharedCatalog to false for individual tests
+	// Matrix tests will override this to true and handle cleanup automatically
+	if newOptions.SharedCatalog == nil {
+		newOptions.SharedCatalog = core.BoolPtr(false)
+	}
+
 	// Always include default ignore patterns and append user patterns if provided
 	defaultIgnorePatterns := []string{
 		"^common-dev-assets$",   // Ignore submodule pointer changes for common-dev-assets
@@ -200,51 +215,96 @@ func (options *TestAddonOptions) Clone() (*TestAddonOptions, error) {
 	return newOptions, nil
 }
 
-// RunAddonTestMatrix runs multiple addon test cases in parallel using a matrix approach
-// This is a convenience function that handles the boilerplate of running parallel tests
-func RunAddonTestMatrix(t *testing.T, matrix AddonTestMatrix) {
-	t.Parallel()
+// copy creates a deep copy of TestAddonOptions for use in matrix tests
+// This allows BaseOptions to be safely shared across test cases
+// copyBoolPointer creates a deep copy of a bool pointer
+func copyBoolPointer(original *bool) *bool {
+	if original == nil {
+		return nil
+	}
+	copied := *original
+	return &copied
+}
 
-	for _, tc := range matrix.TestCases {
-		tc := tc // Capture loop variable for parallel execution
-		t.Run(tc.Name, func(t *testing.T) {
-			t.Parallel()
+func (options *TestAddonOptions) copy() *TestAddonOptions {
+	if options == nil {
+		return nil
+	}
 
-			// Setup base options using the provided setup function
-			options := matrix.BaseSetupFunc(tc)
+	copied := &TestAddonOptions{
+		Testing:                      options.Testing, // Will be overridden per test case
+		RequiredEnvironmentVars:      options.RequiredEnvironmentVars,
+		ResourceGroup:                options.ResourceGroup,
+		Prefix:                       options.Prefix,
+		ProjectName:                  options.ProjectName,
+		ProjectDescription:           options.ProjectDescription,
+		ProjectLocation:              options.ProjectLocation,
+		ProjectDestroyOnDelete:       options.ProjectDestroyOnDelete,
+		ProjectMonitoringEnabled:     options.ProjectMonitoringEnabled,
+		ProjectAutoDeploy:            options.ProjectAutoDeploy,
+		ProjectEnvironments:          options.ProjectEnvironments,
+		CloudInfoService:             options.CloudInfoService,
+		CatalogUseExisting:           options.CatalogUseExisting,
+		CatalogName:                  options.CatalogName,
+		SharedCatalog:                copyBoolPointer(options.SharedCatalog),
+		AddonConfig:                  options.AddonConfig, // Note: shallow copy, will be overridden
+		DeployTimeoutMinutes:         options.DeployTimeoutMinutes,
+		SkipTestTearDown:             options.SkipTestTearDown,
+		SkipUndeploy:                 options.SkipUndeploy,
+		SkipProjectDelete:            options.SkipProjectDelete,
+		SkipInfrastructureDeployment: options.SkipInfrastructureDeployment,
+		SkipLocalChangeCheck:         options.SkipLocalChangeCheck,
+		SkipRefValidation:            options.SkipRefValidation,
+		SkipDependencyValidation:     options.SkipDependencyValidation,
+		VerboseValidationErrors:      options.VerboseValidationErrors,
+		EnhancedTreeValidationOutput: options.EnhancedTreeValidationOutput,
+		LocalChangesIgnorePattern:    options.LocalChangesIgnorePattern,
+		TestCaseName:                 options.TestCaseName,
+		PreDeployHook:                options.PreDeployHook,
+		PostDeployHook:               options.PostDeployHook,
+		PreUndeployHook:              options.PreUndeployHook,
+		PostUndeployHook:             options.PostUndeployHook,
+		Logger:                       options.Logger,
 
-			// Set the test case name for logging
-			options.TestCaseName = tc.Name
+		// These fields are not copied as they are managed per test instance
+		catalog:              nil,
+		offering:             nil,
+		isMatrixTest:         false,
+		currentProject:       nil,
+		currentProjectConfig: nil,
+		deployedConfigs:      nil,
+		currentBranch:        nil,
+		currentBranchUrl:     nil,
+	}
 
-			// Apply test case specific settings
-			if tc.SkipTearDown {
-				options.SkipTestTearDown = true
-			}
-			if tc.SkipInfrastructureDeployment {
-				options.SkipInfrastructureDeployment = true
-			}
+	return copied
+}
 
-			// Create addon configuration using the provided config function
-			options.AddonConfig = matrix.AddonConfigFunc(options, tc)
-
-			// Set dependencies if provided in test case
-			if tc.Dependencies != nil {
-				options.AddonConfig.Dependencies = tc.Dependencies
-			}
-
-			// Merge any additional inputs from the test case
-			if tc.Inputs != nil && len(tc.Inputs) > 0 {
-				if options.AddonConfig.Inputs == nil {
-					options.AddonConfig.Inputs = make(map[string]interface{})
-				}
-				for key, value := range tc.Inputs {
-					options.AddonConfig.Inputs[key] = value
-				}
-			}
-
-			// Run the test
-			err := options.RunAddonTest()
-			require.NoError(t, err, "Addon Test had an unexpected error")
-		})
+// CleanupSharedResources cleans up shared catalog and offering resources
+// This method is useful for cleaning up shared catalogs when using SharedCatalog=true with individual tests.
+// For matrix tests, cleanup happens automatically and you don't need to call this method.
+//
+// Example usage:
+//
+//	options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+//	    Testing: t,
+//	    Prefix: "shared-test",
+//	    ResourceGroup: "my-rg",
+//	    SharedCatalog: core.BoolPtr(true),
+//	})
+//	defer options.CleanupSharedResources() // Ensure cleanup happens
+//
+//	// Run multiple tests that share the catalog
+//	err1 := options.RunAddonTest()
+//	err2 := options.RunAddonTest()
+func (options *TestAddonOptions) CleanupSharedResources() {
+	if options.catalog != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Deleting the shared catalog %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+		err := options.CloudInfoService.DeleteCatalog(*options.catalog.ID)
+		if err != nil {
+			options.Logger.ShortError(fmt.Sprintf("Error deleting the shared catalog: %v", err))
+		} else {
+			options.Logger.ShortInfo(fmt.Sprintf("Deleted the shared catalog %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+		}
 	}
 }

@@ -100,6 +100,180 @@ options.CatalogUseExisting = true
 options.CatalogName = "existing-catalog-name"  // Required when using existing
 ```
 
+### Catalog Sharing Control
+
+The `SharedCatalog` option controls catalog and offering sharing behavior:
+
+```golang
+options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "test",
+    ResourceGroup: "my-rg",
+    SharedCatalog: core.BoolPtr(false),  // Default: false for individual tests
+})
+```
+
+**SharedCatalog Settings:**
+
+- `false` (default): Each test creates its own catalog and offering for complete isolation and automatic cleanup
+- `true`: Catalogs and offerings are shared across tests using the same `TestOptions` object (requires manual cleanup)
+
+**Sharing Behavior:**
+
+```golang
+// SharedCatalog = false (default) - isolated tests with automatic cleanup
+isolatedOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "isolated-test",
+    ResourceGroup: "my-rg",
+    SharedCatalog: core.BoolPtr(false),  // Can be omitted as it's the default
+})
+
+// Each test creates and cleans up its own catalog + offering
+err1 := isolatedOptions.RunAddonTest()  // Creates & deletes catalog A
+err2 := isolatedOptions.RunAddonTest()  // Creates & deletes catalog B
+
+// SharedCatalog = true - efficient sharing (requires manual cleanup)
+baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "shared-test",
+    ResourceGroup: "my-rg",
+    SharedCatalog: core.BoolPtr(true),
+})
+
+// First test creates catalog + offering, second test reuses them
+err3 := baseOptions.RunAddonTest()  // Creates catalog
+err4 := baseOptions.RunAddonTest()  // Reuses catalog (manual cleanup needed)
+```
+
+### Automatic Catalog Sharing (Matrix Tests)
+
+When using matrix testing with `RunAddonTestMatrix()`, catalogs and offerings are automatically shared across all test cases for improved efficiency:
+
+```golang
+// Matrix tests automatically share catalogs - no additional configuration needed
+baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "matrix-test",
+    ResourceGroup: "my-resource-group",
+})
+
+baseOptions.RunAddonTestMatrix(matrix)  // Catalog automatically shared across all test cases
+```
+
+**Benefits:**
+
+- **Resource Efficiency**: Creates only 1 catalog for all test cases instead of N catalogs
+- **Time Savings**: Reduced catalog creation time and API calls
+- **Automatic Cleanup**: Shared resources cleaned up after all matrix tests complete
+
+**Individual vs Matrix Tests:**
+
+- **Individual Tests**: Respect the `SharedCatalog` setting (default: false - not shared)
+- **Matrix Tests**: Always share catalogs regardless of `SharedCatalog` setting
+
+### Catalog Cleanup Behavior
+
+Understanding when catalogs are cleaned up is important for resource management:
+
+**Matrix Tests (RunAddonTestMatrix):**
+
+- Catalogs are automatically cleaned up after all test cases complete
+- Uses Go's `t.Cleanup()` mechanism to ensure cleanup happens
+
+**Individual Tests with SharedCatalog=false (default):**
+
+- Each test creates and deletes its own catalog
+- Automatic cleanup with guaranteed isolation
+- Use for most individual tests and when isolation is important
+
+**Individual Tests with SharedCatalog=true:**
+
+- Catalogs are shared and persist after test completion
+- Efficient for development workflows and sequential test runs
+- **Manual cleanup required** - catalogs will persist until manually deleted
+
+**Best Practices:**
+
+```golang
+// For most tests - automatic cleanup with isolation (recommended)
+options.SharedCatalog = core.BoolPtr(false)  // Default
+
+// For development and sequential tests - efficient sharing
+options.SharedCatalog = core.BoolPtr(true)   // Manual cleanup required
+
+// For matrix tests - automatic sharing and cleanup (recommended)
+baseOptions.RunAddonTestMatrix(matrix)
+```
+
+**When to use each approach:**
+
+- **SharedCatalog=false**: Most individual tests, CI pipelines, when automatic cleanup is needed
+- **SharedCatalog=true**: Development workflows, sequential tests with same prefix
+- **Matrix tests**: Multiple test cases with variations (automatic sharing + cleanup)
+
+### Manual Cleanup for Shared Catalogs
+
+When using `SharedCatalog=true` with individual tests, you can manually clean up shared resources using `CleanupSharedResources()`:
+
+```golang
+func TestMultipleAddonsWithSharedCatalog(t *testing.T) {
+    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing:       t,
+        Prefix:        "shared-test",
+        ResourceGroup: "my-resource-group",
+        SharedCatalog: core.BoolPtr(true), // Enable sharing
+    })
+
+    // Ensure cleanup happens at the end
+    defer baseOptions.CleanupSharedResources()
+
+    // Run multiple tests that share the catalog
+    t.Run("TestScenario1", func(t *testing.T) {
+        options1 := baseOptions
+        options1.AddonConfig = cloudinfo.NewAddonConfigTerraform(/* config */)
+        err := options1.RunAddonTest()
+        require.NoError(t, err)
+    })
+
+    t.Run("TestScenario2", func(t *testing.T) {
+        options2 := baseOptions
+        options2.AddonConfig = cloudinfo.NewAddonConfigTerraform(/* different config */)
+        err := options2.RunAddonTest()
+        require.NoError(t, err)
+    })
+
+    // CleanupSharedResources() called automatically via defer
+}
+```
+
+**Benefits of manual cleanup:**
+
+- Guaranteed resource cleanup regardless of test failures
+- Works with any number of individual test variations
+- Simple defer pattern ensures cleanup runs even if tests panic
+
+#### Alternative: Cleanup in TestMain
+
+For package-level cleanup across multiple test functions:
+
+```golang
+func TestMain(m *testing.M) {
+    // Setup shared options if needed
+    sharedOptions := setupSharedOptions()
+
+    // Run tests
+    code := m.Run()
+
+    // Cleanup shared resources
+    if sharedOptions != nil {
+        sharedOptions.CleanupSharedResources()
+    }
+
+    os.Exit(code)
+}
+```
+
 ## Addon Configuration
 
 ### Terraform Addon (Primary Use Case)
