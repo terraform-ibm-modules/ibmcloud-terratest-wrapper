@@ -671,10 +671,14 @@ func (options *TestAddonOptions) testSetup() error {
 
 	if !options.CatalogUseExisting {
 		// Check if catalog sharing is enabled and if catalog already exists
-		if *options.SharedCatalog && options.catalog != nil {
-			options.Logger.ShortInfo(fmt.Sprintf("Using existing shared catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+		if options.catalog != nil {
+			if options.catalog.Label != nil && options.catalog.ID != nil {
+				options.Logger.ShortInfo(fmt.Sprintf("Using existing catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+			} else {
+				options.Logger.ShortWarn("Using existing catalog but catalog details are incomplete")
+			}
 		} else {
-			// Create new catalog if sharing is disabled or no existing catalog
+			// Create new catalog only if no existing catalog is available
 			options.Logger.ShortInfo(fmt.Sprintf("Creating a new catalog: %s", options.CatalogName))
 			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
 			if err != nil {
@@ -683,7 +687,11 @@ func (options *TestAddonOptions) testSetup() error {
 				return fmt.Errorf("error creating a new catalog: %w", err)
 			}
 			options.catalog = catalog
-			options.Logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
+				options.Logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+			} else {
+				options.Logger.ShortWarn("Created catalog but catalog details are incomplete")
+			}
 		}
 	} else {
 		options.Logger.ShortInfo("Using existing catalog")
@@ -707,6 +715,26 @@ func (options *TestAddonOptions) testSetup() error {
 	// Import the offering - check sharing settings
 	if *options.SharedCatalog && options.offering != nil {
 		options.Logger.ShortInfo(fmt.Sprintf("Using existing shared offering: %s with ID %s", *options.offering.Label, *options.offering.ID))
+
+		// Set offering details for addon config from existing offering
+		newVersionLocator := ""
+		if options.offering.Kinds != nil && len(options.offering.Kinds) > 0 &&
+			len(options.offering.Kinds[0].Versions) > 0 {
+			newVersionLocator = *options.offering.Kinds[0].Versions[0].VersionLocator
+		}
+		options.AddonConfig.OfferingName = *options.offering.Name
+		options.AddonConfig.OfferingID = *options.offering.ID
+		options.AddonConfig.VersionLocator = newVersionLocator
+		options.AddonConfig.OfferingLabel = *options.offering.Label
+
+		// Set the resolved version from the existing offering
+		if options.offering.Kinds != nil && len(options.offering.Kinds) > 0 &&
+			len(options.offering.Kinds[0].Versions) > 0 &&
+			options.offering.Kinds[0].Versions[0].Version != nil {
+			options.AddonConfig.ResolvedVersion = *options.offering.Kinds[0].Versions[0].Version
+		}
+
+		options.Logger.ShortInfo(fmt.Sprintf("Using shared offering Version Locator: %s", options.AddonConfig.VersionLocator))
 	} else {
 		// Create new offering if sharing is disabled or no existing offering
 		version := fmt.Sprintf("v0.0.1-dev-%s", options.Prefix)
@@ -877,6 +905,22 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 			// Mark as matrix test so teardown doesn't delete shared catalog
 			testOptions.isMatrixTest = true
 
+			// Ensure logger is initialized before using it
+			if testOptions.Logger == nil {
+				testOptions.Logger = common.NewTestLogger(testOptions.Testing.Name())
+			}
+
+			// Ensure CloudInfoService is initialized before using it for catalog operations
+			if testOptions.CloudInfoService == nil {
+				cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
+				if err != nil {
+					require.NoError(t, err, "Failed to initialize CloudInfoService")
+					return
+				}
+				testOptions.CloudInfoService = cloudInfoSvc
+				testOptions.CloudInfoService.SetLogger(testOptions.Logger)
+			}
+
 			// Matrix tests always use shared catalogs for efficiency, regardless of SharedCatalog setting
 			if testOptions.SharedCatalog == nil {
 				testOptions.SharedCatalog = core.BoolPtr(true)
@@ -884,17 +928,6 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				testOptions.Logger.ShortWarn("Matrix tests override SharedCatalog=false to use shared catalogs for efficiency")
 				testOptions.SharedCatalog = core.BoolPtr(true)
 			}
-
-			// Share catalog tracking with first created instance
-			sharedMutex.Lock()
-			if sharedCatalogOptions == nil {
-				sharedCatalogOptions = testOptions
-			} else {
-				// Share the catalog tracking fields from the first instance
-				testOptions.catalog = sharedCatalogOptions.catalog
-				testOptions.offering = sharedCatalogOptions.offering
-			}
-			sharedMutex.Unlock()
 
 			// Apply test case specific settings
 			if tc.SkipTearDown {
@@ -904,7 +937,8 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				testOptions.SkipInfrastructureDeployment = true
 			}
 
-			// Create addon configuration using the provided config function
+			// Create addon configuration using the provided config function BEFORE mutex
+			// This ensures we have offering details available for shared offering import
 			testOptions.AddonConfig = matrix.AddonConfigFunc(testOptions, tc)
 
 			// Set dependencies if provided in test case
@@ -919,6 +953,91 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				}
 				for key, value := range tc.Inputs {
 					testOptions.AddonConfig.Inputs[key] = value
+				}
+			}
+
+			// Handle shared catalog AND offering creation in matrix tests (single mutex)
+			sharedMutex.Lock()
+			if sharedCatalogOptions == nil {
+				// This is the first test case - it will create the shared catalog and offering
+				sharedCatalogOptions = testOptions
+
+				// Create the shared catalog for all matrix tests
+				if !testOptions.CatalogUseExisting {
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Creating shared catalog for matrix: %s", testOptions.CatalogName))
+					catalog, err := testOptions.CloudInfoService.CreateCatalog(testOptions.CatalogName)
+					if err != nil {
+						sharedMutex.Unlock() // Release mutex on error
+						testOptions.Logger.ShortError(fmt.Sprintf("Error creating shared catalog: %v", err))
+						require.NoError(t, err, "Failed to create shared catalog for matrix tests")
+						return
+					}
+					testOptions.catalog = catalog
+					if testOptions.catalog != nil && testOptions.catalog.Label != nil && testOptions.catalog.ID != nil {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Created shared catalog: %s with ID %s", *testOptions.catalog.Label, *testOptions.catalog.ID))
+					} else {
+						testOptions.Logger.ShortWarn("Created shared catalog but catalog details are incomplete")
+					}
+
+					// Import the offering once for all matrix tests (now that we have addon config)
+					version := fmt.Sprintf("v0.0.1-dev-%s", testOptions.Prefix)
+					testOptions.AddonConfig.ResolvedVersion = version
+
+					// Get repository info for offering import
+					repo, branch, repoErr := common.GetCurrentPrRepoAndBranch()
+					if repoErr != nil {
+						sharedMutex.Unlock()
+						testOptions.Logger.ShortError("Error getting current branch and repo for offering import")
+						require.NoError(t, repoErr, "Failed to get repository info for offering import")
+						return
+					}
+
+					// Convert repository URL to HTTPS format for catalog import
+					if strings.HasPrefix(repo, "git@") {
+						repo = strings.Replace(repo, ":", "/", 1)
+						repo = strings.Replace(repo, "git@", "https://", 1)
+						repo = strings.TrimSuffix(repo, ".git")
+					} else if strings.HasPrefix(repo, "git://") {
+						repo = strings.Replace(repo, "git://", "https://", 1)
+						repo = strings.TrimSuffix(repo, ".git")
+					} else if strings.HasPrefix(repo, "https://") {
+						repo = strings.TrimSuffix(repo, ".git")
+					}
+
+					branchUrl := fmt.Sprintf("%s/tree/%s", repo, branch)
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Importing shared offering: %s from branch: %s as version: %s", testOptions.AddonConfig.OfferingFlavor, branchUrl, version))
+
+					offering, err := testOptions.CloudInfoService.ImportOffering(*testOptions.catalog.ID, branchUrl, testOptions.AddonConfig.OfferingName, testOptions.AddonConfig.OfferingFlavor, version, testOptions.AddonConfig.OfferingInstallKind)
+					if err != nil {
+						sharedMutex.Unlock() // Release mutex on error
+						testOptions.Logger.ShortError(fmt.Sprintf("Error importing shared offering: %v", err))
+						require.NoError(t, err, "Failed to import shared offering for matrix tests")
+						return
+					}
+					testOptions.offering = offering
+
+					if testOptions.offering != nil && testOptions.offering.Label != nil && testOptions.offering.ID != nil {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Imported shared offering: %s with ID %s", *testOptions.offering.Label, *testOptions.offering.ID))
+					} else {
+						testOptions.Logger.ShortWarn("Imported shared offering but offering details are incomplete")
+					}
+				}
+				sharedMutex.Unlock() // Release mutex only AFTER both catalog AND offering creation is complete
+			} else {
+				// Share the catalog and offering tracking fields from the first instance
+				// At this point, we know both catalog and offering creation is complete because the mutex ensures it
+				testOptions.catalog = sharedCatalogOptions.catalog
+				testOptions.offering = sharedCatalogOptions.offering
+				sharedMutex.Unlock()
+				if testOptions.catalog != nil && testOptions.catalog.Label != nil && testOptions.catalog.ID != nil {
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared catalog: %s with ID %s", *testOptions.catalog.Label, *testOptions.catalog.ID))
+				} else {
+					testOptions.Logger.ShortWarn("Shared catalog is nil or incomplete - catalog creation may have failed")
+				}
+				if testOptions.offering != nil && testOptions.offering.Label != nil && testOptions.offering.ID != nil {
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared offering: %s with ID %s", *testOptions.offering.Label, *testOptions.offering.ID))
+				} else {
+					testOptions.Logger.ShortWarn("Shared offering is nil or incomplete - offering import may have failed")
 				}
 			}
 
