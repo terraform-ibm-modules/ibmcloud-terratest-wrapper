@@ -2,14 +2,12 @@ package testaddons
 
 import (
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 
 	project "github.com/IBM/project-go-sdk/projectv1"
-	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/jinzhu/copier"
 	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
@@ -128,7 +126,7 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	newOptions, err := originalOptions.Clone()
 	require.NoError(originalOptions.Testing, err)
 
-	newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, strings.ToLower(random.UniqueId()))
+	newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, common.UniqueId())
 	newOptions.AddonConfig.Prefix = newOptions.Prefix
 
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt

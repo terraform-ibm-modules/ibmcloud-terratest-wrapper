@@ -3,10 +3,8 @@ package testhelper
 import (
 	"fmt"
 	"os/exec"
-	"strings"
 	"testing"
 
-	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/jinzhu/copier"
 	"github.com/stretchr/testify/require"
@@ -262,7 +260,7 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 	newOptions, err := originalOptions.Clone()
 	require.NoError(originalOptions.Testing, err)
 
-	newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, strings.ToLower(random.UniqueId()))
+	newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, common.UniqueId())
 
 	if newOptions.DefaultRegion == "" {
 		newOptions.DefaultRegion = defaultRegion
