@@ -9,7 +9,7 @@ import (
 const base36chars = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 // UniqueId returns a unique (ish) id we can attach to prefix variable passed in terraform configuration
-// length of the random string to be appended can be controller by length argument passed to the function
+// length of the random string to be appended can be controlled by length argument passed to the function
 func UniqueId(length ...int) string {
 
 	// Set default length to 3 characters
