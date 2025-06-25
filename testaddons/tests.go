@@ -553,12 +553,11 @@ func (options *TestAddonOptions) testSetup() error {
 		options.Logger = common.NewTestLogger(options.Testing.Name())
 	}
 
-	if options.TestCaseName != "" {
-		// Use test case name for matrix tests
-		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.TestCaseName))
-	} else if options.ProjectName != "" {
+	if options.ProjectName != "" && options.TestCaseName == "" {
+		// For single tests, include project name in prefix
 		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.ProjectName))
 	} else {
+		// For matrix tests or when no project name, use simple prefix since test name is already in Testing.Name()
 		options.Logger.SetPrefix("ADDON")
 	}
 
@@ -897,6 +896,8 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 			// Apply test case specific prefix if provided
 			if tc.Prefix != "" {
 				testOptions.Prefix = tc.Prefix
+				// Regenerate project name to use the new prefix and include test case name for clarity
+				testOptions.ProjectName = fmt.Sprintf("%s-%s-%s", testOptions.AddonConfig.OfferingName, tc.Name, testOptions.Prefix)
 			}
 
 			// Set the test case name for logging
