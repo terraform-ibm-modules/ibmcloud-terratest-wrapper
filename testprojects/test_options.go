@@ -3,13 +3,11 @@ package testprojects
 import (
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 
 	project "github.com/IBM/project-go-sdk/projectv1"
-	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/jinzhu/copier"
 	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
@@ -141,7 +139,7 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	newOptions, err := originalOptions.Clone()
 	require.NoError(originalOptions.Testing, err)
 
-	newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, strings.ToLower(random.UniqueId()))
+	newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, common.UniqueId())
 
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt
 	checkVariables := []string{ibmcloudApiKeyVar}

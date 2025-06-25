@@ -3,10 +3,8 @@ package testschematic
 import (
 	"fmt"
 	"os"
-	"strings"
 	"testing"
 
-	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/jinzhu/copier"
 	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
@@ -230,7 +228,7 @@ func TestSchematicOptionsDefault(originalOptions *TestSchematicOptions) *TestSch
 	newOptions, err := originalOptions.Clone()
 	require.NoError(originalOptions.Testing, err)
 
-	newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, strings.ToLower(random.UniqueId()))
+	newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, common.UniqueId())
 
 	if newOptions.DefaultRegion == "" {
 		newOptions.DefaultRegion = defaultRegion
