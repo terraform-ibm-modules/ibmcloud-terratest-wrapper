@@ -5,11 +5,14 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
+	"testing"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
@@ -550,12 +553,11 @@ func (options *TestAddonOptions) testSetup() error {
 		options.Logger = common.NewTestLogger(options.Testing.Name())
 	}
 
-	if options.TestCaseName != "" {
-		// Use test case name for matrix tests
-		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.TestCaseName))
-	} else if options.ProjectName != "" {
+	if options.ProjectName != "" && options.TestCaseName == "" {
+		// For single tests, include project name in prefix
 		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.ProjectName))
 	} else {
+		// For matrix tests or when no project name, use simple prefix since test name is already in Testing.Name()
 		options.Logger.SetPrefix("ADDON")
 	}
 
@@ -667,15 +669,29 @@ func (options *TestAddonOptions) testSetup() error {
 	}
 
 	if !options.CatalogUseExisting {
-		options.Logger.ShortInfo(fmt.Sprintf("Creating a new catalog: %s", options.CatalogName))
-		catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
-		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error creating a new catalog: %v", err))
-			options.Testing.Fail()
-			return fmt.Errorf("error creating a new catalog: %w", err)
+		// Check if catalog sharing is enabled and if catalog already exists
+		if options.catalog != nil {
+			if options.catalog.Label != nil && options.catalog.ID != nil {
+				options.Logger.ShortInfo(fmt.Sprintf("Using existing catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+			} else {
+				options.Logger.ShortWarn("Using existing catalog but catalog details are incomplete")
+			}
+		} else {
+			// Create new catalog only if no existing catalog is available
+			options.Logger.ShortInfo(fmt.Sprintf("Creating a new catalog: %s", options.CatalogName))
+			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
+			if err != nil {
+				options.Logger.ShortError(fmt.Sprintf("Error creating a new catalog: %v", err))
+				options.Testing.Fail()
+				return fmt.Errorf("error creating a new catalog: %w", err)
+			}
+			options.catalog = catalog
+			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
+				options.Logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+			} else {
+				options.Logger.ShortWarn("Created catalog but catalog details are incomplete")
+			}
 		}
-		options.catalog = catalog
-		options.Logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
 	} else {
 		options.Logger.ShortInfo("Using existing catalog")
 		options.Logger.ShortWarn("Not implemented yet")
@@ -695,28 +711,55 @@ func (options *TestAddonOptions) testSetup() error {
 		options.Testing.Fail()
 		return fmt.Errorf("AddonConfig.OfferingName is not set")
 	}
-	version := fmt.Sprintf("v0.0.1-dev-%s", options.Prefix)
-	options.AddonConfig.ResolvedVersion = version
-	options.Logger.ShortInfo(fmt.Sprintf("Importing the offering flavor: %s from branch: %s as version: %s", options.AddonConfig.OfferingFlavor, *options.currentBranchUrl, version))
-	offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, options.AddonConfig.OfferingName, options.AddonConfig.OfferingFlavor, version, options.AddonConfig.OfferingInstallKind)
-	if err != nil {
-		options.Logger.ShortError(fmt.Sprintf("Error importing the offering: %v", err))
-		options.Testing.Fail()
-		return fmt.Errorf("error importing the offering: %w", err)
-	}
-	options.offering = offering
-	options.Logger.ShortInfo(fmt.Sprintf("Imported flavor: %s with version: %s to %s", *options.offering.Label, version, *options.catalog.Label))
-	newVersionLocator := ""
-	if options.offering.Kinds != nil {
-		newVersionLocator = *options.offering.Kinds[0].Versions[0].VersionLocator
-	}
-	options.AddonConfig.OfferingName = *options.offering.Name
-	options.AddonConfig.OfferingID = *options.offering.ID
-	options.AddonConfig.VersionLocator = newVersionLocator
-	options.AddonConfig.OfferingLabel = *options.offering.Label
-	options.AddonConfig.OfferingID = *options.offering.ID
+	// Import the offering - check sharing settings
+	if *options.SharedCatalog && options.offering != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Using existing shared offering: %s with ID %s", *options.offering.Label, *options.offering.ID))
 
-	options.Logger.ShortInfo(fmt.Sprintf("Offering Version Locator: %s", options.AddonConfig.VersionLocator))
+		// Set offering details for addon config from existing offering
+		newVersionLocator := ""
+		if options.offering.Kinds != nil && len(options.offering.Kinds) > 0 &&
+			len(options.offering.Kinds[0].Versions) > 0 {
+			newVersionLocator = *options.offering.Kinds[0].Versions[0].VersionLocator
+		}
+		options.AddonConfig.OfferingName = *options.offering.Name
+		options.AddonConfig.OfferingID = *options.offering.ID
+		options.AddonConfig.VersionLocator = newVersionLocator
+		options.AddonConfig.OfferingLabel = *options.offering.Label
+
+		// Set the resolved version from the existing offering
+		if options.offering.Kinds != nil && len(options.offering.Kinds) > 0 &&
+			len(options.offering.Kinds[0].Versions) > 0 &&
+			options.offering.Kinds[0].Versions[0].Version != nil {
+			options.AddonConfig.ResolvedVersion = *options.offering.Kinds[0].Versions[0].Version
+		}
+
+		options.Logger.ShortInfo(fmt.Sprintf("Using shared offering Version Locator: %s", options.AddonConfig.VersionLocator))
+	} else {
+		// Create new offering if sharing is disabled or no existing offering
+		version := fmt.Sprintf("v0.0.1-dev-%s", options.Prefix)
+		options.AddonConfig.ResolvedVersion = version
+		options.Logger.ShortInfo(fmt.Sprintf("Importing the offering flavor: %s from branch: %s as version: %s", options.AddonConfig.OfferingFlavor, *options.currentBranchUrl, version))
+		offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, options.AddonConfig.OfferingName, options.AddonConfig.OfferingFlavor, version, options.AddonConfig.OfferingInstallKind)
+		if err != nil {
+			options.Logger.ShortError(fmt.Sprintf("Error importing the offering: %v", err))
+			options.Testing.Fail()
+			return fmt.Errorf("error importing the offering: %w", err)
+		}
+		options.offering = offering
+		options.Logger.ShortInfo(fmt.Sprintf("Imported flavor: %s with version: %s to %s", *options.offering.Label, version, *options.catalog.Label))
+
+		// Set offering details for addon config
+		newVersionLocator := ""
+		if options.offering.Kinds != nil {
+			newVersionLocator = *options.offering.Kinds[0].Versions[0].VersionLocator
+		}
+		options.AddonConfig.OfferingName = *options.offering.Name
+		options.AddonConfig.OfferingID = *options.offering.ID
+		options.AddonConfig.VersionLocator = newVersionLocator
+		options.AddonConfig.OfferingLabel = *options.offering.Label
+
+		options.Logger.ShortInfo(fmt.Sprintf("Offering Version Locator: %s", options.AddonConfig.VersionLocator))
+	}
 
 	// Create a new project
 	options.Logger.ShortInfo("Creating Test Project")
@@ -787,9 +830,12 @@ func (options *TestAddonOptions) testTearDown() {
 	} else {
 		options.Logger.ShortInfo("No project ID found to delete")
 	}
-	// Delete Catalog
-	if options.catalog != nil {
-		options.Logger.ShortInfo(fmt.Sprintf("Deleting the catalog %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+	// Catalog cleanup logic:
+	// - Matrix tests: handled centrally via CleanupSharedResources()
+	// - Individual tests with SharedCatalog=false: clean up their own catalogs
+	// - Individual tests with SharedCatalog=true: keep catalog for potential reuse
+	if options.catalog != nil && !options.isMatrixTest && !*options.SharedCatalog {
+		options.Logger.ShortInfo(fmt.Sprintf("Deleting the catalog %s with ID %s (SharedCatalog=false)", *options.catalog.Label, *options.catalog.ID))
 		err := options.CloudInfoService.DeleteCatalog(*options.catalog.ID)
 		if err != nil {
 			options.Logger.ShortError(fmt.Sprintf("Error deleting the catalog: %v", err))
@@ -798,6 +844,217 @@ func (options *TestAddonOptions) testTearDown() {
 			options.Logger.ShortInfo(fmt.Sprintf("Deleted the catalog %s with ID %s", *options.catalog.Label, *options.catalog.ID))
 		}
 	} else {
-		options.Logger.ShortInfo("No catalog to delete")
+		if options.isMatrixTest {
+			options.Logger.ShortInfo("Matrix test catalog will be cleaned up centrally")
+		} else if *options.SharedCatalog {
+			options.Logger.ShortInfo("Shared catalog retained for potential reuse (SharedCatalog=true)")
+		} else {
+			options.Logger.ShortInfo("No catalog to delete")
+		}
 	}
+}
+
+// RunAddonTestMatrix runs multiple addon test cases in parallel using a matrix approach
+// This method handles the boilerplate of running parallel tests and automatically shares
+// catalogs and offerings across test cases for efficiency.
+//
+// The method supports two API patterns:
+// 1. Legacy: Only BaseSetupFunc provided, creates options from scratch for each test case
+// 2. Enhanced: BaseOptions + BaseSetupFunc, reduces boilerplate by providing common options
+func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
+	options.Testing.Parallel()
+
+	// Create shared catalog tracking for the matrix
+	var sharedCatalogOptions *TestAddonOptions
+	var sharedMutex = &sync.Mutex{}
+
+	for _, tc := range matrix.TestCases {
+		tc := tc // Capture loop variable for parallel execution
+		options.Testing.Run(tc.Name, func(t *testing.T) {
+			t.Parallel()
+
+			var testOptions *TestAddonOptions
+
+			// Support both legacy and enhanced API patterns
+			if matrix.BaseOptions != nil {
+				// Enhanced API: Start with a copy of BaseOptions
+				testOptions = matrix.BaseOptions.copy()
+				testOptions.Testing = t // Override testing context for this specific test
+
+				// Allow BaseSetupFunc to customize the copied options
+				if matrix.BaseSetupFunc != nil {
+					testOptions = matrix.BaseSetupFunc(testOptions, tc)
+				}
+			} else {
+				// Legacy API: BaseSetupFunc creates options from scratch
+				if matrix.BaseSetupFunc == nil {
+					panic("Either BaseOptions must be provided or BaseSetupFunc must be provided")
+				}
+				testOptions = matrix.BaseSetupFunc(nil, tc)
+			}
+
+			// Apply test case specific prefix if provided
+			if tc.Prefix != "" {
+				testOptions.Prefix = tc.Prefix
+				// Regenerate project name to use the new prefix and include test case name for clarity
+				testOptions.ProjectName = fmt.Sprintf("%s-%s-%s", testOptions.AddonConfig.OfferingName, tc.Name, testOptions.Prefix)
+			}
+
+			// Set the test case name for logging
+			testOptions.TestCaseName = tc.Name
+
+			// Mark as matrix test so teardown doesn't delete shared catalog
+			testOptions.isMatrixTest = true
+
+			// Ensure logger is initialized before using it
+			if testOptions.Logger == nil {
+				testOptions.Logger = common.NewTestLogger(testOptions.Testing.Name())
+			}
+
+			// Ensure CloudInfoService is initialized before using it for catalog operations
+			if testOptions.CloudInfoService == nil {
+				cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
+				if err != nil {
+					require.NoError(t, err, "Failed to initialize CloudInfoService")
+					return
+				}
+				testOptions.CloudInfoService = cloudInfoSvc
+				testOptions.CloudInfoService.SetLogger(testOptions.Logger)
+			}
+
+			// Matrix tests always use shared catalogs for efficiency, regardless of SharedCatalog setting
+			if testOptions.SharedCatalog == nil {
+				testOptions.SharedCatalog = core.BoolPtr(true)
+			} else if !*testOptions.SharedCatalog {
+				testOptions.Logger.ShortWarn("Matrix tests override SharedCatalog=false to use shared catalogs for efficiency")
+				testOptions.SharedCatalog = core.BoolPtr(true)
+			}
+
+			// Apply test case specific settings
+			if tc.SkipTearDown {
+				testOptions.SkipTestTearDown = true
+			}
+			if tc.SkipInfrastructureDeployment {
+				testOptions.SkipInfrastructureDeployment = true
+			}
+
+			// Create addon configuration using the provided config function BEFORE mutex
+			// This ensures we have offering details available for shared offering import
+			testOptions.AddonConfig = matrix.AddonConfigFunc(testOptions, tc)
+
+			// Set dependencies if provided in test case
+			if tc.Dependencies != nil {
+				testOptions.AddonConfig.Dependencies = tc.Dependencies
+			}
+
+			// Merge any additional inputs from the test case
+			if tc.Inputs != nil && len(tc.Inputs) > 0 {
+				if testOptions.AddonConfig.Inputs == nil {
+					testOptions.AddonConfig.Inputs = make(map[string]interface{})
+				}
+				for key, value := range tc.Inputs {
+					testOptions.AddonConfig.Inputs[key] = value
+				}
+			}
+
+			// Handle shared catalog AND offering creation in matrix tests (single mutex)
+			sharedMutex.Lock()
+			if sharedCatalogOptions == nil {
+				// This is the first test case - it will create the shared catalog and offering
+				sharedCatalogOptions = testOptions
+
+				// Create the shared catalog for all matrix tests
+				if !testOptions.CatalogUseExisting {
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Creating shared catalog for matrix: %s", testOptions.CatalogName))
+					catalog, err := testOptions.CloudInfoService.CreateCatalog(testOptions.CatalogName)
+					if err != nil {
+						sharedMutex.Unlock() // Release mutex on error
+						testOptions.Logger.ShortError(fmt.Sprintf("Error creating shared catalog: %v", err))
+						require.NoError(t, err, "Failed to create shared catalog for matrix tests")
+						return
+					}
+					testOptions.catalog = catalog
+					if testOptions.catalog != nil && testOptions.catalog.Label != nil && testOptions.catalog.ID != nil {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Created shared catalog: %s with ID %s", *testOptions.catalog.Label, *testOptions.catalog.ID))
+					} else {
+						testOptions.Logger.ShortWarn("Created shared catalog but catalog details are incomplete")
+					}
+
+					// Import the offering once for all matrix tests (now that we have addon config)
+					version := fmt.Sprintf("v0.0.1-dev-%s", testOptions.Prefix)
+					testOptions.AddonConfig.ResolvedVersion = version
+
+					// Get repository info for offering import
+					repo, branch, repoErr := common.GetCurrentPrRepoAndBranch()
+					if repoErr != nil {
+						sharedMutex.Unlock()
+						testOptions.Logger.ShortError("Error getting current branch and repo for offering import")
+						require.NoError(t, repoErr, "Failed to get repository info for offering import")
+						return
+					}
+
+					// Convert repository URL to HTTPS format for catalog import
+					if strings.HasPrefix(repo, "git@") {
+						repo = strings.Replace(repo, ":", "/", 1)
+						repo = strings.Replace(repo, "git@", "https://", 1)
+						repo = strings.TrimSuffix(repo, ".git")
+					} else if strings.HasPrefix(repo, "git://") {
+						repo = strings.Replace(repo, "git://", "https://", 1)
+						repo = strings.TrimSuffix(repo, ".git")
+					} else if strings.HasPrefix(repo, "https://") {
+						repo = strings.TrimSuffix(repo, ".git")
+					}
+
+					branchUrl := fmt.Sprintf("%s/tree/%s", repo, branch)
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Importing shared offering: %s from branch: %s as version: %s", testOptions.AddonConfig.OfferingFlavor, branchUrl, version))
+
+					offering, err := testOptions.CloudInfoService.ImportOffering(*testOptions.catalog.ID, branchUrl, testOptions.AddonConfig.OfferingName, testOptions.AddonConfig.OfferingFlavor, version, testOptions.AddonConfig.OfferingInstallKind)
+					if err != nil {
+						sharedMutex.Unlock() // Release mutex on error
+						testOptions.Logger.ShortError(fmt.Sprintf("Error importing shared offering: %v", err))
+						require.NoError(t, err, "Failed to import shared offering for matrix tests")
+						return
+					}
+					testOptions.offering = offering
+
+					if testOptions.offering != nil && testOptions.offering.Label != nil && testOptions.offering.ID != nil {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Imported shared offering: %s with ID %s", *testOptions.offering.Label, *testOptions.offering.ID))
+					} else {
+						testOptions.Logger.ShortWarn("Imported shared offering but offering details are incomplete")
+					}
+				}
+				sharedMutex.Unlock() // Release mutex only AFTER both catalog AND offering creation is complete
+			} else {
+				// Share the catalog and offering tracking fields from the first instance
+				// At this point, we know both catalog and offering creation is complete because the mutex ensures it
+				testOptions.catalog = sharedCatalogOptions.catalog
+				testOptions.offering = sharedCatalogOptions.offering
+				sharedMutex.Unlock()
+				if testOptions.catalog != nil && testOptions.catalog.Label != nil && testOptions.catalog.ID != nil {
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared catalog: %s with ID %s", *testOptions.catalog.Label, *testOptions.catalog.ID))
+				} else {
+					testOptions.Logger.ShortWarn("Shared catalog is nil or incomplete - catalog creation may have failed")
+				}
+				if testOptions.offering != nil && testOptions.offering.Label != nil && testOptions.offering.ID != nil {
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared offering: %s with ID %s", *testOptions.offering.Label, *testOptions.offering.ID))
+				} else {
+					testOptions.Logger.ShortWarn("Shared offering is nil or incomplete - offering import may have failed")
+				}
+			}
+
+			// Run the test
+			err := testOptions.RunAddonTest()
+			require.NoError(t, err, "Addon Test had an unexpected error")
+		})
+	}
+
+	// Cleanup shared resources after all tests complete
+	// Use a separate goroutine that waits for all test goroutines to complete
+	go func() {
+		options.Testing.Cleanup(func() {
+			if sharedCatalogOptions != nil {
+				sharedCatalogOptions.CleanupSharedResources()
+			}
+		})
+	}()
 }

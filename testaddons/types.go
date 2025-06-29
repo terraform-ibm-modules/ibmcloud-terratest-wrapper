@@ -24,8 +24,13 @@ type AddonTestCase struct {
 type AddonTestMatrix struct {
 	// TestCases are the individual test cases to run
 	TestCases []AddonTestCase
-	// BaseSetupFunc is called to create the base TestAddonOptions for each test case
-	BaseSetupFunc func(testCase AddonTestCase) *TestAddonOptions
+	// BaseOptions contains common options that apply to all test cases (optional)
+	// When provided, reduces boilerplate by avoiding repetition in BaseSetupFunc
+	BaseOptions *TestAddonOptions
+	// BaseSetupFunc is called to create or customize TestAddonOptions for each test case
+	// If BaseOptions is provided, this function receives a copy of BaseOptions to customize
+	// If BaseOptions is nil, this function must create the options from scratch (legacy behavior)
+	BaseSetupFunc func(baseOptions *TestAddonOptions, testCase AddonTestCase) *TestAddonOptions
 	// AddonConfigFunc is called to create the addon configuration for each test case
 	AddonConfigFunc func(options *TestAddonOptions, testCase AddonTestCase) cloudinfo.AddonConfig
 }

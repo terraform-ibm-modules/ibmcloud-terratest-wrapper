@@ -4,7 +4,7 @@ This guide provides comprehensive examples for different addon testing scenarios
 
 ## Basic Examples
 
-### Example 1: Simple Terraform Addon Test (Recommended)
+### Simple Terraform Addon Test (Recommended)
 
 This is the standard approach for most addon testing scenarios:
 
@@ -47,7 +47,7 @@ func TestRunTerraformAddon(t *testing.T) {
 }
 ```
 
-### Example 2: Stack Addon Test (Advanced/Rare Use Case)
+### Stack Addon Test (Advanced/Rare Use Case)
 
 This demonstrates how to test a Stack addon. **Note: This is an advanced use case that most users won't need.**
 
@@ -73,9 +73,81 @@ func TestRunStackAddon(t *testing.T) {
 }
 ```
 
+## Catalog Sharing Examples
+
+### Individual Tests with Shared Catalog Cleanup
+
+When running multiple individual tests with shared catalogs, use manual cleanup:
+
+```golang
+package test
+
+import (
+    "testing"
+    "github.com/IBM/go-sdk-core/v5/core"
+    "github.com/stretchr/testify/require"
+    "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+    "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testaddons"
+)
+
+func TestMultipleAddonsWithSharedCatalog(t *testing.T) {
+    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing:       t,
+        Prefix:        "shared-test",
+        ResourceGroup: "my-resource-group",
+        SharedCatalog: core.BoolPtr(true), // Enable catalog sharing
+    })
+
+    // Ensure cleanup happens at the end
+    defer baseOptions.CleanupSharedResources()
+
+    // Test scenario 1
+    t.Run("BasicDeployment", func(t *testing.T) {
+        options1 := baseOptions
+        options1.AddonConfig = cloudinfo.NewAddonConfigTerraform(
+            options1.Prefix,
+            "test-addon",
+            "basic-flavor",
+            map[string]interface{}{
+                "prefix": options1.Prefix,
+                "region": "us-south",
+            },
+        )
+        err := options1.RunAddonTest()
+        require.NoError(t, err)
+    })
+
+    // Test scenario 2 - reuses the same catalog/offering
+    t.Run("CustomConfiguration", func(t *testing.T) {
+        options2 := baseOptions
+        options2.AddonConfig = cloudinfo.NewAddonConfigTerraform(
+            options2.Prefix,
+            "test-addon",
+            "basic-flavor", // Same flavor reuses offering
+            map[string]interface{}{
+                "prefix": options2.Prefix,
+                "region": "us-east",
+                "custom_setting": "value",
+            },
+        )
+        err := options2.RunAddonTest()
+        require.NoError(t, err)
+    })
+
+    // CleanupSharedResources() called automatically via defer
+    // Catalog and offering are deleted after all tests complete
+}
+```
+
+**Key Benefits:**
+
+- **Efficiency**: Creates only 1 catalog + offering for multiple test scenarios
+- **Speed**: Faster test execution due to fewer IBM Cloud API calls
+- **Guaranteed Cleanup**: `defer` ensures resources are cleaned up even if tests fail
+
 ## Dependency Management Examples
 
-### Example 3: Automatic Dependency Discovery
+### Automatic Dependency Discovery
 
 By default, the framework automatically discovers and processes dependencies:
 
@@ -101,7 +173,7 @@ func TestRunAddonWithAutoDependencies(t *testing.T) {
 }
 ```
 
-### Example 4: Manual Dependency Configuration
+### Manual Dependency Configuration
 
 You can override automatic dependency discovery by explicitly setting dependencies:
 
@@ -149,7 +221,7 @@ func TestRunAddonWithCustomDependencyConfig(t *testing.T) {
 
 ## Parallel Testing Examples
 
-### Example 5: Manual Matrix Testing
+### Manual Matrix Testing
 
 ```golang
 func TestRunAddonTests(t *testing.T) {
@@ -213,7 +285,7 @@ func TestRunAddonTests(t *testing.T) {
 }
 ```
 
-### Example 6: Framework Matrix Testing
+### Framework Matrix Testing
 
 Using the framework's built-in matrix testing utilities:
 
@@ -245,12 +317,15 @@ func TestRunAddonTestsWithFramework(t *testing.T) {
                 },
             },
         },
-        BaseSetupFunc: func(testCase testaddons.AddonTestCase) *testaddons.TestAddonOptions {
-            return testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
-                Testing:       t,
-                Prefix:        testCase.Prefix,
-                ResourceGroup: "my-resource-group",
-            })
+        BaseOptions: testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+            Testing:       t,
+            Prefix:        "matrix-example", // Test cases will override with their own prefixes
+            ResourceGroup: "my-resource-group",
+        }),
+        BaseSetupFunc: func(baseOptions *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) *testaddons.TestAddonOptions {
+            // Optional: customize options per test case
+            // Most common patterns are handled automatically (e.g., prefix assignment)
+            return baseOptions
         },
         AddonConfigFunc: func(options *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) cloudinfo.AddonConfig {
             return cloudinfo.NewAddonConfigTerraform(
@@ -265,13 +340,14 @@ func TestRunAddonTestsWithFramework(t *testing.T) {
         },
     }
 
-    testaddons.RunAddonTestMatrix(t, matrix)
+    baseOptions.RunAddonTestMatrix(matrix)
+}
 }
 ```
 
 ## Hook Examples
 
-### Example 7: Using Pre-Deploy Hook
+### Using Pre-Deploy Hook
 
 ```golang
 func TestAddonWithPreDeployHook(t *testing.T) {
@@ -291,10 +367,12 @@ func TestAddonWithPreDeployHook(t *testing.T) {
     // Pre-deployment configuration
     options.PreDeployHook = func(options *testaddons.TestAddonOptions) error {
         // Configure additional environment variables
-        os.Setenv("CUSTOM_CONFIG", "value")
+        // Note: import "os" required for os.Setenv
+        // os.Setenv("CUSTOM_CONFIG", "value")
 
         // Validate custom prerequisites
         if err := validateCustomPrerequisites(); err != nil {
+            // Note: import "fmt" required for fmt.Errorf
             return fmt.Errorf("custom prerequisites failed: %w", err)
         }
 
@@ -312,7 +390,7 @@ func validateCustomPrerequisites() error {
 }
 ```
 
-### Example 8: Using Post-Deploy Hook for Validation
+### Using Post-Deploy Hook for Validation
 
 ```golang
 func TestAddonWithPostDeployValidation(t *testing.T) {
@@ -337,7 +415,7 @@ func TestAddonWithPostDeployValidation(t *testing.T) {
         }
 
         // Validate deployed resources meet custom requirements
-        if err := validateDeployedResources(options.ProjectID); err != nil {
+        if err := validateDeployedResources(options.currentProjectConfig.ProjectID); err != nil {
             return fmt.Errorf("resource validation failed: %w", err)
         }
 
@@ -360,7 +438,7 @@ func validateDeployedResources(projectID string) error {
 }
 ```
 
-### Example 9: Complete Hook Example with Cleanup
+### Complete Hook Example with Cleanup
 
 ```golang
 func TestAddonWithAllHooks(t *testing.T) {
@@ -395,7 +473,7 @@ func TestAddonWithAllHooks(t *testing.T) {
     options.PreUndeployHook = func(options *testaddons.TestAddonOptions) error {
         options.Logger.ShortInfo("Running pre-undeploy data preservation")
         // Export important data before cleanup
-        if err := exportTestData(options.ProjectID); err != nil {
+        if err := exportTestData(options.currentProjectConfig.ProjectID); err != nil {
             return fmt.Errorf("data export failed: %w", err)
         }
         return nil
@@ -425,7 +503,7 @@ func verifyCleanupComplete(resourceGroup string) error {
 
 ## Advanced Configuration Examples
 
-### Example 10: Custom Test Case Naming for Logging
+### Custom Test Case Naming for Logging
 
 ```golang
 func TestAddonWithCustomLogging(t *testing.T) {
@@ -473,6 +551,7 @@ func TestMultipleScenarios(t *testing.T) {
             t.Parallel()
 
             options := setupAddonOptions(t, fmt.Sprintf("multi-%s", scenario.environment))
+            // Note: import "fmt" required for fmt.Sprintf
             options.TestCaseName = scenario.name // Clear identification in logs
 
             options.AddonConfig = cloudinfo.NewAddonConfigTerraform(
@@ -492,7 +571,7 @@ func TestMultipleScenarios(t *testing.T) {
 }
 ```
 
-### Example 11: Custom Validation Options
+### Custom Validation Options
 
 ```golang
 func TestAddonWithCustomValidation(t *testing.T) {
@@ -528,7 +607,7 @@ func TestAddonWithCustomValidation(t *testing.T) {
 }
 ```
 
-### Example 12: Skip Infrastructure Deployment
+### Skip Infrastructure Deployment
 
 This example shows how to run all validations without actually deploying infrastructure:
 
@@ -555,7 +634,7 @@ func TestAddonValidationOnly(t *testing.T) {
 }
 ```
 
-### Example 13: Custom Project Configuration
+### Custom Project Configuration
 
 ```golang
 func TestAddonWithCustomProject(t *testing.T) {
@@ -590,7 +669,7 @@ func TestAddonWithCustomProject(t *testing.T) {
 
 ## Multi-Region Testing Example
 
-### Example 14: Testing Across Multiple Regions
+### Testing Across Multiple Regions
 
 ```golang
 func TestMultiRegionAddon(t *testing.T) {
@@ -622,7 +701,7 @@ func TestMultiRegionAddon(t *testing.T) {
 
 ## Error Handling Example
 
-### Example 15: Test with Error Handling and Retry Logic
+### Test with Error Handling and Retry Logic
 
 ```golang
 func TestAddonWithErrorHandling(t *testing.T) {
