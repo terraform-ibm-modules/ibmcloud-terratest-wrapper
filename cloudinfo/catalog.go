@@ -505,8 +505,10 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 		return fmt.Sprintf("%s|%s|%s", addon.CatalogID, addon.OfferingID, addon.OfferingFlavor)
 	}
 
-	// Always add the main addon first with its generated config name
-	mainAddon.ConfigName = fmt.Sprintf("%s-%s", mainAddon.Prefix, mainAddon.OfferingName)
+	// Always add the main addon first with its config name (generate if not set)
+	if mainAddon.ConfigName == "" {
+		mainAddon.ConfigName = fmt.Sprintf("%s-%s", mainAddon.Prefix, mainAddon.OfferingName)
+	}
 	deploymentList = append(deploymentList, *mainAddon)
 	processedOfferings[getOfferingKey(mainAddon)] = true
 
@@ -519,9 +521,11 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 
 			// Only process enabled dependencies that haven't been seen before (by offering identity)
 			if dep.Enabled != nil && *dep.Enabled && !processedOfferings[offeringKey] {
-				// Generate a unique config name for this dependency
-				randomPostfix := strings.ToLower(random.UniqueId())
-				dep.ConfigName = fmt.Sprintf("%s-%s", dep.OfferingName, randomPostfix)
+				// Generate a unique config name for this dependency if not already set
+				if dep.ConfigName == "" {
+					randomPostfix := strings.ToLower(random.UniqueId())
+					dep.ConfigName = fmt.Sprintf("%s-%s", dep.OfferingName, randomPostfix)
+				}
 
 				// Add to deployment list and mark as processed
 				deploymentList = append(deploymentList, dep)

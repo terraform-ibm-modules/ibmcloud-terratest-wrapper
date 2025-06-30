@@ -649,3 +649,74 @@ func TestComprehensiveAddon(t *testing.T) {
     assert.NoError(t, err)
 }
 ```
+
+## Shared Project Configuration
+
+### Project Creation and Sharing
+
+The framework always creates temporary projects for tests. The `SharedProject` option controls whether multiple tests share the same newly-created project or each gets its own:
+
+The `SharedProject` option controls project sharing behavior, providing additional resource optimization:
+
+```golang
+options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "test",
+    ResourceGroup: "my-rg",
+    SharedProject: core.BoolPtr(false),  // Default: false for complete isolation
+})
+```
+
+**SharedProject Settings:**
+
+- `false` (default): Each test creates its own temporary project for complete isolation and automatic cleanup
+- `true`: Multiple tests share the same temporary project (each test gets its own configuration within the shared project)
+
+**Sharing Behavior:**
+
+```golang
+// SharedProject = false (default) - each test gets its own project
+isolatedOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "isolated-test",
+    ResourceGroup: "my-rg",
+    SharedProject: core.BoolPtr(false),  // Default behavior
+})
+
+// Each test creates and cleans up its own temporary project
+err1 := isolatedOptions.RunAddonTest()  // Creates & deletes project A
+err2 := isolatedOptions.RunAddonTest()  // Creates & deletes project B
+
+// SharedProject = true - multiple tests share one project
+sharedOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "shared-test",
+    ResourceGroup: "my-rg",
+    SharedProject: core.BoolPtr(true),
+})
+
+// First test creates project, subsequent tests reuse it (each gets own configuration)
+err3 := sharedOptions.RunAddonTest()  // Creates shared project with config A
+err4 := sharedOptions.RunAddonTest()  // Reuses shared project with config B
+```
+
+**When to use SharedProject:**
+
+- **SharedProject=false**: Most tests, CI pipelines, when project isolation is needed, debugging project issues
+- **SharedProject=true**: Development workflows, testing multiple configurations, maximum efficiency
+
+**Resource Sharing Combinations:**
+
+```golang
+// Maximum isolation (default) - each test gets its own resources
+options.SharedCatalog = core.BoolPtr(false)  // Each test creates own catalog
+options.SharedProject = core.BoolPtr(false)  // Each test creates own project
+
+// Balanced efficiency - share catalogs but isolate projects
+options.SharedCatalog = core.BoolPtr(true)   // Share catalogs between tests
+options.SharedProject = core.BoolPtr(false)  // Each test gets own project
+
+// Maximum efficiency - share both catalogs and projects
+options.SharedCatalog = core.BoolPtr(true)   // Share catalogs between tests
+options.SharedProject = core.BoolPtr(true)   // Share projects between tests
+```

@@ -556,8 +556,11 @@ func (options *TestAddonOptions) testSetup() error {
 	if options.ProjectName != "" && options.TestCaseName == "" {
 		// For single tests, include project name in prefix
 		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.ProjectName))
+	} else if options.TestCaseName != "" {
+		// For matrix tests, include test case name in prefix
+		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.TestCaseName))
 	} else {
-		// For matrix tests or when no project name, use simple prefix since test name is already in Testing.Name()
+		// For tests without project name or test case name, use simple prefix
 		options.Logger.SetPrefix("ADDON")
 	}
 
@@ -761,44 +764,63 @@ func (options *TestAddonOptions) testSetup() error {
 		options.Logger.ShortInfo(fmt.Sprintf("Offering Version Locator: %s", options.AddonConfig.VersionLocator))
 	}
 
-	// Create a new project
-	options.Logger.ShortInfo("Creating Test Project")
-	if options.ProjectDestroyOnDelete == nil {
-		options.ProjectDestroyOnDelete = core.BoolPtr(true)
+	// Create a new project (only if not already created or shared)
+	if options.currentProject == nil {
+		if options.isMatrixTest && options.SharedProject != nil && *options.SharedProject {
+			options.Logger.ShortInfo("Shared project should have been set up but was not - creating individual project as fallback")
+		} else {
+			options.Logger.ShortInfo("Creating individual project for test")
+		}
+		if options.ProjectDestroyOnDelete == nil {
+			options.ProjectDestroyOnDelete = core.BoolPtr(true)
+		}
+		if options.ProjectAutoDeploy == nil {
+			options.ProjectAutoDeploy = core.BoolPtr(false)
+		}
+		if options.ProjectMonitoringEnabled == nil {
+			options.ProjectMonitoringEnabled = core.BoolPtr(false)
+		}
+		options.currentProjectConfig = &cloudinfo.ProjectsConfig{
+			Location:           options.ProjectLocation,
+			ProjectName:        options.ProjectName,
+			ProjectDescription: options.ProjectDescription,
+			ResourceGroup:      options.ResourceGroup,
+			DestroyOnDelete:    *options.ProjectDestroyOnDelete,
+			MonitoringEnabled:  *options.ProjectMonitoringEnabled,
+			AutoDeploy:         *options.ProjectAutoDeploy,
+			Environments:       options.ProjectEnvironments,
+		}
+		prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
+		if err != nil {
+			options.Logger.ShortError(fmt.Sprintf("Error creating a new project: %v", err))
+			options.Logger.ShortError(fmt.Sprintf("Response: %v", resp))
+			options.Testing.Fail()
+			return fmt.Errorf("error creating a new project: %w", err)
+		}
+		options.currentProject = prj
+		options.currentProjectConfig.ProjectID = *options.currentProject.ID
+		options.Logger.ShortInfo(fmt.Sprintf("Created a new project: %s with ID %s", options.ProjectName, options.currentProjectConfig.ProjectID))
+		projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", options.currentProjectConfig.ProjectID)
+		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
+		region := options.currentProjectConfig.Location
+		if region == "" {
+			region = "unknown"
+		}
+		options.Logger.ShortInfo(fmt.Sprintf("Project Region: %s", region))
+	} else {
+		// Using shared or existing project
+		if options.isMatrixTest && options.SharedProject != nil && *options.SharedProject {
+			options.Logger.ShortInfo(fmt.Sprintf("Using shared project: %s with ID %s", options.currentProjectConfig.ProjectName, *options.currentProject.ID))
+		} else {
+			options.Logger.ShortInfo(fmt.Sprintf("Using existing project: %s with ID %s", options.ProjectName, *options.currentProject.ID))
+		}
+		// Ensure currentProjectConfig is set up properly for shared projects
+		if options.currentProjectConfig == nil {
+			options.currentProjectConfig = &cloudinfo.ProjectsConfig{
+				ProjectID: *options.currentProject.ID,
+			}
+		}
 	}
-	if options.ProjectAutoDeploy == nil {
-		options.ProjectAutoDeploy = core.BoolPtr(false)
-	}
-	if options.ProjectMonitoringEnabled == nil {
-		options.ProjectMonitoringEnabled = core.BoolPtr(false)
-	}
-	options.currentProjectConfig = &cloudinfo.ProjectsConfig{
-		Location:           options.ProjectLocation,
-		ProjectName:        options.ProjectName,
-		ProjectDescription: options.ProjectDescription,
-		ResourceGroup:      options.ResourceGroup,
-		DestroyOnDelete:    *options.ProjectDestroyOnDelete,
-		MonitoringEnabled:  *options.ProjectMonitoringEnabled,
-		AutoDeploy:         *options.ProjectAutoDeploy,
-		Environments:       options.ProjectEnvironments,
-	}
-	prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
-	if err != nil {
-		options.Logger.ShortError(fmt.Sprintf("Error creating a new project: %v", err))
-		options.Logger.ShortError(fmt.Sprintf("Response: %v", resp))
-		options.Testing.Fail()
-		return fmt.Errorf("error creating a new project: %w", err)
-	}
-	options.currentProject = prj
-	options.currentProjectConfig.ProjectID = *options.currentProject.ID
-	options.Logger.ShortInfo(fmt.Sprintf("Created a new project: %s with ID %s", options.ProjectName, options.currentProjectConfig.ProjectID))
-	projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", options.currentProjectConfig.ProjectID)
-	options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
-	region := options.currentProjectConfig.Location
-	if region == "" {
-		region = "unknown"
-	}
-	options.Logger.ShortInfo(fmt.Sprintf("Project Region: %s", region))
 
 	return nil
 }
@@ -816,7 +838,13 @@ func (options *TestAddonOptions) testTearDown() {
 
 	// perform the test teardown
 	options.Logger.ShortInfo("Performing test teardown")
-	if options.currentProject != nil && options.currentProject.ID != nil {
+
+	// Project cleanup logic:
+	// - Matrix tests: handled centrally via CleanupSharedResources()
+	// - Individual tests with SharedProject=false: clean up their own projects
+	// - Individual tests with SharedProject=true: keep project for potential reuse
+	if options.currentProject != nil && options.currentProject.ID != nil && !options.isMatrixTest && !*options.SharedProject {
+		options.Logger.ShortInfo(fmt.Sprintf("Deleting the project %s with ID %s (SharedProject=false)", options.ProjectName, *options.currentProject.ID))
 		_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
 		if assert.NoError(options.Testing, err) {
 			if assert.Equal(options.Testing, 202, resp.StatusCode) {
@@ -828,8 +856,15 @@ func (options *TestAddonOptions) testTearDown() {
 			options.Logger.ShortError(fmt.Sprintf("Error deleting Test Project: %s", err))
 		}
 	} else {
-		options.Logger.ShortInfo("No project ID found to delete")
+		if options.isMatrixTest {
+			options.Logger.ShortInfo("Matrix test project will be cleaned up centrally")
+		} else if options.SharedProject != nil && *options.SharedProject {
+			options.Logger.ShortInfo("Shared project retained for potential reuse (SharedProject=true)")
+		} else {
+			options.Logger.ShortInfo("No project ID found to delete")
+		}
 	}
+
 	// Catalog cleanup logic:
 	// - Matrix tests: handled centrally via CleanupSharedResources()
 	// - Individual tests with SharedCatalog=false: clean up their own catalogs
@@ -864,9 +899,56 @@ func (options *TestAddonOptions) testTearDown() {
 func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 	options.Testing.Parallel()
 
-	// Create shared catalog tracking for the matrix
+	// Create shared resource tracking for the matrix
 	var sharedCatalogOptions *TestAddonOptions
 	var sharedMutex = &sync.Mutex{}
+
+	// Pre-analyze all test cases to determine if any will need shared projects
+	// This ensures we create the shared project during the first test setup if needed
+	needsSharedProject := false
+	for _, preTC := range matrix.TestCases {
+		// Create a temporary testOptions to determine SharedProject setting for this test case
+		var tempTestOptions *TestAddonOptions
+		if matrix.BaseOptions != nil {
+			tempTestOptions = matrix.BaseOptions.copy()
+			if matrix.BaseSetupFunc != nil {
+				tempTestOptions = matrix.BaseSetupFunc(tempTestOptions, preTC)
+			}
+		} else {
+			if matrix.BaseSetupFunc == nil {
+				panic("Either BaseOptions must be provided or BaseSetupFunc must be provided")
+			}
+			tempTestOptions = matrix.BaseSetupFunc(nil, preTC)
+		}
+
+		// Apply the same SharedProject logic as the main loop
+		// Matrix tests default to shared projects for efficiency - override any BaseOptions setting
+		if preTC.SkipInfrastructureDeployment {
+			// Validation-only tests always share a project since they don't deploy infrastructure
+			tempTestOptions.SharedProject = core.BoolPtr(true)
+			needsSharedProject = true
+		} else {
+			// Deployment tests also default to sharing in matrix mode for efficiency
+			tempTestOptions.SharedProject = core.BoolPtr(true)
+			needsSharedProject = true
+		}
+	}
+
+	// Debug log the shared project determination
+	// Don't initialize logger here - let each test case initialize its own logger with correct prefix
+	// This ensures matrix test cases get proper "[TestName - ADDON - TestCaseName]" prefixes
+
+	if needsSharedProject {
+		// Only log if we have a logger available, otherwise skip logging at matrix level
+		if options.Logger != nil {
+			options.Logger.ShortInfo("Matrix tests determined to need shared project - will create one")
+		}
+	} else {
+		// Only log if we have a logger available, otherwise skip logging at matrix level
+		if options.Logger != nil {
+			options.Logger.ShortInfo("Matrix tests determined to NOT need shared project")
+		}
+	}
 
 	for _, tc := range matrix.TestCases {
 		tc := tc // Capture loop variable for parallel execution
@@ -896,9 +978,19 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 			// Apply test case specific prefix if provided
 			if tc.Prefix != "" {
 				testOptions.Prefix = tc.Prefix
-				// Regenerate project name to use the new prefix and include test case name for clarity
-				testOptions.ProjectName = fmt.Sprintf("%s-%s-%s", testOptions.AddonConfig.OfferingName, tc.Name, testOptions.Prefix)
 			}
+			// Ensure prefix is unique to avoid project name collisions
+			// This is critical for matrix tests where multiple tests run in parallel
+			// Keep test case name for logging and debugging, but use shorter prefix for resources
+			if testOptions.Prefix != "" {
+				// Use shorter prefix for resources: just base prefix + unique ID
+				// Test case name is preserved in TestCaseName for logging purposes
+				testOptions.Prefix = fmt.Sprintf("%s-%s", testOptions.Prefix, common.UniqueId())
+			} else {
+				// Generate prefix without test case name if no base prefix provided to keep it short
+				testOptions.Prefix = fmt.Sprintf("test-%s", common.UniqueId())
+			}
+			testOptions.AddonConfig.Prefix = testOptions.Prefix
 
 			// Set the test case name for logging
 			testOptions.TestCaseName = tc.Name
@@ -938,13 +1030,130 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				testOptions.SkipInfrastructureDeployment = true
 			}
 
-			// Create addon configuration using the provided config function BEFORE mutex
-			// This ensures we have offering details available for shared offering import
+			// Create addon configuration using the provided config function FIRST
+			// This ensures we have offering details available for project naming and shared offering import
 			testOptions.AddonConfig = matrix.AddonConfigFunc(testOptions, tc)
 
 			// Set dependencies if provided in test case
 			if tc.Dependencies != nil {
 				testOptions.AddonConfig.Dependencies = tc.Dependencies
+
+				// Ensure unique configuration names for dependencies as well
+				for i := range testOptions.AddonConfig.Dependencies {
+					dep := &testOptions.AddonConfig.Dependencies[i]
+					if dep.ConfigName == "" {
+						// Build unique dependency config name
+						depConfigNameParts := []string{}
+						if dep.Prefix != "" {
+							depConfigNameParts = append(depConfigNameParts, dep.Prefix)
+						}
+						if dep.OfferingName != "" {
+							depConfigNameParts = append(depConfigNameParts, dep.OfferingName)
+						}
+						if dep.OfferingFlavor != "" {
+							depConfigNameParts = append(depConfigNameParts, dep.OfferingFlavor)
+						}
+						if tc.Name != "" {
+							depConfigNameParts = append(depConfigNameParts, tc.Name)
+						}
+
+						if len(depConfigNameParts) > 0 {
+							dep.ConfigName = strings.Join(depConfigNameParts, "-")
+						} else {
+							dep.ConfigName = fmt.Sprintf("dep-config-%s", common.UniqueId())
+						}
+					}
+				}
+			}
+
+			// Ensure unique configuration names to avoid conflicts when sharing projects
+			// Include test case name and offering details for better identification
+			if testOptions.AddonConfig.ConfigName == "" {
+				// Build a unique configuration name that includes test case and offering info
+				configNameParts := []string{}
+				if testOptions.AddonConfig.Prefix != "" {
+					configNameParts = append(configNameParts, testOptions.AddonConfig.Prefix)
+				}
+				if testOptions.AddonConfig.OfferingName != "" {
+					configNameParts = append(configNameParts, testOptions.AddonConfig.OfferingName)
+				}
+				if tc.Name != "" {
+					configNameParts = append(configNameParts, tc.Name)
+				}
+
+				// If we have parts, join them; otherwise use a fallback
+				if len(configNameParts) > 0 {
+					testOptions.AddonConfig.ConfigName = strings.Join(configNameParts, "-")
+				} else {
+					testOptions.AddonConfig.ConfigName = fmt.Sprintf("config-%s", common.UniqueId())
+				}
+			}
+
+			// Matrix tests default to shared projects for efficiency now that we have unique config names
+			// Override any BaseOptions setting for matrix tests since they can safely share
+			if tc.SkipInfrastructureDeployment {
+				// Validation-only tests always share a project since they don't deploy infrastructure
+				testOptions.SharedProject = core.BoolPtr(true)
+				testOptions.Logger.ShortInfo("Matrix validation test using shared project for efficiency")
+			} else {
+				// Deployment tests also default to sharing in matrix mode for efficiency
+				// Configuration names include test case names to prevent conflicts
+				testOptions.SharedProject = core.BoolPtr(true)
+				testOptions.Logger.ShortInfo("Matrix deployment test using shared project for efficiency")
+			}
+
+			// Now that SharedProject is determined, set the appropriate project name
+			if testOptions.Prefix != "" {
+				// For shared projects, use a consistent name across all test cases
+				if testOptions.SharedProject != nil && *testOptions.SharedProject {
+					// All shared projects use the same base name so they reference the same project
+					// We'll use the offering name from the first test case that creates the shared project
+					// The actual project name will be set when the shared project is created
+					// For now, use a placeholder that will be overridden when the shared project is assigned
+					testOptions.ProjectName = "shared-project-placeholder"
+				} else { // Individual projects use descriptive names showing the specific test case
+					// Format: "{offering-short-name}-{test-case}-{base-prefix}-{unique-id}"
+					nameComponents := []string{}
+
+					if testOptions.AddonConfig.OfferingName != "" {
+						// Extract a shorter, more readable name from the offering
+						offeringShortName := testOptions.AddonConfig.OfferingName
+						if strings.HasPrefix(offeringShortName, "deploy-arch-") {
+							// Strip "deploy-arch-" prefix if present (e.g., "deploy-arch-ibm-observability" -> "ibm-observability")
+							offeringShortName = strings.TrimPrefix(offeringShortName, "deploy-arch-")
+						}
+						nameComponents = append(nameComponents, offeringShortName)
+					}
+
+					// Add test case name in lowercase for readability
+					if tc.Name != "" {
+						nameComponents = append(nameComponents, strings.ToLower(tc.Name))
+					}
+
+					// Extract base prefix and unique ID
+					prefixParts := strings.Split(testOptions.Prefix, "-")
+					if len(prefixParts) >= 3 {
+						// We have base-prefix-testname-uniqueid, so take base prefix and unique ID
+						basePrefix := prefixParts[0]
+						uniqueId := prefixParts[len(prefixParts)-1]
+						nameComponents = append(nameComponents, basePrefix, uniqueId)
+					} else {
+						// Fallback to the full prefix
+						nameComponents = append(nameComponents, testOptions.Prefix)
+					}
+
+					testOptions.ProjectName = strings.Join(nameComponents, "-")
+				}
+			}
+
+			// Log project sharing behavior for debugging
+			testOptions.Logger.ShortInfo(fmt.Sprintf("Test case %s: SharedProject=%t, SkipInfrastructureDeployment=%t, ProjectName=%s", tc.Name, *testOptions.SharedProject, tc.SkipInfrastructureDeployment, testOptions.ProjectName))
+			if *testOptions.SharedProject {
+				if tc.SkipInfrastructureDeployment {
+					testOptions.Logger.ShortInfo("Matrix validation test using shared project for efficiency")
+				} else {
+					testOptions.Logger.ShortInfo("Matrix deployment test using shared project")
+				}
 			}
 
 			// Merge any additional inputs from the test case
@@ -965,8 +1174,23 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 
 				// Create the shared catalog for all matrix tests
 				if !testOptions.CatalogUseExisting {
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Creating shared catalog for matrix: %s", testOptions.CatalogName))
-					catalog, err := testOptions.CloudInfoService.CreateCatalog(testOptions.CatalogName)
+					// Generate a more descriptive catalog name for matrix tests
+					offeringShortName := "addon"
+					if testOptions.AddonConfig.OfferingName != "" {
+						// Extract a shorter, more readable name from the offering
+						offeringShortName = testOptions.AddonConfig.OfferingName
+						if strings.HasPrefix(offeringShortName, "deploy-arch-") {
+							// Strip "deploy-arch-" prefix if present (e.g., "deploy-arch-ibm-observability" -> "ibm-observability")
+							offeringShortName = strings.TrimPrefix(offeringShortName, "deploy-arch-")
+						}
+					}
+					// Extract just the unique ID from the prefix for the catalog name
+					prefixParts := strings.Split(testOptions.Prefix, "-")
+					uniqueId := prefixParts[len(prefixParts)-1]
+					descriptiveCatalogName := fmt.Sprintf("matrix-test-%s-catalog-%s", offeringShortName, uniqueId)
+
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Creating shared catalog for matrix: %s", descriptiveCatalogName))
+					catalog, err := testOptions.CloudInfoService.CreateCatalog(descriptiveCatalogName)
 					if err != nil {
 						sharedMutex.Unlock() // Release mutex on error
 						testOptions.Logger.ShortError(fmt.Sprintf("Error creating shared catalog: %v", err))
@@ -1023,12 +1247,93 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 						testOptions.Logger.ShortWarn("Imported shared offering but offering details are incomplete")
 					}
 				}
-				sharedMutex.Unlock() // Release mutex only AFTER both catalog AND offering creation is complete
+
+				// Create shared project if any test case in the matrix needs one
+				if needsSharedProject {
+					// Use a descriptive shared project name that includes offering information
+					offeringShortName := "addon"
+					if testOptions.AddonConfig.OfferingName != "" {
+						// Strip the "deploy-arch-" prefix if present, otherwise use the full name
+						if strings.HasPrefix(testOptions.AddonConfig.OfferingName, "deploy-arch-") {
+							offeringShortName = strings.TrimPrefix(testOptions.AddonConfig.OfferingName, "deploy-arch-")
+						} else {
+							offeringShortName = testOptions.AddonConfig.OfferingName
+						}
+					}
+					// Extract just the unique ID from the prefix (last part after the final hyphen)
+					prefixParts := strings.Split(testOptions.Prefix, "-")
+					uniqueId := prefixParts[len(prefixParts)-1]
+					sharedProjectName := fmt.Sprintf("shared-%s-validation-%s", offeringShortName, uniqueId)
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Creating shared project for matrix tests: %s", sharedProjectName))
+
+					// Set up project configuration for shared validation project
+					if testOptions.ProjectDestroyOnDelete == nil {
+						testOptions.ProjectDestroyOnDelete = core.BoolPtr(true)
+					}
+					if testOptions.ProjectAutoDeploy == nil {
+						testOptions.ProjectAutoDeploy = core.BoolPtr(false)
+					}
+					if testOptions.ProjectMonitoringEnabled == nil {
+						testOptions.ProjectMonitoringEnabled = core.BoolPtr(false)
+					}
+
+					sharedProjectConfig := &cloudinfo.ProjectsConfig{
+						Location:           testOptions.ProjectLocation,
+						ProjectName:        sharedProjectName,
+						ProjectDescription: "Shared project for matrix tests",
+						ResourceGroup:      testOptions.ResourceGroup,
+						DestroyOnDelete:    *testOptions.ProjectDestroyOnDelete,
+						MonitoringEnabled:  *testOptions.ProjectMonitoringEnabled,
+						AutoDeploy:         *testOptions.ProjectAutoDeploy,
+						Environments:       testOptions.ProjectEnvironments,
+					}
+
+					prj, _, err := testOptions.CloudInfoService.CreateProjectFromConfig(sharedProjectConfig)
+					if err != nil {
+						sharedMutex.Unlock() // Release mutex on error
+						testOptions.Logger.ShortError(fmt.Sprintf("Error creating shared project: %v", err))
+						require.NoError(t, err, "Failed to create shared project for matrix tests")
+						return
+					}
+
+					// Store the shared project in sharedCatalogOptions for other tests to use
+					sharedCatalogOptions.currentProject = prj
+					sharedCatalogOptions.currentProjectConfig = sharedProjectConfig
+					sharedCatalogOptions.currentProjectConfig.ProjectID = *prj.ID
+
+					if prj != nil && prj.ID != nil {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Created shared project: %s with ID %s", sharedProjectName, *prj.ID))
+						projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", *prj.ID)
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Shared Project URL: %s", projectURL))
+					} else {
+						testOptions.Logger.ShortWarn("Created shared project but project details are incomplete")
+					}
+				} else {
+					testOptions.Logger.ShortInfo(fmt.Sprintf("No shared project needed for matrix tests"))
+				}
+
+				sharedMutex.Unlock() // Release mutex only AFTER catalog, offering, AND project creation is complete
 			} else {
-				// Share the catalog and offering tracking fields from the first instance
+				// Share the catalog, offering, and project tracking fields from the first instance
 				// At this point, we know both catalog and offering creation is complete because the mutex ensures it
 				testOptions.catalog = sharedCatalogOptions.catalog
 				testOptions.offering = sharedCatalogOptions.offering
+
+				// Share project if SharedProject is enabled
+				if *testOptions.SharedProject {
+					testOptions.currentProject = sharedCatalogOptions.currentProject
+					testOptions.currentProjectConfig = sharedCatalogOptions.currentProjectConfig
+					// Override the placeholder project name with the actual shared project name
+					testOptions.ProjectName = sharedCatalogOptions.currentProjectConfig.ProjectName
+					if testOptions.currentProject != nil && testOptions.currentProject.ID != nil {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Test case %s: Shared project assigned: %s with ID %s", tc.Name, testOptions.ProjectName, *testOptions.currentProject.ID))
+					} else {
+						testOptions.Logger.ShortWarn(fmt.Sprintf("Test case %s: Shared project assignment failed - currentProject is nil", tc.Name))
+					}
+				} else {
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Test case %s: SharedProject=false, will create individual project", tc.Name))
+				}
+
 				sharedMutex.Unlock()
 				if testOptions.catalog != nil && testOptions.catalog.Label != nil && testOptions.catalog.ID != nil {
 					testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared catalog: %s with ID %s", *testOptions.catalog.Label, *testOptions.catalog.ID))
@@ -1039,6 +1344,9 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 					testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared offering: %s with ID %s", *testOptions.offering.Label, *testOptions.offering.ID))
 				} else {
 					testOptions.Logger.ShortWarn("Shared offering is nil or incomplete - offering import may have failed")
+				}
+				if *testOptions.SharedProject && testOptions.currentProject != nil && testOptions.currentProject.ID != nil {
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared project: %s with ID %s", testOptions.currentProjectConfig.ProjectName, *testOptions.currentProject.ID))
 				}
 			}
 

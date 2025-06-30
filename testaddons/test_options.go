@@ -60,6 +60,12 @@ type TestAddonOptions struct {
 	// This applies to both individual tests and matrix tests.
 	SharedCatalog *bool
 
+	// SharedProject If set to true, projects will be shared across tests using the same TestOptions object.
+	// When false (default), each test will create its own project, which provides complete isolation.
+	// This applies to both individual tests and matrix tests.
+	// Note: When using shared projects, configurations are still isolated per test case.
+	SharedProject *bool
+
 	// Internal Use
 	// catalog the catalog instance in use.
 	catalog *catalogmanagementv1.Catalog
@@ -134,7 +140,12 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	newOptions, err := originalOptions.Clone()
 	require.NoError(originalOptions.Testing, err)
 
-	newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, common.UniqueId())
+	// Handle empty prefix case to avoid leading hyphen
+	if newOptions.Prefix == "" {
+		newOptions.Prefix = common.UniqueId()
+	} else {
+		newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, common.UniqueId())
+	}
 	newOptions.AddonConfig.Prefix = newOptions.Prefix
 
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt
@@ -145,10 +156,10 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	}
 
 	if newOptions.CatalogName == "" {
-		newOptions.CatalogName = fmt.Sprintf("dev-addon-test-%s", newOptions.Prefix)
+		newOptions.CatalogName = fmt.Sprintf("addon-test-catalog-%s", newOptions.Prefix)
 	}
 	if newOptions.ProjectName == "" {
-		newOptions.ProjectName = fmt.Sprintf("addon%s", newOptions.Prefix)
+		newOptions.ProjectName = fmt.Sprintf("addon-%s", newOptions.Prefix)
 	}
 	if newOptions.ProjectDescription == "" {
 		newOptions.ProjectDescription = fmt.Sprintf("Testing %s-addon", newOptions.Prefix)
@@ -175,6 +186,12 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	// Matrix tests will override this to true and handle cleanup automatically
 	if newOptions.SharedCatalog == nil {
 		newOptions.SharedCatalog = core.BoolPtr(false)
+	}
+
+	// Default SharedProject to false for individual tests
+	// Matrix tests can override this to true for more efficient testing
+	if newOptions.SharedProject == nil {
+		newOptions.SharedProject = core.BoolPtr(false)
 	}
 
 	// Always include default ignore patterns and append user patterns if provided
@@ -245,6 +262,7 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		CatalogUseExisting:           options.CatalogUseExisting,
 		CatalogName:                  options.CatalogName,
 		SharedCatalog:                copyBoolPointer(options.SharedCatalog),
+		SharedProject:                copyBoolPointer(options.SharedProject),
 		AddonConfig:                  options.AddonConfig, // Note: shallow copy, will be overridden
 		DeployTimeoutMinutes:         options.DeployTimeoutMinutes,
 		SkipTestTearDown:             options.SkipTestTearDown,
@@ -303,6 +321,42 @@ func (options *TestAddonOptions) CleanupSharedResources() {
 			options.Logger.ShortError(fmt.Sprintf("Error deleting the shared catalog: %v", err))
 		} else {
 			options.Logger.ShortInfo(fmt.Sprintf("Deleted the shared catalog %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+		}
+	}
+
+	if options.currentProject != nil && options.currentProject.ID != nil {
+		projectName := options.ProjectName
+		if options.currentProjectConfig != nil && options.currentProjectConfig.ProjectName != "" {
+			projectName = options.currentProjectConfig.ProjectName
+		}
+		options.Logger.ShortInfo(fmt.Sprintf("Deleting the shared project %s with ID %s", projectName, *options.currentProject.ID))
+		_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
+		if err != nil {
+			options.Logger.ShortError(fmt.Sprintf("Error deleting the shared project: %v", err))
+		} else if resp.StatusCode == 202 {
+			options.Logger.ShortInfo(fmt.Sprintf("Deleted the shared project %s with ID %s", projectName, *options.currentProject.ID))
+		} else {
+			options.Logger.ShortError(fmt.Sprintf("Failed to delete shared project, response code: %d", resp.StatusCode))
+		}
+	}
+}
+
+// CleanupSharedValidationProject cleans up only the shared validation project
+// This is used to clean up the separate shared validation project in matrix tests
+func (options *TestAddonOptions) CleanupSharedValidationProject() {
+	if options.currentProject != nil && options.currentProject.ID != nil {
+		projectName := options.ProjectName
+		if options.currentProjectConfig != nil && options.currentProjectConfig.ProjectName != "" {
+			projectName = options.currentProjectConfig.ProjectName
+		}
+		options.Logger.ShortInfo(fmt.Sprintf("Deleting the shared validation project %s with ID %s", projectName, *options.currentProject.ID))
+		_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
+		if err != nil {
+			options.Logger.ShortError(fmt.Sprintf("Error deleting the shared validation project: %v", err))
+		} else if resp.StatusCode == 202 {
+			options.Logger.ShortInfo(fmt.Sprintf("Deleted the shared validation project %s with ID %s", projectName, *options.currentProject.ID))
+		} else {
+			options.Logger.ShortError(fmt.Sprintf("Failed to delete shared validation project, response code: %d", resp.StatusCode))
 		}
 	}
 }

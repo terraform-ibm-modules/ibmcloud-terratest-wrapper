@@ -56,13 +56,15 @@ func TestRunAddonTests(t *testing.T) {
         },
     }
 
+    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing:       t,
+        Prefix:        "matrix-test", // Individual test cases will override with their own prefixes
+        ResourceGroup: "my-resource-group",
+    })
+
     matrix := testaddons.AddonTestMatrix{
-        TestCases: testCases,
-        BaseOptions: testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
-            Testing:       t,
-            Prefix:        "matrix-test", // Individual test cases will override with their own prefixes
-            ResourceGroup: "my-resource-group",
-        }),
+        TestCases:   testCases,
+        BaseOptions: baseOptions,
         BaseSetupFunc: func(baseOptions *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) *testaddons.TestAddonOptions {
             // Optional: customize options per test case
             // Most common patterns are handled automatically (e.g., prefix assignment)
@@ -153,12 +155,12 @@ func TestMultipleAddons(t *testing.T) {
 }
 ```
 
-### Legacy Pattern (Still Supported)
+### Alternative Pattern (Create Options Per Test Case)
 
-For backward compatibility, you can still create options from scratch for each test case:
+You can also create options from scratch for each test case by not providing BaseOptions:
 
 ```go
-func TestMultipleAddonsLegacy(t *testing.T) {
+func TestMultipleAddonsAlternative(t *testing.T) {
     testCases := []testaddons.AddonTestCase{
         {
             Name:   "BasicDeployment",
@@ -176,8 +178,9 @@ func TestMultipleAddonsLegacy(t *testing.T) {
 
     matrix := testaddons.AddonTestMatrix{
         TestCases: testCases,
+        // BaseOptions: nil, // Don't provide BaseOptions for this pattern
         BaseSetupFunc: func(baseOptions *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) *testaddons.TestAddonOptions {
-            // Note: baseOptions will be nil in legacy mode
+            // Note: baseOptions will be nil when BaseOptions is not provided
             return testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
                 Testing:       t,
                 Prefix:        testCase.Prefix,
@@ -213,6 +216,20 @@ func TestMultipleAddonsLegacy(t *testing.T) {
 2. **Better Maintainability**: Changes to common settings only need to be made in one place
 3. **Clearer Intent**: Separates common configuration from test-specific customization
 4. **Automatic Handling**: Framework automatically handles common patterns like prefix assignment
+
+### When to Use Each Pattern
+
+**Use BaseOptions Pattern (Recommended):**
+
+- When test cases share common configuration
+- For cleaner, more maintainable code
+- When you want automatic prefix handling
+
+**Use Alternative Pattern:**
+
+- When each test case needs completely different base configuration
+- When you need maximum flexibility per test case
+- When test cases are fundamentally different in nature
 
 ### AddonTestCase Configuration Options
 
@@ -658,6 +675,141 @@ func TestFlavorMatrix(t *testing.T) {
 }
 ```
 
+## Optional Project Sharing in Matrix Tests
+
+In addition to automatic catalog sharing, matrix tests can optionally share projects across test cases for even greater efficiency. This feature provides additional resource optimization while maintaining configuration isolation.
+
+### How Project Sharing Works
+
+- **Matrix Tests**: All test cases in a matrix share a single project by default for efficiency
+- **Individual Tests**: Each individual test gets its own project for isolation
+- **Configuration Isolation**: Each test case gets its own uniquely named configuration within the shared project
+- **Resource Lifecycle**: The first test case creates the project, subsequent tests reuse it
+- **Cleanup**: Shared projects are cleaned up automatically after all matrix tests complete
+
+**Why Sharing is Safe**: Configuration names now include test case names (e.g., `prefix-offering-TestCaseName`), preventing conflicts between test cases.
+
+### Benefits
+
+**Resource Efficiency**: Instead of creating 20 projects for 20 test cases, only 1 project is created and shared.
+
+**Time Savings**: Significant reduction in project creation time and IBM Cloud API calls.
+
+**Cost Optimization**: Fewer temporary projects created, reduced resource management overhead.
+
+### Controlling Project Sharing
+
+The framework provides intelligent defaults optimized for efficiency, with override options for special cases:
+
+```go
+// Matrix tests: Always share projects by default for efficiency
+// The framework automatically overrides any BaseOptions setting for matrix tests
+baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "test",
+    ResourceGroup: "my-rg",
+    // SharedProject setting in BaseOptions is overridden for matrix tests
+    // Matrix tests always default to SharedProject = true for efficiency
+})
+
+// Individual tests: Use BaseOptions setting (defaults to false for isolation)
+individualOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "individual",
+    ResourceGroup: "my-rg",
+    SharedProject: core.BoolPtr(false), // Individual tests default to isolation
+})
+```
+
+**Matrix Test Behavior (Automatic):**
+
+- **All matrix test cases**: Automatically share a single project regardless of BaseOptions
+- **Configuration isolation**: Each test case gets uniquely named configurations
+- **No override needed**: Framework handles efficiency optimization automatically
+
+**Individual Test Behavior:**
+
+- **Default**: Each individual test gets its own project (SharedProject = false)
+- **Override**: Set SharedProject = true to share projects across individual tests
+
+**Default behavior (automatic and recommended):**
+
+- **Matrix Tests**: All test cases automatically share a single project for maximum efficiency
+- **Individual Tests**: Each gets its own project for complete isolation
+- **Configuration Isolation**: Each test case gets its own uniquely named configuration
+- **No configuration needed**: Framework automatically optimizes resource usage
+
+**When matrix tests share projects:**
+
+- All test cases in a matrix test run share one project automatically
+- Configuration names include test case names to prevent conflicts
+- Significant resource and time savings compared to individual projects
+- Complete configuration isolation within the shared project
+
+**When you might need project isolation (rare cases):**
+
+- When testing project-specific functionality
+- When debugging project-related issues
+- When test cases might interfere with each other at the project level
+- **Note**: For matrix tests, you cannot override the sharing behavior - they always share for efficiency
+
+### Example: Efficient Matrix Testing
+
+```golang
+func TestEfficientAddonMatrix(t *testing.T) {
+    testCases := []testaddons.AddonTestCase{
+        {Name: "BasicConfiguration", Prefix: "basic"},
+        {Name: "AdvancedConfiguration", Prefix: "advanced"},
+        {Name: "ProductionConfiguration", Prefix: "prod"},
+    }
+
+    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing:       t,
+        Prefix:        "efficient-test",
+        ResourceGroup: "my-resource-group",
+        SharedCatalog: core.BoolPtr(true),  // Share catalog (automatic in matrix)
+        SharedProject: core.BoolPtr(true),  // Share project for efficiency
+    })
+
+    matrix := testaddons.AddonTestMatrix{
+        TestCases:   testCases,
+        BaseOptions: baseOptions,
+        AddonConfigFunc: func(options *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) cloudinfo.AddonConfig {
+            return cloudinfo.NewAddonConfigTerraform(
+                options.Prefix,
+                "my-addon",
+                "standard",
+                map[string]interface{}{
+                    "prefix": options.Prefix,
+                },
+            )
+        },
+    }
+
+    baseOptions.RunAddonTestMatrix(matrix)
+    // Result: 1 catalog + 1 project shared across 3 test cases
+    // Each test case gets its own uniquely named configuration within the shared project
+}
+```
+
+### Resource Sharing Summary
+
+| Resource Type | Matrix Default | Individual Default | Isolation Level |
+|---------------|----------------|-------------------|-----------------|
+| **Catalog** | Shared (automatic) | Private | Offering level |
+| **Project** | Shared (automatic)* | Private | Configuration level |
+
+*Matrix project sharing:
+
+- **All matrix tests**: Automatically share a single project (cannot be overridden)
+- **Configuration isolation**: Each test case gets uniquely named configurations
+- **Maximum efficiency**: Significant resource and time savings
+- **Seamless**: No configuration needed - framework handles optimization automatically
+
+**Maximum Efficiency (Default)**: Matrix tests automatically share catalogs and projects
+**Individual Test Isolation**: Each individual test gets its own catalog and project
+**Recommended**: Use matrix tests for parallel scenarios to maximize efficiency
+
 ## Best Practices for Matrix Testing
 
 ### 1. **Use Validation-Only Tests for Expensive Resources**
@@ -679,14 +831,14 @@ Deploy one representative scenario fully, validate others quickly:
 ```golang
 testCases := []testaddons.AddonTestCase{
     {
-        Name:   "PrimaryScenarioDeploy",
+        Name:   "PrimaryFullDeploy",
         Prefix: "primary",
-        // Full deployment
+        // Deploy one main scenario fully
     },
     {
-        Name:   "AlternativeScenarioValidate",
-        Prefix: "alt",
-        SkipInfrastructureDeployment: true, // Quick validation
+        Name:   "AlternativeValidate",
+        Prefix: "alt-validate",
+        SkipInfrastructureDeployment: true, // Validate other scenarios quickly
     },
 }
 ```
@@ -713,11 +865,6 @@ testCases := []testaddons.AddonTestCase{
         Name:   "AlternativeValidate",
         Prefix: "alt-validate",
         SkipInfrastructureDeployment: true, // Validate other scenarios quickly
-    },
-    {
-        Name:   "EdgeCaseValidate",
-        Prefix: "edge-validate",
-        SkipInfrastructureDeployment: true, // Validate edge cases without cost
     },
 }
 ```
