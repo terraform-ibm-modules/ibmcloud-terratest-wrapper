@@ -439,18 +439,77 @@ options.LocalChangesIgnorePattern = []string{
 ### Validation Error Output
 
 ```golang
-// Show detailed individual error messages
-options.VerboseValidationErrors = true
-
-// Show dependency tree with validation status
+// Enhanced dependency tree visualization with validation status
 options.EnhancedTreeValidationOutput = true
+
+// Detailed error messages for validation failures
+options.VerboseValidationErrors = true
 ```
 
-**Validation output priority:**
+### Input Validation Retry Configuration
 
-1. **Enhanced Tree Output**: Visual dependency tree with status indicators
-2. **Verbose Mode**: Detailed individual error messages
-3. **Consolidated Summary** (default): Clean grouped error summary
+```golang
+// Configure retry behavior for input validation (handles database timing issues)
+options.InputValidationRetries = 5        // Default: 3 retries
+options.InputValidationRetryDelay = 3 * time.Second  // Default: 2 seconds
+```
+
+**Note:** Input validation includes automatic retry logic to handle cases where the backend database hasn't been updated yet after configuration changes. This prevents false failures due to timing issues between configuration updates and validation checks.
+
+### Enhanced Debug Output
+
+When input validation fails, the framework automatically provides detailed debug information to help diagnose issues:
+
+**Debug Information Includes:**
+
+- Current configuration state and inputs (with sensitive values redacted)
+- All configurations in the project and their current state
+- Expected addon configuration details
+- Required input validation attempts and results
+- Clear identification of configurations in "waiting on inputs" state
+
+**Debug Output Triggers:**
+
+- Missing required inputs detected during validation
+- Configurations found in "awaiting_input" state (timing issues)
+- Configuration matching failures during validation
+
+**State Detection Improvements:**
+
+The framework now correctly identifies only configurations that are truly in the `awaiting_input` state, avoiding false positives for configurations in other valid states like `awaiting_member_deployment` or `awaiting_validation`.
+
+**Example Debug Output:**
+
+```text
+=== INPUT VALIDATION FAILURE DEBUG INFO ===
+Found 2 configurations in project:
+  Config: my-kms-config (ID: abc123) [IN WAITING LIST]
+    State: awaiting_input
+    StateCode: awaiting_input
+    LocatorID: catalog.def456.version.ghi789
+    Current Inputs:
+      region: us-south
+      prefix: test-prefix
+      ibmcloud_api_key: [REDACTED]
+      key_protect_plan: (missing)
+
+  Config: my-base-config (ID: def456)
+    State: awaiting_member_deployment
+    StateCode: awaiting_member_deployment
+    LocatorID: catalog.abc123.version.xyz789
+    Current Inputs:
+      region: us-south
+      prefix: test-prefix
+
+Expected addon configuration details:
+  Main Addon Name: deploy-arch-ibm-kms
+  Main Addon Version: v1.2.3
+  Main Addon Config Name: my-kms-config
+  Prefix: test-prefix
+=== END DEBUG INFO ===
+```
+
+This debug output helps identify exactly which inputs are missing, configuration state issues, and timing problems with the backend systems. Configurations marked with `[IN WAITING LIST]` are those actually flagged as requiring input attention.
 
 ## Environment Variables
 
@@ -650,73 +709,56 @@ func TestComprehensiveAddon(t *testing.T) {
 }
 ```
 
-## Shared Project Configuration
+## Project Management
 
-### Project Creation and Sharing
+### Project Creation and Isolation
 
-The framework always creates temporary projects for tests. The `SharedProject` option controls whether multiple tests share the same newly-created project or each gets its own:
-
-The `SharedProject` option controls project sharing behavior, providing additional resource optimization:
+The framework always creates temporary projects for each test to ensure complete isolation. Each test gets its own dedicated project for maximum safety and ease of debugging:
 
 ```golang
 options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "test",
     ResourceGroup: "my-rg",
-    SharedProject: core.BoolPtr(false),  // Default: false for complete isolation
 })
 ```
 
-**SharedProject Settings:**
+**Project Behavior:**
 
-- `false` (default): Each test creates its own temporary project for complete isolation and automatic cleanup
-- `true`: Multiple tests share the same temporary project (each test gets its own configuration within the shared project)
+Each test automatically:
 
-**Sharing Behavior:**
+1. Creates a new temporary project with a unique name
+2. Deploys the addon configuration within that project
+3. Runs validation tests
+4. Cleans up the project and all resources
 
 ```golang
-// SharedProject = false (default) - each test gets its own project
-isolatedOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "isolated-test",
     ResourceGroup: "my-rg",
-    SharedProject: core.BoolPtr(false),  // Default behavior
 })
 
 // Each test creates and cleans up its own temporary project
-err1 := isolatedOptions.RunAddonTest()  // Creates & deletes project A
-err2 := isolatedOptions.RunAddonTest()  // Creates & deletes project B
-
-// SharedProject = true - multiple tests share one project
-sharedOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
-    Testing:       t,
-    Prefix:        "shared-test",
-    ResourceGroup: "my-rg",
-    SharedProject: core.BoolPtr(true),
-})
-
-// First test creates project, subsequent tests reuse it (each gets own configuration)
-err3 := sharedOptions.RunAddonTest()  // Creates shared project with config A
-err4 := sharedOptions.RunAddonTest()  // Reuses shared project with config B
+err1 := options.RunAddonTest()  // Creates project A, runs test, deletes project A
+err2 := options.RunAddonTest()  // Creates project B, runs test, deletes project B
 ```
 
-**When to use SharedProject:**
+**Benefits of Project Isolation:**
 
-- **SharedProject=false**: Most tests, CI pipelines, when project isolation is needed, debugging project issues
-- **SharedProject=true**: Development workflows, testing multiple configurations, maximum efficiency
+- **Complete isolation**: Tests cannot interfere with each other
+- **Reliable cleanup**: Each test cleans up its own resources
+- **Easier debugging**: Failed tests don't affect other tests
+- **CI/CD friendly**: Safe for parallel execution in pipelines
 
-**Resource Sharing Combinations:**
+**Resource Sharing Options:**
+
+While projects are always isolated, catalogs can optionally be shared for efficiency:
 
 ```golang
-// Maximum isolation (default) - each test gets its own resources
+// Default: each test creates its own catalog and project
 options.SharedCatalog = core.BoolPtr(false)  // Each test creates own catalog
-options.SharedProject = core.BoolPtr(false)  // Each test creates own project
 
-// Balanced efficiency - share catalogs but isolate projects
+// Efficient: share catalogs between tests (projects still isolated)
 options.SharedCatalog = core.BoolPtr(true)   // Share catalogs between tests
-options.SharedProject = core.BoolPtr(false)  // Each test gets own project
-
-// Maximum efficiency - share both catalogs and projects
-options.SharedCatalog = core.BoolPtr(true)   // Share catalogs between tests
-options.SharedProject = core.BoolPtr(true)   // Share projects between tests
 ```

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
@@ -159,6 +160,15 @@ func (options *TestAddonOptions) RunAddonTest() error {
 
 	// set offering details
 	SetOfferingDetails(options)
+
+	// Create a map of deployed config IDs for this test case to avoid processing configs from other test cases
+	deployedConfigIDs := make(map[string]bool)
+	if options.deployedConfigs != nil {
+		for _, deployedConfig := range options.deployedConfigs.Configs {
+			deployedConfigIDs[deployedConfig.ConfigID] = true
+		}
+	}
+
 	for _, config := range allConfigs {
 		options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", *config.Definition.Name, *config.ID))
 
@@ -179,7 +189,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			readyToValidate = true
 		}
 		if currentConfigDetails.StateCode != nil && *currentConfigDetails.StateCode == projectv1.ProjectConfig_StateCode_AwaitingInput {
-			waitingOnInputs = append(waitingOnInputs, *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name)
+			configName := *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name
+			options.Logger.ShortWarn(fmt.Sprintf("Configuration '%s' is in AwaitingInput state - adding to waitingOnInputs list", configName))
+			waitingOnInputs = append(waitingOnInputs, configName)
 		}
 
 		// Skip reference validation if the flag is set
@@ -332,36 +344,43 @@ func (options *TestAddonOptions) RunAddonTest() error {
 					options.Logger.ShortWarn(fmt.Sprintf("  - %s (version: %s)", dep.OfferingName, dep.VersionID))
 				}
 			}
+			options.Logger.ShortWarn("=== CONFIGURATION MATCHING DEBUG ===")
+			options.Logger.ShortWarn(fmt.Sprintf("Config Name: %s", *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name))
+			options.Logger.ShortWarn(fmt.Sprintf("Config LocatorID: %s", *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).LocatorID))
+			options.Logger.ShortWarn(fmt.Sprintf("Extracted Version: %s", version))
+			options.Logger.ShortWarn(fmt.Sprintf("Expected Main Addon: %s (config: %s)", options.AddonConfig.OfferingName, options.AddonConfig.ConfigName))
+			options.Logger.ShortWarn(fmt.Sprintf("Expected Version ID: %s", options.AddonConfig.VersionID))
+			options.Logger.ShortWarn("=== END MATCHING DEBUG ===")
 			options.Logger.ShortWarn("Skipping input validation for this configuration")
 			continue
 		}
 
-		// check if any required inputs are not set
-		allInputsPresent := true
+		// Validate required inputs with retry mechanism to handle database timing issues
+		options.Logger.ShortInfo("Validating required inputs...")
 		for _, input := range targetAddon.OfferingInputs {
-			if !input.Required {
-				continue
+			if input.Required {
+				options.Logger.ShortInfo(fmt.Sprintf("Required Input: %v ", input.Key))
 			}
-			options.Logger.ShortInfo(fmt.Sprintf("Required Input: %v ", input.Key))
-			if input.Key == "ibmcloud_api_key" {
-				continue
-			}
-
-			value, exists := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs[input.Key]
-			if !exists || fmt.Sprintf("%v", value) == "" {
-				if input.DefaultValue == nil || fmt.Sprintf("%v", input.DefaultValue) == "" || fmt.Sprintf("%v", input.DefaultValue) == "__NOT_SET__" {
-					options.Logger.ShortError(fmt.Sprintf("Missing or empty required input: %s for config: %s", input.Key, *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name))
-					allInputsPresent = false
-					configIdentifier := fmt.Sprintf("%s (missing: %s)", *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name, input.Key)
-					missingRequiredInputs = append(missingRequiredInputs, configIdentifier)
-				}
-			}
-
 		}
-		if allInputsPresent {
-			options.Logger.ShortInfo(fmt.Sprintf("All required inputs set for addon: %s\n", *currentConfigDetails.ID))
+
+		// Use configurable retry settings with sensible defaults
+		retries := options.InputValidationRetries
+		if retries <= 0 {
+			retries = 3 // Default to 3 retries
+		}
+		retryDelay := options.InputValidationRetryDelay
+		if retryDelay <= 0 {
+			retryDelay = 2 * time.Second // Default to 2 seconds
+		}
+
+		inputsValid, missingInputsList := options.validateInputsWithRetry(*currentConfigDetails.ID, targetAddon, retries, retryDelay)
+		if !inputsValid {
+			for _, missing := range missingInputsList {
+				missingRequiredInputs = append(missingRequiredInputs, missing)
+			}
+			options.Logger.ShortError(fmt.Sprintf("Some required inputs are missing for addon: %s", *currentConfigDetails.ID))
 		} else {
-			options.Logger.ShortError(fmt.Sprintf("Some required inputs are missing for addon: %s\n", *currentConfigDetails.ID))
+			options.Logger.ShortInfo(fmt.Sprintf("All required inputs set for addon: %s", *currentConfigDetails.ID))
 		}
 	}
 
@@ -385,20 +404,210 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		for _, configError := range missingRequiredInputs {
 			options.Logger.ShortError(fmt.Sprintf("  %s", configError))
 		}
+
+		// Enhanced debugging information when validation fails
+		options.Logger.ShortError("=== INPUT VALIDATION FAILURE DEBUG INFO ===")
+		options.Logger.ShortError("Attempting to get current configuration details for debugging...")
+
+		allConfigs, debugErr := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
+		if debugErr != nil {
+			options.Logger.ShortError(fmt.Sprintf("Could not retrieve configs for debugging: %v", debugErr))
+		} else {
+			options.Logger.ShortError(fmt.Sprintf("Found %d configurations in project:", len(allConfigs)))
+			for _, config := range allConfigs {
+				configDetails, _, getErr := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+					ProjectID: options.currentProjectConfig.ProjectID,
+					ConfigID:  *config.ID,
+				})
+
+				if getErr != nil {
+					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s) - ERROR: %v", *config.Definition.Name, *config.ID, getErr))
+				} else {
+					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s)", *config.Definition.Name, *config.ID))
+					options.Logger.ShortError(fmt.Sprintf("    State: %s", func() string {
+						if configDetails.State != nil {
+							return *configDetails.State
+						}
+						return "unknown"
+					}()))
+					options.Logger.ShortError(fmt.Sprintf("    StateCode: %s", func() string {
+						if configDetails.StateCode != nil {
+							return string(*configDetails.StateCode)
+						}
+						return "unknown"
+					}()))
+					options.Logger.ShortError(fmt.Sprintf("    LocatorID: %s", func() string {
+						if configDetails.Definition != nil {
+							if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.LocatorID != nil {
+								return *resp.LocatorID
+							}
+						}
+						return "unknown"
+					}()))
+
+					// Show current input values
+					if configDetails.Definition != nil {
+						if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
+							options.Logger.ShortError("    Current Inputs:")
+							for key, value := range resp.Inputs {
+								// Don't log sensitive values
+								if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
+									options.Logger.ShortError(fmt.Sprintf("      %s: [REDACTED]", key))
+								} else {
+									options.Logger.ShortError(fmt.Sprintf("      %s: %v", key, value))
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		options.Logger.ShortError("Expected addon configuration details:")
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Name: %s", options.AddonConfig.OfferingName))
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Version: %s", options.AddonConfig.VersionID))
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Config Name: %s", options.AddonConfig.ConfigName))
+		options.Logger.ShortError(fmt.Sprintf("  Prefix: %s", options.AddonConfig.Prefix))
+		if len(options.AddonConfig.Dependencies) > 0 {
+			options.Logger.ShortError("  Dependencies:")
+			for i, dep := range options.AddonConfig.Dependencies {
+				options.Logger.ShortError(fmt.Sprintf("    [%d] Name: %s, Version: %s, ConfigName: %s", i, dep.OfferingName, dep.VersionID, dep.ConfigName))
+			}
+		}
+		options.Logger.ShortError("=== END DEBUG INFO ===")
+
+		// Create a specific error message listing the actual missing inputs
+		var missingInputsList []string
+		for _, configError := range missingRequiredInputs {
+			missingInputsList = append(missingInputsList, configError)
+		}
+
 		options.Logger.ShortError("Cannot proceed with deployment - required inputs must be provided")
 		options.Testing.Fail()
-		return fmt.Errorf("missing required inputs - deployment cannot proceed")
+		return fmt.Errorf("missing required inputs: %s", strings.Join(missingInputsList, "; "))
 	}
 
 	if assert.Equal(options.Testing, 0, len(waitingOnInputs), "Found configurations waiting on inputs") {
 		options.Logger.ShortInfo("No configurations waiting on inputs")
 	} else {
-		options.Logger.ShortError("Found configurations waiting on inputs")
+		options.Logger.ShortError("Found configurations waiting on inputs - this usually indicates timing issues with backend state")
+		options.Logger.ShortError("=== DEBUG INFO ===")
+		options.Logger.ShortError("Configurations in 'awaiting_input' state:")
 		for _, config := range waitingOnInputs {
 			options.Logger.ShortError(fmt.Sprintf("  %s", config))
 		}
+
+		// Print current configuration input values for debugging - similar to missing inputs debug info
+		options.Logger.ShortError("Attempting to get current configuration details for debugging...")
+
+		// Track missing inputs across all configurations for specific error message
+		var missingInputsDetails []string
+		var configsWithIssues []string
+
+		allConfigs, debugErr := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
+		if debugErr != nil {
+			options.Logger.ShortError(fmt.Sprintf("Could not retrieve configs for debugging: %v", debugErr))
+		} else {
+			options.Logger.ShortError(fmt.Sprintf("Found %d configurations in project:", len(allConfigs)))
+			for _, config := range allConfigs {
+				configDetails, _, getErr := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+					ProjectID: options.currentProjectConfig.ProjectID,
+					ConfigID:  *config.ID,
+				})
+
+				if getErr != nil {
+					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s) - ERROR: %v", *config.Definition.Name, *config.ID, getErr))
+				} else {
+					configName := *config.Definition.Name
+					isInWaitingList := false
+					for _, waitingConfig := range waitingOnInputs {
+						if waitingConfig == configName {
+							isInWaitingList = true
+							break
+						}
+					}
+
+					waitingStatus := ""
+					if isInWaitingList {
+						waitingStatus = " [IN WAITING LIST]"
+						configsWithIssues = append(configsWithIssues, configName)
+					}
+
+					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s)%s", configName, *config.ID, waitingStatus))
+					options.Logger.ShortError(fmt.Sprintf("    State: %s", func() string {
+						if configDetails.State != nil {
+							return *configDetails.State
+						}
+						return "unknown"
+					}()))
+					options.Logger.ShortError(fmt.Sprintf("    StateCode: %s", func() string {
+						if configDetails.StateCode != nil {
+							return string(*configDetails.StateCode)
+						}
+						return "unknown"
+					}()))
+					options.Logger.ShortError(fmt.Sprintf("    LocatorID: %s", func() string {
+						if configDetails.Definition != nil {
+							if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.LocatorID != nil {
+								return *resp.LocatorID
+							}
+						}
+						return "unknown"
+					}()))
+
+					// Show current input values and collect missing ones
+					if configDetails.Definition != nil {
+						if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
+							options.Logger.ShortError("    Current Inputs:")
+							for key, value := range resp.Inputs {
+								// Don't log sensitive values
+								if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
+									options.Logger.ShortError(fmt.Sprintf("      %s: [REDACTED]", key))
+								} else {
+									valueStr := fmt.Sprintf("%v", value)
+									if valueStr == "__NOT_SET__" || valueStr == "" || valueStr == "<nil>" {
+										// Found a missing input - add to our specific error details
+										if isInWaitingList {
+											missingInputsDetails = append(missingInputsDetails, fmt.Sprintf("%s.%s", configName, key))
+										}
+										options.Logger.ShortError(fmt.Sprintf("      %s: __NOT_SET__", key))
+									} else {
+										options.Logger.ShortError(fmt.Sprintf("      %s: %v", key, value))
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Print expected configuration details
+		options.Logger.ShortError("Expected addon configuration details:")
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Name: %s", options.AddonConfig.OfferingName))
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Version: %s", options.AddonConfig.VersionID))
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Config Name: %s", options.AddonConfig.ConfigName))
+		options.Logger.ShortError(fmt.Sprintf("  Prefix: %s", options.AddonConfig.Prefix))
+		if len(options.AddonConfig.Dependencies) > 0 {
+			options.Logger.ShortError("  Dependencies:")
+			for i, dep := range options.AddonConfig.Dependencies {
+				options.Logger.ShortError(fmt.Sprintf("    [%d] Name: %s, Version: %s, ConfigName: %s", i, dep.OfferingName, dep.VersionID, dep.ConfigName))
+			}
+		}
+		options.Logger.ShortError("=== END DEBUG INFO ===")
+
+		// Create a specific, actionable error message
+		var errorMsg string
+		if len(missingInputsDetails) > 0 {
+			errorMsg = fmt.Sprintf("configurations waiting on missing inputs: %s", strings.Join(missingInputsDetails, ", "))
+		} else if len(configsWithIssues) > 0 {
+			errorMsg = fmt.Sprintf("configurations in awaiting_input state: %s", strings.Join(configsWithIssues, ", "))
+		} else {
+			errorMsg = "configurations waiting on inputs - check debug output above for details"
+		}
+
 		options.Testing.Fail()
-		return fmt.Errorf("found configurations waiting on inputs project not correctly configured")
+		return fmt.Errorf("found %s", errorMsg)
 	}
 
 	if assert.True(options.Testing, readyToValidate, "No configuration found in ready_to_validate state") {
@@ -527,7 +736,27 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			} else {
 				options.printConsolidatedValidationSummary(validationResult)
 			}
-			return fmt.Errorf("expected configurations and actual configurations are not same")
+
+			// Create a specific error message based on validation results
+			var errorDetails []string
+			if len(validationResult.DependencyErrors) > 0 {
+				errorDetails = append(errorDetails, fmt.Sprintf("%d dependency errors", len(validationResult.DependencyErrors)))
+			}
+			if len(validationResult.UnexpectedConfigs) > 0 {
+				errorDetails = append(errorDetails, fmt.Sprintf("%d unexpected configs", len(validationResult.UnexpectedConfigs)))
+			}
+			if len(validationResult.MissingConfigs) > 0 {
+				errorDetails = append(errorDetails, fmt.Sprintf("%d missing configs", len(validationResult.MissingConfigs)))
+			}
+
+			var errorMsg string
+			if len(errorDetails) > 0 {
+				errorMsg = fmt.Sprintf("dependency validation failed: %s", strings.Join(errorDetails, ", "))
+			} else {
+				errorMsg = "dependency validation failed - check validation output above for details"
+			}
+
+			return fmt.Errorf(errorMsg)
 		}
 	}
 
@@ -631,14 +860,15 @@ func (options *TestAddonOptions) testSetup() error {
 		options.Logger = common.NewTestLogger(options.Testing.Name())
 	}
 
-	if options.ProjectName != "" && options.TestCaseName == "" {
+	// Set logger prefix based on available identifiers (in order of preference)
+	if options.TestCaseName != "" {
+		// Use TestCaseName for clear test identification (preferred for matrix tests and custom scenarios)
+		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.TestCaseName))
+	} else if options.ProjectName != "" {
 		// For single tests, include project name in prefix
 		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.ProjectName))
-	} else if options.TestCaseName != "" {
-		// For matrix tests, include test case name in prefix
-		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.TestCaseName))
 	} else {
-		// For tests without project name or test case name, use simple prefix
+		// For tests without project name, use simple prefix
 		options.Logger.SetPrefix("ADDON")
 	}
 
@@ -649,8 +879,6 @@ func (options *TestAddonOptions) testSetup() error {
 	if repoErr != nil {
 		repoRoot = "."
 	}
-
-	options.Logger.ShortInfo("Checking for local changes in the repository")
 
 	isChanges, files, err := common.ChangesToBePush(options.Testing, repoRoot)
 	if err != nil {
@@ -719,20 +947,43 @@ func (options *TestAddonOptions) testSetup() error {
 	}
 	options.currentBranch = &branch
 
-	// Convert repository URL to HTTPS format for catalog import
+	// Convert repository URL to HTTPS format for branch validation
+	repoForValidation := repo
 	if strings.HasPrefix(repo, "git@") {
 		// Convert SSH format: git@github.com:username/repo.git → https://github.com/username/repo
-		repo = strings.Replace(repo, ":", "/", 1)
-		repo = strings.Replace(repo, "git@", "https://", 1)
-		repo = strings.TrimSuffix(repo, ".git")
+		repoForValidation = strings.Replace(repo, ":", "/", 1)
+		repoForValidation = strings.Replace(repoForValidation, "git@", "https://", 1)
+		repoForValidation = strings.TrimSuffix(repoForValidation, ".git")
 	} else if strings.HasPrefix(repo, "git://") {
 		// Convert Git protocol: git://github.com/username/repo.git → https://github.com/username/repo
-		repo = strings.Replace(repo, "git://", "https://", 1)
-		repo = strings.TrimSuffix(repo, ".git")
+		repoForValidation = strings.Replace(repo, "git://", "https://", 1)
+		repoForValidation = strings.TrimSuffix(repoForValidation, ".git")
 	} else if strings.HasPrefix(repo, "https://") {
 		// HTTPS format - just trim .git suffix if present
-		repo = strings.TrimSuffix(repo, ".git")
+		repoForValidation = strings.TrimSuffix(repo, ".git")
 	}
+
+	// Validate that the branch exists in the remote repository (required for offering import)
+	options.Logger.ShortInfo(fmt.Sprintf("Validating that branch '%s' exists in remote repository", branch))
+	branchExists, err := common.CheckRemoteBranchExists(repoForValidation, branch)
+	if err != nil {
+		options.Logger.ShortError(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
+		options.Testing.Fail()
+		return fmt.Errorf("error checking if branch exists in remote repository: %w", err)
+	}
+	if !branchExists {
+		options.Logger.ShortError(fmt.Sprintf("Required branch '%s' does not exist in repository '%s'", branch, repoForValidation))
+		options.Logger.ShortError("This branch is required for offering import/catalog tests to work properly.")
+		options.Logger.ShortError("Please ensure the branch exists in the remote repository before running the test.")
+		options.Testing.Fail()
+		return fmt.Errorf("required branch '%s' does not exist in repository '%s' (required for offering import)", branch, repoForValidation)
+	}
+	options.Logger.ShortInfo(fmt.Sprintf("Branch '%s' confirmed to exist in remote repository", branch))
+
+	options.Logger.ShortInfo("Checking for local changes in the repository")
+
+	// Use the converted URL from validation for the rest of the process
+	repo = repoForValidation
 
 	options.currentBranchUrl = Core.StringPtr(fmt.Sprintf("%s/tree/%s", repo, branch))
 	options.Logger.ShortInfo(fmt.Sprintf("Current branch: %s", branch))
@@ -859,13 +1110,9 @@ func (options *TestAddonOptions) testSetup() error {
 		options.Logger.ShortInfo(fmt.Sprintf("Offering Version Locator: %s", options.AddonConfig.VersionLocator))
 	}
 
-	// Create a new project (only if not already created or shared)
+	// Create a new project (only if not already created)
 	if options.currentProject == nil {
-		if options.isMatrixTest && options.SharedProject != nil && *options.SharedProject {
-			options.Logger.ShortInfo("Shared project should have been set up but was not - creating individual project as fallback")
-		} else {
-			options.Logger.ShortInfo("Creating individual project for test")
-		}
+		options.Logger.ShortInfo("Creating project for test")
 		if options.ProjectDestroyOnDelete == nil {
 			options.ProjectDestroyOnDelete = core.BoolPtr(true)
 		}
@@ -903,13 +1150,9 @@ func (options *TestAddonOptions) testSetup() error {
 		}
 		options.Logger.ShortInfo(fmt.Sprintf("Project Region: %s", region))
 	} else {
-		// Using shared or existing project
-		if options.isMatrixTest && options.SharedProject != nil && *options.SharedProject {
-			options.Logger.ShortInfo(fmt.Sprintf("Using shared project: %s with ID %s", options.currentProjectConfig.ProjectName, *options.currentProject.ID))
-		} else {
-			options.Logger.ShortInfo(fmt.Sprintf("Using existing project: %s with ID %s", options.ProjectName, *options.currentProject.ID))
-		}
-		// Ensure currentProjectConfig is set up properly for shared projects
+		// Using existing project
+		options.Logger.ShortInfo(fmt.Sprintf("Using existing project: %s with ID %s", options.ProjectName, *options.currentProject.ID))
+		// Ensure currentProjectConfig is set up properly for existing projects
 		if options.currentProjectConfig == nil {
 			options.currentProjectConfig = &cloudinfo.ProjectsConfig{
 				ProjectID: *options.currentProject.ID,
@@ -934,12 +1177,9 @@ func (options *TestAddonOptions) testTearDown() {
 	// perform the test teardown
 	options.Logger.ShortInfo("Performing test teardown")
 
-	// Project cleanup logic:
-	// - Matrix tests: handled centrally via CleanupSharedResources()
-	// - Individual tests with SharedProject=false: clean up their own projects
-	// - Individual tests with SharedProject=true: keep project for potential reuse
-	if options.currentProject != nil && options.currentProject.ID != nil && !options.isMatrixTest && (options.SharedProject == nil || !*options.SharedProject) {
-		options.Logger.ShortInfo(fmt.Sprintf("Deleting the project %s with ID %s (SharedProject=false)", options.ProjectName, *options.currentProject.ID))
+	// Project cleanup logic: always clean up projects since we're not sharing them
+	if options.currentProject != nil && options.currentProject.ID != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Deleting the project %s with ID %s", options.ProjectName, *options.currentProject.ID))
 		_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
 		if assert.NoError(options.Testing, err) {
 			if assert.Equal(options.Testing, 202, resp.StatusCode) {
@@ -951,20 +1191,13 @@ func (options *TestAddonOptions) testTearDown() {
 			options.Logger.ShortError(fmt.Sprintf("Error deleting Test Project: %s", err))
 		}
 	} else {
-		if options.isMatrixTest {
-			options.Logger.ShortInfo("Matrix test project will be cleaned up centrally")
-		} else if options.SharedProject != nil && *options.SharedProject {
-			options.Logger.ShortInfo("Shared project retained for potential reuse (SharedProject=true)")
-		} else {
-			options.Logger.ShortInfo("No project ID found to delete")
-		}
+		options.Logger.ShortInfo("No project ID found to delete")
 	}
 
 	// Catalog cleanup logic:
-	// - Matrix tests: handled centrally via CleanupSharedResources()
 	// - Individual tests with SharedCatalog=false: clean up their own catalogs
 	// - Individual tests with SharedCatalog=true: keep catalog for potential reuse
-	if options.catalog != nil && !options.isMatrixTest && (options.SharedCatalog == nil || !*options.SharedCatalog) {
+	if options.catalog != nil && (options.SharedCatalog == nil || !*options.SharedCatalog) {
 		options.Logger.ShortInfo(fmt.Sprintf("Deleting the catalog %s with ID %s (SharedCatalog=false)", *options.catalog.Label, *options.catalog.ID))
 		err := options.CloudInfoService.DeleteCatalog(*options.catalog.ID)
 		if err != nil {
@@ -974,9 +1207,7 @@ func (options *TestAddonOptions) testTearDown() {
 			options.Logger.ShortInfo(fmt.Sprintf("Deleted the catalog %s with ID %s", *options.catalog.Label, *options.catalog.ID))
 		}
 	} else {
-		if options.isMatrixTest {
-			options.Logger.ShortInfo("Matrix test catalog will be cleaned up centrally")
-		} else if options.SharedCatalog != nil && *options.SharedCatalog {
+		if options.SharedCatalog != nil && *options.SharedCatalog {
 			options.Logger.ShortInfo("Shared catalog retained for potential reuse (SharedCatalog=true)")
 		} else {
 			options.Logger.ShortInfo("No catalog to delete")
@@ -988,110 +1219,53 @@ func (options *TestAddonOptions) testTearDown() {
 // This method handles the boilerplate of running parallel tests and automatically shares
 // catalogs and offerings across test cases for efficiency.
 //
-// The method supports two API patterns:
-// 1. Legacy: Only BaseSetupFunc provided, creates options from scratch for each test case
-// 2. Enhanced: BaseOptions + BaseSetupFunc, reduces boilerplate by providing common options
+// BaseOptions must be provided with common options that apply to all test cases.
+// BaseSetupFunc can optionally customize the options for each specific test case.
 func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 	options.Testing.Parallel()
+
+	// Validate that BaseOptions is provided
+	if matrix.BaseOptions == nil {
+		panic("BaseOptions must be provided for AddonTestMatrix")
+	}
 
 	// Create shared resource tracking for the matrix
 	var sharedCatalogOptions *TestAddonOptions
 	var sharedMutex = &sync.Mutex{}
-
-	// Pre-analyze all test cases to determine if any will need shared projects
-	// This ensures we create the shared project during the first test setup if needed
-	needsSharedProject := false
-	for _, preTC := range matrix.TestCases {
-		// Create a temporary testOptions to determine SharedProject setting for this test case
-		var tempTestOptions *TestAddonOptions
-		if matrix.BaseOptions != nil {
-			tempTestOptions = matrix.BaseOptions.copy()
-			if matrix.BaseSetupFunc != nil {
-				tempTestOptions = matrix.BaseSetupFunc(tempTestOptions, preTC)
-			}
-		} else {
-			if matrix.BaseSetupFunc == nil {
-				panic("Either BaseOptions must be provided or BaseSetupFunc must be provided")
-			}
-			tempTestOptions = matrix.BaseSetupFunc(nil, preTC)
-		}
-
-		// Apply the same SharedProject logic as the main loop
-		// Matrix tests default to shared projects for efficiency - override any BaseOptions setting
-		if preTC.SkipInfrastructureDeployment {
-			// Validation-only tests always share a project since they don't deploy infrastructure
-			tempTestOptions.SharedProject = core.BoolPtr(true)
-			needsSharedProject = true
-		} else {
-			// Deployment tests also default to sharing in matrix mode for efficiency
-			tempTestOptions.SharedProject = core.BoolPtr(true)
-			needsSharedProject = true
-		}
-	}
-
-	// Debug log the shared project determination
-	// Don't initialize logger here - let each test case initialize its own logger with correct prefix
-	// This ensures matrix test cases get proper "[TestName - ADDON - TestCaseName]" prefixes
-
-	if needsSharedProject {
-		// Only log if we have a logger available, otherwise skip logging at matrix level
-		if options.Logger != nil {
-			options.Logger.ShortInfo("Matrix tests determined to need shared project - will create one")
-		}
-	} else {
-		// Only log if we have a logger available, otherwise skip logging at matrix level
-		if options.Logger != nil {
-			options.Logger.ShortInfo("Matrix tests determined to NOT need shared project")
-		}
-	}
 
 	for _, tc := range matrix.TestCases {
 		tc := tc // Capture loop variable for parallel execution
 		options.Testing.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
 
-			var testOptions *TestAddonOptions
+			// Start with a copy of BaseOptions and customize for this test case
+			testOptions := matrix.BaseOptions.copy()
+			testOptions.Testing = t // Override testing context for this specific test
 
-			// Support both legacy and enhanced API patterns
-			if matrix.BaseOptions != nil {
-				// Enhanced API: Start with a copy of BaseOptions
-				testOptions = matrix.BaseOptions.copy()
-				testOptions.Testing = t // Override testing context for this specific test
-
-				// Allow BaseSetupFunc to customize the copied options
-				if matrix.BaseSetupFunc != nil {
-					testOptions = matrix.BaseSetupFunc(testOptions, tc)
-				}
-			} else {
-				// Legacy API: BaseSetupFunc creates options from scratch
-				if matrix.BaseSetupFunc == nil {
-					panic("Either BaseOptions must be provided or BaseSetupFunc must be provided")
-				}
-				testOptions = matrix.BaseSetupFunc(nil, tc)
+			// Allow BaseSetupFunc to customize the copied options
+			if matrix.BaseSetupFunc != nil {
+				testOptions = matrix.BaseSetupFunc(testOptions, tc)
 			}
 
 			// Apply test case specific prefix if provided
 			if tc.Prefix != "" {
 				testOptions.Prefix = tc.Prefix
 			}
-			// Ensure prefix is unique to avoid project name collisions
-			// This is critical for matrix tests where multiple tests run in parallel
-			// Keep test case name for logging and debugging, but use shorter prefix for resources
+			// Ensure prefix is unique to avoid resource name collisions
 			if testOptions.Prefix != "" {
-				// Use shorter prefix for resources: just base prefix + unique ID
-				// Test case name is preserved in TestCaseName for logging purposes
-				testOptions.Prefix = fmt.Sprintf("%s-%s", testOptions.Prefix, common.UniqueId())
+				uniqueID := common.UniqueId()
+				if len(uniqueID) > 4 {
+					uniqueID = uniqueID[:4]
+				}
+				testOptions.Prefix = fmt.Sprintf("%s-%s", testOptions.Prefix, uniqueID)
 			} else {
-				// Generate prefix without test case name if no base prefix provided to keep it short
-				testOptions.Prefix = fmt.Sprintf("test-%s", common.UniqueId())
+				uniqueID := common.UniqueId()
+				if len(uniqueID) > 4 {
+					uniqueID = uniqueID[:4]
+				}
+				testOptions.Prefix = fmt.Sprintf("test-%s", uniqueID)
 			}
 			testOptions.AddonConfig.Prefix = testOptions.Prefix
-
-			// Set the test case name for logging
-			testOptions.TestCaseName = tc.Name
-
-			// Mark as matrix test so teardown doesn't delete shared catalog
-			testOptions.isMatrixTest = true
 
 			// Ensure logger is initialized before using it
 			if testOptions.Logger == nil {
@@ -1125,130 +1299,39 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				testOptions.SkipInfrastructureDeployment = true
 			}
 
-			// Create addon configuration using the provided config function FIRST
-			// This ensures we have offering details available for project naming and shared offering import
+			// Set TestCaseName for clear logging (matrix tests automatically use test case name)
+			if tc.Name != "" {
+				testOptions.TestCaseName = tc.Name
+			}
+
+			// Create addon configuration using the provided config function
 			testOptions.AddonConfig = matrix.AddonConfigFunc(testOptions, tc)
 
 			// Set dependencies if provided in test case
 			if tc.Dependencies != nil {
 				testOptions.AddonConfig.Dependencies = tc.Dependencies
-
-				// Ensure unique configuration names for dependencies as well
-				for i := range testOptions.AddonConfig.Dependencies {
-					dep := &testOptions.AddonConfig.Dependencies[i]
-					if dep.ConfigName == "" {
-						// Build unique dependency config name
-						depConfigNameParts := []string{}
-						if dep.Prefix != "" {
-							depConfigNameParts = append(depConfigNameParts, dep.Prefix)
-						}
-						if dep.OfferingName != "" {
-							depConfigNameParts = append(depConfigNameParts, dep.OfferingName)
-						}
-						if dep.OfferingFlavor != "" {
-							depConfigNameParts = append(depConfigNameParts, dep.OfferingFlavor)
-						}
-						if tc.Name != "" {
-							depConfigNameParts = append(depConfigNameParts, tc.Name)
-						}
-
-						if len(depConfigNameParts) > 0 {
-							dep.ConfigName = strings.Join(depConfigNameParts, "-")
-						} else {
-							dep.ConfigName = fmt.Sprintf("dep-config-%s", common.UniqueId())
-						}
-					}
-				}
 			}
 
-			// Ensure unique configuration names to avoid conflicts when sharing projects
-			// Include test case name and offering details for better identification
-			if testOptions.AddonConfig.ConfigName == "" {
-				// Build a unique configuration name that includes test case and offering info
-				configNameParts := []string{}
-				if testOptions.AddonConfig.Prefix != "" {
-					configNameParts = append(configNameParts, testOptions.AddonConfig.Prefix)
-				}
-				if testOptions.AddonConfig.OfferingName != "" {
-					configNameParts = append(configNameParts, testOptions.AddonConfig.OfferingName)
-				}
-				if tc.Name != "" {
-					configNameParts = append(configNameParts, tc.Name)
-				}
-
-				// If we have parts, join them; otherwise use a fallback
-				if len(configNameParts) > 0 {
-					testOptions.AddonConfig.ConfigName = strings.Join(configNameParts, "-")
-				} else {
-					testOptions.AddonConfig.ConfigName = fmt.Sprintf("config-%s", common.UniqueId())
-				}
-			}
-
-			// Matrix tests default to shared projects for efficiency now that we have unique config names
-			// Override any BaseOptions setting for matrix tests since they can safely share
-			if tc.SkipInfrastructureDeployment {
-				// Validation-only tests always share a project since they don't deploy infrastructure
-				testOptions.SharedProject = core.BoolPtr(true)
-				testOptions.Logger.ShortInfo("Matrix validation test using shared project for efficiency")
-			} else {
-				// Deployment tests also default to sharing in matrix mode for efficiency
-				// Configuration names include test case names to prevent conflicts
-				testOptions.SharedProject = core.BoolPtr(true)
-				testOptions.Logger.ShortInfo("Matrix deployment test using shared project for efficiency")
-			}
-
-			// Now that SharedProject is determined, set the appropriate project name
+			// Set project name using test case and prefix
 			if testOptions.Prefix != "" {
-				// For shared projects, use a consistent name across all test cases
-				if testOptions.SharedProject != nil && *testOptions.SharedProject {
-					// All shared projects use the same base name so they reference the same project
-					// We'll use the offering name from the first test case that creates the shared project
-					// The actual project name will be set when the shared project is created
-					// For now, use a placeholder that will be overridden when the shared project is assigned
-					testOptions.ProjectName = "shared-project-placeholder"
-				} else { // Individual projects use descriptive names showing the specific test case
-					// Format: "{offering-short-name}-{test-case}-{base-prefix}-{unique-id}"
-					nameComponents := []string{}
+				nameComponents := []string{}
 
-					if testOptions.AddonConfig.OfferingName != "" {
-						// Extract a shorter, more readable name from the offering
-						offeringShortName := testOptions.AddonConfig.OfferingName
-						if strings.HasPrefix(offeringShortName, "deploy-arch-") {
-							// Strip "deploy-arch-" prefix if present (e.g., "deploy-arch-ibm-observability" -> "ibm-observability")
-							offeringShortName = strings.TrimPrefix(offeringShortName, "deploy-arch-")
-						}
-						nameComponents = append(nameComponents, offeringShortName)
+				if testOptions.AddonConfig.OfferingName != "" {
+					// Extract a shorter, more readable name from the offering
+					offeringShortName := testOptions.AddonConfig.OfferingName
+					if strings.HasPrefix(offeringShortName, "deploy-arch-") {
+						offeringShortName = strings.TrimPrefix(offeringShortName, "deploy-arch-")
 					}
-
-					// Add test case name in lowercase for readability
-					if tc.Name != "" {
-						nameComponents = append(nameComponents, strings.ToLower(tc.Name))
-					}
-
-					// Extract base prefix and unique ID
-					prefixParts := strings.Split(testOptions.Prefix, "-")
-					if len(prefixParts) >= 3 {
-						// We have base-prefix-testname-uniqueid, so take base prefix and unique ID
-						basePrefix := prefixParts[0]
-						uniqueId := prefixParts[len(prefixParts)-1]
-						nameComponents = append(nameComponents, basePrefix, uniqueId)
-					} else {
-						// Fallback to the full prefix
-						nameComponents = append(nameComponents, testOptions.Prefix)
-					}
-
-					testOptions.ProjectName = strings.Join(nameComponents, "-")
+					nameComponents = append(nameComponents, offeringShortName)
 				}
-			}
 
-			// Log project sharing behavior for debugging
-			testOptions.Logger.ShortInfo(fmt.Sprintf("Test case %s: SharedProject=%t, SkipInfrastructureDeployment=%t, ProjectName=%s", tc.Name, *testOptions.SharedProject, tc.SkipInfrastructureDeployment, testOptions.ProjectName))
-			if *testOptions.SharedProject {
-				if tc.SkipInfrastructureDeployment {
-					testOptions.Logger.ShortInfo("Matrix validation test using shared project for efficiency")
-				} else {
-					testOptions.Logger.ShortInfo("Matrix deployment test using shared project")
+				// Add test case name in lowercase for readability
+				if tc.Name != "" {
+					nameComponents = append(nameComponents, strings.ToLower(tc.Name))
 				}
+
+				nameComponents = append(nameComponents, testOptions.Prefix)
+				testOptions.ProjectName = strings.Join(nameComponents, "-")
 			}
 
 			// Merge any additional inputs from the test case
@@ -1261,21 +1344,60 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				}
 			}
 
-			// Handle shared catalog AND offering creation in matrix tests (single mutex)
+			// Handle shared catalog creation in matrix tests
 			sharedMutex.Lock()
 			if sharedCatalogOptions == nil {
 				// This is the first test case - it will create the shared catalog and offering
 				sharedCatalogOptions = testOptions
 
+				// First, validate that the branch exists in the remote repository BEFORE creating any resources
+				// Get repository info for offering import validation
+				repo, branch, repoErr := common.GetCurrentPrRepoAndBranch()
+				if repoErr != nil {
+					sharedMutex.Unlock()
+					testOptions.Logger.ShortError("Error getting current branch and repo for offering import validation")
+					require.NoError(t, repoErr, "Failed to get repository info for offering import validation")
+					return
+				}
+
+				// Convert repository URL to HTTPS format for branch validation
+				if strings.HasPrefix(repo, "git@") {
+					repo = strings.Replace(repo, ":", "/", 1)
+					repo = strings.Replace(repo, "git@", "https://", 1)
+					repo = strings.TrimSuffix(repo, ".git")
+				} else if strings.HasPrefix(repo, "git://") {
+					repo = strings.Replace(repo, "git://", "https://", 1)
+					repo = strings.TrimSuffix(repo, ".git")
+				} else if strings.HasPrefix(repo, "https://") {
+					repo = strings.TrimSuffix(repo, ".git")
+				}
+
+				// Validate that the branch exists in the remote repository (required for offering import)
+				testOptions.Logger.ShortInfo(fmt.Sprintf("Validating that branch '%s' exists in remote repository before creating any resources", branch))
+				branchExists, err := common.CheckRemoteBranchExists(repo, branch)
+				if err != nil {
+					sharedMutex.Unlock()
+					testOptions.Logger.ShortError(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
+					require.NoError(t, err, "Failed to validate branch exists for offering import")
+					return
+				}
+				if !branchExists {
+					sharedMutex.Unlock()
+					testOptions.Logger.ShortError(fmt.Sprintf("Required branch '%s' does not exist in repository '%s'", branch, repo))
+					testOptions.Logger.ShortError("This branch is required for offering import/catalog tests to work properly.")
+					testOptions.Logger.ShortError("Please ensure the branch exists in the remote repository before running the test.")
+					require.Fail(t, fmt.Sprintf("Required branch '%s' does not exist in repository '%s' (required for offering import)", branch, repo))
+					return
+				}
+				testOptions.Logger.ShortInfo(fmt.Sprintf("Branch '%s' confirmed to exist in remote repository", branch))
+
 				// Create the shared catalog for all matrix tests
 				if !testOptions.CatalogUseExisting {
-					// Generate a more descriptive catalog name for matrix tests
+					// Generate a descriptive catalog name for matrix tests
 					offeringShortName := "addon"
 					if testOptions.AddonConfig.OfferingName != "" {
-						// Extract a shorter, more readable name from the offering
 						offeringShortName = testOptions.AddonConfig.OfferingName
 						if strings.HasPrefix(offeringShortName, "deploy-arch-") {
-							// Strip "deploy-arch-" prefix if present (e.g., "deploy-arch-ibm-observability" -> "ibm-observability")
 							offeringShortName = strings.TrimPrefix(offeringShortName, "deploy-arch-")
 						}
 					}
@@ -1299,7 +1421,7 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 						testOptions.Logger.ShortWarn("Created shared catalog but catalog details are incomplete")
 					}
 
-					// Import the offering once for all matrix tests (now that we have addon config)
+					// Import the offering once for all matrix tests
 					version := fmt.Sprintf("v0.0.1-dev-%s", testOptions.Prefix)
 					testOptions.AddonConfig.ResolvedVersion = version
 
@@ -1324,6 +1446,7 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 						repo = strings.TrimSuffix(repo, ".git")
 					}
 
+					// Branch validation was already performed before catalog creation
 					branchUrl := fmt.Sprintf("%s/tree/%s", repo, branch)
 					testOptions.Logger.ShortInfo(fmt.Sprintf("Importing shared offering: %s from branch: %s as version: %s", testOptions.AddonConfig.OfferingFlavor, branchUrl, version))
 
@@ -1343,91 +1466,11 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 					}
 				}
 
-				// Create shared project if any test case in the matrix needs one
-				if needsSharedProject {
-					// Use a descriptive shared project name that includes offering information
-					offeringShortName := "addon"
-					if testOptions.AddonConfig.OfferingName != "" {
-						// Strip the "deploy-arch-" prefix if present, otherwise use the full name
-						if strings.HasPrefix(testOptions.AddonConfig.OfferingName, "deploy-arch-") {
-							offeringShortName = strings.TrimPrefix(testOptions.AddonConfig.OfferingName, "deploy-arch-")
-						} else {
-							offeringShortName = testOptions.AddonConfig.OfferingName
-						}
-					}
-					// Extract just the unique ID from the prefix (last part after the final hyphen)
-					prefixParts := strings.Split(testOptions.Prefix, "-")
-					uniqueId := prefixParts[len(prefixParts)-1]
-					sharedProjectName := fmt.Sprintf("shared-%s-validation-%s", offeringShortName, uniqueId)
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Creating shared project for matrix tests: %s", sharedProjectName))
-
-					// Set up project configuration for shared validation project
-					if testOptions.ProjectDestroyOnDelete == nil {
-						testOptions.ProjectDestroyOnDelete = core.BoolPtr(true)
-					}
-					if testOptions.ProjectAutoDeploy == nil {
-						testOptions.ProjectAutoDeploy = core.BoolPtr(false)
-					}
-					if testOptions.ProjectMonitoringEnabled == nil {
-						testOptions.ProjectMonitoringEnabled = core.BoolPtr(false)
-					}
-
-					sharedProjectConfig := &cloudinfo.ProjectsConfig{
-						Location:           testOptions.ProjectLocation,
-						ProjectName:        sharedProjectName,
-						ProjectDescription: "Shared project for matrix tests",
-						ResourceGroup:      testOptions.ResourceGroup,
-						DestroyOnDelete:    *testOptions.ProjectDestroyOnDelete,
-						MonitoringEnabled:  *testOptions.ProjectMonitoringEnabled,
-						AutoDeploy:         *testOptions.ProjectAutoDeploy,
-						Environments:       testOptions.ProjectEnvironments,
-					}
-
-					prj, _, err := testOptions.CloudInfoService.CreateProjectFromConfig(sharedProjectConfig)
-					if err != nil {
-						sharedMutex.Unlock() // Release mutex on error
-						testOptions.Logger.ShortError(fmt.Sprintf("Error creating shared project: %v", err))
-						require.NoError(t, err, "Failed to create shared project for matrix tests")
-						return
-					}
-
-					// Store the shared project in sharedCatalogOptions for other tests to use
-					sharedCatalogOptions.currentProject = prj
-					sharedCatalogOptions.currentProjectConfig = sharedProjectConfig
-					sharedCatalogOptions.currentProjectConfig.ProjectID = *prj.ID
-
-					if prj != nil && prj.ID != nil {
-						testOptions.Logger.ShortInfo(fmt.Sprintf("Created shared project: %s with ID %s", sharedProjectName, *prj.ID))
-						projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", *prj.ID)
-						testOptions.Logger.ShortInfo(fmt.Sprintf("Shared Project URL: %s", projectURL))
-					} else {
-						testOptions.Logger.ShortWarn("Created shared project but project details are incomplete")
-					}
-				} else {
-					testOptions.Logger.ShortInfo(fmt.Sprintf("No shared project needed for matrix tests"))
-				}
-
-				sharedMutex.Unlock() // Release mutex only AFTER catalog, offering, AND project creation is complete
+				sharedMutex.Unlock()
 			} else {
-				// Share the catalog, offering, and project tracking fields from the first instance
-				// At this point, we know both catalog and offering creation is complete because the mutex ensures it
+				// Share the catalog and offering from the first instance
 				testOptions.catalog = sharedCatalogOptions.catalog
 				testOptions.offering = sharedCatalogOptions.offering
-
-				// Share project if SharedProject is enabled
-				if *testOptions.SharedProject {
-					testOptions.currentProject = sharedCatalogOptions.currentProject
-					testOptions.currentProjectConfig = sharedCatalogOptions.currentProjectConfig
-					// Override the placeholder project name with the actual shared project name
-					testOptions.ProjectName = sharedCatalogOptions.currentProjectConfig.ProjectName
-					if testOptions.currentProject != nil && testOptions.currentProject.ID != nil {
-						testOptions.Logger.ShortInfo(fmt.Sprintf("Test case %s: Shared project assigned: %s with ID %s", tc.Name, testOptions.ProjectName, *testOptions.currentProject.ID))
-					} else {
-						testOptions.Logger.ShortWarn(fmt.Sprintf("Test case %s: Shared project assignment failed - currentProject is nil", tc.Name))
-					}
-				} else {
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Test case %s: SharedProject=false, will create individual project", tc.Name))
-				}
 
 				sharedMutex.Unlock()
 				if testOptions.catalog != nil && testOptions.catalog.Label != nil && testOptions.catalog.ID != nil {
@@ -1440,19 +1483,15 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				} else {
 					testOptions.Logger.ShortWarn("Shared offering is nil or incomplete - offering import may have failed")
 				}
-				if *testOptions.SharedProject && testOptions.currentProject != nil && testOptions.currentProject.ID != nil {
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared project: %s with ID %s", testOptions.currentProjectConfig.ProjectName, *testOptions.currentProject.ID))
-				}
 			}
 
-			// Run the test
+			// Run the test - each test creates its own project
 			err := testOptions.RunAddonTest()
 			require.NoError(t, err, "Addon Test had an unexpected error")
 		})
 	}
 
 	// Cleanup shared resources after all tests complete
-	// Use a separate goroutine that waits for all test goroutines to complete
 	go func() {
 		options.Testing.Cleanup(func() {
 			if sharedCatalogOptions != nil {
@@ -1460,4 +1499,141 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 			}
 		})
 	}()
+}
+
+// validateInputsWithRetry validates required inputs for a configuration with retry logic
+// This handles the case where the backend database hasn't been updated yet after configuration changes
+func (options *TestAddonOptions) validateInputsWithRetry(configID string, targetAddon cloudinfo.AddonConfig, maxRetries int, retryDelay time.Duration) (bool, []string) {
+	var allInputsPresent bool
+	var missingInputs []string
+	var lastError error
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		// Get the latest configuration details
+		currentConfigDetails, _, err := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+			ProjectID: options.currentProjectConfig.ProjectID,
+			ConfigID:  configID,
+		})
+
+		if err != nil {
+			lastError = err
+			if attempt < maxRetries {
+				options.Logger.ShortInfo(fmt.Sprintf("Attempt %d/%d: Error getting configuration details, retrying in %v: %v", attempt, maxRetries, retryDelay, err))
+				time.Sleep(retryDelay)
+				continue
+			}
+			options.Logger.ShortError(fmt.Sprintf("Failed to get configuration after %d attempts: %v", maxRetries, err))
+			return false, []string{fmt.Sprintf("Failed to get configuration: %v", err)}
+		}
+
+		// Reset for this attempt
+		allInputsPresent = true
+		missingInputs = nil
+
+		// Check required inputs
+		for _, input := range targetAddon.OfferingInputs {
+			if !input.Required {
+				continue
+			}
+			if input.Key == "ibmcloud_api_key" {
+				continue
+			}
+
+			value, exists := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs[input.Key]
+			if !exists || fmt.Sprintf("%v", value) == "" {
+				if input.DefaultValue == nil || fmt.Sprintf("%v", input.DefaultValue) == "" || fmt.Sprintf("%v", input.DefaultValue) == "__NOT_SET__" {
+					allInputsPresent = false
+					configIdentifier := fmt.Sprintf("%s (missing: %s)", *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name, input.Key)
+					missingInputs = append(missingInputs, configIdentifier)
+				}
+			}
+		}
+
+		// If all inputs are present, we're done
+		if allInputsPresent {
+			if attempt > 1 {
+				options.Logger.ShortInfo(fmt.Sprintf("Input validation succeeded on attempt %d/%d after retrying", attempt, maxRetries))
+			}
+			return true, nil
+		}
+
+		// If this isn't the last attempt, wait and retry
+		if attempt < maxRetries {
+			options.Logger.ShortInfo(fmt.Sprintf("Attempt %d/%d: Some required inputs appear missing, retrying in %v (this may be due to database update timing)", attempt, maxRetries, retryDelay))
+
+			// Show which inputs are missing on this attempt for debugging
+			if len(missingInputs) > 0 {
+				options.Logger.ShortInfo(fmt.Sprintf("Missing inputs on attempt %d:", attempt))
+				for _, missing := range missingInputs {
+					options.Logger.ShortInfo(fmt.Sprintf("  %s", missing))
+				}
+			}
+
+			time.Sleep(retryDelay)
+		}
+	}
+
+	// All attempts failed
+	if lastError != nil {
+		options.Logger.ShortError(fmt.Sprintf("Input validation failed after %d attempts due to configuration retrieval error: %v", maxRetries, lastError))
+	} else {
+		options.Logger.ShortError(fmt.Sprintf("Input validation failed after %d attempts - inputs still appear missing:", maxRetries))
+		for _, missing := range missingInputs {
+			options.Logger.ShortError(fmt.Sprintf("  %s", missing))
+		}
+
+		// Show detailed retry debug information when all attempts fail
+		options.Logger.ShortError("=== RETRY VALIDATION DEBUG INFO ===")
+		options.Logger.ShortError(fmt.Sprintf("Configuration ID: %s", configID))
+		options.Logger.ShortError(fmt.Sprintf("Retry attempts: %d", maxRetries))
+		options.Logger.ShortError(fmt.Sprintf("Retry delay: %v", retryDelay))
+
+		// Try to get the final state and show all inputs
+		finalConfigDetails, _, finalErr := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+			ProjectID: options.currentProjectConfig.ProjectID,
+			ConfigID:  configID,
+		})
+
+		if finalErr != nil {
+			options.Logger.ShortError(fmt.Sprintf("Could not retrieve final config state: %v", finalErr))
+		} else {
+			options.Logger.ShortError("Final configuration state:")
+			if finalConfigDetails.State != nil {
+				options.Logger.ShortError(fmt.Sprintf("  State: %s", *finalConfigDetails.State))
+			}
+			if finalConfigDetails.StateCode != nil {
+				options.Logger.ShortError(fmt.Sprintf("  StateCode: %s", string(*finalConfigDetails.StateCode)))
+			}
+
+			options.Logger.ShortError("All inputs in final configuration:")
+			if finalConfigDetails.Definition != nil {
+				if resp, ok := finalConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
+					for key, value := range resp.Inputs {
+						// Don't log sensitive values
+						if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
+							options.Logger.ShortError(fmt.Sprintf("    %s: [REDACTED]", key))
+						} else {
+							options.Logger.ShortError(fmt.Sprintf("    %s: %v (type: %T)", key, value, value))
+						}
+					}
+				} else {
+					options.Logger.ShortError("    No inputs found in configuration definition")
+				}
+			}
+
+			options.Logger.ShortError("Required inputs that were checked:")
+			for _, input := range targetAddon.OfferingInputs {
+				if input.Required && input.Key != "ibmcloud_api_key" {
+					defaultInfo := "no default"
+					if input.DefaultValue != nil {
+						defaultInfo = fmt.Sprintf("default: %v", input.DefaultValue)
+					}
+					options.Logger.ShortError(fmt.Sprintf("    %s (%s)", input.Key, defaultInfo))
+				}
+			}
+		}
+		options.Logger.ShortError("=== END RETRY DEBUG INFO ===")
+	}
+
+	return false, missingInputs
 }

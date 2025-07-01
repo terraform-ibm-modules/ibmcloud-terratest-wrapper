@@ -675,83 +675,59 @@ func TestFlavorMatrix(t *testing.T) {
 }
 ```
 
-## Optional Project Sharing in Matrix Tests
+### Project Isolation in Matrix Tests
 
-In addition to automatic catalog sharing, matrix tests can optionally share projects across test cases for even greater efficiency. This feature provides additional resource optimization while maintaining configuration isolation.
-
-### How Project Sharing Works
-
-- **Matrix Tests**: All test cases in a matrix share a single project by default for efficiency
-- **Individual Tests**: Each individual test gets its own project for isolation
-- **Configuration Isolation**: Each test case gets its own uniquely named configuration within the shared project
-- **Resource Lifecycle**: The first test case creates the project, subsequent tests reuse it
-- **Cleanup**: Shared projects are cleaned up automatically after all matrix tests complete
-
-**Why Sharing is Safe**: Configuration names now include test case names (e.g., `prefix-offering-TestCaseName`), preventing conflicts between test cases.
-
-### Benefits
-
-**Resource Efficiency**: Instead of creating 20 projects for 20 test cases, only 1 project is created and shared.
-
-**Time Savings**: Significant reduction in project creation time and IBM Cloud API calls.
-
-**Cost Optimization**: Fewer temporary projects created, reduced resource management overhead.
-
-### Controlling Project Sharing
-
-The framework provides intelligent defaults optimized for efficiency, with override options for special cases:
+The framework provides intelligent project management optimized for different testing scenarios:
 
 ```go
-// Matrix tests: Always share projects by default for efficiency
-// The framework automatically overrides any BaseOptions setting for matrix tests
+// Matrix tests: Each test case gets its own project for complete isolation
+// The framework automatically creates separate projects for each test case
 baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "test",
     ResourceGroup: "my-rg",
-    // SharedProject setting in BaseOptions is overridden for matrix tests
-    // Matrix tests always default to SharedProject = true for efficiency
 })
 
-// Individual tests: Use BaseOptions setting (defaults to false for isolation)
+// Individual tests: Each test gets its own project for isolation
 individualOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "individual",
     ResourceGroup: "my-rg",
-    SharedProject: core.BoolPtr(false), // Individual tests default to isolation
 })
 ```
 
 **Matrix Test Behavior (Automatic):**
 
-- **All matrix test cases**: Automatically share a single project regardless of BaseOptions
-- **Configuration isolation**: Each test case gets uniquely named configurations
-- **No override needed**: Framework handles efficiency optimization automatically
+- **All matrix test cases**: Get their own dedicated projects for complete isolation
+- **Configuration isolation**: Each test case gets its own project and uniquely named configurations
+- **Clean separation**: Framework handles project lifecycle automatically
 
 **Individual Test Behavior:**
 
-- **Default**: Each individual test gets its own project (SharedProject = false)
-- **Override**: Set SharedProject = true to share projects across individual tests
+- **Default**: Each individual test gets its own project for complete isolation
+- **Reliable**: Consistent behavior across all test types
 
 **Default behavior (automatic and recommended):**
 
-- **Matrix Tests**: All test cases automatically share a single project for maximum efficiency
+- **Matrix Tests**: Each test case gets its own project for complete isolation
 - **Individual Tests**: Each gets its own project for complete isolation
-- **Configuration Isolation**: Each test case gets its own uniquely named configuration
-- **No configuration needed**: Framework automatically optimizes resource usage
+- **Configuration Isolation**: Each test case gets its own uniquely named configuration in its own project
+- **No configuration needed**: Framework automatically manages project lifecycle
 
-**When matrix tests share projects:**
+**Benefits of project isolation:**
 
-- All test cases in a matrix test run share one project automatically
-- Configuration names include test case names to prevent conflicts
-- Significant resource and time savings compared to individual projects
-- Complete configuration isolation within the shared project
+- Each test case has its own dedicated project
+- Complete isolation prevents test interference
+- Easier debugging when tests fail
+- Reliable cleanup of resources per test case
+- Consistent behavior across test types
 
-**When you might need project isolation (rare cases):**
+**When project isolation helps:**
 
 - When testing project-specific functionality
 - When debugging project-related issues
-- When test cases might interfere with each other at the project level
-- **Note**: For matrix tests, you cannot override the sharing behavior - they always share for efficiency
+- Preventing test cases from interfering with each other
+- Ensuring clean resource management and cleanup
 
 ### Example: Efficient Matrix Testing
 
@@ -767,8 +743,7 @@ func TestEfficientAddonMatrix(t *testing.T) {
         Testing:       t,
         Prefix:        "efficient-test",
         ResourceGroup: "my-resource-group",
-        SharedCatalog: core.BoolPtr(true),  // Share catalog (automatic in matrix)
-        SharedProject: core.BoolPtr(true),  // Share project for efficiency
+        SharedCatalog: core.BoolPtr(true),  // Share catalog for efficiency
     })
 
     matrix := testaddons.AddonTestMatrix{
@@ -787,8 +762,8 @@ func TestEfficientAddonMatrix(t *testing.T) {
     }
 
     baseOptions.RunAddonTestMatrix(matrix)
-    // Result: 1 catalog + 1 project shared across 3 test cases
-    // Each test case gets its own uniquely named configuration within the shared project
+    // Result: 1 shared catalog, but each test case gets its own project
+    // Each test case gets its own uniquely named configuration in its own project
 }
 ```
 
@@ -797,18 +772,18 @@ func TestEfficientAddonMatrix(t *testing.T) {
 | Resource Type | Matrix Default | Individual Default | Isolation Level |
 |---------------|----------------|-------------------|-----------------|
 | **Catalog** | Shared (automatic) | Private | Offering level |
-| **Project** | Shared (automatic)* | Private | Configuration level |
+| **Project** | Private (per test case) | Private | Configuration level |
 
-*Matrix project sharing:
+**Matrix project behavior:**
 
-- **All matrix tests**: Automatically share a single project (cannot be overridden)
-- **Configuration isolation**: Each test case gets uniquely named configurations
-- **Maximum efficiency**: Significant resource and time savings
-- **Seamless**: No configuration needed - framework handles optimization automatically
+- **All matrix tests**: Each test case gets its own dedicated project
+- **Complete isolation**: Each test case has its own project and configurations
+- **Reliable cleanup**: Each test case manages its own project lifecycle
+- **Consistent**: Same isolation model across all test types
 
-**Maximum Efficiency (Default)**: Matrix tests automatically share catalogs and projects
+**Maximum Efficiency Options**: Matrix tests can share catalogs while maintaining project isolation
 **Individual Test Isolation**: Each individual test gets its own catalog and project
-**Recommended**: Use matrix tests for parallel scenarios to maximize efficiency
+**Recommended**: Use matrix tests for parallel scenarios with catalog sharing for efficiency
 
 ## Best Practices for Matrix Testing
 

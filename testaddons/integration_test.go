@@ -70,7 +70,6 @@ func TestMatrixCatalogSharingLogic(t *testing.T) {
 			// Simulate what happens in the matrix loop
 			testOptions := baseOptions.copy()
 			testOptions.Prefix = tc.Prefix
-			testOptions.TestCaseName = tc.Name
 
 			// Simulate the catalog sharing logic from our fix
 			if sharedCatalogOptions == nil {

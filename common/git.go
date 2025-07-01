@@ -592,3 +592,29 @@ func changesToBePush(testing *testing.T, repoDir string, git gitOps) (bool, []st
 
 	return hasUncommittedChanges || hasUnpushedCommits, allChangedFiles, nil
 }
+
+// CheckRemoteBranchExists checks if a specific branch exists in a remote Git repository
+// repoURL: the HTTPS URL of the repository (e.g., "https://github.com/user/repo")
+// branchName: the name of the branch to check (e.g., "main", "feature-branch")
+// Returns true if the branch exists, false otherwise, and an error if the check fails
+func CheckRemoteBranchExists(repoURL, branchName string) (bool, error) {
+	if repoURL == "" || branchName == "" {
+		return false, fmt.Errorf("repository URL and branch name must not be empty")
+	}
+
+	// Use git ls-remote to check if the branch exists without cloning the repo
+	cmd := exec.Command("git", "ls-remote", "--heads", repoURL, branchName)
+	output, err := cmd.Output()
+	if err != nil {
+		// Check if it's a repository access error
+		if exitError, ok := err.(*exec.ExitError); ok {
+			return false, fmt.Errorf("failed to access repository '%s': %s", repoURL, string(exitError.Stderr))
+		}
+		return false, fmt.Errorf("failed to check remote branch: %w", err)
+	}
+
+	// If output is empty, the branch doesn't exist
+	// If output has content, the branch exists (git ls-remote returns "commit_hash refs/heads/branch_name")
+	result := strings.TrimSpace(string(output))
+	return result != "", nil
+}

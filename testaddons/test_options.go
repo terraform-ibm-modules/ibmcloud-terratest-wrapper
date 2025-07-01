@@ -3,6 +3,7 @@ package testaddons
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
@@ -60,12 +61,6 @@ type TestAddonOptions struct {
 	// This applies to both individual tests and matrix tests.
 	SharedCatalog *bool
 
-	// SharedProject If set to true, projects will be shared across tests using the same TestOptions object.
-	// When false (default), each test will create its own project, which provides complete isolation.
-	// This applies to both individual tests and matrix tests.
-	// Note: When using shared projects, configurations are still isolated per test case.
-	SharedProject *bool
-
 	// Internal Use
 	// catalog the catalog instance in use.
 	catalog *catalogmanagementv1.Catalog
@@ -73,9 +68,6 @@ type TestAddonOptions struct {
 	// internal use
 	// offering the offering created in the catalog.
 	offering *catalogmanagementv1.Offering
-
-	// Internal flag to track if this is part of a matrix test (catalog shared)
-	isMatrixTest bool
 
 	// AddonConfig The configuration for the addon to deploy.
 	AddonConfig cloudinfo.AddonConfig
@@ -98,6 +90,13 @@ type TestAddonOptions struct {
 	SkipRefValidation bool
 	// SkipDependencyValidatio If set to true, the test will not check for dependency validation before deploying
 	SkipDependencyValidation bool
+
+	// InputValidationRetries The number of retry attempts for input validation (default: 3)
+	// This handles timing issues where the backend database hasn't been updated yet after configuration changes
+	InputValidationRetries int
+	// InputValidationRetryDelay The delay between retry attempts for input validation (default: 2 seconds)
+	InputValidationRetryDelay time.Duration
+
 	// VerboseValidationErrors If set to true, shows detailed individual error messages instead of consolidated summary
 	VerboseValidationErrors bool
 	// EnhancedTreeValidationOutput If set to true, shows dependency tree with validation status annotations
@@ -105,7 +104,9 @@ type TestAddonOptions struct {
 	// LocalChangesIgnorePattern List of regex patterns to ignore files or directories when checking for local changes.
 	LocalChangesIgnorePattern []string
 
-	// TestCaseName The name of the test case when running in matrix mode. Used for logging to identify specific test cases.
+	// TestCaseName Optional custom identifier for log messages. When specified, log output will show:
+	// "[TestFunction - ADDON - TestCaseName]" instead of using the project name.
+	// Matrix tests automatically set this using the AddonTestCase.Name field.
 	TestCaseName string
 
 	// internal use
@@ -188,10 +189,12 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 		newOptions.SharedCatalog = core.BoolPtr(false)
 	}
 
-	// Default SharedProject to false for individual tests
-	// Matrix tests can override this to true for more efficient testing
-	if newOptions.SharedProject == nil {
-		newOptions.SharedProject = core.BoolPtr(false)
+	// Set default retry configuration for input validation
+	if newOptions.InputValidationRetries <= 0 {
+		newOptions.InputValidationRetries = 3
+	}
+	if newOptions.InputValidationRetryDelay <= 0 {
+		newOptions.InputValidationRetryDelay = 2 * time.Second
 	}
 
 	// Always include default ignore patterns and append user patterns if provided
@@ -262,7 +265,6 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		CatalogUseExisting:           options.CatalogUseExisting,
 		CatalogName:                  options.CatalogName,
 		SharedCatalog:                copyBoolPointer(options.SharedCatalog),
-		SharedProject:                copyBoolPointer(options.SharedProject),
 		AddonConfig:                  options.AddonConfig, // Note: shallow copy, will be overridden
 		DeployTimeoutMinutes:         options.DeployTimeoutMinutes,
 		SkipTestTearDown:             options.SkipTestTearDown,
@@ -276,6 +278,8 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		EnhancedTreeValidationOutput: options.EnhancedTreeValidationOutput,
 		LocalChangesIgnorePattern:    options.LocalChangesIgnorePattern,
 		TestCaseName:                 options.TestCaseName,
+		InputValidationRetries:       options.InputValidationRetries,
+		InputValidationRetryDelay:    options.InputValidationRetryDelay,
 		PreDeployHook:                options.PreDeployHook,
 		PostDeployHook:               options.PostDeployHook,
 		PreUndeployHook:              options.PreUndeployHook,
@@ -285,7 +289,6 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		// These fields are not copied as they are managed per test instance
 		catalog:              nil,
 		offering:             nil,
-		isMatrixTest:         false,
 		currentProject:       nil,
 		currentProjectConfig: nil,
 		deployedConfigs:      nil,
@@ -321,42 +324,6 @@ func (options *TestAddonOptions) CleanupSharedResources() {
 			options.Logger.ShortError(fmt.Sprintf("Error deleting the shared catalog: %v", err))
 		} else {
 			options.Logger.ShortInfo(fmt.Sprintf("Deleted the shared catalog %s with ID %s", *options.catalog.Label, *options.catalog.ID))
-		}
-	}
-
-	if options.currentProject != nil && options.currentProject.ID != nil {
-		projectName := options.ProjectName
-		if options.currentProjectConfig != nil && options.currentProjectConfig.ProjectName != "" {
-			projectName = options.currentProjectConfig.ProjectName
-		}
-		options.Logger.ShortInfo(fmt.Sprintf("Deleting the shared project %s with ID %s", projectName, *options.currentProject.ID))
-		_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
-		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error deleting the shared project: %v", err))
-		} else if resp.StatusCode == 202 {
-			options.Logger.ShortInfo(fmt.Sprintf("Deleted the shared project %s with ID %s", projectName, *options.currentProject.ID))
-		} else {
-			options.Logger.ShortError(fmt.Sprintf("Failed to delete shared project, response code: %d", resp.StatusCode))
-		}
-	}
-}
-
-// CleanupSharedValidationProject cleans up only the shared validation project
-// This is used to clean up the separate shared validation project in matrix tests
-func (options *TestAddonOptions) CleanupSharedValidationProject() {
-	if options.currentProject != nil && options.currentProject.ID != nil {
-		projectName := options.ProjectName
-		if options.currentProjectConfig != nil && options.currentProjectConfig.ProjectName != "" {
-			projectName = options.currentProjectConfig.ProjectName
-		}
-		options.Logger.ShortInfo(fmt.Sprintf("Deleting the shared validation project %s with ID %s", projectName, *options.currentProject.ID))
-		_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
-		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error deleting the shared validation project: %v", err))
-		} else if resp.StatusCode == 202 {
-			options.Logger.ShortInfo(fmt.Sprintf("Deleted the shared validation project %s with ID %s", projectName, *options.currentProject.ID))
-		} else {
-			options.Logger.ShortError(fmt.Sprintf("Failed to delete shared validation project, response code: %d", resp.StatusCode))
 		}
 	}
 }
