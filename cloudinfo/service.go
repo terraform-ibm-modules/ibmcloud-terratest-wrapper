@@ -72,8 +72,8 @@ type CloudInfoServiceI interface {
 	CreateCatalog(catalogName string) (*catalogmanagementv1.Catalog, error)
 	DeleteCatalog(catalogID string) error
 	ImportOffering(catalogID string, zipUrl string, offeringName string, flavorName string, version string, installKind InstallKind) (*catalogmanagementv1.Offering, error)
-	PrepareOfferingImport(params OfferingImportParams) (branchUrl, repo, branch string, err error)
-	ImportOfferingWithValidation(params OfferingImportParams) (*catalogmanagementv1.Offering, error)
+	PrepareOfferingImport() (branchUrl, repo, branch string, err error)
+	ImportOfferingWithValidation(catalogID, offeringName, offeringFlavor, version string, installKind InstallKind) (*catalogmanagementv1.Offering, error)
 	GetOffering(catalogID string, offeringID string) (*catalogmanagementv1.Offering, *core.DetailedResponse, error)
 	GetOfferingInputs(Offering *catalogmanagementv1.Offering, VersionID string, OfferingID string) (inputs []CatalogInput)
 	GetOfferingVersionLocatorByConstraint(string, string, string, string) (string, string, error)

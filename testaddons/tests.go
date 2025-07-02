@@ -976,17 +976,7 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 
 				// First, validate that the branch exists in the remote repository BEFORE creating any resources
 				// Use the new cloudinfo helper for offering import preparation
-				importParams := cloudinfo.OfferingImportParams{
-					CatalogID:            "", // Will be set after catalog creation
-					OfferingName:         testOptions.AddonConfig.OfferingName,
-					OfferingFlavor:       testOptions.AddonConfig.OfferingFlavor,
-					OfferingInstallKind:  testOptions.AddonConfig.OfferingInstallKind,
-					Version:              fmt.Sprintf("v0.0.1-dev-%s", testOptions.Prefix),
-					SkipBranchValidation: false,
-				}
-
-				// Prepare and validate offering import (this handles branch validation)
-				_, _, _, err := testOptions.CloudInfoService.PrepareOfferingImport(importParams)
+				_, _, _, err := testOptions.CloudInfoService.PrepareOfferingImport()
 				if err != nil {
 					sharedMutex.Unlock()
 					testOptions.Logger.ShortError(fmt.Sprintf("Failed to prepare offering import: %v", err))
@@ -1025,12 +1015,18 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 					}
 
 					// Import the offering using the new helper function
-					importParams.CatalogID = *testOptions.catalog.ID // Set the catalog ID after creation
-					testOptions.AddonConfig.ResolvedVersion = importParams.Version
+					version := fmt.Sprintf("v0.0.1-dev-%s", testOptions.Prefix)
+					testOptions.AddonConfig.ResolvedVersion = version
 
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Importing shared offering: %s as version: %s", testOptions.AddonConfig.OfferingFlavor, importParams.Version))
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Importing shared offering: %s as version: %s", testOptions.AddonConfig.OfferingFlavor, version))
 
-					offering, err := testOptions.CloudInfoService.ImportOfferingWithValidation(importParams)
+					offering, err := testOptions.CloudInfoService.ImportOfferingWithValidation(
+						*testOptions.catalog.ID,
+						testOptions.AddonConfig.OfferingName,
+						testOptions.AddonConfig.OfferingFlavor,
+						version,
+						testOptions.AddonConfig.OfferingInstallKind,
+					)
 					if err != nil {
 						sharedMutex.Unlock() // Release mutex on error
 						testOptions.Logger.ShortError(fmt.Sprintf("Error importing shared offering: %v", err))

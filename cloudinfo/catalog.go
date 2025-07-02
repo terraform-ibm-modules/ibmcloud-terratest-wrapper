@@ -119,16 +119,6 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 	return nil, fmt.Errorf("failed to import offering: %s", response.RawResult)
 }
 
-// OfferingImportParams contains the parameters needed for offering import with validation
-type OfferingImportParams struct {
-	CatalogID            string
-	OfferingName         string
-	OfferingFlavor       string
-	OfferingInstallKind  InstallKind
-	Version              string
-	SkipBranchValidation bool // Set to true to skip branch validation entirely
-}
-
 // PrepareOfferingImport handles the complete workflow of validating repository/branch
 // and preparing parameters for offering import. This centralizes the logic for
 // branch validation and repository URL conversion that's needed for catalog operations.
@@ -138,7 +128,7 @@ type OfferingImportParams struct {
 // - repo: The normalized repository URL
 // - branch: The resolved branch name
 // - error: Any error that occurred during preparation
-func (infoSvc *CloudInfoService) PrepareOfferingImport(params OfferingImportParams) (branchUrl, repo, branch string, err error) {
+func (infoSvc *CloudInfoService) PrepareOfferingImport() (branchUrl, repo, branch string, err error) {
 	// Get repository info
 	repo, branch, err = common.GetCurrentPrRepoAndBranch()
 	if err != nil {
@@ -157,29 +147,24 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport(params OfferingImportPara
 	repo = normalizeRepositoryURL(repo)
 
 	// Validate that the branch exists in the remote repository (required for offering import)
-	// Skip validation if we're in a detached HEAD state and can't determine the actual branch,
-	// or if explicitly requested to skip
-	if !params.SkipBranchValidation {
-		if branch == "HEAD" {
-			infoSvc.Logger.ShortInfo("Skipping branch validation as running in detached HEAD mode and unable to resolve actual branch name")
-			infoSvc.Logger.ShortInfo("This is common in CI environments - catalog operations will use the commit hash instead")
-		} else {
-			infoSvc.Logger.ShortInfo(fmt.Sprintf("Validating that branch '%s' exists in remote repository before creating any resources", branch))
-			branchExists, err := common.CheckRemoteBranchExists(repo, branch)
-			if err != nil {
-				infoSvc.Logger.ShortError(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
-				return "", "", "", fmt.Errorf("failed to validate branch exists for offering import: %w", err)
-			}
-			if !branchExists {
-				infoSvc.Logger.ShortError(fmt.Sprintf("Required branch '%s' does not exist in repository '%s'", branch, repo))
-				infoSvc.Logger.ShortError("This branch is required for offering import/catalog tests to work properly.")
-				infoSvc.Logger.ShortError("Please ensure the branch exists in the remote repository before running the test.")
-				return "", "", "", fmt.Errorf("required branch '%s' does not exist in repository '%s' (required for offering import)", branch, repo)
-			}
-			infoSvc.Logger.ShortInfo(fmt.Sprintf("Branch '%s' confirmed to exist in remote repository", branch))
-		}
+	// Skip validation only if we're in a detached HEAD state and can't determine the actual branch
+	if branch == "HEAD" {
+		infoSvc.Logger.ShortInfo("Skipping branch validation as running in detached HEAD mode and unable to resolve actual branch name")
+		infoSvc.Logger.ShortInfo("This is common in CI environments - catalog operations will use the commit hash instead")
 	} else {
-		infoSvc.Logger.ShortInfo("Branch validation skipped as requested")
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Validating that branch '%s' exists in remote repository before creating any resources", branch))
+		branchExists, err := common.CheckRemoteBranchExists(repo, branch)
+		if err != nil {
+			infoSvc.Logger.ShortError(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
+			return "", "", "", fmt.Errorf("failed to validate branch exists for offering import: %w", err)
+		}
+		if !branchExists {
+			infoSvc.Logger.ShortError(fmt.Sprintf("Required branch '%s' does not exist in repository '%s'", branch, repo))
+			infoSvc.Logger.ShortError("This branch is required for offering import/catalog tests to work properly.")
+			infoSvc.Logger.ShortError("Please ensure the branch exists in the remote repository before running the test.")
+			return "", "", "", fmt.Errorf("required branch '%s' does not exist in repository '%s' (required for offering import)", branch, repo)
+		}
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Branch '%s' confirmed to exist in remote repository", branch))
 	}
 
 	// Format the branch URL for catalog import
@@ -191,21 +176,21 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport(params OfferingImportPara
 // ImportOfferingWithValidation performs the complete offering import workflow including
 // branch validation and offering creation. This is the high-level function that most
 // tests should use for importing offerings from the current repository.
-func (infoSvc *CloudInfoService) ImportOfferingWithValidation(params OfferingImportParams) (*catalogmanagementv1.Offering, error) {
-	branchUrl, _, _, err := infoSvc.PrepareOfferingImport(params)
+func (infoSvc *CloudInfoService) ImportOfferingWithValidation(catalogID, offeringName, offeringFlavor, version string, installKind InstallKind) (*catalogmanagementv1.Offering, error) {
+	branchUrl, _, _, err := infoSvc.PrepareOfferingImport()
 	if err != nil {
 		return nil, err
 	}
 
-	infoSvc.Logger.ShortInfo(fmt.Sprintf("Importing offering: %s from branch URL: %s as version: %s", params.OfferingFlavor, branchUrl, params.Version))
+	infoSvc.Logger.ShortInfo(fmt.Sprintf("Importing offering: %s from branch URL: %s as version: %s", offeringFlavor, branchUrl, version))
 
 	offering, err := infoSvc.ImportOffering(
-		params.CatalogID,
+		catalogID,
 		branchUrl,
-		params.OfferingName,
-		params.OfferingFlavor,
-		params.Version,
-		params.OfferingInstallKind,
+		offeringName,
+		offeringFlavor,
+		version,
+		installKind,
 	)
 	if err != nil {
 		infoSvc.Logger.ShortError(fmt.Sprintf("Error importing offering: %v", err))
