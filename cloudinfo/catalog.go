@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -118,7 +119,174 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 	return nil, fmt.Errorf("failed to import offering: %s", response.RawResult)
 }
 
-// Addon Functions:
+// OfferingImportParams contains the parameters needed for offering import with validation
+type OfferingImportParams struct {
+	CatalogID            string
+	OfferingName         string
+	OfferingFlavor       string
+	OfferingInstallKind  InstallKind
+	Version              string
+	SkipBranchValidation bool // Set to true to skip branch validation entirely
+}
+
+// PrepareOfferingImport handles the complete workflow of validating repository/branch
+// and preparing parameters for offering import. This centralizes the logic for
+// branch validation and repository URL conversion that's needed for catalog operations.
+//
+// Returns:
+// - branchUrl: The formatted branch URL ready for catalog import
+// - repo: The normalized repository URL
+// - branch: The resolved branch name
+// - error: Any error that occurred during preparation
+func (infoSvc *CloudInfoService) PrepareOfferingImport(params OfferingImportParams) (branchUrl, repo, branch string, err error) {
+	// Get repository info
+	repo, branch, err = common.GetCurrentPrRepoAndBranch()
+	if err != nil {
+		infoSvc.Logger.ShortError("Error getting current branch and repo for offering import validation")
+		return "", "", "", fmt.Errorf("failed to get repository info for offering import: %w", err)
+	}
+
+	// Resolve actual branch name in CI environments where git returns "HEAD"
+	resolvedBranch := resolveCIBranchName(branch)
+	if resolvedBranch != branch {
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Resolved CI branch name from '%s' to '%s'", branch, resolvedBranch))
+		branch = resolvedBranch
+	}
+
+	// Convert repository URL to HTTPS format for branch validation and catalog import
+	repo = normalizeRepositoryURL(repo)
+
+	// Validate that the branch exists in the remote repository (required for offering import)
+	// Skip validation if we're in a detached HEAD state and can't determine the actual branch,
+	// or if explicitly requested to skip
+	if !params.SkipBranchValidation {
+		if branch == "HEAD" {
+			infoSvc.Logger.ShortInfo("Skipping branch validation as running in detached HEAD mode and unable to resolve actual branch name")
+			infoSvc.Logger.ShortInfo("This is common in CI environments - catalog operations will use the commit hash instead")
+		} else {
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Validating that branch '%s' exists in remote repository before creating any resources", branch))
+			branchExists, err := common.CheckRemoteBranchExists(repo, branch)
+			if err != nil {
+				infoSvc.Logger.ShortError(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
+				return "", "", "", fmt.Errorf("failed to validate branch exists for offering import: %w", err)
+			}
+			if !branchExists {
+				infoSvc.Logger.ShortError(fmt.Sprintf("Required branch '%s' does not exist in repository '%s'", branch, repo))
+				infoSvc.Logger.ShortError("This branch is required for offering import/catalog tests to work properly.")
+				infoSvc.Logger.ShortError("Please ensure the branch exists in the remote repository before running the test.")
+				return "", "", "", fmt.Errorf("required branch '%s' does not exist in repository '%s' (required for offering import)", branch, repo)
+			}
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Branch '%s' confirmed to exist in remote repository", branch))
+		}
+	} else {
+		infoSvc.Logger.ShortInfo("Branch validation skipped as requested")
+	}
+
+	// Format the branch URL for catalog import
+	branchUrl = fmt.Sprintf("%s/tree/%s", repo, branch)
+
+	return branchUrl, repo, branch, nil
+}
+
+// ImportOfferingWithValidation performs the complete offering import workflow including
+// branch validation and offering creation. This is the high-level function that most
+// tests should use for importing offerings from the current repository.
+func (infoSvc *CloudInfoService) ImportOfferingWithValidation(params OfferingImportParams) (*catalogmanagementv1.Offering, error) {
+	branchUrl, _, _, err := infoSvc.PrepareOfferingImport(params)
+	if err != nil {
+		return nil, err
+	}
+
+	infoSvc.Logger.ShortInfo(fmt.Sprintf("Importing offering: %s from branch URL: %s as version: %s", params.OfferingFlavor, branchUrl, params.Version))
+
+	offering, err := infoSvc.ImportOffering(
+		params.CatalogID,
+		branchUrl,
+		params.OfferingName,
+		params.OfferingFlavor,
+		params.Version,
+		params.OfferingInstallKind,
+	)
+	if err != nil {
+		infoSvc.Logger.ShortError(fmt.Sprintf("Error importing offering: %v", err))
+		return nil, fmt.Errorf("failed to import offering: %w", err)
+	}
+
+	if offering != nil && offering.Label != nil && offering.ID != nil {
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Imported offering: %s with ID %s", *offering.Label, *offering.ID))
+	} else {
+		infoSvc.Logger.ShortWarn("Imported offering but offering details are incomplete")
+	}
+
+	return offering, nil
+}
+
+// resolveCIBranchName attempts to resolve the actual branch name in CI environments
+// where git may return "HEAD" due to detached HEAD state
+func resolveCIBranchName(currentBranch string) string {
+	// If not in detached HEAD mode, return original branch
+	if currentBranch != "HEAD" {
+		return currentBranch
+	}
+
+	// GitHub Actions
+	if githubHeadRef := os.Getenv("GITHUB_HEAD_REF"); githubHeadRef != "" {
+		// This is set for pull request events
+		return githubHeadRef
+	}
+	if githubRefName := os.Getenv("GITHUB_REF_NAME"); githubRefName != "" {
+		// This is set for push events and other events
+		return githubRefName
+	}
+
+	// Travis CI
+	if travisBranch := os.Getenv("TRAVIS_BRANCH"); travisBranch != "" {
+		return travisBranch
+	}
+
+	// GitLab CI
+	if gitlabBranch := os.Getenv("CI_COMMIT_REF_NAME"); gitlabBranch != "" {
+		return gitlabBranch
+	}
+
+	// Jenkins
+	if jenkinsBranch := os.Getenv("BRANCH_NAME"); jenkinsBranch != "" {
+		return jenkinsBranch
+	}
+
+	// IBM Cloud Tekton
+	if pipelineRunID := os.Getenv("PIPELINE_RUN_ID"); pipelineRunID != "" {
+		// Try various environment variables that might contain branch info in Tekton
+		if tektonBranch := os.Getenv("BRANCH"); tektonBranch != "" {
+			return tektonBranch
+		}
+		if gitBranch := os.Getenv("GIT_BRANCH"); gitBranch != "" {
+			return gitBranch
+		}
+		if gitRef := os.Getenv("GIT_REF"); gitRef != "" {
+			return gitRef
+		}
+	}
+
+	// Return original branch if no CI environment detected or resolved
+	return currentBranch
+}
+
+// normalizeRepositoryURL converts various repository URL formats to HTTPS format
+// suitable for catalog operations
+func normalizeRepositoryURL(repo string) string {
+	if strings.HasPrefix(repo, "git@") {
+		repo = strings.Replace(repo, ":", "/", 1)
+		repo = strings.Replace(repo, "git@", "https://", 1)
+		repo = strings.TrimSuffix(repo, ".git")
+	} else if strings.HasPrefix(repo, "git://") {
+		repo = strings.Replace(repo, "git://", "https://", 1)
+		repo = strings.TrimSuffix(repo, ".git")
+	} else if strings.HasPrefix(repo, "https://") {
+		repo = strings.TrimSuffix(repo, ".git")
+	}
+	return repo
+}
 
 // ComponentReferenceGetter interface for getting component references
 type ComponentReferenceGetter interface {
