@@ -100,6 +100,180 @@ options.CatalogUseExisting = true
 options.CatalogName = "existing-catalog-name"  // Required when using existing
 ```
 
+### Catalog Sharing Control
+
+The `SharedCatalog` option controls catalog and offering sharing behavior:
+
+```golang
+options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "test",
+    ResourceGroup: "my-rg",
+    SharedCatalog: core.BoolPtr(false),  // Default: false for individual tests
+})
+```
+
+**SharedCatalog Settings:**
+
+- `false` (default): Each test creates its own catalog and offering for complete isolation and automatic cleanup
+- `true`: Catalogs and offerings are shared across tests using the same `TestOptions` object (requires manual cleanup)
+
+**Sharing Behavior:**
+
+```golang
+// SharedCatalog = false (default) - isolated tests with automatic cleanup
+isolatedOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "isolated-test",
+    ResourceGroup: "my-rg",
+    SharedCatalog: core.BoolPtr(false),  // Can be omitted as it's the default
+})
+
+// Each test creates and cleans up its own catalog + offering
+err1 := isolatedOptions.RunAddonTest()  // Creates & deletes catalog A
+err2 := isolatedOptions.RunAddonTest()  // Creates & deletes catalog B
+
+// SharedCatalog = true - efficient sharing (requires manual cleanup)
+baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "shared-test",
+    ResourceGroup: "my-rg",
+    SharedCatalog: core.BoolPtr(true),
+})
+
+// First test creates catalog + offering, second test reuses them
+err3 := baseOptions.RunAddonTest()  // Creates catalog
+err4 := baseOptions.RunAddonTest()  // Reuses catalog (manual cleanup needed)
+```
+
+### Automatic Catalog Sharing (Matrix Tests)
+
+When using matrix testing with `RunAddonTestMatrix()`, catalogs and offerings are automatically shared across all test cases for improved efficiency:
+
+```golang
+// Matrix tests automatically share catalogs - no additional configuration needed
+baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "matrix-test",
+    ResourceGroup: "my-resource-group",
+})
+
+baseOptions.RunAddonTestMatrix(matrix)  // Catalog automatically shared across all test cases
+```
+
+**Benefits:**
+
+- **Resource Efficiency**: Creates only 1 catalog for all test cases instead of N catalogs
+- **Time Savings**: Reduced catalog creation time and API calls
+- **Automatic Cleanup**: Shared resources cleaned up after all matrix tests complete
+
+**Individual vs Matrix Tests:**
+
+- **Individual Tests**: Respect the `SharedCatalog` setting (default: false - not shared)
+- **Matrix Tests**: Always share catalogs regardless of `SharedCatalog` setting
+
+### Catalog Cleanup Behavior
+
+Understanding when catalogs are cleaned up is important for resource management:
+
+**Matrix Tests (RunAddonTestMatrix):**
+
+- Catalogs are automatically cleaned up after all test cases complete
+- Uses Go's `t.Cleanup()` mechanism to ensure cleanup happens
+
+**Individual Tests with SharedCatalog=false (default):**
+
+- Each test creates and deletes its own catalog
+- Automatic cleanup with guaranteed isolation
+- Use for most individual tests and when isolation is important
+
+**Individual Tests with SharedCatalog=true:**
+
+- Catalogs are shared and persist after test completion
+- Efficient for development workflows and sequential test runs
+- **Manual cleanup required** - catalogs will persist until manually deleted
+
+**Best Practices:**
+
+```golang
+// For most tests - automatic cleanup with isolation (recommended)
+options.SharedCatalog = core.BoolPtr(false)  // Default
+
+// For development and sequential tests - efficient sharing
+options.SharedCatalog = core.BoolPtr(true)   // Manual cleanup required
+
+// For matrix tests - automatic sharing and cleanup (recommended)
+baseOptions.RunAddonTestMatrix(matrix)
+```
+
+**When to use each approach:**
+
+- **SharedCatalog=false**: Most individual tests, CI pipelines, when automatic cleanup is needed
+- **SharedCatalog=true**: Development workflows, sequential tests with same prefix
+- **Matrix tests**: Multiple test cases with variations (automatic sharing + cleanup)
+
+### Manual Cleanup for Shared Catalogs
+
+When using `SharedCatalog=true` with individual tests, you can manually clean up shared resources using `CleanupSharedResources()`:
+
+```golang
+func TestMultipleAddonsWithSharedCatalog(t *testing.T) {
+    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing:       t,
+        Prefix:        "shared-test",
+        ResourceGroup: "my-resource-group",
+        SharedCatalog: core.BoolPtr(true), // Enable sharing
+    })
+
+    // Ensure cleanup happens at the end
+    defer baseOptions.CleanupSharedResources()
+
+    // Run multiple tests that share the catalog
+    t.Run("TestScenario1", func(t *testing.T) {
+        options1 := baseOptions
+        options1.AddonConfig = cloudinfo.NewAddonConfigTerraform(/* config */)
+        err := options1.RunAddonTest()
+        require.NoError(t, err)
+    })
+
+    t.Run("TestScenario2", func(t *testing.T) {
+        options2 := baseOptions
+        options2.AddonConfig = cloudinfo.NewAddonConfigTerraform(/* different config */)
+        err := options2.RunAddonTest()
+        require.NoError(t, err)
+    })
+
+    // CleanupSharedResources() called automatically via defer
+}
+```
+
+**Benefits of manual cleanup:**
+
+- Guaranteed resource cleanup regardless of test failures
+- Works with any number of individual test variations
+- Simple defer pattern ensures cleanup runs even if tests panic
+
+#### Alternative: Cleanup in TestMain
+
+For package-level cleanup across multiple test functions:
+
+```golang
+func TestMain(m *testing.M) {
+    // Setup shared options if needed
+    sharedOptions := setupSharedOptions()
+
+    // Run tests
+    code := m.Run()
+
+    // Cleanup shared resources
+    if sharedOptions != nil {
+        sharedOptions.CleanupSharedResources()
+    }
+
+    os.Exit(code)
+}
+```
+
 ## Addon Configuration
 
 ### Terraform Addon (Primary Use Case)
@@ -265,18 +439,77 @@ options.LocalChangesIgnorePattern = []string{
 ### Validation Error Output
 
 ```golang
-// Show detailed individual error messages
-options.VerboseValidationErrors = true
-
-// Show dependency tree with validation status
+// Enhanced dependency tree visualization with validation status
 options.EnhancedTreeValidationOutput = true
+
+// Detailed error messages for validation failures
+options.VerboseValidationErrors = true
 ```
 
-**Validation output priority:**
+### Input Validation Retry Configuration
 
-1. **Enhanced Tree Output**: Visual dependency tree with status indicators
-2. **Verbose Mode**: Detailed individual error messages
-3. **Consolidated Summary** (default): Clean grouped error summary
+```golang
+// Configure retry behavior for input validation (handles database timing issues)
+options.InputValidationRetries = 5        // Default: 3 retries
+options.InputValidationRetryDelay = 3 * time.Second  // Default: 2 seconds
+```
+
+**Note:** Input validation includes automatic retry logic to handle cases where the backend database hasn't been updated yet after configuration changes. This prevents false failures due to timing issues between configuration updates and validation checks.
+
+### Enhanced Debug Output
+
+When input validation fails, the framework automatically provides detailed debug information to help diagnose issues:
+
+**Debug Information Includes:**
+
+- Current configuration state and inputs (with sensitive values redacted)
+- All configurations in the project and their current state
+- Expected addon configuration details
+- Required input validation attempts and results
+- Clear identification of configurations in "waiting on inputs" state
+
+**Debug Output Triggers:**
+
+- Missing required inputs detected during validation
+- Configurations found in "awaiting_input" state (timing issues)
+- Configuration matching failures during validation
+
+**State Detection Improvements:**
+
+The framework now correctly identifies only configurations that are truly in the `awaiting_input` state, avoiding false positives for configurations in other valid states like `awaiting_member_deployment` or `awaiting_validation`.
+
+**Example Debug Output:**
+
+```text
+=== INPUT VALIDATION FAILURE DEBUG INFO ===
+Found 2 configurations in project:
+  Config: my-kms-config (ID: abc123) [IN WAITING LIST]
+    State: awaiting_input
+    StateCode: awaiting_input
+    LocatorID: catalog.def456.version.ghi789
+    Current Inputs:
+      region: us-south
+      prefix: test-prefix
+      ibmcloud_api_key: [REDACTED]
+      key_protect_plan: (missing)
+
+  Config: my-base-config (ID: def456)
+    State: awaiting_member_deployment
+    StateCode: awaiting_member_deployment
+    LocatorID: catalog.abc123.version.xyz789
+    Current Inputs:
+      region: us-south
+      prefix: test-prefix
+
+Expected addon configuration details:
+  Main Addon Name: deploy-arch-ibm-kms
+  Main Addon Version: v1.2.3
+  Main Addon Config Name: my-kms-config
+  Prefix: test-prefix
+=== END DEBUG INFO ===
+```
+
+This debug output helps identify exactly which inputs are missing, configuration state issues, and timing problems with the backend systems. Configurations marked with `[IN WAITING LIST]` are those actually flagged as requiring input attention.
 
 ## Environment Variables
 
@@ -474,4 +707,58 @@ func TestComprehensiveAddon(t *testing.T) {
     err := options.RunAddonTest()
     assert.NoError(t, err)
 }
+```
+
+## Project Management
+
+### Project Creation and Isolation
+
+The framework always creates temporary projects for each test to ensure complete isolation. Each test gets its own dedicated project for maximum safety and ease of debugging:
+
+```golang
+options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "test",
+    ResourceGroup: "my-rg",
+})
+```
+
+**Project Behavior:**
+
+Each test automatically:
+
+1. Creates a new temporary project with a unique name
+2. Deploys the addon configuration within that project
+3. Runs validation tests
+4. Cleans up the project and all resources
+
+```golang
+options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:       t,
+    Prefix:        "isolated-test",
+    ResourceGroup: "my-rg",
+})
+
+// Each test creates and cleans up its own temporary project
+err1 := options.RunAddonTest()  // Creates project A, runs test, deletes project A
+err2 := options.RunAddonTest()  // Creates project B, runs test, deletes project B
+```
+
+**Benefits of Project Isolation:**
+
+- **Complete isolation**: Tests cannot interfere with each other
+- **Reliable cleanup**: Each test cleans up its own resources
+- **Easier debugging**: Failed tests don't affect other tests
+- **CI/CD friendly**: Safe for parallel execution in pipelines
+
+**Resource Sharing Options:**
+
+While projects are always isolated, catalogs can optionally be shared for efficiency:
+
+```golang
+// Default: each test creates its own catalog and project
+options.SharedCatalog = core.BoolPtr(false)  // Each test creates own catalog
+
+// Efficient: share catalogs between tests (projects still isolated)
+options.SharedCatalog = core.BoolPtr(true)   // Share catalogs between tests
 ```
