@@ -108,54 +108,20 @@ func (options *TestAddonOptions) testSetup() error {
 		}
 	}
 
-	// get current branch and repo url
-	repo, branch, repoErr := common.GetCurrentPrRepoAndBranch()
-	if repoErr != nil {
-		options.Logger.ShortError("Error getting current branch and repo")
-		options.Testing.Fail()
-		return fmt.Errorf("error getting current branch and repo: %w", repoErr)
-	}
-	options.currentBranch = &branch
-
-	// Convert repository URL to HTTPS format for branch validation
-	repoForValidation := repo
-	if strings.HasPrefix(repo, "git@") {
-		// Convert SSH format: git@github.com:username/repo.git → https://github.com/username/repo
-		repoForValidation = strings.Replace(repo, ":", "/", 1)
-		repoForValidation = strings.Replace(repoForValidation, "git@", "https://", 1)
-		repoForValidation = strings.TrimSuffix(repoForValidation, ".git")
-	} else if strings.HasPrefix(repo, "git://") {
-		// Convert Git protocol: git://github.com/username/repo.git → https://github.com/username/repo
-		repoForValidation = strings.Replace(repo, "git://", "https://", 1)
-		repoForValidation = strings.TrimSuffix(repoForValidation, ".git")
-	} else if strings.HasPrefix(repo, "https://") {
-		// HTTPS format - just trim .git suffix if present
-		repoForValidation = strings.TrimSuffix(repo, ".git")
-	}
-
-	// Validate that the branch exists in the remote repository (required for offering import)
-	options.Logger.ShortInfo(fmt.Sprintf("Validating that branch '%s' exists in remote repository", branch))
-	branchExists, err := common.CheckRemoteBranchExists(repoForValidation, branch)
+	// get current branch and repo url and validate branch exists for offering import
+	// Use the cloudinfo helper to prepare offering import (validates branch exists)
+	branchUrl, repo, branch, err := options.CloudInfoService.PrepareOfferingImport()
 	if err != nil {
-		options.Logger.ShortError(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
+		options.Logger.ShortError(fmt.Sprintf("Error preparing offering import: %v", err))
 		options.Testing.Fail()
-		return fmt.Errorf("error checking if branch exists in remote repository: %w", err)
+		return fmt.Errorf("error preparing offering import: %w", err)
 	}
-	if !branchExists {
-		options.Logger.ShortError(fmt.Sprintf("Required branch '%s' does not exist in repository '%s'", branch, repoForValidation))
-		options.Logger.ShortError("This branch is required for offering import/catalog tests to work properly.")
-		options.Logger.ShortError("Please ensure the branch exists in the remote repository before running the test.")
-		options.Testing.Fail()
-		return fmt.Errorf("required branch '%s' does not exist in repository '%s' (required for offering import)", branch, repoForValidation)
-	}
-	options.Logger.ShortInfo(fmt.Sprintf("Branch '%s' confirmed to exist in remote repository", branch))
+
+	options.currentBranch = &branch
 
 	options.Logger.ShortInfo("Checking for local changes in the repository")
 
-	// Use the converted URL from validation for the rest of the process
-	repo = repoForValidation
-
-	options.currentBranchUrl = Core.StringPtr(fmt.Sprintf("%s/tree/%s", repo, branch))
+	options.currentBranchUrl = Core.StringPtr(branchUrl)
 	options.Logger.ShortInfo(fmt.Sprintf("Current branch: %s", branch))
 	options.Logger.ShortInfo(fmt.Sprintf("Current repo: %s", repo))
 	options.Logger.ShortInfo(fmt.Sprintf("Current branch URL: %s", *options.currentBranchUrl))

@@ -975,45 +975,14 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				sharedCatalogOptions = testOptions
 
 				// First, validate that the branch exists in the remote repository BEFORE creating any resources
-				// Get repository info for offering import validation
-				repo, branch, repoErr := common.GetCurrentPrRepoAndBranch()
-				if repoErr != nil {
-					sharedMutex.Unlock()
-					testOptions.Logger.ShortError("Error getting current branch and repo for offering import validation")
-					require.NoError(t, repoErr, "Failed to get repository info for offering import validation")
-					return
-				}
-
-				// Convert repository URL to HTTPS format for branch validation
-				if strings.HasPrefix(repo, "git@") {
-					repo = strings.Replace(repo, ":", "/", 1)
-					repo = strings.Replace(repo, "git@", "https://", 1)
-					repo = strings.TrimSuffix(repo, ".git")
-				} else if strings.HasPrefix(repo, "git://") {
-					repo = strings.Replace(repo, "git://", "https://", 1)
-					repo = strings.TrimSuffix(repo, ".git")
-				} else if strings.HasPrefix(repo, "https://") {
-					repo = strings.TrimSuffix(repo, ".git")
-				}
-
-				// Validate that the branch exists in the remote repository (required for offering import)
-				testOptions.Logger.ShortInfo(fmt.Sprintf("Validating that branch '%s' exists in remote repository before creating any resources", branch))
-				branchExists, err := common.CheckRemoteBranchExists(repo, branch)
+				// Use the new cloudinfo helper for offering import preparation
+				_, _, _, err := testOptions.CloudInfoService.PrepareOfferingImport()
 				if err != nil {
 					sharedMutex.Unlock()
-					testOptions.Logger.ShortError(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
-					require.NoError(t, err, "Failed to validate branch exists for offering import")
+					testOptions.Logger.ShortError(fmt.Sprintf("Failed to prepare offering import: %v", err))
+					require.NoError(t, err, "Failed to prepare offering import")
 					return
 				}
-				if !branchExists {
-					sharedMutex.Unlock()
-					testOptions.Logger.ShortError(fmt.Sprintf("Required branch '%s' does not exist in repository '%s'", branch, repo))
-					testOptions.Logger.ShortError("This branch is required for offering import/catalog tests to work properly.")
-					testOptions.Logger.ShortError("Please ensure the branch exists in the remote repository before running the test.")
-					require.Fail(t, fmt.Sprintf("Required branch '%s' does not exist in repository '%s' (required for offering import)", branch, repo))
-					return
-				}
-				testOptions.Logger.ShortInfo(fmt.Sprintf("Branch '%s' confirmed to exist in remote repository", branch))
 
 				// Create the shared catalog for matrix tests
 				if !testOptions.CatalogUseExisting {
@@ -1045,36 +1014,19 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 						testOptions.Logger.ShortWarn("Created shared catalog but catalog details are incomplete")
 					}
 
-					// Import the offering once for all matrix tests
+					// Import the offering using the new helper function
 					version := fmt.Sprintf("v0.0.1-dev-%s", testOptions.Prefix)
 					testOptions.AddonConfig.ResolvedVersion = version
 
-					// Get repository info for offering import
-					repo, branch, repoErr := common.GetCurrentPrRepoAndBranch()
-					if repoErr != nil {
-						sharedMutex.Unlock()
-						testOptions.Logger.ShortError("Error getting current branch and repo for offering import")
-						require.NoError(t, repoErr, "Failed to get repository info for offering import")
-						return
-					}
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Importing shared offering: %s as version: %s", testOptions.AddonConfig.OfferingFlavor, version))
 
-					// Convert repository URL to HTTPS format for catalog import
-					if strings.HasPrefix(repo, "git@") {
-						repo = strings.Replace(repo, ":", "/", 1)
-						repo = strings.Replace(repo, "git@", "https://", 1)
-						repo = strings.TrimSuffix(repo, ".git")
-					} else if strings.HasPrefix(repo, "git://") {
-						repo = strings.Replace(repo, "git://", "https://", 1)
-						repo = strings.TrimSuffix(repo, ".git")
-					} else if strings.HasPrefix(repo, "https://") {
-						repo = strings.TrimSuffix(repo, ".git")
-					}
-
-					// Branch validation was already performed before catalog creation
-					branchUrl := fmt.Sprintf("%s/tree/%s", repo, branch)
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Importing shared offering: %s from branch: %s as version: %s", testOptions.AddonConfig.OfferingFlavor, branchUrl, version))
-
-					offering, err := testOptions.CloudInfoService.ImportOffering(*testOptions.catalog.ID, branchUrl, testOptions.AddonConfig.OfferingName, testOptions.AddonConfig.OfferingFlavor, version, testOptions.AddonConfig.OfferingInstallKind)
+					offering, err := testOptions.CloudInfoService.ImportOfferingWithValidation(
+						*testOptions.catalog.ID,
+						testOptions.AddonConfig.OfferingName,
+						testOptions.AddonConfig.OfferingFlavor,
+						version,
+						testOptions.AddonConfig.OfferingInstallKind,
+					)
 					if err != nil {
 						sharedMutex.Unlock() // Release mutex on error
 						testOptions.Logger.ShortError(fmt.Sprintf("Error importing shared offering: %v", err))
