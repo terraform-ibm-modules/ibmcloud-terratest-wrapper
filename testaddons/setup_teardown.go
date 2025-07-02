@@ -109,14 +109,8 @@ func (options *TestAddonOptions) testSetup() error {
 	}
 
 	// get current branch and repo url and validate branch exists for offering import
-	importParams := cloudinfo.OfferingImportParams{
-		CatalogID:            "", // Not needed for just preparation
-		OfferingName:         "", // Not needed for just preparation
-		OfferingFlavor:       "", // Not needed for just preparation
-		OfferingInstallKind:  "", // Not needed for just preparation
-		Version:              "", // Not needed for just preparation
-		SkipBranchValidation: false,
-	}
+	// Empty params used here because we only need branch validation, not actual catalog import
+	importParams := cloudinfo.OfferingImportParams{}
 
 	// Use the cloudinfo helper to prepare offering import (validates branch exists)
 	branchUrl, repo, branch, err := options.CloudInfoService.PrepareOfferingImport(importParams)
