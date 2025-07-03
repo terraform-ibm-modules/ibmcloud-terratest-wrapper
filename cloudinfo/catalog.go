@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"strings"
@@ -43,22 +44,60 @@ func (infoSvc *CloudInfoService) GetCatalogVersionByLocator(versionLocator strin
 
 // CreateCatalog creates a new private catalog using the Catalog Management service
 func (infoSvc *CloudInfoService) CreateCatalog(catalogName string) (*catalogmanagementv1.Catalog, error) {
-	// Call the CreateCatalog method with the catalog name and the context
-	createCatalogOptions := &catalogmanagementv1.CreateCatalogOptions{
-		Label: &catalogName,
+	// Add retry logic for parallel test execution
+	const maxRetries = 5
+	const baseDelay = 3 * time.Second
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Linear backoff with jitter for parallel test scenarios
+			multiplier := attempt
+			delay := time.Duration(float64(baseDelay) * float64(multiplier))
+			jitter := time.Duration(float64(delay) * 0.30 * (rand.Float64()*2 - 1))
+			finalDelay := delay + jitter
+
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Retrying CreateCatalog after %v (attempt %d/%d)", finalDelay, attempt+1, maxRetries))
+			time.Sleep(finalDelay)
+		}
+
+		// Call the CreateCatalog method with the catalog name and the context
+		createCatalogOptions := &catalogmanagementv1.CreateCatalogOptions{
+			Label: &catalogName,
+		}
+
+		catalog, response, err := infoSvc.catalogService.CreateCatalog(createCatalogOptions)
+		if err != nil {
+			// Check if this is a retryable error
+			if attempt < maxRetries-1 && isRetryableError(err) {
+				lastErr = err
+				continue
+			}
+			return nil, err
+		}
+
+		// Handle rate limiting (429) and other temporary failures
+		if response.StatusCode == 429 || response.StatusCode >= 500 {
+			if attempt < maxRetries-1 {
+				infoSvc.Logger.ShortWarn(fmt.Sprintf("Temporary failure (status: %d) creating catalog '%s'", response.StatusCode, catalogName))
+				lastErr = fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
+				continue
+			}
+		}
+
+		// Check if the response status code is 201 (created)
+		if response.StatusCode == 201 {
+			return catalog, nil
+		}
+
+		lastErr = fmt.Errorf("failed to create catalog: %s", response.RawResult)
+		if attempt < maxRetries-1 {
+			continue
+		}
 	}
 
-	catalog, response, err := infoSvc.catalogService.CreateCatalog(createCatalogOptions)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check if the response status code is 201 (created)
-	if response.StatusCode == 201 {
-		return catalog, nil
-	}
-
-	return nil, fmt.Errorf("failed to create catalog: %s", response.RawResult)
+	// If we exhausted all retries, return the last error
+	return nil, fmt.Errorf("failed to create catalog after %d attempts: %w", maxRetries, lastErr)
 }
 
 // DeleteCatalog deletes a private catalog using the Catalog Management service
@@ -94,29 +133,67 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 		Name: &flavorName,
 	}
 
-	// Call the ImportOffering method with the catalog ID, offering ID, and the context
-	importOfferingOptions := &catalogmanagementv1.ImportOfferingOptions{
-		CatalogIdentifier: &catalogID,
-		Zipurl:            &zipUrl,
-		TargetVersion:     &version,
-		InstallType:       core.StringPtr("fullstack"),
-		Name:              core.StringPtr(offeringName),
-		Flavor:            flavorInstance,
-		ProductKind:       core.StringPtr("solution"),
-		FormatKind:        core.StringPtr(installKind.String()),
+	// Add retry logic for parallel test execution
+	const maxRetries = 5
+	const baseDelay = 5 * time.Second
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Linear backoff with jitter for parallel test scenarios
+			multiplier := attempt
+			delay := time.Duration(float64(baseDelay) * float64(multiplier))
+			jitter := time.Duration(float64(delay) * 0.30 * (rand.Float64()*2 - 1))
+			finalDelay := delay + jitter
+
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Retrying ImportOffering after %v (attempt %d/%d)", finalDelay, attempt+1, maxRetries))
+			time.Sleep(finalDelay)
+		}
+
+		// Call the ImportOffering method with the catalog ID, offering ID, and the context
+		importOfferingOptions := &catalogmanagementv1.ImportOfferingOptions{
+			CatalogIdentifier: &catalogID,
+			Zipurl:            &zipUrl,
+			TargetVersion:     &version,
+			InstallType:       core.StringPtr("fullstack"),
+			Name:              core.StringPtr(offeringName),
+			Flavor:            flavorInstance,
+			ProductKind:       core.StringPtr("solution"),
+			FormatKind:        core.StringPtr(installKind.String()),
+		}
+
+		offering, response, err := infoSvc.catalogService.ImportOffering(importOfferingOptions)
+		if err != nil {
+			// Check if this is a retryable error
+			if attempt < maxRetries-1 && isRetryableError(err) {
+				lastErr = err
+				continue
+			}
+			return nil, err
+		}
+
+		// Handle rate limiting (429) and other temporary failures
+		if response.StatusCode == 429 || response.StatusCode >= 500 {
+			if attempt < maxRetries-1 {
+				infoSvc.Logger.ShortWarn(fmt.Sprintf("Temporary failure (status: %d) importing offering '%s'", response.StatusCode, offeringName))
+				lastErr = fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
+				continue
+			}
+		}
+
+		// Check if the response status code is 201 (created)
+		if response.StatusCode == 201 {
+			return offering, nil
+		}
+
+		lastErr = fmt.Errorf("failed to import offering: %s", response.RawResult)
+		if attempt < maxRetries-1 {
+			continue
+		}
 	}
 
-	offering, response, err := infoSvc.catalogService.ImportOffering(importOfferingOptions)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check if the response status code is 201 (created)
-	if response.StatusCode == 201 {
-		return offering, nil
-	}
-
-	return nil, fmt.Errorf("failed to import offering: %s", response.RawResult)
+	// If we exhausted all retries, return the last error
+	return nil, fmt.Errorf("failed to import offering after %d attempts: %w", maxRetries, lastErr)
 }
 
 // PrepareOfferingImport handles the complete workflow of validating repository/branch
@@ -132,7 +209,7 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport() (branchUrl, repo, branc
 	// Get repository info
 	repo, branch, err = common.GetCurrentPrRepoAndBranch()
 	if err != nil {
-		infoSvc.Logger.ShortError("Error getting current branch and repo for offering import validation")
+		infoSvc.Logger.ShortWarn("Error getting current branch and repo for offering import validation")
 		return "", "", "", fmt.Errorf("failed to get repository info for offering import: %w", err)
 	}
 
@@ -155,7 +232,7 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport() (branchUrl, repo, branc
 		infoSvc.Logger.ShortInfo(fmt.Sprintf("Validating that branch '%s' exists in remote repository before creating any resources", branch))
 		branchExists, err := common.CheckRemoteBranchExists(repo, branch)
 		if err != nil {
-			infoSvc.Logger.ShortError(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
+			infoSvc.Logger.ShortWarn(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
 			return "", "", "", fmt.Errorf("failed to validate branch exists for offering import: %w", err)
 		}
 		if !branchExists {
@@ -193,7 +270,7 @@ func (infoSvc *CloudInfoService) ImportOfferingWithValidation(catalogID, offerin
 		installKind,
 	)
 	if err != nil {
-		infoSvc.Logger.ShortError(fmt.Sprintf("Error importing offering: %v", err))
+		infoSvc.Logger.ShortWarn(fmt.Sprintf("Error importing offering: %v", err))
 		return nil, fmt.Errorf("failed to import offering: %w", err)
 	}
 
@@ -516,47 +593,90 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 		return nil, fmt.Errorf("error pretty printing json: %w", err)
 	}
 
-	// Create a new HTTP request with the JSON body
+	// Deploy with retry logic to handle rate limiting
+	const maxRetries = 10
+	const baseDelay = 5 * time.Second
 	url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/api/v1-beta/deploy/projects/%s/container", projectConfig.ProjectID)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
 
-	// Add headers
-	token, err := infoSvc.authenticator.GetToken()
-	if err != nil {
-		return nil, fmt.Errorf("error getting auth token: %w", err)
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Add("Content-Type", "application/json")
+	var lastErr error
+	var body []byte
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Linear backoff with jitter to handle IBM Cloud Catalog API rate limiting
+			multiplier := attempt
+			delay := time.Duration(float64(baseDelay) * float64(multiplier))
+			jitter := time.Duration(float64(delay) * 0.30 * (rand.Float64()*2 - 1))
+			finalDelay := delay + jitter
 
-	// Execute the request
-	client := &http.Client{}
-	startTime := time.Now()
-	resp, err := client.Do(req)
-	requestTime := time.Since(startTime)
-	infoSvc.Logger.ShortInfo(fmt.Sprintf("Request completed in %v\n", requestTime))
-	if err != nil {
-		return nil, fmt.Errorf("error executing request: %w", err)
-	}
-	defer func() {
-		if resp != nil && resp.Body != nil {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				infoSvc.Logger.ShortInfo(fmt.Sprintf("Error closing response body: %v", closeErr))
-			}
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Retrying deployment after %v (attempt %d/%d)", finalDelay, attempt+1, maxRetries))
+			time.Sleep(finalDelay)
 		}
-	}()
 
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading response body: %w", err)
+		// Create a new HTTP request with the JSON body
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+		if err != nil {
+			return nil, fmt.Errorf("error creating request: %w", err)
+		}
+
+		// Add headers
+		token, err := infoSvc.authenticator.GetToken()
+		if err != nil {
+			return nil, fmt.Errorf("error getting auth token: %w", err)
+		}
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+		req.Header.Add("Content-Type", "application/json")
+
+		// Execute the request
+		client := &http.Client{}
+		startTime := time.Now()
+		resp, err := client.Do(req)
+		requestTime := time.Since(startTime)
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Request completed in %v", requestTime))
+
+		if err != nil {
+			lastErr = fmt.Errorf("error executing request: %w", err)
+			if attempt == maxRetries-1 {
+				return nil, lastErr
+			}
+			continue
+		}
+
+		defer func() {
+			if resp != nil && resp.Body != nil {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					infoSvc.Logger.ShortInfo(fmt.Sprintf("Error closing response body: %v", closeErr))
+				}
+			}
+		}()
+
+		// Read the response body
+		body, err = io.ReadAll(resp.Body)
+		if err != nil {
+			lastErr = fmt.Errorf("error reading response body: %w", err)
+			continue
+		}
+
+		// Handle rate limiting (429) with retry
+		if resp.StatusCode == 429 {
+			infoSvc.Logger.ShortWarn(fmt.Sprintf("Rate limited (429) on deployment for project %s", projectConfig.ProjectID))
+			lastErr = fmt.Errorf("rate limited")
+			continue
+		}
+
+		// Check other error status codes
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			lastErr = fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+			// If it's not a retryable error, fail immediately
+			return nil, lastErr
+		}
+
+		// Success - break out of retry loop
+		break
 	}
 
-	// Check response status
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+	// If we exhausted all retries, return the last error
+	if lastErr != nil {
+		return nil, fmt.Errorf("failed to deploy addon after %d attempts: %w", maxRetries, lastErr)
 	}
 
 	var deployResponse *DeployedAddonsDetails
@@ -578,61 +698,101 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 // GetComponentReferences gets the component references for a version locator
 // /ui/v1/versions/:version_locator/componentsReferences
 func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error) {
+	const maxRetries = 10
+	const baseDelay = 5 * time.Second
 
-	// Build the request URL
-	url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/ui/v1/versions/%s/componentsReferences", versionLocator)
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Linear backoff with jitter to handle IBM Cloud Catalog API rate limiting
+			// Base strategy: Increase delay linearly with each retry
+			// This gives the API time to recover from rate limiting conditions
+			multiplier := attempt // Simple multiplier: 1, 2, 3, 4, 5, 6 for attempts 1-6
+			delay := time.Duration(float64(baseDelay) * float64(multiplier))
 
-	// Create a new HTTP request
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
+			// Add random jitter (±30%) to prevent thundering herd effect
+			// When multiple matrix tests retry simultaneously, jitter spreads out the retry times
+			// This reduces the likelihood of all requests hitting the API at the exact same moment
+			jitter := time.Duration(float64(delay) * 0.30 * (rand.Float64()*2 - 1))
+			finalDelay := delay + jitter
 
-	// Add authorization header
-	token, err := infoSvc.authenticator.GetToken()
-	if err != nil {
-		return nil, fmt.Errorf("error getting auth token: %w", err)
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Add("Content-Type", "application/json")
-
-	// Execute the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error executing request: %w", err)
-	}
-	defer func() {
-		if resp != nil && resp.Body != nil {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				infoSvc.Logger.ShortInfo(fmt.Sprintf("Error closing response body: %v", closeErr))
-			}
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Retrying GetComponentReferences after %v (attempt %d/%d)", finalDelay, attempt+1, maxRetries))
+			time.Sleep(finalDelay)
 		}
-	}()
 
-	// Check if the response is nil
-	if resp == nil {
-		return nil, fmt.Errorf("response is nil")
+		// Build the request URL
+		url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/ui/v1/versions/%s/componentsReferences", versionLocator)
+
+		// Create a new HTTP request
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("error creating request: %w", err)
+		}
+
+		// Add authorization header
+		token, err := infoSvc.authenticator.GetToken()
+		if err != nil {
+			return nil, fmt.Errorf("error getting auth token: %w", err)
+		}
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+		req.Header.Add("Content-Type", "application/json")
+
+		// Execute the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("error executing request: %w", err)
+			if attempt == maxRetries-1 {
+				return nil, lastErr
+			}
+			continue
+		}
+
+		defer func() {
+			if resp != nil && resp.Body != nil {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					infoSvc.Logger.ShortInfo(fmt.Sprintf("Error closing response body: %v", closeErr))
+				}
+			}
+		}()
+
+		// Check if the response is nil
+		if resp == nil {
+			lastErr = fmt.Errorf("response is nil")
+			continue
+		}
+
+		// Read the response body
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			lastErr = fmt.Errorf("error reading response body: %w", err)
+			continue
+		}
+
+		// Handle rate limiting (429) with retry
+		if resp.StatusCode == 429 {
+			infoSvc.Logger.ShortWarn(fmt.Sprintf("Rate limited (429) on GetComponentReferences for %s", versionLocator))
+			lastErr = fmt.Errorf("rate limited")
+			continue
+		}
+
+		// Check other error status codes
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+			// If it's not a retryable error, fail immediately
+			return nil, lastErr
+		}
+
+		// Unmarshal the response into OfferingReferenceResponse
+		var offeringReferences OfferingReferenceResponse
+		if err := json.Unmarshal(body, &offeringReferences); err != nil {
+			return nil, fmt.Errorf("error unmarshaling offering references: %w", err)
+		}
+
+		return &offeringReferences, nil
 	}
 
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading response body: %w", err)
-	}
-
-	// Check response status
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Unmarshal the response into OfferingReferenceResponse
-	var offeringReferences OfferingReferenceResponse
-	if err := json.Unmarshal(body, &offeringReferences); err != nil {
-		return nil, fmt.Errorf("error unmarshaling offering references: %w", err)
-	}
-
-	return &offeringReferences, nil
+	return nil, fmt.Errorf("failed to get component references after %d attempts: %w", maxRetries, lastErr)
 }
 
 // buildHierarchicalDeploymentList creates a deployment list respecting dependency hierarchy.
@@ -784,25 +944,96 @@ func updateDependencyConfigIDs(dependencies []AddonConfig, configMap map[string]
 // GetOffering gets the details of an Offering from a specified Catalog
 func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error) {
 
-	options := &catalogmanagementv1.GetOfferingOptions{
-		CatalogIdentifier: &catalogID,
-		OfferingID:        &offeringID,
+	// Add validation and debugging for empty parameters
+	if catalogID == "" {
+		return nil, nil, fmt.Errorf("catalogID cannot be empty - this may indicate a race condition or uninitialized catalog in parallel test execution")
+	}
+	if offeringID == "" {
+		return nil, nil, fmt.Errorf("offeringID cannot be empty - this may indicate an uninitialized offering ID")
 	}
 
-	offering, response, err := infoSvc.catalogService.GetOffering(options)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error getting offering: %w", err)
+	infoSvc.Logger.ShortInfo(fmt.Sprintf("Getting offering details: catalogID='%s', offeringID='%s'", catalogID, offeringID))
+
+	// Add retry logic for parallel test execution
+	const maxRetries = 5
+	const baseDelay = 2 * time.Second
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Linear backoff with jitter for parallel test scenarios
+			multiplier := attempt
+			delay := time.Duration(float64(baseDelay) * float64(multiplier))
+			jitter := time.Duration(float64(delay) * 0.30 * (rand.Float64()*2 - 1))
+			finalDelay := delay + jitter
+
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Retrying GetOffering after %v (attempt %d/%d)", finalDelay, attempt+1, maxRetries))
+			time.Sleep(finalDelay)
+		}
+
+		options := &catalogmanagementv1.GetOfferingOptions{
+			CatalogIdentifier: &catalogID,
+			OfferingID:        &offeringID,
+		}
+
+		offering, response, err := infoSvc.catalogService.GetOffering(options)
+		if err != nil {
+			// Check if this is a retryable error
+			if attempt < maxRetries-1 && isRetryableError(err) {
+				lastErr = fmt.Errorf("error getting offering from catalog '%s' with offering ID '%s': %w", catalogID, offeringID, err)
+				continue
+			}
+			// Provide much more detailed error information
+			return nil, nil, fmt.Errorf("error getting offering from catalog '%s' with offering ID '%s': %w", catalogID, offeringID, err)
+		}
+
+		// Handle rate limiting (429) and other temporary failures
+		if response.StatusCode == 429 || response.StatusCode >= 500 {
+			if attempt < maxRetries-1 {
+				infoSvc.Logger.ShortWarn(fmt.Sprintf("Temporary failure (status: %d) getting offering from catalog '%s' with offering ID '%s'", response.StatusCode, catalogID, offeringID))
+				lastErr = fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
+				continue
+			}
+		}
+
+		// Check if the response status code is not 200
+		if response.StatusCode != 200 {
+			return nil, nil, fmt.Errorf("failed to get offering from catalog '%s' with offering ID '%s' (status: %d): %s", catalogID, offeringID, response.StatusCode, response.RawResult)
+		}
+
+		// Success - return the result
+		return offering, response, nil
 	}
 
-	// Check if the response status code is not 200
-	if response.StatusCode != 200 {
-		return nil, nil, fmt.Errorf("failed to get offering: %s", response.RawResult)
-	}
-
-	return offering, response, err
+	// If we exhausted all retries, return the last error
+	return nil, nil, fmt.Errorf("failed to get offering after %d attempts: %w", maxRetries, lastErr)
 }
 
 func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1.Offering, VersionID string, OfferingID string) []CatalogInput {
+	// Add null checks to prevent panic
+	if offering == nil {
+		infoSvc.Logger.ShortInfo("Error, offering is nil")
+		return nil
+	}
+
+	if len(offering.Kinds) == 0 {
+		if offering.ID != nil {
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Error, no kinds found for offering: %s", *offering.ID))
+		} else {
+			infoSvc.Logger.ShortInfo("Error, no kinds found for offering with nil ID")
+		}
+		return nil
+	}
+
+	if len(offering.Kinds[0].Versions) == 0 {
+		if offering.ID != nil {
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Error, no versions found for offering: %s", *offering.ID))
+		} else {
+			infoSvc.Logger.ShortInfo("Error, no versions found for offering with nil ID")
+		}
+		return nil
+	}
+
 	for _, version := range offering.Kinds[0].Versions {
 		if version.ID != nil && *version.ID == VersionID {
 			inputs := []CatalogInput{}
@@ -835,9 +1066,19 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 // It uses MatchVersion function in common package to find the suitable version available in case it is not pinned
 func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID string, offeringID string, version_constraint string, flavor string) (string, string, error) {
 
+	// Add validation and debugging for empty parameters
+	if catalogID == "" {
+		return "", "", fmt.Errorf("catalogID cannot be empty when getting offering version locator - this may indicate a race condition or uninitialized catalog in parallel test execution")
+	}
+	if offeringID == "" {
+		return "", "", fmt.Errorf("offeringID cannot be empty when getting offering version locator - this may indicate an uninitialized offering ID")
+	}
+
+	infoSvc.Logger.ShortInfo(fmt.Sprintf("Getting offering version locator: catalogID='%s', offeringID='%s', constraint='%s', flavor='%s'", catalogID, offeringID, version_constraint, flavor))
+
 	offering, _, err := infoSvc.GetOffering(catalogID, offeringID)
 	if err != nil {
-		return "", "", fmt.Errorf("unable to get the dependency offering %s", err)
+		return "", "", fmt.Errorf("unable to get the dependency offering with catalogID='%s', offeringID='%s', constraint='%s', flavor='%s': %w", catalogID, offeringID, version_constraint, flavor, err)
 	}
 
 	versionList := make([]string, 0)
@@ -864,4 +1105,41 @@ func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID
 	versionLocator := versionLocatorMap[bestVersion]
 	return bestVersion, versionLocator, nil
 
+}
+
+// isRetryableError determines if an error should be retried in parallel test scenarios
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errStr := strings.ToLower(err.Error())
+
+	// Network-related errors that are common in parallel test execution
+	retryablePatterns := []string{
+		"timeout",
+		"connection refused",
+		"connection reset",
+		"network is unreachable",
+		"temporary failure",
+		"rate limit",
+		"too many requests",
+		"service unavailable",
+		"internal server error",
+		"bad gateway",
+		"gateway timeout",
+		"authentication failed", // Can happen with token refresh issues in parallel
+		"token",                 // General token-related issues
+		"context deadline exceeded",
+		"i/o timeout",
+		"no such host", // DNS resolution issues in parallel
+	}
+
+	for _, pattern := range retryablePatterns {
+		if strings.Contains(errStr, pattern) {
+			return true
+		}
+	}
+
+	return false
 }

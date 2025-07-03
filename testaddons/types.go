@@ -1,6 +1,8 @@
 package testaddons
 
 import (
+	"time"
+
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 )
 
@@ -32,6 +34,11 @@ type AddonTestMatrix struct {
 	BaseSetupFunc func(baseOptions *TestAddonOptions, testCase AddonTestCase) *TestAddonOptions
 	// AddonConfigFunc is called to create the addon configuration for each test case
 	AddonConfigFunc func(options *TestAddonOptions, testCase AddonTestCase) cloudinfo.AddonConfig
+	// StaggerDelay is the time delay between starting each parallel test (optional)
+	// This helps prevent rate limiting by spacing out API calls across parallel tests.
+	// Default is applied if not specified. Set to 0 to disable staggering.
+	// Recommended values: 2-15 seconds for most scenarios, 20-30 seconds for high-volume tests.
+	StaggerDelay *time.Duration
 }
 
 // BuildActuallyDeployedResult contains the results of building the actually deployed list
@@ -55,4 +62,12 @@ type DependencyGraphResult struct {
 	Graph                map[string][]cloudinfo.OfferingReferenceDetail // Using string key for offering identity
 	ExpectedDeployedList []cloudinfo.OfferingReferenceDetail
 	Visited              map[string]bool
+}
+
+// Helper functions for common stagger delay configurations
+
+// StaggerDelay creates a stagger delay with the specified duration
+// Use this to customize the delay between parallel test starts to prevent rate limiting
+func StaggerDelay(delay time.Duration) *time.Duration {
+	return &delay
 }

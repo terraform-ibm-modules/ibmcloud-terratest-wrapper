@@ -344,10 +344,10 @@ func (options *TestAddonOptions) testTearDown() {
 			if assert.Equal(options.Testing, 202, resp.StatusCode) {
 				options.Logger.ShortInfo(fmt.Sprintf("Deleted Test Project: %s", options.currentProjectConfig.ProjectName))
 			} else {
-				options.Logger.ShortError(fmt.Sprintf("Failed to delete Test Project, response code: %d", resp.StatusCode))
+				options.Logger.ShortWarn(fmt.Sprintf("Failed to delete Test Project, response code: %d", resp.StatusCode))
 			}
 		} else {
-			options.Logger.ShortError(fmt.Sprintf("Error deleting Test Project: %s", err))
+			options.Logger.ShortWarn(fmt.Sprintf("Error deleting Test Project: %s", err))
 		}
 	} else {
 		options.Logger.ShortInfo("No project ID found to delete")

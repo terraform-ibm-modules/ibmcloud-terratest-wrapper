@@ -123,6 +123,13 @@ func shouldRetryReferenceResolution(statusCode int, body string) bool {
 		return strings.Contains(body, "Specified provider") && strings.Contains(body, "project")
 	}
 
+	// Retry on 429 rate limiting errors
+	// This is especially common in parallel test execution where multiple tests
+	// hit the same API endpoints simultaneously
+	if statusCode == 429 {
+		return true
+	}
+
 	// Retry on all 5xx server errors (including API key validation issues)
 	if statusCode >= 500 && statusCode < 600 {
 		return true
@@ -507,11 +514,7 @@ func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, r
 			}
 
 			if logLevel == "warn" {
-				infoSvc.Logger.ShortWarn("===== Reference Resolution Failed (Retryable) =====")
-				infoSvc.Logger.ShortWarn(fmt.Sprintf("HTTP Status: %d", resp.StatusCode))
-				infoSvc.Logger.ShortWarn(fmt.Sprintf("Service URL: %s", serviceURL))
-				infoSvc.Logger.ShortWarn(fmt.Sprintf("Region: %s", region))
-				infoSvc.Logger.ShortWarn(fmt.Sprintf("Number of references: %d", len(references)))
+				infoSvc.Logger.ShortWarn(fmt.Sprintf("Reference resolution failed (HTTP %d), will retry - this is often transient", resp.StatusCode))
 			} else {
 				infoSvc.Logger.ShortError("===== Reference Resolution Failed =====")
 				infoSvc.Logger.ShortError(fmt.Sprintf("HTTP Status: %d", resp.StatusCode))
@@ -523,31 +526,10 @@ func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, r
 			// For retryable errors during retry attempts, use warning level for diagnostic details
 			if resp.StatusCode == 500 && strings.Contains(bodyStr, "Failed to validate api key token") {
 				if logLevel == "warn" {
-					// Log all references being resolved
-					infoSvc.Logger.ShortWarn("References being resolved:")
-					for i, ref := range references {
-						infoSvc.Logger.ShortWarn(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
-					}
-
-					// Log authentication details (masked for security)
-					if len(token) > 10 {
-						maskedToken := token[:6] + "..." + token[len(token)-4:]
-						infoSvc.Logger.ShortWarn(fmt.Sprintf("Token: %s", maskedToken))
-					}
-
-					// Log API key metadata for debugging
-					if iamAuth, ok := infoSvc.authenticator.(*core.IamAuthenticator); ok {
-						if len(iamAuth.ApiKey) > 0 {
-							infoSvc.Logger.ShortWarn(fmt.Sprintf("API key length: %d characters", len(iamAuth.ApiKey)))
-							infoSvc.Logger.ShortWarn(fmt.Sprintf("API key prefix: %s...", iamAuth.ApiKey[:min(6, len(iamAuth.ApiKey))]))
-						}
-					}
-
-					// Log response details
-					infoSvc.Logger.ShortWarn(fmt.Sprintf("Response body: %s", bodyStr))
-					infoSvc.Logger.ShortWarn(fmt.Sprintf("Response headers: %v", resp.Header))
+					// For retry attempts, just log a simple warning - detailed diagnostics only on final failure
+					infoSvc.Logger.ShortWarn("API key validation failed (often transient)")
 				} else {
-					// Final attempt or non-retryable - use error level
+					// Final attempt or non-retryable - use error level with full diagnostics
 					// Log all references being resolved
 					infoSvc.Logger.ShortError("References being resolved:")
 					for i, ref := range references {
@@ -575,24 +557,11 @@ func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, r
 			} else {
 				// For other types of errors (non-API key validation), handle based on retry context
 				if logLevel == "warn" {
-					// Log all references being resolved at warning level for retry attempts
-					infoSvc.Logger.ShortWarn("References being resolved:")
-					for i, ref := range references {
-						infoSvc.Logger.ShortWarn(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
-					}
-
-					// Log authentication details (masked for security)
-					if len(token) > 10 {
-						maskedToken := token[:6] + "..." + token[len(token)-4:]
-						infoSvc.Logger.ShortWarn(fmt.Sprintf("Token: %s", maskedToken))
-					}
-
-					// Log response details
-					infoSvc.Logger.ShortWarn(fmt.Sprintf("Response body: %s", bodyStr))
-					infoSvc.Logger.ShortWarn(fmt.Sprintf("Response headers: %v", resp.Header))
+					// For retry attempts, minimal logging - just note the error type
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Reference resolution error (will retry): %s", strings.Split(bodyStr, "\n")[0]))
 				} else {
-					// Final attempt - log at error level
-					// Log all references being resolved
+					// Final attempt - show full diagnostics
+					// Log all references being resolved at error level for final attempts
 					infoSvc.Logger.ShortError("References being resolved:")
 					for i, ref := range references {
 						infoSvc.Logger.ShortError(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
@@ -638,6 +607,21 @@ func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, r
 				logMessage("This is a known intermittent issue where project references cannot be found during provisioning.")
 				logMessage("This commonly occurs when project resources are still being set up.")
 				logMessage("Re-running the test typically resolves this transient issue.")
+				logMessage("========================================")
+			} else if resp.StatusCode == 429 {
+				logMessage := func(msg string) {
+					if logLevel == "warn" {
+						infoSvc.Logger.ShortWarn(msg)
+					} else {
+						infoSvc.Logger.ShortError(msg)
+					}
+				}
+				logMessage("========================================")
+				logMessage("RATE LIMITING DETECTED (429)")
+				logMessage("This occurs when multiple parallel tests hit the same API endpoints simultaneously.")
+				logMessage("Consider using StaggerDelay in your AddonTestMatrix to space out test starts.")
+				logMessage("Example: matrix.StaggerDelay = testaddons.StaggerDelay(10 * time.Second) // 10 second stagger")
+				logMessage("Re-running the test typically resolves this issue.")
 				logMessage("========================================")
 			}
 		}
