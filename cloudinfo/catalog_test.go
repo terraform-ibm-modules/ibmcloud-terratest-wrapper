@@ -53,6 +53,7 @@ func (suite *CatalogServiceTestSuite) SetupTest() {
 			authenticator: &MockAuthenticator{
 				Token: "mock-token",
 			},
+			Logger: common.NewTestLogger("CatalogServiceTest"),
 		},
 	}
 }
