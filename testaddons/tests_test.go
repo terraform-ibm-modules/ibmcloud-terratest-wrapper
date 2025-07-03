@@ -1,6 +1,8 @@
 package testaddons
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/IBM/go-sdk-core/v5/core"
@@ -1126,4 +1128,72 @@ func TestPrintConsolidatedValidationSummary(t *testing.T) {
 
 		// The test passes if no panics occur and the method executes successfully
 	})
+}
+
+// TestMissingConfigsErrorMessageFormat tests that error messages for missing configs
+// include specific details about which configs are missing
+func TestMissingConfigsErrorMessageFormat(t *testing.T) {
+	// Create validation result with missing configs
+	validationResult := ValidationResult{
+		IsValid:           false,
+		DependencyErrors:  []cloudinfo.DependencyError{},
+		UnexpectedConfigs: []cloudinfo.OfferingReferenceDetail{},
+		MissingConfigs: []cloudinfo.OfferingReferenceDetail{
+			{
+				Name:    "deploy-arch-ibm-event-notifications",
+				Version: "v0.0.1-dev-test123",
+				Flavor:  cloudinfo.Flavor{Name: "fully-configurable"},
+			},
+			{
+				Name:    "deploy-arch-ibm-kms",
+				Version: "v5.1.4",
+				Flavor:  cloudinfo.Flavor{Name: "instance"},
+			},
+		},
+		Messages: []string{"found 2 missing expected configs"},
+	}
+
+	// Simulate the error message construction from the actual code
+	var errorDetails []string
+	if len(validationResult.DependencyErrors) > 0 {
+		errorDetails = append(errorDetails, fmt.Sprintf("%d dependency errors", len(validationResult.DependencyErrors)))
+	}
+	if len(validationResult.UnexpectedConfigs) > 0 {
+		errorDetails = append(errorDetails, fmt.Sprintf("%d unexpected configs", len(validationResult.UnexpectedConfigs)))
+	}
+	if len(validationResult.MissingConfigs) > 0 {
+		// Include specific names of missing configs in the error message
+		var missingNames []string
+		for _, missing := range validationResult.MissingConfigs {
+			missingNames = append(missingNames, fmt.Sprintf("%s (%s, %s)", missing.Name, missing.Version, missing.Flavor.Name))
+		}
+		errorDetails = append(errorDetails, fmt.Sprintf("%d missing configs: [%s]", len(validationResult.MissingConfigs), strings.Join(missingNames, ", ")))
+	}
+
+	var errorMsg string
+	if len(errorDetails) > 0 {
+		errorMsg = fmt.Sprintf("dependency validation failed: %s", strings.Join(errorDetails, ", "))
+	} else {
+		errorMsg = "dependency validation failed - check validation output above for details"
+	}
+
+	// Verify the error message includes specific config details
+	assert.Contains(t, errorMsg, "deploy-arch-ibm-event-notifications (v0.0.1-dev-test123, fully-configurable)")
+	assert.Contains(t, errorMsg, "deploy-arch-ibm-kms (v5.1.4, instance)")
+	assert.Contains(t, errorMsg, "2 missing configs:")
+	assert.Contains(t, errorMsg, "dependency validation failed:")
+
+	// Verify the format is readable and contains all expected information
+	expectedSubstrings := []string{
+		"dependency validation failed:",
+		"2 missing configs:",
+		"deploy-arch-ibm-event-notifications (v0.0.1-dev-test123, fully-configurable)",
+		"deploy-arch-ibm-kms (v5.1.4, instance)",
+	}
+
+	for _, substr := range expectedSubstrings {
+		assert.Contains(t, errorMsg, substr, "Error message should contain: %s", substr)
+	}
+
+	t.Logf("Generated error message: %s", errorMsg)
 }

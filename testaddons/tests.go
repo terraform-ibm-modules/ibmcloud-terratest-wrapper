@@ -570,7 +570,12 @@ func (options *TestAddonOptions) RunAddonTest() error {
 				errorDetails = append(errorDetails, fmt.Sprintf("%d unexpected configs", len(validationResult.UnexpectedConfigs)))
 			}
 			if len(validationResult.MissingConfigs) > 0 {
-				errorDetails = append(errorDetails, fmt.Sprintf("%d missing configs", len(validationResult.MissingConfigs)))
+				// Include specific names of missing configs in the error message
+				var missingNames []string
+				for _, missing := range validationResult.MissingConfigs {
+					missingNames = append(missingNames, fmt.Sprintf("%s (%s, %s)", missing.Name, missing.Version, missing.Flavor.Name))
+				}
+				errorDetails = append(errorDetails, fmt.Sprintf("%d missing configs: [%s]", len(validationResult.MissingConfigs), strings.Join(missingNames, ", ")))
 			}
 
 			var errorMsg string
