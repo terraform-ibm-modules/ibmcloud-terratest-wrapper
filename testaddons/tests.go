@@ -891,7 +891,7 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 	parentTestName := options.Testing.Name()
 
 	// Set default stagger delay if not specified
-	staggerDelay := 8 * time.Second
+	staggerDelay := 10 * time.Second
 	if matrix.StaggerDelay != nil {
 		staggerDelay = *matrix.StaggerDelay
 	}
