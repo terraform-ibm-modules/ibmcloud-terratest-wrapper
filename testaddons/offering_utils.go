@@ -3,9 +3,9 @@ package testaddons
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
 // SetOfferingDetails sets offering details for the addon and its dependencies
@@ -42,31 +42,27 @@ func SetOfferingDetails(options *TestAddonOptions) {
 		options.Logger.ShortError(fmt.Sprintf("Error, Could not parse VersionLocator: %s", options.AddonConfig.VersionLocator))
 	}
 
-	// Add retry logic for getting top level offering in parallel execution
-	const maxRetries = 3
-	const baseDelay = 2 * time.Second
+	// Use common retry utility for getting top level offering in parallel execution
+	config := common.CatalogOperationRetryConfig()
+	config.Logger = options.Logger
+	config.OperationName = fmt.Sprintf("GetOffering catalogID='%s', offeringID='%s'", *options.offering.CatalogID, *options.offering.ID)
+	config.MaxRetries = 3 // Keep same retry count as before
 
-	var topLevelOffering *catalogmanagementv1.Offering
-	var err error
-
-	// Retry getting the top level offering in case of timing issues in parallel tests
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			delay := time.Duration(float64(baseDelay) * float64(attempt))
-			options.Logger.ShortInfo(fmt.Sprintf("Retrying GetOffering after %v (attempt %d/%d)", delay, attempt+1, maxRetries))
-			time.Sleep(delay)
+	topLevelOffering, err := common.RetryWithConfig(config, func() (*catalogmanagementv1.Offering, error) {
+		offering, _, err := options.CloudInfoService.GetOffering(*options.offering.CatalogID, *options.offering.ID)
+		if err != nil {
+			return nil, err
 		}
-
-		topLevelOffering, _, err = options.CloudInfoService.GetOffering(*options.offering.CatalogID, *options.offering.ID)
-		if err == nil && topLevelOffering != nil {
-			break
+		if offering == nil {
+			return nil, fmt.Errorf("offering is nil")
 		}
+		return offering, nil
+	})
 
-		if attempt == maxRetries-1 {
-			options.Logger.ShortError(fmt.Sprintf("Error retrieving top level offering after %d attempts: %s from catalog: %s", maxRetries, *options.offering.ID, *options.offering.CatalogID))
-			options.Testing.Fail()
-			return
-		}
+	if err != nil {
+		options.Logger.ShortError(fmt.Sprintf("Error retrieving top level offering: %s from catalog: %s - %v", *options.offering.ID, *options.offering.CatalogID, err))
+		options.Testing.Fail()
+		return
 	}
 	if topLevelOffering == nil || len(topLevelOffering.Kinds) == 0 || topLevelOffering.Kinds[0].InstallKind == nil {
 		options.Logger.ShortError(fmt.Sprintf("Error, top level offering: %s, install kind is nil or not available", *options.offering.ID))
@@ -101,29 +97,27 @@ func SetOfferingDetails(options *TestAddonOptions) {
 			return
 		}
 
-		// Add retry logic for dependency offerings as well
-		var myOffering *catalogmanagementv1.Offering
-		for attempt := 0; attempt < maxRetries; attempt++ {
-			if attempt > 0 {
-				delay := time.Duration(float64(baseDelay) * float64(attempt))
-				options.Logger.ShortInfo(fmt.Sprintf("Retrying GetOffering for dependency after %v (attempt %d/%d)", delay, attempt+1, maxRetries))
-				time.Sleep(delay)
-			}
+		// Use common retry utility for dependency offerings as well
+		dependencyConfig := common.CatalogOperationRetryConfig()
+		dependencyConfig.Logger = options.Logger
+		dependencyConfig.OperationName = fmt.Sprintf("GetOffering dependency catalogID='%s', offeringID='%s'", dependencyCatalogID, dependency.OfferingID)
+		dependencyConfig.MaxRetries = 3 // Keep same retry count as before
 
-			myOffering, _, err = options.CloudInfoService.GetOffering(dependencyCatalogID, dependency.OfferingID)
-			if err == nil && myOffering != nil {
-				break
+		myOffering, err := common.RetryWithConfig(dependencyConfig, func() (*catalogmanagementv1.Offering, error) {
+			offering, _, err := options.CloudInfoService.GetOffering(dependencyCatalogID, dependency.OfferingID)
+			if err != nil {
+				return nil, err
 			}
+			if offering == nil {
+				return nil, fmt.Errorf("dependency offering not found")
+			}
+			return offering, nil
+		})
 
-			if attempt == maxRetries-1 {
-				if myOffering == nil {
-					options.Logger.ShortError(fmt.Sprintf("Error retrieving dependency offering after %d attempts: %s from catalog: %s, offering not found", maxRetries, dependency.OfferingID, dependencyCatalogID))
-				} else {
-					options.Logger.ShortError(fmt.Sprintf("Error retrieving dependency offering after %d attempts: %s from catalog: %s", maxRetries, *myOffering.ID, dependencyCatalogID))
-				}
-				options.Testing.Fail()
-				return
-			}
+		if err != nil {
+			options.Logger.ShortError(fmt.Sprintf("Error retrieving dependency offering: %s from catalog: %s - %v", dependency.OfferingID, dependencyCatalogID, err))
+			options.Testing.Fail()
+			return
 		}
 		options.AddonConfig.Dependencies[i].OfferingInputs = options.CloudInfoService.GetOfferingInputs(myOffering, dependencyVersionID, dependencyCatalogID)
 		options.AddonConfig.Dependencies[i].VersionID = dependencyVersionID
