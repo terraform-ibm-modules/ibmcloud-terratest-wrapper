@@ -156,6 +156,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	failedRefs := []string{}
 	missingRequiredInputs := make([]string, 0)
 
+	// These variables will store the collected validation issues
+	// They are declared here but will only be evaluated after dependency validation
+
 	// set offering details
 	SetOfferingDetails(options)
 
@@ -245,10 +248,10 @@ func (options *TestAddonOptions) RunAddonTest() error {
 				options.Logger.ShortInfo("  Resolved References:")
 				for _, ref := range res_resp.References {
 					if ref.Code != 200 {
-						options.Logger.ShortError(fmt.Sprintf("%s   %s - Error: %s", common.ColorizeString(common.Colors.Red, "✘"), ref.Reference, ref.State))
-						options.Logger.ShortError(fmt.Sprintf("      Message: %s", ref.Message))
-						options.Logger.ShortError(fmt.Sprintf("      Code: %d", ref.Code))
-						options.Testing.Failed()
+						options.Logger.ShortWarn(fmt.Sprintf("%s   %s - Error: %s", common.ColorizeString(common.Colors.Red, "✘"), ref.Reference, ref.State))
+						options.Logger.ShortWarn(fmt.Sprintf("      Message: %s", ref.Message))
+						options.Logger.ShortWarn(fmt.Sprintf("      Code: %d", ref.Code))
+						// Store failed ref for later evaluation instead of failing immediately
 						failedRefs = append(failedRefs, ref.Reference)
 						continue
 					}
@@ -376,7 +379,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			for _, missing := range missingInputsList {
 				missingRequiredInputs = append(missingRequiredInputs, missing)
 			}
-			options.Logger.ShortError(fmt.Sprintf("Some required inputs are missing for addon: %s", *currentConfigDetails.ID))
+			options.Logger.ShortWarn(fmt.Sprintf("Some required inputs are missing for addon: %s (will check dependencies first)", *currentConfigDetails.ID))
 		} else {
 			options.Logger.ShortInfo(fmt.Sprintf("All required inputs set for addon: %s", *currentConfigDetails.ID))
 		}
@@ -396,237 +399,60 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo("Reference validation skipped")
 	}
 
-	// Check for missing required inputs - this should prevent deployment
+	// Collect missing input issues for later evaluation after dependency validation
+	var inputValidationIssues []string
 	if len(missingRequiredInputs) > 0 {
-		options.Logger.ShortError("Missing required inputs detected:")
+		options.Logger.ShortWarn("Missing required inputs detected (will check dependencies first):")
 		for _, configError := range missingRequiredInputs {
-			options.Logger.ShortError(fmt.Sprintf("  %s", configError))
+			options.Logger.ShortWarn(fmt.Sprintf("  %s", configError))
+			inputValidationIssues = append(inputValidationIssues, configError)
 		}
-
-		// Enhanced debugging information when validation fails
-		options.Logger.ShortError("=== INPUT VALIDATION FAILURE DEBUG INFO ===")
-		options.Logger.ShortError("Attempting to get current configuration details for debugging...")
-
-		allConfigs, debugErr := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
-		if debugErr != nil {
-			options.Logger.ShortError(fmt.Sprintf("Could not retrieve configs for debugging: %v", debugErr))
-		} else {
-			options.Logger.ShortError(fmt.Sprintf("Found %d configurations in project:", len(allConfigs)))
-			for _, config := range allConfigs {
-				configDetails, _, getErr := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
-					ProjectID: options.currentProjectConfig.ProjectID,
-					ConfigID:  *config.ID,
-				})
-
-				if getErr != nil {
-					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s) - ERROR: %v", *config.Definition.Name, *config.ID, getErr))
-				} else {
-					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s)", *config.Definition.Name, *config.ID))
-					options.Logger.ShortError(fmt.Sprintf("    State: %s", func() string {
-						if configDetails.State != nil {
-							return *configDetails.State
-						}
-						return "unknown"
-					}()))
-					options.Logger.ShortError(fmt.Sprintf("    StateCode: %s", func() string {
-						if configDetails.StateCode != nil {
-							return string(*configDetails.StateCode)
-						}
-						return "unknown"
-					}()))
-					options.Logger.ShortError(fmt.Sprintf("    LocatorID: %s", func() string {
-						if configDetails.Definition != nil {
-							if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.LocatorID != nil {
-								return *resp.LocatorID
-							}
-						}
-						return "unknown"
-					}()))
-
-					// Show current input values
-					if configDetails.Definition != nil {
-						if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
-							options.Logger.ShortError("    Current Inputs:")
-							for key, value := range resp.Inputs {
-								// Don't log sensitive values
-								if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
-									options.Logger.ShortError(fmt.Sprintf("      %s: [REDACTED]", key))
-								} else {
-									options.Logger.ShortError(fmt.Sprintf("      %s: %v", key, value))
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		options.Logger.ShortError("Expected addon configuration details:")
-		options.Logger.ShortError(fmt.Sprintf("  Main Addon Name: %s", options.AddonConfig.OfferingName))
-		options.Logger.ShortError(fmt.Sprintf("  Main Addon Version: %s", options.AddonConfig.VersionID))
-		options.Logger.ShortError(fmt.Sprintf("  Main Addon Config Name: %s", options.AddonConfig.ConfigName))
-		options.Logger.ShortError(fmt.Sprintf("  Prefix: %s", options.AddonConfig.Prefix))
-		if len(options.AddonConfig.Dependencies) > 0 {
-			options.Logger.ShortError("  Dependencies:")
-			for i, dep := range options.AddonConfig.Dependencies {
-				options.Logger.ShortError(fmt.Sprintf("    [%d] Name: %s, Version: %s, ConfigName: %s", i, dep.OfferingName, dep.VersionID, dep.ConfigName))
-			}
-		}
-		options.Logger.ShortError("=== END DEBUG INFO ===")
-
-		// Create a specific error message listing the actual missing inputs
-		var missingInputsList []string
-		for _, configError := range missingRequiredInputs {
-			missingInputsList = append(missingInputsList, configError)
-		}
-
-		options.Logger.ShortError("Cannot proceed with deployment - required inputs must be provided")
-		options.Testing.Fail()
-		return fmt.Errorf("missing required inputs: %s", strings.Join(missingInputsList, "; "))
 	}
 
-	if assert.Equal(options.Testing, 0, len(waitingOnInputs), "Found configurations waiting on inputs") {
+	// Collect waiting input issues for later evaluation after dependency validation
+	var waitingInputIssues []string
+	if len(waitingOnInputs) == 0 {
 		options.Logger.ShortInfo("No configurations waiting on inputs")
 	} else {
-		options.Logger.ShortError("Found configurations waiting on inputs - this usually indicates timing issues with backend state")
-		options.Logger.ShortError("=== DEBUG INFO ===")
-		options.Logger.ShortError("Configurations in 'awaiting_input' state:")
+		options.Logger.ShortWarn("Found configurations waiting on inputs (will check dependencies first):")
 		for _, config := range waitingOnInputs {
-			options.Logger.ShortError(fmt.Sprintf("  %s", config))
+			options.Logger.ShortWarn(fmt.Sprintf("  %s", config))
+			waitingInputIssues = append(waitingInputIssues, config)
 		}
-
-		// Print current configuration input values for debugging - similar to missing inputs debug info
-		options.Logger.ShortError("Attempting to get current configuration details for debugging...")
-
-		// Track missing inputs across all configurations for specific error message
-		var missingInputsDetails []string
-		var configsWithIssues []string
-
-		allConfigs, debugErr := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
-		if debugErr != nil {
-			options.Logger.ShortError(fmt.Sprintf("Could not retrieve configs for debugging: %v", debugErr))
-		} else {
-			options.Logger.ShortError(fmt.Sprintf("Found %d configurations in project:", len(allConfigs)))
-			for _, config := range allConfigs {
-				configDetails, _, getErr := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
-					ProjectID: options.currentProjectConfig.ProjectID,
-					ConfigID:  *config.ID,
-				})
-
-				if getErr != nil {
-					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s) - ERROR: %v", *config.Definition.Name, *config.ID, getErr))
-				} else {
-					configName := *config.Definition.Name
-					isInWaitingList := false
-					for _, waitingConfig := range waitingOnInputs {
-						if waitingConfig == configName {
-							isInWaitingList = true
-							break
-						}
-					}
-
-					waitingStatus := ""
-					if isInWaitingList {
-						waitingStatus = " [IN WAITING LIST]"
-						configsWithIssues = append(configsWithIssues, configName)
-					}
-
-					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s)%s", configName, *config.ID, waitingStatus))
-					options.Logger.ShortError(fmt.Sprintf("    State: %s", func() string {
-						if configDetails.State != nil {
-							return *configDetails.State
-						}
-						return "unknown"
-					}()))
-					options.Logger.ShortError(fmt.Sprintf("    StateCode: %s", func() string {
-						if configDetails.StateCode != nil {
-							return string(*configDetails.StateCode)
-						}
-						return "unknown"
-					}()))
-					options.Logger.ShortError(fmt.Sprintf("    LocatorID: %s", func() string {
-						if configDetails.Definition != nil {
-							if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.LocatorID != nil {
-								return *resp.LocatorID
-							}
-						}
-						return "unknown"
-					}()))
-
-					// Show current input values and collect missing ones
-					if configDetails.Definition != nil {
-						if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
-							options.Logger.ShortError("    Current Inputs:")
-							for key, value := range resp.Inputs {
-								// Don't log sensitive values
-								if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
-									options.Logger.ShortError(fmt.Sprintf("      %s: [REDACTED]", key))
-								} else {
-									valueStr := fmt.Sprintf("%v", value)
-									if valueStr == "__NOT_SET__" || valueStr == "" || valueStr == "<nil>" {
-										// Found a missing input - add to our specific error details
-										if isInWaitingList {
-											missingInputsDetails = append(missingInputsDetails, fmt.Sprintf("%s.%s", configName, key))
-										}
-										options.Logger.ShortError(fmt.Sprintf("      %s: __NOT_SET__", key))
-									} else {
-										options.Logger.ShortError(fmt.Sprintf("      %s: %v", key, value))
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Print expected configuration details
-		options.Logger.ShortError("Expected addon configuration details:")
-		options.Logger.ShortError(fmt.Sprintf("  Main Addon Name: %s", options.AddonConfig.OfferingName))
-		options.Logger.ShortError(fmt.Sprintf("  Main Addon Version: %s", options.AddonConfig.VersionID))
-		options.Logger.ShortError(fmt.Sprintf("  Main Addon Config Name: %s", options.AddonConfig.ConfigName))
-		options.Logger.ShortError(fmt.Sprintf("  Prefix: %s", options.AddonConfig.Prefix))
-		if len(options.AddonConfig.Dependencies) > 0 {
-			options.Logger.ShortError("  Dependencies:")
-			for i, dep := range options.AddonConfig.Dependencies {
-				options.Logger.ShortError(fmt.Sprintf("    [%d] Name: %s, Version: %s, ConfigName: %s", i, dep.OfferingName, dep.VersionID, dep.ConfigName))
-			}
-		}
-		options.Logger.ShortError("=== END DEBUG INFO ===")
-
-		// Create a specific, actionable error message
-		var errorMsg string
-		if len(missingInputsDetails) > 0 {
-			errorMsg = fmt.Sprintf("configurations waiting on missing inputs: %s", strings.Join(missingInputsDetails, ", "))
-		} else if len(configsWithIssues) > 0 {
-			errorMsg = fmt.Sprintf("configurations in awaiting_input state: %s", strings.Join(configsWithIssues, ", "))
-		} else {
-			errorMsg = "configurations waiting on inputs - check debug output above for details"
-		}
-
-		options.Testing.Fail()
-		return fmt.Errorf("found %s", errorMsg)
 	}
 
-	if assert.True(options.Testing, readyToValidate, "No configuration found in ready_to_validate state") {
+	// Check if any configs are ready to validate, but don't fail immediately
+	if readyToValidate {
 		options.Logger.ShortInfo("Found a configuration ready to validate")
 	} else {
-		options.Logger.ShortError("No configuration found in ready_to_validate state")
-		options.Testing.Fail()
-		return fmt.Errorf("no configuration found in ready_to_validate state")
+		options.Logger.ShortWarn("No configuration found in ready_to_validate state (will check dependencies first)")
+		// Store this issue for later evaluation after dependency validation
+		waitingInputIssues = append(waitingInputIssues, "No configuration is in ready_to_validate state")
 	}
 
 	// Check if the configuration is in a valid state
-	// Check if its deployable
 	options.Logger.ShortInfo(fmt.Sprintf("Checked if the configuration is deployable %s", common.ColorizeString(common.Colors.Green, "pass ✔")))
 
-	// validate if expected dependencies are deployed for each addon
+	// Now run dependency validation before evaluating the collected validation issues
 	if !options.SkipDependencyValidation {
 		options.Logger.ShortInfo("Starting with dependency validation")
 		var rootCatalogID, rootOfferingID, rootVersionLocator string
 		rootVersionLocator = options.AddonConfig.VersionLocator
 		rootCatalogID = options.AddonConfig.CatalogID
 		rootOfferingID = options.AddonConfig.OfferingID
+
+		// Add validation to catch the race condition/uninitialized catalog issue
+		if rootCatalogID == "" {
+			return fmt.Errorf("dependency validation failed: AddonConfig.CatalogID is empty - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s'", rootVersionLocator, options.AddonConfig.OfferingName)
+		}
+		if rootOfferingID == "" {
+			return fmt.Errorf("dependency validation failed: AddonConfig.OfferingID is empty - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s', CatalogID='%s'", rootVersionLocator, options.AddonConfig.OfferingName, rootCatalogID)
+		}
+		if rootVersionLocator == "" {
+			return fmt.Errorf("dependency validation failed: AddonConfig.VersionLocator is empty - this may indicate incomplete offering setup. OfferingName='%s', CatalogID='%s', OfferingID='%s'", options.AddonConfig.OfferingName, rootCatalogID, rootOfferingID)
+		}
+
+		options.Logger.ShortInfo(fmt.Sprintf("Dependency validation starting with: catalogID='%s', offeringID='%s', versionLocator='%s', flavor='%s'", rootCatalogID, rootOfferingID, rootVersionLocator, options.AddonConfig.OfferingFlavor))
 
 		// Build dependency graph using the cleaner return-values approach
 		visited := make(map[string]bool)
@@ -744,7 +570,12 @@ func (options *TestAddonOptions) RunAddonTest() error {
 				errorDetails = append(errorDetails, fmt.Sprintf("%d unexpected configs", len(validationResult.UnexpectedConfigs)))
 			}
 			if len(validationResult.MissingConfigs) > 0 {
-				errorDetails = append(errorDetails, fmt.Sprintf("%d missing configs", len(validationResult.MissingConfigs)))
+				// Include specific names of missing configs in the error message
+				var missingNames []string
+				for _, missing := range validationResult.MissingConfigs {
+					missingNames = append(missingNames, fmt.Sprintf("%s (%s, %s)", missing.Name, missing.Version, missing.Flavor.Name))
+				}
+				errorDetails = append(errorDetails, fmt.Sprintf("%d missing configs: [%s]", len(validationResult.MissingConfigs), strings.Join(missingNames, ", ")))
 			}
 
 			var errorMsg string
@@ -757,6 +588,214 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			return fmt.Errorf(errorMsg)
 		}
 	}
+
+	// Now evaluate input validation issues after dependency validation has provided context
+	if len(inputValidationIssues) > 0 {
+		options.Logger.ShortError("Input validation failed after dependency validation:")
+		for _, issue := range inputValidationIssues {
+			options.Logger.ShortError(fmt.Sprintf("  %s", issue))
+		}
+
+		// Enhanced debugging information when validation fails
+		options.Logger.ShortError("=== INPUT VALIDATION FAILURE DEBUG INFO ===")
+		options.Logger.ShortError("Attempting to get current configuration details for debugging...")
+
+		allConfigs, debugErr := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
+		if debugErr != nil {
+			options.Logger.ShortError(fmt.Sprintf("Could not retrieve configs for debugging: %v", debugErr))
+		} else {
+			options.Logger.ShortError(fmt.Sprintf("Found %d configurations in project:", len(allConfigs)))
+			for _, config := range allConfigs {
+				configDetails, _, getErr := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+					ProjectID: options.currentProjectConfig.ProjectID,
+					ConfigID:  *config.ID,
+				})
+
+				if getErr != nil {
+					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s) - ERROR: %v", *config.Definition.Name, *config.ID, getErr))
+				} else {
+					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s)", *config.Definition.Name, *config.ID))
+					options.Logger.ShortError(fmt.Sprintf("    State: %s", func() string {
+						if configDetails.State != nil {
+							return *configDetails.State
+						}
+						return "unknown"
+					}()))
+					options.Logger.ShortError(fmt.Sprintf("    StateCode: %s", func() string {
+						if configDetails.StateCode != nil {
+							return string(*configDetails.StateCode)
+						}
+						return "unknown"
+					}()))
+					options.Logger.ShortError(fmt.Sprintf("    LocatorID: %s", func() string {
+						if configDetails.Definition != nil {
+							if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.LocatorID != nil {
+								return *resp.LocatorID
+							}
+						}
+						return "unknown"
+					}()))
+
+					// Show current input values
+					if configDetails.Definition != nil {
+						if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
+							options.Logger.ShortError("    Current Inputs:")
+							for key, value := range resp.Inputs {
+								// Don't log sensitive values
+								if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
+									options.Logger.ShortError(fmt.Sprintf("      %s: [REDACTED]", key))
+								} else {
+									options.Logger.ShortError(fmt.Sprintf("      %s: %v", key, value))
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		options.Logger.ShortError("Expected addon configuration details:")
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Name: %s", options.AddonConfig.OfferingName))
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Version: %s", options.AddonConfig.VersionID))
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Config Name: %s", options.AddonConfig.ConfigName))
+		options.Logger.ShortError(fmt.Sprintf("  Prefix: %s", options.AddonConfig.Prefix))
+		if len(options.AddonConfig.Dependencies) > 0 {
+			options.Logger.ShortError("  Dependencies:")
+			for i, dep := range options.AddonConfig.Dependencies {
+				options.Logger.ShortError(fmt.Sprintf("    [%d] Name: %s, Version: %s, ConfigName: %s", i, dep.OfferingName, dep.VersionID, dep.ConfigName))
+			}
+		}
+		options.Logger.ShortError("=== END DEBUG INFO ===")
+
+		options.Logger.ShortError("Cannot proceed with deployment - required inputs must be provided")
+		options.Logger.ShortError("Note: Missing inputs may be caused by missing dependencies shown above")
+		options.Testing.Fail()
+		return fmt.Errorf("missing required inputs: %s", strings.Join(inputValidationIssues, "; "))
+	}
+
+	// Now evaluate waiting input issues after dependency validation has provided context
+	if len(waitingInputIssues) > 0 {
+		options.Logger.ShortError("Found configurations waiting on inputs after dependency validation:")
+		for _, config := range waitingInputIssues {
+			options.Logger.ShortError(fmt.Sprintf("  %s", config))
+		}
+
+		// Print current configuration input values for debugging - similar to missing inputs debug info
+		options.Logger.ShortError("=== WAITING INPUTS DEBUG INFO ===")
+		options.Logger.ShortError("Attempting to get current configuration details for debugging...")
+
+		// Track missing inputs across all configurations for specific error message
+		var missingInputsDetails []string
+		var configsWithIssues []string
+
+		allConfigs, debugErr := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
+		if debugErr != nil {
+			options.Logger.ShortError(fmt.Sprintf("Could not retrieve configs for debugging: %v", debugErr))
+		} else {
+			options.Logger.ShortError(fmt.Sprintf("Found %d configurations in project:", len(allConfigs)))
+			for _, config := range allConfigs {
+				configDetails, _, getErr := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+					ProjectID: options.currentProjectConfig.ProjectID,
+					ConfigID:  *config.ID,
+				})
+
+				if getErr != nil {
+					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s) - ERROR: %v", *config.Definition.Name, *config.ID, getErr))
+				} else {
+					configName := *config.Definition.Name
+					isInWaitingList := false
+					for _, waitingConfig := range waitingInputIssues {
+						if waitingConfig == configName {
+							isInWaitingList = true
+							break
+						}
+					}
+
+					waitingStatus := ""
+					if isInWaitingList {
+						waitingStatus = " [IN WAITING LIST]"
+						configsWithIssues = append(configsWithIssues, configName)
+					}
+
+					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s)%s", configName, *config.ID, waitingStatus))
+					options.Logger.ShortError(fmt.Sprintf("    State: %s", func() string {
+						if configDetails.State != nil {
+							return *configDetails.State
+						}
+						return "unknown"
+					}()))
+					options.Logger.ShortError(fmt.Sprintf("    StateCode: %s", func() string {
+						if configDetails.StateCode != nil {
+							return string(*configDetails.StateCode)
+						}
+						return "unknown"
+					}()))
+					options.Logger.ShortError(fmt.Sprintf("    LocatorID: %s", func() string {
+						if configDetails.Definition != nil {
+							if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.LocatorID != nil {
+								return *resp.LocatorID
+							}
+						}
+						return "unknown"
+					}()))
+
+					// Show current input values and collect missing ones
+					if configDetails.Definition != nil {
+						if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
+							options.Logger.ShortError("    Current Inputs:")
+							for key, value := range resp.Inputs {
+								// Don't log sensitive values
+								if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
+									options.Logger.ShortError(fmt.Sprintf("      %s: [REDACTED]", key))
+								} else {
+									valueStr := fmt.Sprintf("%v", value)
+									if valueStr == "__NOT_SET__" || valueStr == "" || valueStr == "<nil>" {
+										// Found a missing input - add to our specific error details
+										if isInWaitingList {
+											missingInputsDetails = append(missingInputsDetails, fmt.Sprintf("%s.%s", configName, key))
+										}
+										options.Logger.ShortError(fmt.Sprintf("      %s: __NOT_SET__", key))
+									} else {
+										options.Logger.ShortError(fmt.Sprintf("      %s: %v", key, value))
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Print expected configuration details
+		options.Logger.ShortError("Expected addon configuration details:")
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Name: %s", options.AddonConfig.OfferingName))
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Version: %s", options.AddonConfig.VersionID))
+		options.Logger.ShortError(fmt.Sprintf("  Main Addon Config Name: %s", options.AddonConfig.ConfigName))
+		options.Logger.ShortError(fmt.Sprintf("  Prefix: %s", options.AddonConfig.Prefix))
+		if len(options.AddonConfig.Dependencies) > 0 {
+			options.Logger.ShortError("  Dependencies:")
+			for i, dep := range options.AddonConfig.Dependencies {
+				options.Logger.ShortError(fmt.Sprintf("    [%d] Name: %s, Version: %s, ConfigName: %s", i, dep.OfferingName, dep.VersionID, dep.ConfigName))
+			}
+		}
+		options.Logger.ShortError("=== END DEBUG INFO ===")
+
+		// Create a specific, actionable error message
+		var errorMsg string
+		if len(missingInputsDetails) > 0 {
+			errorMsg = fmt.Sprintf("configurations waiting on missing inputs: %s", strings.Join(missingInputsDetails, ", "))
+		} else if len(configsWithIssues) > 0 {
+			errorMsg = fmt.Sprintf("configurations in awaiting_input state: %s", strings.Join(configsWithIssues, ", "))
+		} else {
+			errorMsg = "configurations waiting on inputs - check debug output above for details"
+		}
+
+		options.Logger.ShortError("Note: Missing inputs may be caused by missing dependencies shown above")
+		options.Testing.Fail()
+		return fmt.Errorf("found %s", errorMsg)
+	}
+
+	options.Logger.ShortInfo("Dependency validation completed successfully")
 
 	if options.PreDeployHook != nil {
 		options.Logger.ShortInfo("Running PreDeployHook")
@@ -853,14 +892,34 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 		panic("BaseOptions must be provided for AddonTestMatrix")
 	}
 
+	// Capture the parent test name to avoid duplication in logger when creating subtests
+	parentTestName := options.Testing.Name()
+
+	// Set default stagger delay if not specified
+	staggerDelay := 10 * time.Second
+	if matrix.StaggerDelay != nil {
+		staggerDelay = *matrix.StaggerDelay
+	}
+
 	// Create shared resource tracking for the matrix
 	var sharedCatalogOptions *TestAddonOptions
 	var sharedMutex = &sync.Mutex{}
 
-	for _, tc := range matrix.TestCases {
-		tc := tc // Capture loop variable for parallel execution
+	for i, tc := range matrix.TestCases {
+		tc := tc       // Capture loop variable for parallel execution
+		testIndex := i // Capture index for staggering
 		options.Testing.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
+
+			// Implement staggered start to prevent rate limiting
+			// Each test waits a progressively longer time before starting
+			if staggerDelay > 0 && testIndex > 0 {
+				staggerWait := time.Duration(testIndex) * staggerDelay
+				// Log using fmt.Printf since we don't have a logger instance yet
+				fmt.Printf("[%s - STAGGER] Delaying test start by %v to prevent rate limiting (test %d/%d)\n",
+					tc.Name, staggerWait, testIndex+1, len(matrix.TestCases))
+				time.Sleep(staggerWait)
+			}
 
 			// Start with a copy of BaseOptions and customize for this test case
 			testOptions := matrix.BaseOptions.copy()
@@ -893,7 +952,7 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 
 			// Ensure logger is initialized before using it
 			if testOptions.Logger == nil {
-				testOptions.Logger = common.NewTestLogger(testOptions.Testing.Name())
+				testOptions.Logger = common.NewTestLogger(parentTestName)
 			}
 
 			// Ensure CloudInfoService is initialized before using it for catalog operations

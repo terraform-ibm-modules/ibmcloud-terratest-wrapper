@@ -18,47 +18,73 @@ import (
 
 // GetCatalogVersionByLocator gets a version by its locator using the Catalog Management service
 func (infoSvc *CloudInfoService) GetCatalogVersionByLocator(versionLocator string) (*catalogmanagementv1.Version, error) {
-	// Call the GetCatalogVersionByLocator method with the version locator and the context
-	getVersionOptions := &catalogmanagementv1.GetVersionOptions{
-		VersionLocID: &versionLocator,
-	}
+	// Use new retry utility for catalog operations
+	config := common.CatalogOperationRetryConfig()
+	config.Logger = infoSvc.Logger
+	config.OperationName = fmt.Sprintf("GetCatalogVersionByLocator '%s'", versionLocator)
 
-	offering, response, err := infoSvc.catalogService.GetVersion(getVersionOptions)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check if the response status code is 200 (success)
-	if response.StatusCode == 200 {
-		var version catalogmanagementv1.Version
-		if len(offering.Kinds) > 0 && len(offering.Kinds[0].Versions) > 0 {
-			version = offering.Kinds[0].Versions[0]
-			return &version, nil
+	return common.RetryWithConfig(config, func() (*catalogmanagementv1.Version, error) {
+		// Call the GetCatalogVersionByLocator method with the version locator and the context
+		getVersionOptions := &catalogmanagementv1.GetVersionOptions{
+			VersionLocID: &versionLocator,
 		}
-		return nil, fmt.Errorf("version not found")
-	}
 
-	return nil, fmt.Errorf("failed to get version: %s", response.RawResult)
+		offering, response, err := infoSvc.catalogService.GetVersion(getVersionOptions)
+		if err != nil {
+			return nil, err
+		}
+
+		// Handle rate limiting (429) and other temporary failures
+		if response.StatusCode == 429 {
+			return nil, fmt.Errorf("rate limited (status: %d)", response.StatusCode)
+		} else if response.StatusCode >= 500 {
+			return nil, fmt.Errorf("server error (status: %d)", response.StatusCode)
+		}
+
+		// Check if the response status code is 200 (success)
+		if response.StatusCode == 200 {
+			var version catalogmanagementv1.Version
+			if len(offering.Kinds) > 0 && len(offering.Kinds[0].Versions) > 0 {
+				version = offering.Kinds[0].Versions[0]
+				return &version, nil
+			}
+			return nil, fmt.Errorf("version not found")
+		} else {
+			return nil, fmt.Errorf("failed to get version: %s", response.RawResult)
+		}
+	})
 }
 
 // CreateCatalog creates a new private catalog using the Catalog Management service
 func (infoSvc *CloudInfoService) CreateCatalog(catalogName string) (*catalogmanagementv1.Catalog, error) {
-	// Call the CreateCatalog method with the catalog name and the context
-	createCatalogOptions := &catalogmanagementv1.CreateCatalogOptions{
-		Label: &catalogName,
-	}
+	// Use new retry utility for catalog operations
+	config := common.CatalogOperationRetryConfig()
+	config.Logger = infoSvc.Logger
+	config.OperationName = fmt.Sprintf("CreateCatalog '%s'", catalogName)
 
-	catalog, response, err := infoSvc.catalogService.CreateCatalog(createCatalogOptions)
-	if err != nil {
-		return nil, err
-	}
+	return common.RetryWithConfig(config, func() (*catalogmanagementv1.Catalog, error) {
+		// Call the CreateCatalog method with the catalog name and the context
+		createCatalogOptions := &catalogmanagementv1.CreateCatalogOptions{
+			Label: &catalogName,
+		}
 
-	// Check if the response status code is 201 (created)
-	if response.StatusCode == 201 {
-		return catalog, nil
-	}
+		catalog, response, err := infoSvc.catalogService.CreateCatalog(createCatalogOptions)
+		if err != nil {
+			return nil, err
+		}
 
-	return nil, fmt.Errorf("failed to create catalog: %s", response.RawResult)
+		// Handle rate limiting (429) and other temporary failures
+		if response.StatusCode == 429 || response.StatusCode >= 500 {
+			return nil, fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
+		}
+
+		// Check if the response status code is 201 (created)
+		if response.StatusCode == 201 {
+			return catalog, nil
+		}
+
+		return nil, fmt.Errorf("failed to create catalog: %s", response.RawResult)
+	})
 }
 
 // DeleteCatalog deletes a private catalog using the Catalog Management service
@@ -94,29 +120,41 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 		Name: &flavorName,
 	}
 
-	// Call the ImportOffering method with the catalog ID, offering ID, and the context
-	importOfferingOptions := &catalogmanagementv1.ImportOfferingOptions{
-		CatalogIdentifier: &catalogID,
-		Zipurl:            &zipUrl,
-		TargetVersion:     &version,
-		InstallType:       core.StringPtr("fullstack"),
-		Name:              core.StringPtr(offeringName),
-		Flavor:            flavorInstance,
-		ProductKind:       core.StringPtr("solution"),
-		FormatKind:        core.StringPtr(installKind.String()),
-	}
+	// Use new retry utility for catalog operations
+	config := common.CatalogOperationRetryConfig()
+	config.Logger = infoSvc.Logger
+	config.OperationName = fmt.Sprintf("ImportOffering '%s'", offeringName)
 
-	offering, response, err := infoSvc.catalogService.ImportOffering(importOfferingOptions)
-	if err != nil {
-		return nil, err
-	}
+	return common.RetryWithConfig(config, func() (*catalogmanagementv1.Offering, error) {
+		// Call the ImportOffering method with the catalog ID, offering ID, and the context
+		importOfferingOptions := &catalogmanagementv1.ImportOfferingOptions{
+			CatalogIdentifier: &catalogID,
+			Zipurl:            &zipUrl,
+			TargetVersion:     &version,
+			InstallType:       core.StringPtr("fullstack"),
+			Name:              core.StringPtr(offeringName),
+			Flavor:            flavorInstance,
+			ProductKind:       core.StringPtr("solution"),
+			FormatKind:        core.StringPtr(installKind.String()),
+		}
 
-	// Check if the response status code is 201 (created)
-	if response.StatusCode == 201 {
-		return offering, nil
-	}
+		offering, response, err := infoSvc.catalogService.ImportOffering(importOfferingOptions)
+		if err != nil {
+			return nil, err
+		}
 
-	return nil, fmt.Errorf("failed to import offering: %s", response.RawResult)
+		// Handle rate limiting (429) and other temporary failures
+		if response.StatusCode == 429 || response.StatusCode >= 500 {
+			return nil, fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
+		}
+
+		// Check if the response status code is 201 (created)
+		if response.StatusCode == 201 {
+			return offering, nil
+		}
+
+		return nil, fmt.Errorf("failed to import offering: %s", response.RawResult)
+	})
 }
 
 // PrepareOfferingImport handles the complete workflow of validating repository/branch
@@ -132,7 +170,7 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport() (branchUrl, repo, branc
 	// Get repository info
 	repo, branch, err = common.GetCurrentPrRepoAndBranch()
 	if err != nil {
-		infoSvc.Logger.ShortError("Error getting current branch and repo for offering import validation")
+		infoSvc.Logger.ShortWarn("Error getting current branch and repo for offering import validation")
 		return "", "", "", fmt.Errorf("failed to get repository info for offering import: %w", err)
 	}
 
@@ -155,7 +193,7 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport() (branchUrl, repo, branc
 		infoSvc.Logger.ShortInfo(fmt.Sprintf("Validating that branch '%s' exists in remote repository before creating any resources", branch))
 		branchExists, err := common.CheckRemoteBranchExists(repo, branch)
 		if err != nil {
-			infoSvc.Logger.ShortError(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
+			infoSvc.Logger.ShortWarn(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
 			return "", "", "", fmt.Errorf("failed to validate branch exists for offering import: %w", err)
 		}
 		if !branchExists {
@@ -193,7 +231,7 @@ func (infoSvc *CloudInfoService) ImportOfferingWithValidation(catalogID, offerin
 		installKind,
 	)
 	if err != nil {
-		infoSvc.Logger.ShortError(fmt.Sprintf("Error importing offering: %v", err))
+		infoSvc.Logger.ShortWarn(fmt.Sprintf("Error importing offering: %v", err))
 		return nil, fmt.Errorf("failed to import offering: %w", err)
 	}
 
@@ -516,47 +554,70 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 		return nil, fmt.Errorf("error pretty printing json: %w", err)
 	}
 
-	// Create a new HTTP request with the JSON body
+	// Deploy with retry logic to handle rate limiting
 	url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/api/v1-beta/deploy/projects/%s/container", projectConfig.ProjectID)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
 
-	// Add headers
-	token, err := infoSvc.authenticator.GetToken()
-	if err != nil {
-		return nil, fmt.Errorf("error getting auth token: %w", err)
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Add("Content-Type", "application/json")
+	// Use new retry utility for deployment operation
+	config := common.CatalogOperationRetryConfig()
+	config.Logger = infoSvc.Logger
+	config.OperationName = fmt.Sprintf("DeployAddonToProject for project %s", projectConfig.ProjectID)
+	config.MaxRetries = 10 // More retries for deployment
 
-	// Execute the request
-	client := &http.Client{}
-	startTime := time.Now()
-	resp, err := client.Do(req)
-	requestTime := time.Since(startTime)
-	infoSvc.Logger.ShortInfo(fmt.Sprintf("Request completed in %v\n", requestTime))
-	if err != nil {
-		return nil, fmt.Errorf("error executing request: %w", err)
-	}
-	defer func() {
-		if resp != nil && resp.Body != nil {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				infoSvc.Logger.ShortInfo(fmt.Sprintf("Error closing response body: %v", closeErr))
-			}
+	body, err := common.RetryWithConfig(config, func() ([]byte, error) {
+		// Create a new HTTP request with the JSON body
+		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+		if err != nil {
+			return nil, fmt.Errorf("error creating request: %w", err)
 		}
-	}()
 
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
+		// Add headers
+		token, err := infoSvc.authenticator.GetToken()
+		if err != nil {
+			return nil, fmt.Errorf("error getting auth token: %w", err)
+		}
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+		req.Header.Add("Content-Type", "application/json")
+
+		// Execute the request
+		client := &http.Client{}
+		startTime := time.Now()
+		resp, err := client.Do(req)
+		requestTime := time.Since(startTime)
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Request completed in %v", requestTime))
+
+		if err != nil {
+			return nil, fmt.Errorf("error executing request: %w", err)
+		}
+
+		defer func() {
+			if resp != nil && resp.Body != nil {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					infoSvc.Logger.ShortInfo(fmt.Sprintf("Error closing response body: %v", closeErr))
+				}
+			}
+		}()
+
+		// Read the response body
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("error reading response body: %w", err)
+		}
+
+		// Handle rate limiting (429) with retry
+		if resp.StatusCode == 429 {
+			return nil, fmt.Errorf("rate limited")
+		}
+
+		// Check other error status codes
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		return body, nil
+	})
+
 	if err != nil {
-		return nil, fmt.Errorf("error reading response body: %w", err)
-	}
-
-	// Check response status
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, err
 	}
 
 	var deployResponse *DeployedAddonsDetails
@@ -578,61 +639,74 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 // GetComponentReferences gets the component references for a version locator
 // /ui/v1/versions/:version_locator/componentsReferences
 func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error) {
+	// Use new retry utility for catalog operations
+	config := common.CatalogOperationRetryConfig()
+	config.Logger = infoSvc.Logger
+	config.OperationName = fmt.Sprintf("GetComponentReferences for '%s'", versionLocator)
+	config.MaxRetries = 10 // More retries for component references
 
-	// Build the request URL
-	url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/ui/v1/versions/%s/componentsReferences", versionLocator)
+	return common.RetryWithConfig(config, func() (*OfferingReferenceResponse, error) {
+		// Build the request URL
+		url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/ui/v1/versions/%s/componentsReferences", versionLocator)
 
-	// Create a new HTTP request
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
-	}
-
-	// Add authorization header
-	token, err := infoSvc.authenticator.GetToken()
-	if err != nil {
-		return nil, fmt.Errorf("error getting auth token: %w", err)
-	}
-	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Add("Content-Type", "application/json")
-
-	// Execute the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("error executing request: %w", err)
-	}
-	defer func() {
-		if resp != nil && resp.Body != nil {
-			if closeErr := resp.Body.Close(); closeErr != nil {
-				infoSvc.Logger.ShortInfo(fmt.Sprintf("Error closing response body: %v", closeErr))
-			}
+		// Create a new HTTP request
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("error creating request: %w", err)
 		}
-	}()
 
-	// Check if the response is nil
-	if resp == nil {
-		return nil, fmt.Errorf("response is nil")
-	}
+		// Add authorization header
+		token, err := infoSvc.authenticator.GetToken()
+		if err != nil {
+			return nil, fmt.Errorf("error getting auth token: %w", err)
+		}
+		req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+		req.Header.Add("Content-Type", "application/json")
 
-	// Read the response body
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("error reading response body: %w", err)
-	}
+		// Execute the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("error executing request: %w", err)
+		}
 
-	// Check response status
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-	}
+		defer func() {
+			if resp != nil && resp.Body != nil {
+				if closeErr := resp.Body.Close(); closeErr != nil {
+					infoSvc.Logger.ShortInfo(fmt.Sprintf("Error closing response body: %v", closeErr))
+				}
+			}
+		}()
 
-	// Unmarshal the response into OfferingReferenceResponse
-	var offeringReferences OfferingReferenceResponse
-	if err := json.Unmarshal(body, &offeringReferences); err != nil {
-		return nil, fmt.Errorf("error unmarshaling offering references: %w", err)
-	}
+		// Check if the response is nil
+		if resp == nil {
+			return nil, fmt.Errorf("response is nil")
+		}
 
-	return &offeringReferences, nil
+		// Read the response body
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("error reading response body: %w", err)
+		}
+
+		// Handle rate limiting (429) with retry
+		if resp.StatusCode == 429 {
+			return nil, fmt.Errorf("rate limited")
+		}
+
+		// Check other error status codes
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		}
+
+		// Unmarshal the response into OfferingReferenceResponse
+		var offeringReferences OfferingReferenceResponse
+		if err := json.Unmarshal(body, &offeringReferences); err != nil {
+			return nil, fmt.Errorf("error unmarshaling offering references: %w", err)
+		}
+
+		return &offeringReferences, nil
+	})
 }
 
 // buildHierarchicalDeploymentList creates a deployment list respecting dependency hierarchy.
@@ -784,25 +858,84 @@ func updateDependencyConfigIDs(dependencies []AddonConfig, configMap map[string]
 // GetOffering gets the details of an Offering from a specified Catalog
 func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error) {
 
-	options := &catalogmanagementv1.GetOfferingOptions{
-		CatalogIdentifier: &catalogID,
-		OfferingID:        &offeringID,
+	// Add validation and debugging for empty parameters
+	if catalogID == "" {
+		return nil, nil, fmt.Errorf("catalogID cannot be empty - this may indicate a race condition or uninitialized catalog in parallel test execution")
+	}
+	if offeringID == "" {
+		return nil, nil, fmt.Errorf("offeringID cannot be empty - this may indicate an uninitialized offering ID")
 	}
 
-	offering, response, err := infoSvc.catalogService.GetOffering(options)
+	infoSvc.Logger.ShortInfo(fmt.Sprintf("Getting offering details: catalogID='%s', offeringID='%s'", catalogID, offeringID))
+
+	// Use new retry utility for catalog operations
+	config := common.CatalogOperationRetryConfig()
+	config.Logger = infoSvc.Logger
+	config.OperationName = fmt.Sprintf("GetOffering catalogID='%s', offeringID='%s'", catalogID, offeringID)
+
+	type GetOfferingResult struct {
+		offering *catalogmanagementv1.Offering
+		response *core.DetailedResponse
+	}
+
+	resultValue, err := common.RetryWithConfig(config, func() (*GetOfferingResult, error) {
+		options := &catalogmanagementv1.GetOfferingOptions{
+			CatalogIdentifier: &catalogID,
+			OfferingID:        &offeringID,
+		}
+
+		offering, response, err := infoSvc.catalogService.GetOffering(options)
+		if err != nil {
+			// Provide much more detailed error information
+			return nil, fmt.Errorf("error getting offering from catalog '%s' with offering ID '%s': %w", catalogID, offeringID, err)
+		}
+
+		// Handle rate limiting (429) and other temporary failures
+		if response.StatusCode == 429 || response.StatusCode >= 500 {
+			return nil, fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
+		}
+
+		// Check if the response status code is not 200
+		if response.StatusCode != 200 {
+			return nil, fmt.Errorf("failed to get offering from catalog '%s' with offering ID '%s' (status: %d): %s", catalogID, offeringID, response.StatusCode, response.RawResult)
+		}
+
+		// Success - return the result
+		return &GetOfferingResult{offering: offering, response: response}, nil
+	})
+
 	if err != nil {
-		return nil, nil, fmt.Errorf("error getting offering: %w", err)
+		return nil, nil, err
 	}
 
-	// Check if the response status code is not 200
-	if response.StatusCode != 200 {
-		return nil, nil, fmt.Errorf("failed to get offering: %s", response.RawResult)
-	}
-
-	return offering, response, err
+	return resultValue.offering, resultValue.response, nil
 }
 
 func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1.Offering, VersionID string, OfferingID string) []CatalogInput {
+	// Add null checks to prevent panic
+	if offering == nil {
+		infoSvc.Logger.ShortInfo("Error, offering is nil")
+		return nil
+	}
+
+	if len(offering.Kinds) == 0 {
+		if offering.ID != nil {
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Error, no kinds found for offering: %s", *offering.ID))
+		} else {
+			infoSvc.Logger.ShortInfo("Error, no kinds found for offering with nil ID")
+		}
+		return nil
+	}
+
+	if len(offering.Kinds[0].Versions) == 0 {
+		if offering.ID != nil {
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Error, no versions found for offering: %s", *offering.ID))
+		} else {
+			infoSvc.Logger.ShortInfo("Error, no versions found for offering with nil ID")
+		}
+		return nil
+	}
+
 	for _, version := range offering.Kinds[0].Versions {
 		if version.ID != nil && *version.ID == VersionID {
 			inputs := []CatalogInput{}
@@ -835,9 +968,19 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 // It uses MatchVersion function in common package to find the suitable version available in case it is not pinned
 func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID string, offeringID string, version_constraint string, flavor string) (string, string, error) {
 
+	// Add validation and debugging for empty parameters
+	if catalogID == "" {
+		return "", "", fmt.Errorf("catalogID cannot be empty when getting offering version locator - this may indicate a race condition or uninitialized catalog in parallel test execution")
+	}
+	if offeringID == "" {
+		return "", "", fmt.Errorf("offeringID cannot be empty when getting offering version locator - this may indicate an uninitialized offering ID")
+	}
+
+	infoSvc.Logger.ShortInfo(fmt.Sprintf("Getting offering version locator: catalogID='%s', offeringID='%s', constraint='%s', flavor='%s'", catalogID, offeringID, version_constraint, flavor))
+
 	offering, _, err := infoSvc.GetOffering(catalogID, offeringID)
 	if err != nil {
-		return "", "", fmt.Errorf("unable to get the dependency offering %s", err)
+		return "", "", fmt.Errorf("unable to get the dependency offering with catalogID='%s', offeringID='%s', constraint='%s', flavor='%s': %w", catalogID, offeringID, version_constraint, flavor, err)
 	}
 
 	versionList := make([]string, 0)

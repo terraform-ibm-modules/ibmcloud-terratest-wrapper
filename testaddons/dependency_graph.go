@@ -12,6 +12,19 @@ import (
 // buildDependencyGraph builds the expected dependency graph and returns the results
 // This version returns values instead of modifying input pointers for better clarity and testability
 func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offeringID string, versionLocator string, flavor string, addonConfig *cloudinfo.AddonConfig, existingVisited map[string]bool) (*DependencyGraphResult, error) {
+	// Collect disabled offerings from the root addon config to propagate down the tree
+	disabledOfferings := make(map[string]bool)
+	for _, dep := range addonConfig.Dependencies {
+		if dep.Enabled != nil && !*dep.Enabled {
+			disabledOfferings[dep.OfferingName] = true
+		}
+	}
+
+	return options.buildDependencyGraphWithDisabled(catalogID, offeringID, versionLocator, flavor, addonConfig, existingVisited, disabledOfferings)
+}
+
+// buildDependencyGraphWithDisabled is the internal implementation that carries disabled offerings through the recursion
+func (options *TestAddonOptions) buildDependencyGraphWithDisabled(catalogID string, offeringID string, versionLocator string, flavor string, addonConfig *cloudinfo.AddonConfig, existingVisited map[string]bool, disabledOfferings map[string]bool) (*DependencyGraphResult, error) {
 	// Initialize result with copies of existing state to avoid mutation
 	result := &DependencyGraphResult{
 		Graph:                make(map[string][]cloudinfo.OfferingReferenceDetail),
@@ -72,25 +85,10 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 	// Process catalog-defined dependencies that are on by default
 	for _, dep := range version.SolutionInfo.Dependencies {
 		if *dep.OnByDefault {
-			// Check if this dependency has been manually disabled
-			manuallyDisabled := false
-			for _, manualDep := range addonConfig.Dependencies {
-				if manualDep.OfferingName == *dep.Name {
-					depFlavor := dep.Flavors[0]
-					if dep.DefaultFlavor != nil && *dep.DefaultFlavor != "" {
-						depFlavor = *dep.DefaultFlavor
-					}
-					if manualDep.OfferingFlavor == depFlavor {
-						if manualDep.Enabled != nil && !*manualDep.Enabled {
-							manuallyDisabled = true
-							options.Logger.ShortInfo(fmt.Sprintf("Skipping catalog dependency %s - manually disabled\n", *dep.Name))
-							break
-						}
-					}
-				}
-			}
-
-			if manuallyDisabled {
+			// Check if this dependency has been disabled at the offering level
+			// This applies globally across the entire dependency tree
+			if disabledOfferings[*dep.Name] {
+				options.Logger.ShortInfo(fmt.Sprintf("Skipping catalog dependency %s - disabled at offering level in dependency tree\n", *dep.Name))
 				continue
 			}
 
@@ -136,7 +134,7 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 			}
 
 			// Recursively process child dependencies
-			childResult, err := options.buildDependencyGraph(depCatalogID, depOfferingID, depVersionLocator, depFlavor, childAddonConfig, result.Visited)
+			childResult, err := options.buildDependencyGraphWithDisabled(depCatalogID, depOfferingID, depVersionLocator, depFlavor, childAddonConfig, result.Visited, disabledOfferings)
 			if err != nil {
 				return nil, err
 			}
@@ -149,6 +147,11 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 	// Process manually enabled dependencies that might not be on by default
 	for _, manualDep := range addonConfig.Dependencies {
 		if manualDep.Enabled != nil && *manualDep.Enabled {
+			// Check if this dependency has been disabled at the offering level
+			if disabledOfferings[manualDep.OfferingName] {
+				options.Logger.ShortInfo(fmt.Sprintf("Skipping manually enabled dependency %s - disabled at offering level in dependency tree\n", manualDep.OfferingName))
+				continue
+			}
 			// Check if this dependency was already processed from catalog
 			alreadyProcessed := false
 			for _, catDep := range version.SolutionInfo.Dependencies {
@@ -175,7 +178,7 @@ func (options *TestAddonOptions) buildDependencyGraph(catalogID string, offering
 
 				result.Graph[addonKey] = append(result.Graph[addonKey], child)
 
-				childResult, err := options.buildDependencyGraph(manualDep.CatalogID, manualDep.OfferingID, manualDep.VersionLocator, manualDep.OfferingFlavor, &manualDep, result.Visited)
+				childResult, err := options.buildDependencyGraphWithDisabled(manualDep.CatalogID, manualDep.OfferingID, manualDep.VersionLocator, manualDep.OfferingFlavor, &manualDep, result.Visited, disabledOfferings)
 				if err != nil {
 					return nil, err
 				}

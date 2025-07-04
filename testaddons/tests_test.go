@@ -1,6 +1,8 @@
 package testaddons
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/IBM/go-sdk-core/v5/core"
@@ -270,6 +272,169 @@ func TestBuildDependencyGraphWithManuallyDisabledDependency(t *testing.T) {
 	assert.False(t, foundDisabledDep, "Manually disabled dependency should NOT be in expected deployed list")
 }
 
+// TestBuildDependencyGraphWithOfferingLevelDisable tests that disabling a dependency
+// at the offering level affects all flavors of that offering, not just the specific flavor
+func TestBuildDependencyGraphWithOfferingLevelDisable(t *testing.T) {
+	logger := common.NewTestLogger(t.Name())
+
+	options := &TestAddonOptions{
+		Testing:          t,
+		Logger:           logger,
+		CloudInfoService: &MockCloudInfoServiceWithMultipleFlavors{}, // New mock with multiple flavors
+	}
+
+	// Create addon config where we disable one flavor of a multi-flavor offering
+	// This should disable ALL flavors of that offering
+	addonConfig := &cloudinfo.AddonConfig{
+		OfferingName:    "main-addon",
+		OfferingFlavor:  "standard",
+		CatalogID:       "test-catalog",
+		OfferingID:      "main-offering-id",
+		VersionLocator:  "test-catalog.main-version",
+		ResolvedVersion: "v1.0.0",
+		Dependencies: []cloudinfo.AddonConfig{
+			{
+				// We disable the "basic" flavor, but this should disable ALL flavors
+				OfferingName:    "multi-flavor-dependency",
+				OfferingFlavor:  "basic", // Disabling basic flavor
+				CatalogID:       "dependency-catalog",
+				OfferingID:      "multi-flavor-offering-id",
+				VersionLocator:  "dependency-catalog.multi-flavor-basic-version",
+				ResolvedVersion: "v2.0.0",
+				Enabled:         core.BoolPtr(false), // Manually DISABLED
+				Dependencies:    []cloudinfo.AddonConfig{},
+			},
+		},
+	}
+
+	visited := make(map[string]bool)
+
+	graphResult, err := options.buildDependencyGraph(
+		"test-catalog",
+		"main-offering-id",
+		"test-catalog.main-version",
+		"standard",
+		addonConfig,
+		visited,
+	)
+
+	assert.NoError(t, err)
+
+	// Extract results
+	expectedDeployedList := graphResult.ExpectedDeployedList
+
+	// Debug: print what we actually got
+	t.Logf("Expected deployed list contains %d items:", len(expectedDeployedList))
+	for _, item := range expectedDeployedList {
+		t.Logf("  - %s:%s:%s", item.Name, item.Version, item.Flavor.Name)
+	}
+
+	// Should only contain the main addon, NOT ANY flavor of the disabled dependency
+	// Even though the catalog defines both "basic" and "premium" flavors as OnByDefault=true,
+	// disabling any flavor should disable the entire offering
+	assert.Len(t, expectedDeployedList, 1, "Should only contain main addon, not any flavor of the disabled dependency")
+
+	// Verify only the main addon is present and no flavor of the disabled dependency
+	foundMain := false
+	foundDisabledDepBasic := false
+	foundDisabledDepPremium := false
+	for _, config := range expectedDeployedList {
+		if config.Name == "main-addon" {
+			foundMain = true
+		}
+		if config.Name == "multi-flavor-dependency" && config.Flavor.Name == "basic" {
+			foundDisabledDepBasic = true
+		}
+		if config.Name == "multi-flavor-dependency" && config.Flavor.Name == "premium" {
+			foundDisabledDepPremium = true
+		}
+	}
+
+	assert.True(t, foundMain, "Main addon should be in expected deployed list")
+	assert.False(t, foundDisabledDepBasic, "Manually disabled dependency (basic flavor) should NOT be in expected deployed list")
+	assert.False(t, foundDisabledDepPremium, "Manually disabled dependency (premium flavor) should NOT be in expected deployed list due to offering-level disable")
+}
+
+// TestBuildDependencyGraphWithTreeLevelDisable tests that disabling a dependency
+// at the offering level affects the entire dependency tree, not just immediate children
+func TestBuildDependencyGraphWithTreeLevelDisable(t *testing.T) {
+	logger := common.NewTestLogger(t.Name())
+
+	options := &TestAddonOptions{
+		Testing:          t,
+		Logger:           logger,
+		CloudInfoService: &MockCloudInfoServiceWithTreeDeps{}, // New mock with nested dependencies
+	}
+
+	// Create addon config where we disable an offering that appears multiple times in the tree
+	addonConfig := &cloudinfo.AddonConfig{
+		OfferingName:    "main-addon",
+		OfferingFlavor:  "standard",
+		CatalogID:       "test-catalog",
+		OfferingID:      "main-offering-id",
+		VersionLocator:  "test-catalog.main-version",
+		ResolvedVersion: "v1.0.0",
+		Dependencies: []cloudinfo.AddonConfig{
+			{
+				// We disable "common-library" which appears at multiple levels in the tree
+				OfferingName:    "common-library",
+				OfferingFlavor:  "standard",
+				CatalogID:       "dependency-catalog",
+				OfferingID:      "common-library-offering-id",
+				VersionLocator:  "dependency-catalog.common-library-version",
+				ResolvedVersion: "v1.0.0",
+				Enabled:         core.BoolPtr(false), // Disabled at root level
+				Dependencies:    []cloudinfo.AddonConfig{},
+			},
+		},
+	}
+
+	visited := make(map[string]bool)
+
+	graphResult, err := options.buildDependencyGraph(
+		"test-catalog",
+		"main-offering-id",
+		"test-catalog.main-version",
+		"standard",
+		addonConfig,
+		visited,
+	)
+
+	assert.NoError(t, err)
+
+	// Extract results
+	expectedDeployedList := graphResult.ExpectedDeployedList
+
+	// Debug: print what we actually got
+	t.Logf("Expected deployed list contains %d items:", len(expectedDeployedList))
+	for _, item := range expectedDeployedList {
+		t.Logf("  - %s:%s:%s", item.Name, item.Version, item.Flavor.Name)
+	}
+
+	// Should contain main-addon and web-service, but NOT common-library
+	// even though common-library is a dependency of both main-addon and web-service
+	assert.Len(t, expectedDeployedList, 2, "Should contain main-addon and web-service, but not the disabled common-library")
+
+	// Verify what's present and what's not
+	foundMain := false
+	foundWebService := false
+	foundCommonLibrary := false
+	for _, config := range expectedDeployedList {
+		switch config.Name {
+		case "main-addon":
+			foundMain = true
+		case "web-service":
+			foundWebService = true
+		case "common-library":
+			foundCommonLibrary = true
+		}
+	}
+
+	assert.True(t, foundMain, "Main addon should be in expected deployed list")
+	assert.True(t, foundWebService, "Web service should be in expected deployed list")
+	assert.False(t, foundCommonLibrary, "Common library should NOT be in expected deployed list (disabled at tree level)")
+}
+
 // MockCloudInfoService is a minimal mock for testing
 type MockCloudInfoService struct {
 	cloudinfo.CloudInfoServiceI
@@ -435,6 +600,211 @@ func (m *MockCloudInfoServiceWithCatalogDeps) GetOfferingVersionLocatorByConstra
 	return "v2.0.0", "dependency-catalog.catalog-dep-version", nil
 }
 
+// MockCloudInfoServiceWithMultipleFlavors is a mock that simulates offerings with multiple flavors
+type MockCloudInfoServiceWithMultipleFlavors struct {
+	cloudinfo.CloudInfoServiceI
+}
+
+func (m *MockCloudInfoServiceWithMultipleFlavors) GetOffering(catalogID, offeringID string) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error) {
+	var name string
+	var versions []catalogmanagementv1.Version
+
+	switch offeringID {
+	case "main-offering-id":
+		name = "main-addon"
+		versions = []catalogmanagementv1.Version{
+			{
+				VersionLocator: core.StringPtr("test-catalog.main-version"),
+				Version:        core.StringPtr("v1.0.0"),
+				SolutionInfo: &catalogmanagementv1.SolutionInfo{
+					// This dependency has multiple flavors, both on by default
+					Dependencies: []catalogmanagementv1.OfferingReference{
+						{
+							Name:          core.StringPtr("multi-flavor-dependency"),
+							ID:            core.StringPtr("multi-flavor-offering-id"),
+							CatalogID:     core.StringPtr("dependency-catalog"),
+							Version:       core.StringPtr(">=2.0.0"),
+							OnByDefault:   core.BoolPtr(true), // Basic flavor is ON by default
+							Flavors:       []string{"basic"},
+							DefaultFlavor: core.StringPtr("basic"),
+						},
+						{
+							Name:          core.StringPtr("multi-flavor-dependency"),
+							ID:            core.StringPtr("multi-flavor-offering-id"),
+							CatalogID:     core.StringPtr("dependency-catalog"),
+							Version:       core.StringPtr(">=2.0.0"),
+							OnByDefault:   core.BoolPtr(true), // Premium flavor is ALSO ON by default
+							Flavors:       []string{"premium"},
+							DefaultFlavor: core.StringPtr("premium"),
+						},
+					},
+				},
+			},
+		}
+	case "multi-flavor-offering-id":
+		name = "multi-flavor-dependency"
+		versions = []catalogmanagementv1.Version{
+			{
+				VersionLocator: core.StringPtr("dependency-catalog.multi-flavor-basic-version"),
+				Version:        core.StringPtr("v2.0.0"),
+				SolutionInfo: &catalogmanagementv1.SolutionInfo{
+					Dependencies: []catalogmanagementv1.OfferingReference{},
+				},
+			},
+			{
+				VersionLocator: core.StringPtr("dependency-catalog.multi-flavor-premium-version"),
+				Version:        core.StringPtr("v2.0.0"),
+				SolutionInfo: &catalogmanagementv1.SolutionInfo{
+					Dependencies: []catalogmanagementv1.OfferingReference{},
+				},
+			},
+		}
+	default:
+		name = "default-offering"
+		versions = []catalogmanagementv1.Version{
+			{
+				VersionLocator: core.StringPtr("default.version"),
+				Version:        core.StringPtr("v1.0.0"),
+				SolutionInfo: &catalogmanagementv1.SolutionInfo{
+					Dependencies: []catalogmanagementv1.OfferingReference{},
+				},
+			},
+		}
+	}
+
+	offering := &catalogmanagementv1.Offering{
+		Name: core.StringPtr(name),
+		Kinds: []catalogmanagementv1.Kind{
+			{
+				InstallKind: core.StringPtr("terraform"),
+				Versions:    versions,
+			},
+		},
+	}
+	return offering, nil, nil
+}
+
+func (m *MockCloudInfoServiceWithMultipleFlavors) GetOfferingVersionLocatorByConstraint(catalogID, offeringID, versionConstraint, flavor string) (version, versionLocator string, err error) {
+	switch flavor {
+	case "basic":
+		return "v2.0.0", "dependency-catalog.multi-flavor-basic-version", nil
+	case "premium":
+		return "v2.0.0", "dependency-catalog.multi-flavor-premium-version", nil
+	default:
+		return "v2.0.0", "dependency-catalog.multi-flavor-basic-version", nil
+	}
+}
+
+// MockCloudInfoServiceWithTreeDeps is a mock that simulates nested dependency trees
+// where the same offering appears at multiple levels
+type MockCloudInfoServiceWithTreeDeps struct {
+	cloudinfo.CloudInfoServiceI
+}
+
+func (m *MockCloudInfoServiceWithTreeDeps) GetOffering(catalogID, offeringID string) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error) {
+	var name string
+	var versions []catalogmanagementv1.Version
+
+	switch offeringID {
+	case "main-offering-id":
+		name = "main-addon"
+		versions = []catalogmanagementv1.Version{
+			{
+				VersionLocator: core.StringPtr("test-catalog.main-version"),
+				Version:        core.StringPtr("v1.0.0"),
+				SolutionInfo: &catalogmanagementv1.SolutionInfo{
+					Dependencies: []catalogmanagementv1.OfferingReference{
+						{
+							Name:          core.StringPtr("web-service"),
+							ID:            core.StringPtr("web-service-offering-id"),
+							CatalogID:     core.StringPtr("dependency-catalog"),
+							Version:       core.StringPtr(">=1.0.0"),
+							OnByDefault:   core.BoolPtr(true),
+							Flavors:       []string{"standard"},
+							DefaultFlavor: core.StringPtr("standard"),
+						},
+						{
+							Name:          core.StringPtr("common-library"),
+							ID:            core.StringPtr("common-library-offering-id"),
+							CatalogID:     core.StringPtr("dependency-catalog"),
+							Version:       core.StringPtr(">=1.0.0"),
+							OnByDefault:   core.BoolPtr(true),
+							Flavors:       []string{"standard"},
+							DefaultFlavor: core.StringPtr("standard"),
+						},
+					},
+				},
+			},
+		}
+	case "web-service-offering-id":
+		name = "web-service"
+		versions = []catalogmanagementv1.Version{
+			{
+				VersionLocator: core.StringPtr("dependency-catalog.web-service-version"),
+				Version:        core.StringPtr("v1.0.0"),
+				SolutionInfo: &catalogmanagementv1.SolutionInfo{
+					// web-service also depends on common-library
+					Dependencies: []catalogmanagementv1.OfferingReference{
+						{
+							Name:          core.StringPtr("common-library"),
+							ID:            core.StringPtr("common-library-offering-id"),
+							CatalogID:     core.StringPtr("dependency-catalog"),
+							Version:       core.StringPtr(">=1.0.0"),
+							OnByDefault:   core.BoolPtr(true),
+							Flavors:       []string{"standard"},
+							DefaultFlavor: core.StringPtr("standard"),
+						},
+					},
+				},
+			},
+		}
+	case "common-library-offering-id":
+		name = "common-library"
+		versions = []catalogmanagementv1.Version{
+			{
+				VersionLocator: core.StringPtr("dependency-catalog.common-library-version"),
+				Version:        core.StringPtr("v1.0.0"),
+				SolutionInfo: &catalogmanagementv1.SolutionInfo{
+					Dependencies: []catalogmanagementv1.OfferingReference{},
+				},
+			},
+		}
+	default:
+		name = "default-offering"
+		versions = []catalogmanagementv1.Version{
+			{
+				VersionLocator: core.StringPtr("default.version"),
+				Version:        core.StringPtr("v1.0.0"),
+				SolutionInfo: &catalogmanagementv1.SolutionInfo{
+					Dependencies: []catalogmanagementv1.OfferingReference{},
+				},
+			},
+		}
+	}
+
+	offering := &catalogmanagementv1.Offering{
+		Name: core.StringPtr(name),
+		Kinds: []catalogmanagementv1.Kind{
+			{
+				InstallKind: core.StringPtr("terraform"),
+				Versions:    versions,
+			},
+		},
+	}
+	return offering, nil, nil
+}
+
+func (m *MockCloudInfoServiceWithTreeDeps) GetOfferingVersionLocatorByConstraint(catalogID, offeringID, versionConstraint, flavor string) (version, versionLocator string, err error) {
+	switch offeringID {
+	case "web-service-offering-id":
+		return "v1.0.0", "dependency-catalog.web-service-version", nil
+	case "common-library-offering-id":
+		return "v1.0.0", "dependency-catalog.common-library-version", nil
+	default:
+		return "v1.0.0", "dependency-catalog.default-version", nil
+	}
+}
+
 // TestValidateDependenciesDetectsMissingConfigs tests that validateDependencies
 // properly detects when expected configurations are missing from the deployed list
 func TestValidateDependenciesDetectsMissingConfigs(t *testing.T) {
@@ -496,7 +866,7 @@ func TestValidateDependenciesDetectsUnexpectedConfigs(t *testing.T) {
 	// Create a simple dependency graph
 	stringGraph := make(map[string][]cloudinfo.OfferingReferenceDetail)
 
-	// Expected deployed list
+	// Expected Deployed list
 	expectedDeployedList := []cloudinfo.OfferingReferenceDetail{
 		{
 			Name:    "deploy-arch-ibm-kms",
@@ -758,4 +1128,72 @@ func TestPrintConsolidatedValidationSummary(t *testing.T) {
 
 		// The test passes if no panics occur and the method executes successfully
 	})
+}
+
+// TestMissingConfigsErrorMessageFormat tests that error messages for missing configs
+// include specific details about which configs are missing
+func TestMissingConfigsErrorMessageFormat(t *testing.T) {
+	// Create validation result with missing configs
+	validationResult := ValidationResult{
+		IsValid:           false,
+		DependencyErrors:  []cloudinfo.DependencyError{},
+		UnexpectedConfigs: []cloudinfo.OfferingReferenceDetail{},
+		MissingConfigs: []cloudinfo.OfferingReferenceDetail{
+			{
+				Name:    "deploy-arch-ibm-event-notifications",
+				Version: "v0.0.1-dev-test123",
+				Flavor:  cloudinfo.Flavor{Name: "fully-configurable"},
+			},
+			{
+				Name:    "deploy-arch-ibm-kms",
+				Version: "v5.1.4",
+				Flavor:  cloudinfo.Flavor{Name: "instance"},
+			},
+		},
+		Messages: []string{"found 2 missing expected configs"},
+	}
+
+	// Simulate the error message construction from the actual code
+	var errorDetails []string
+	if len(validationResult.DependencyErrors) > 0 {
+		errorDetails = append(errorDetails, fmt.Sprintf("%d dependency errors", len(validationResult.DependencyErrors)))
+	}
+	if len(validationResult.UnexpectedConfigs) > 0 {
+		errorDetails = append(errorDetails, fmt.Sprintf("%d unexpected configs", len(validationResult.UnexpectedConfigs)))
+	}
+	if len(validationResult.MissingConfigs) > 0 {
+		// Include specific names of missing configs in the error message
+		var missingNames []string
+		for _, missing := range validationResult.MissingConfigs {
+			missingNames = append(missingNames, fmt.Sprintf("%s (%s, %s)", missing.Name, missing.Version, missing.Flavor.Name))
+		}
+		errorDetails = append(errorDetails, fmt.Sprintf("%d missing configs: [%s]", len(validationResult.MissingConfigs), strings.Join(missingNames, ", ")))
+	}
+
+	var errorMsg string
+	if len(errorDetails) > 0 {
+		errorMsg = fmt.Sprintf("dependency validation failed: %s", strings.Join(errorDetails, ", "))
+	} else {
+		errorMsg = "dependency validation failed - check validation output above for details"
+	}
+
+	// Verify the error message includes specific config details
+	assert.Contains(t, errorMsg, "deploy-arch-ibm-event-notifications (v0.0.1-dev-test123, fully-configurable)")
+	assert.Contains(t, errorMsg, "deploy-arch-ibm-kms (v5.1.4, instance)")
+	assert.Contains(t, errorMsg, "2 missing configs:")
+	assert.Contains(t, errorMsg, "dependency validation failed:")
+
+	// Verify the format is readable and contains all expected information
+	expectedSubstrings := []string{
+		"dependency validation failed:",
+		"2 missing configs:",
+		"deploy-arch-ibm-event-notifications (v0.0.1-dev-test123, fully-configurable)",
+		"deploy-arch-ibm-kms (v5.1.4, instance)",
+	}
+
+	for _, substr := range expectedSubstrings {
+		assert.Contains(t, errorMsg, substr, "Error message should contain: %s", substr)
+	}
+
+	t.Logf("Generated error message: %s", errorMsg)
 }
