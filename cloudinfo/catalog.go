@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -206,7 +207,8 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport() (branchUrl, repo, branc
 	}
 
 	// Format the branch URL for catalog import
-	branchUrl = fmt.Sprintf("%s/tree/%s", repo, branch)
+	// URL encode only the branch name, not the entire URL
+	branchUrl = fmt.Sprintf("%s/tree/%s", repo, url.PathEscape(branch))
 
 	return branchUrl, repo, branch, nil
 }
