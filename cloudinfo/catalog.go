@@ -377,7 +377,8 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 				addonConfig.Dependencies[i].OfferingID = component.OfferingReference.ID
 				addonConfig.Dependencies[i].Prefix = addonConfig.Prefix
 				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
-				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label // Required components are always enabled (business rule - override user setting for required deps)
+				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
+				// Required components are always enabled (business rule - override user setting for required deps)
 				addonConfig.Dependencies[i].Enabled = core.BoolPtr(true)
 
 				// Preserve user-defined inputs - only initialize if nil
@@ -388,7 +389,8 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 				found = true
 				processedInThisCall[component.Name] = true // Mark as processed
 
-				// Process dependencies of this dependency recursively
+				// OPTIMIZATION: Always process required dependencies recursively, regardless of enabled status
+				// Required dependencies override user preferences and must be processed
 				if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
 					return err
 				}
@@ -425,7 +427,8 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
 				addonConfig.Dependencies[i].Prefix = addonConfig.Prefix
 				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
-				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label // Only update OnByDefault if user hasn't explicitly set it (for optional deps)
+				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
+				// Only update OnByDefault if user hasn't explicitly set it (for optional deps)
 				if addonConfig.Dependencies[i].OnByDefault == nil {
 					addonConfig.Dependencies[i].OnByDefault = core.BoolPtr(component.OfferingReference.OnByDefault)
 				}
@@ -443,9 +446,12 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 
 				found = true
 
-				// Process dependencies of this dependency recursively
-				if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
-					return err
+				// OPTIMIZATION: Only process dependencies of enabled optional dependencies
+				// This is safe because disabled optional dependencies won't be deployed anyway
+				if addonConfig.Dependencies[i].Enabled != nil && *addonConfig.Dependencies[i].Enabled {
+					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
+						return err
+					}
 				}
 
 				break
@@ -479,9 +485,12 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 			Dependencies:    []AddonConfig{}, // Initialize empty dependencies slice
 		}
 
-		// Process dependencies of this new dependency recursively
-		if err := infoSvc.processComponentReferencesWithGetter(&newDependency, processedLocators, getter); err != nil {
-			return err
+		// OPTIMIZATION: Only process dependencies of enabled new dependencies
+		// This is safe because disabled dependencies won't be deployed anyway
+		if enabled {
+			if err := infoSvc.processComponentReferencesWithGetter(&newDependency, processedLocators, getter); err != nil {
+				return err
+			}
 		}
 
 		addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
