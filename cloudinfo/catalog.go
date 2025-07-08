@@ -346,27 +346,22 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 	if processedLocators[addonConfig.VersionLocator] {
 		return nil
 	}
-
 	// Mark this locator as processed
 	processedLocators[addonConfig.VersionLocator] = true
-
 	// Get component references for this addon
 	componentsReferences, err := getter.GetComponentReferences(addonConfig.VersionLocator)
 	if err != nil {
 		return fmt.Errorf("error getting component references for %s: %w", addonConfig.VersionLocator, err)
 	}
-
 	// Update existing dependencies and collect components to add
 	var componentsToAdd []OfferingReferenceItem
 	processedInThisCall := make(map[string]bool) // Track dependencies processed in this function call
-
 	// Process required references first (they take precedence)
 	for _, component := range componentsReferences.Required.OfferingReferences {
 		// Skip if this version locator has already been processed in the recursive call tree
 		if processedLocators[component.OfferingReference.VersionLocator] {
 			continue
 		}
-
 		found := false
 		for i := range addonConfig.Dependencies {
 			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
@@ -377,46 +372,36 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 				addonConfig.Dependencies[i].OfferingID = component.OfferingReference.ID
 				addonConfig.Dependencies[i].Prefix = addonConfig.Prefix
 				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
-				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
-				// Required components are always enabled (business rule - override user setting for required deps)
+				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label // Required components are always enabled (business rule - override user setting for required deps)
 				addonConfig.Dependencies[i].Enabled = core.BoolPtr(true)
-
 				// Preserve user-defined inputs - only initialize if nil
 				if addonConfig.Dependencies[i].Inputs == nil {
 					addonConfig.Dependencies[i].Inputs = make(map[string]interface{})
 				}
-
 				found = true
 				processedInThisCall[component.Name] = true // Mark as processed
-
-				// OPTIMIZATION: Always process required dependencies recursively, regardless of enabled status
-				// Required dependencies override user preferences and must be processed
+				// Process dependencies of this dependency recursively
 				if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
 					return err
 				}
-
 				break
 			}
 		}
-
 		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
 			componentsToAdd = append(componentsToAdd, component)
 			processedInThisCall[component.Name] = true // Mark as processed
 		}
 	}
-
 	// Process optional references
 	for _, component := range componentsReferences.Optional.OfferingReferences {
 		// Skip if already processed in required references within this call
 		if processedInThisCall[component.Name] {
 			continue
 		}
-
 		// Skip if this version locator has already been processed in the recursive call tree
 		if processedLocators[component.OfferingReference.VersionLocator] {
 			continue
 		}
-
 		found := false
 		for i := range addonConfig.Dependencies {
 			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
@@ -427,49 +412,37 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
 				addonConfig.Dependencies[i].Prefix = addonConfig.Prefix
 				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
-				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
-				// Only update OnByDefault if user hasn't explicitly set it (for optional deps)
+				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label // Only update OnByDefault if user hasn't explicitly set it (for optional deps)
 				if addonConfig.Dependencies[i].OnByDefault == nil {
 					addonConfig.Dependencies[i].OnByDefault = core.BoolPtr(component.OfferingReference.OnByDefault)
 				}
-
 				// Only update Enabled if user hasn't explicitly set it
 				// Note: For optional dependencies, respect user choice; for required, they're forced enabled
 				if addonConfig.Dependencies[i].Enabled == nil {
 					addonConfig.Dependencies[i].Enabled = core.BoolPtr(component.OfferingReference.OnByDefault)
 				}
-
 				// Preserve user-defined inputs - only initialize if nil
 				if addonConfig.Dependencies[i].Inputs == nil {
 					addonConfig.Dependencies[i].Inputs = make(map[string]interface{})
 				}
-
 				found = true
-
-				// OPTIMIZATION: Only process dependencies of enabled optional dependencies
-				// This is safe because disabled optional dependencies won't be deployed anyway
-				if addonConfig.Dependencies[i].Enabled != nil && *addonConfig.Dependencies[i].Enabled {
-					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
-						return err
-					}
+				// Process dependencies of this dependency recursively
+				if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
+					return err
 				}
-
 				break
 			}
 		}
-
 		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) && (component.OfferingReference.OnByDefault) {
 			// set required to on by default true
 			component.OfferingReference.OnByDefault = true
 			componentsToAdd = append(componentsToAdd, component)
 		}
 	}
-
 	// Add new dependencies that weren't found in the existing dependencies
 	for _, component := range componentsToAdd {
 		onByDefault := component.OfferingReference.OnByDefault
 		enabled := component.OfferingReference.OnByDefault // For new components, enabled follows onByDefault
-
 		newDependency := AddonConfig{
 			Prefix:          addonConfig.Prefix,
 			OfferingName:    component.OfferingReference.Name,
@@ -484,18 +457,12 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 			Inputs:          make(map[string]interface{}),
 			Dependencies:    []AddonConfig{}, // Initialize empty dependencies slice
 		}
-
-		// OPTIMIZATION: Only process dependencies of enabled new dependencies
-		// This is safe because disabled dependencies won't be deployed anyway
-		if enabled {
-			if err := infoSvc.processComponentReferencesWithGetter(&newDependency, processedLocators, getter); err != nil {
-				return err
-			}
+		// Process dependencies of this new dependency recursively
+		if err := infoSvc.processComponentReferencesWithGetter(&newDependency, processedLocators, getter); err != nil {
+			return err
 		}
-
 		addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
 	}
-
 	return nil
 }
 
@@ -537,6 +504,16 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 	// Build a hierarchical deployment list ensuring each offering appears only once
 	// The topmost instance in the dependency hierarchy takes precedence
 	addonDependencies := buildHierarchicalDeploymentList(addonConfig)
+
+	// Debug: Log the dependencies that will be deployed
+	infoSvc.Logger.ShortInfo("Dependencies selected for deployment:")
+	for _, dep := range addonDependencies {
+		enabledStatus := "unknown"
+		if dep.Enabled != nil {
+			enabledStatus = fmt.Sprintf("%t", *dep.Enabled)
+		}
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("  - %s (enabled: %s)", dep.ConfigName, enabledStatus))
+	}
 
 	// Convert each addon config to the deployment format
 	deploymentList := make([]map[string]string, 0)

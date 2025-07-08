@@ -496,6 +496,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		validationResult := options.validateDependencies(graph, expectedDeployedList, actuallyDeployedResult.ActuallyDeployedList)
 
 		options.Logger.ShortInfo("Actually deployed configurations (with status):")
+
 		// Create deployment status maps for the tree view
 		deployedMap := make(map[string]bool)
 		for _, deployed := range actuallyDeployedResult.ActuallyDeployedList {
@@ -537,7 +538,46 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			rootAddon = &expectedDeployedList[0]
 		}
 
-		if rootAddon != nil {
+		// Build a comprehensive tree that shows ALL deployed configurations (expected + unexpected)
+		// This helps identify where unexpected configs fit in the dependency hierarchy
+		allDeployedTree := options.buildComprehensiveDeploymentTree(actuallyDeployedResult.ActuallyDeployedList, graph, validationResult)
+
+		// Print the comprehensive tree that includes unexpected configurations
+		if len(allDeployedTree) > 0 {
+			// Find the root configuration (typically the main addon)
+			var rootConfig *cloudinfo.OfferingReferenceDetail
+			for _, config := range allDeployedTree {
+				// Look for the configuration that doesn't appear as a dependency of others
+				isRoot := true
+				for _, otherConfig := range allDeployedTree {
+					if deps, exists := graph[fmt.Sprintf("%s:%s:%s", otherConfig.Name, otherConfig.Version, otherConfig.Flavor.Name)]; exists {
+						for _, dep := range deps {
+							if dep.Name == config.Name && dep.Version == config.Version && dep.Flavor.Name == config.Flavor.Name {
+								isRoot = false
+								break
+							}
+						}
+					}
+					if !isRoot {
+						break
+					}
+				}
+				if isRoot {
+					rootConfig = &config
+					break
+				}
+			}
+
+			// If we couldn't find a clear root, use the first config
+			if rootConfig == nil && len(allDeployedTree) > 0 {
+				rootConfig = &allDeployedTree[0]
+			}
+
+			if rootConfig != nil {
+				options.printComprehensiveTreeWithStatus(*rootConfig, allDeployedTree, graph, "", true, make(map[string]bool), validationResult)
+			}
+		} else if rootAddon != nil {
+			// Fallback to original tree if no comprehensive tree available
 			options.printAddonTreeWithStatus(*rootAddon, graph, "", true, make(map[string]bool), deployedMap, errorMap, missingMap)
 		}
 

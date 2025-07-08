@@ -2,6 +2,7 @@ package testaddons
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 )
@@ -289,6 +290,18 @@ func (options *TestAddonOptions) printAddonTreeWithStatus(addon cloudinfo.Offeri
 	errorMap map[string]cloudinfo.DependencyError,
 	missingMap map[string]bool) {
 
+	options.printAddonTreeWithStatusAndPath(addon, graph, indent, isLast, visited, deployedMap, errorMap, missingMap, []string{})
+}
+
+// printAddonTreeWithStatusAndPath recursively prints an addon and its dependencies with validation status and circular reference detection
+func (options *TestAddonOptions) printAddonTreeWithStatusAndPath(addon cloudinfo.OfferingReferenceDetail,
+	graph map[string][]cloudinfo.OfferingReferenceDetail,
+	indent string, isLast bool, visited map[string]bool,
+	deployedMap map[string]bool,
+	errorMap map[string]cloudinfo.DependencyError,
+	missingMap map[string]bool,
+	path []string) {
+
 	// Create a unique key for this addon
 	addonKey := fmt.Sprintf("%s:%s:%s", addon.Name, addon.Version, addon.Flavor.Name)
 
@@ -319,12 +332,19 @@ func (options *TestAddonOptions) printAddonTreeWithStatus(addon cloudinfo.Offeri
 	// Check if we've already visited this addon to avoid infinite loops
 	if visited[addonKey] {
 		nextIndent := options.getIndentString(indent, isLast)
-		options.Logger.ShortInfo(fmt.Sprintf("%s└── [circular reference - already shown above]", nextIndent))
+		// Show the circular reference with the path
+		cycle := options.findCycleInPath(path, addonKey)
+		if len(cycle) > 0 {
+			options.Logger.ShortWarn(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s", nextIndent, strings.Join(cycle, " → ")))
+		} else {
+			options.Logger.ShortWarn(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s (already shown above)", nextIndent, addon.Name))
+		}
 		return
 	}
 
-	// Mark this addon as visited
+	// Mark this addon as visited and add to path
 	visited[addonKey] = true
+	newPath := append(path, addon.Name)
 
 	// Get dependencies for this addon
 	dependencies, hasDeps := graph[addonKey]
@@ -338,9 +358,177 @@ func (options *TestAddonOptions) printAddonTreeWithStatus(addon cloudinfo.Offeri
 	nextIndent := options.getIndentString(indent, isLast)
 	for i, dep := range dependencies {
 		isLastDep := i == len(dependencies)-1
-		options.printAddonTreeWithStatus(dep, graph, nextIndent, isLastDep, visited, deployedMap, errorMap, missingMap)
+		options.printAddonTreeWithStatusAndPath(dep, graph, nextIndent, isLastDep, visited, deployedMap, errorMap, missingMap, newPath)
 	}
 
 	// Remove from visited when we're done with this branch
 	delete(visited, addonKey)
+}
+
+// findCycleInPath finds the circular reference in the dependency path and returns the cycle
+func (options *TestAddonOptions) findCycleInPath(path []string, currentAddon string) []string {
+	// Extract just the addon name from the current addon key (before the first colon)
+	currentName := currentAddon
+	if idx := strings.Index(currentAddon, ":"); idx != -1 {
+		currentName = currentAddon[:idx]
+	}
+
+	// Find where the cycle starts in the path
+	for i, pathItem := range path {
+		if pathItem == currentName {
+			// Found the start of the cycle - return the cycle path
+			cycle := make([]string, len(path[i:])+1)
+			copy(cycle, path[i:])
+			cycle[len(cycle)-1] = currentName // Complete the cycle
+			return cycle
+		}
+	}
+
+	// If not found in path, just return the current addon as a self-reference
+	return []string{currentName, currentName}
+}
+
+// buildComprehensiveDeploymentTree builds a tree that includes all deployed configurations
+// (both expected and unexpected) to help with debugging dependency issues
+func (options *TestAddonOptions) buildComprehensiveDeploymentTree(actuallyDeployedList []cloudinfo.OfferingReferenceDetail, graph map[string][]cloudinfo.OfferingReferenceDetail, validationResult ValidationResult) []cloudinfo.OfferingReferenceDetail {
+	// Start with all actually deployed configurations
+	allConfigs := make([]cloudinfo.OfferingReferenceDetail, len(actuallyDeployedList))
+	copy(allConfigs, actuallyDeployedList)
+
+	// Add any missing configurations that should have been deployed
+	for _, missing := range validationResult.MissingConfigs {
+		allConfigs = append(allConfigs, missing)
+	}
+
+	return allConfigs
+}
+
+// printComprehensiveTreeWithStatus prints a comprehensive tree that shows all configurations
+// (expected, unexpected, missing) with their proper status indicators
+func (options *TestAddonOptions) printComprehensiveTreeWithStatus(rootConfig cloudinfo.OfferingReferenceDetail,
+	allDeployedConfigs []cloudinfo.OfferingReferenceDetail,
+	graph map[string][]cloudinfo.OfferingReferenceDetail,
+	indent string, isLast bool, visited map[string]bool,
+	validationResult ValidationResult) {
+
+	options.printComprehensiveTreeWithStatusAndPath(rootConfig, allDeployedConfigs, graph, indent, isLast, visited, validationResult, []string{})
+}
+
+// printComprehensiveTreeWithStatusAndPath prints a comprehensive tree with circular reference detection
+func (options *TestAddonOptions) printComprehensiveTreeWithStatusAndPath(rootConfig cloudinfo.OfferingReferenceDetail,
+	allDeployedConfigs []cloudinfo.OfferingReferenceDetail,
+	graph map[string][]cloudinfo.OfferingReferenceDetail,
+	indent string, isLast bool, visited map[string]bool,
+	validationResult ValidationResult,
+	path []string) {
+
+	// Create a unique key for this config
+	configKey := fmt.Sprintf("%s:%s:%s", rootConfig.Name, rootConfig.Version, rootConfig.Flavor.Name)
+
+	// Check if we've already visited this config to avoid infinite loops
+	if visited[configKey] {
+		nextIndent := options.getIndentString(indent, isLast)
+		// Show the circular reference with the path
+		cycle := options.findCycleInPath(path, configKey)
+		if len(cycle) > 0 {
+			options.Logger.ShortWarn(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s", nextIndent, strings.Join(cycle, " → ")))
+		} else {
+			options.Logger.ShortWarn(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s (already shown above)", nextIndent, rootConfig.Name))
+		}
+		return
+	}
+
+	// Mark this config as visited and add to path
+	visited[configKey] = true
+	newPath := append(path, rootConfig.Name)
+
+	// Determine status symbol and log method
+	statusSymbol, logMethod := options.getConfigStatus(rootConfig, validationResult)
+
+	// Print the current config with status
+	symbol := options.getTreeSymbol(isLast)
+	logMethod(fmt.Sprintf("%s%s %s (%s, %s)%s", indent, symbol, rootConfig.Name, rootConfig.Version, rootConfig.Flavor.Name, statusSymbol))
+
+	// Get dependencies for this config
+	dependencies, hasDeps := graph[configKey]
+
+	// If no dependencies in expected graph, check if any deployed configs might be dependencies
+	if !hasDeps || len(dependencies) == 0 {
+		// Look for any deployed configs that might be dependencies of this one
+		// This helps show unexpected dependencies in the tree
+		deployedDependencies := options.findDeployedDependencies(rootConfig, allDeployedConfigs, validationResult)
+		if len(deployedDependencies) > 0 {
+			nextIndent := options.getIndentString(indent, isLast)
+			for i, dep := range deployedDependencies {
+				isLastDep := i == len(deployedDependencies)-1
+				options.printComprehensiveTreeWithStatusAndPath(dep, allDeployedConfigs, graph, nextIndent, isLastDep, visited, validationResult, newPath)
+			}
+		}
+		// Remove from visited when we're done with this branch
+		delete(visited, configKey)
+		return
+	}
+
+	// Print expected dependencies
+	nextIndent := options.getIndentString(indent, isLast)
+	for i, dep := range dependencies {
+		isLastDep := i == len(dependencies)-1
+		options.printComprehensiveTreeWithStatusAndPath(dep, allDeployedConfigs, graph, nextIndent, isLastDep, visited, validationResult, newPath)
+	}
+
+	// Remove from visited when we're done with this branch
+	delete(visited, configKey)
+}
+
+// getConfigStatus determines the status symbol and log method for a configuration
+func (options *TestAddonOptions) getConfigStatus(config cloudinfo.OfferingReferenceDetail, validationResult ValidationResult) (string, func(string)) {
+	configKey := fmt.Sprintf("%s:%s:%s", config.Name, config.Version, config.Flavor.Name)
+
+	// Check if it's missing
+	for _, missing := range validationResult.MissingConfigs {
+		missingKey := fmt.Sprintf("%s:%s:%s", missing.Name, missing.Version, missing.Flavor.Name)
+		if configKey == missingKey {
+			return " ❌ MISSING", options.Logger.ShortError
+		}
+	}
+
+	// Check if it's unexpected
+	for _, unexpected := range validationResult.UnexpectedConfigs {
+		unexpectedKey := fmt.Sprintf("%s:%s:%s", unexpected.Name, unexpected.Version, unexpected.Flavor.Name)
+		if configKey == unexpectedKey {
+			return " ❌ UNEXPECTED", options.Logger.ShortError
+		}
+	}
+
+	// Check if it has dependency errors
+	for _, depErr := range validationResult.DependencyErrors {
+		errorKey := fmt.Sprintf("%s:%s:%s", depErr.Addon.Name, depErr.Addon.Version, depErr.Addon.Flavor.Name)
+		if configKey == errorKey {
+			return " ✅ DEPLOYED (dependency issue)", options.Logger.ShortWarn
+		}
+	}
+
+	// Default - deployed correctly
+	return " ✅ DEPLOYED", options.Logger.ShortInfo
+}
+
+// findDeployedDependencies finds any deployed configurations that might be dependencies
+// This helps show unexpected dependencies in the tree structure
+func (options *TestAddonOptions) findDeployedDependencies(parent cloudinfo.OfferingReferenceDetail, allDeployedConfigs []cloudinfo.OfferingReferenceDetail, validationResult ValidationResult) []cloudinfo.OfferingReferenceDetail {
+	var dependencies []cloudinfo.OfferingReferenceDetail
+
+	// Only add unexpected configs as dependencies if they're not the same as the parent
+	// This prevents fake circular references
+	parentKey := fmt.Sprintf("%s:%s:%s", parent.Name, parent.Version, parent.Flavor.Name)
+
+	for _, unexpected := range validationResult.UnexpectedConfigs {
+		unexpectedKey := fmt.Sprintf("%s:%s:%s", unexpected.Name, unexpected.Version, unexpected.Flavor.Name)
+
+		// Don't add self as dependency (prevents fake circular references)
+		if unexpectedKey != parentKey {
+			dependencies = append(dependencies, unexpected)
+		}
+	}
+
+	return dependencies
 }
