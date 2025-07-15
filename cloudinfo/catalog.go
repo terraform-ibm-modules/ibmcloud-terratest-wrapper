@@ -342,54 +342,67 @@ func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonCo
 
 // processComponentReferencesWithGetter is the internal implementation that accepts a ComponentReferenceGetter
 func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfig *AddonConfig, processedLocators map[string]bool, getter ComponentReferenceGetter) error {
-	// If we've already processed this version locator, skip it to avoid circular dependencies
+	// If we've already processed this version locator, skip recursive processing to avoid circular dependencies
+	// IMPORTANT: We still need to populate metadata for dependencies that were already processed elsewhere
+	// in the tree, so we don't return early here - we continue to update existing dependency metadata
 	if processedLocators[addonConfig.VersionLocator] {
 		return nil
 	}
-	// Mark this locator as processed
+	// Mark this locator as processed to prevent infinite recursion
 	processedLocators[addonConfig.VersionLocator] = true
+
 	// Get component references for this addon
 	componentsReferences, err := getter.GetComponentReferences(addonConfig.VersionLocator)
 	if err != nil {
 		return fmt.Errorf("error getting component references for %s: %w", addonConfig.VersionLocator, err)
 	}
+
 	// Update existing dependencies and collect components to add
 	var componentsToAdd []OfferingReferenceItem
 	processedInThisCall := make(map[string]bool) // Track dependencies processed in this function call
+
 	// Process required references first (they take precedence)
 	for _, component := range componentsReferences.Required.OfferingReferences {
-		// Skip if this version locator has already been processed in the recursive call tree
-		if processedLocators[component.OfferingReference.VersionLocator] {
-			continue
-		}
 		found := false
 		for i := range addonConfig.Dependencies {
 			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
-				// Update metadata fields (these should always be populated from component references)
+				// Update metadata fields - these should always be populated from component references
+				// even if the dependency was already processed elsewhere to avoid empty version locators
 				addonConfig.Dependencies[i].VersionLocator = component.OfferingReference.VersionLocator
 				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
 				addonConfig.Dependencies[i].CatalogID = component.OfferingReference.CatalogID
 				addonConfig.Dependencies[i].OfferingID = component.OfferingReference.ID
 				addonConfig.Dependencies[i].Prefix = addonConfig.Prefix
 				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
-				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label // Required components are always enabled (business rule - override user setting for required deps)
+				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
+
+				// Required components are always enabled (business rule - override user setting for required deps)
 				addonConfig.Dependencies[i].Enabled = core.BoolPtr(true)
+
 				// Preserve user-defined inputs - only initialize if nil
 				if addonConfig.Dependencies[i].Inputs == nil {
 					addonConfig.Dependencies[i].Inputs = make(map[string]interface{})
 				}
+
 				found = true
 				processedInThisCall[component.Name] = true // Mark as processed
-				// Process dependencies of this dependency recursively
-				if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
-					return err
+
+				// Only process dependencies recursively if this version locator hasn't been processed before
+				// This prevents infinite recursion while still ensuring metadata is populated
+				if !processedLocators[component.OfferingReference.VersionLocator] {
+					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
+						return err
+					}
 				}
 				break
 			}
 		}
 		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
-			componentsToAdd = append(componentsToAdd, component)
-			processedInThisCall[component.Name] = true // Mark as processed
+			// Only add new components if their version locator hasn't been processed
+			if !processedLocators[component.OfferingReference.VersionLocator] {
+				componentsToAdd = append(componentsToAdd, component)
+				processedInThisCall[component.Name] = true // Mark as processed
+			}
 		}
 	}
 	// Process optional references
@@ -398,21 +411,21 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 		if processedInThisCall[component.Name] {
 			continue
 		}
-		// Skip if this version locator has already been processed in the recursive call tree
-		if processedLocators[component.OfferingReference.VersionLocator] {
-			continue
-		}
+
 		found := false
 		for i := range addonConfig.Dependencies {
 			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
-				// Update metadata fields (these should always be populated from component references)
+				// Update metadata fields - these should always be populated from component references
+				// even if the dependency was already processed elsewhere to avoid empty version locators
 				addonConfig.Dependencies[i].VersionLocator = component.OfferingReference.VersionLocator
 				addonConfig.Dependencies[i].OfferingID = component.OfferingReference.ID
 				addonConfig.Dependencies[i].CatalogID = component.OfferingReference.CatalogID
 				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
 				addonConfig.Dependencies[i].Prefix = addonConfig.Prefix
 				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
-				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label // Only update OnByDefault if user hasn't explicitly set it (for optional deps)
+				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
+
+				// Only update OnByDefault if user hasn't explicitly set it (for optional deps)
 				if addonConfig.Dependencies[i].OnByDefault == nil {
 					addonConfig.Dependencies[i].OnByDefault = core.BoolPtr(component.OfferingReference.OnByDefault)
 				}
@@ -425,18 +438,25 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 				if addonConfig.Dependencies[i].Inputs == nil {
 					addonConfig.Dependencies[i].Inputs = make(map[string]interface{})
 				}
+
 				found = true
-				// Process dependencies of this dependency recursively
-				if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
-					return err
+				// Only process dependencies recursively if this version locator hasn't been processed before
+				// This prevents infinite recursion while still ensuring metadata is populated
+				if !processedLocators[component.OfferingReference.VersionLocator] {
+					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
+						return err
+					}
 				}
 				break
 			}
 		}
 		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) && (component.OfferingReference.OnByDefault) {
-			// set required to on by default true
-			component.OfferingReference.OnByDefault = true
-			componentsToAdd = append(componentsToAdd, component)
+			// Only add new components if their version locator hasn't been processed
+			if !processedLocators[component.OfferingReference.VersionLocator] {
+				// set required to on by default true
+				component.OfferingReference.OnByDefault = true
+				componentsToAdd = append(componentsToAdd, component)
+			}
 		}
 	}
 	// Add new dependencies that weren't found in the existing dependencies
@@ -457,12 +477,14 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 			Inputs:          make(map[string]interface{}),
 			Dependencies:    []AddonConfig{}, // Initialize empty dependencies slice
 		}
+
 		// Process dependencies of this new dependency recursively
 		if err := infoSvc.processComponentReferencesWithGetter(&newDependency, processedLocators, getter); err != nil {
 			return err
 		}
 		addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
 	}
+
 	return nil
 }
 
@@ -501,18 +523,20 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 		return nil, err
 	}
 
+	// Validate that the main addon has a version locator after processing
+	if addonConfig.VersionLocator == "" {
+		return nil, fmt.Errorf("main addon %s has empty VersionLocator after processing component references", addonConfig.OfferingName)
+	}
+
 	// Build a hierarchical deployment list ensuring each offering appears only once
 	// The topmost instance in the dependency hierarchy takes precedence
 	addonDependencies := buildHierarchicalDeploymentList(addonConfig)
 
-	// Debug: Log the dependencies that will be deployed
-	infoSvc.Logger.ShortInfo("Dependencies selected for deployment:")
+	// Validate each dependency before deployment to catch empty version locators
 	for _, dep := range addonDependencies {
-		enabledStatus := "unknown"
-		if dep.Enabled != nil {
-			enabledStatus = fmt.Sprintf("%t", *dep.Enabled)
+		if dep.VersionLocator == "" {
+			return nil, fmt.Errorf("dependency %s has empty VersionLocator", dep.OfferingName)
 		}
-		infoSvc.Logger.ShortInfo(fmt.Sprintf("  - %s (enabled: %s)", dep.ConfigName, enabledStatus))
 	}
 
 	// Convert each addon config to the deployment format
@@ -715,7 +739,9 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	deploymentList := make([]AddonConfig, 0)
 	processedOfferings := make(map[string]bool) // Track by offering identity instead of version locator
 
-	// Create offering identity key for deduplication
+	// Create offering identity key for deduplication based on catalog+offering+flavor
+	// This ensures we don't deploy the same offering multiple times even if it appears
+	// in different parts of the dependency tree
 	getOfferingKey := func(addon *AddonConfig) string {
 		return fmt.Sprintf("%s|%s|%s", addon.CatalogID, addon.OfferingID, addon.OfferingFlavor)
 	}
@@ -724,13 +750,14 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	if mainAddon.ConfigName == "" {
 		mainAddon.ConfigName = fmt.Sprintf("%s-%s", mainAddon.Prefix, mainAddon.OfferingName)
 	}
+
 	deploymentList = append(deploymentList, *mainAddon)
 	processedOfferings[getOfferingKey(mainAddon)] = true
 
 	// Recursively process dependencies in hierarchy order
 	// This ensures topmost instances take precedence over deeper occurrences
-	var processDependencies func(addon *AddonConfig)
-	processDependencies = func(addon *AddonConfig) {
+	var processDependencies func(addon *AddonConfig, depth int)
+	processDependencies = func(addon *AddonConfig, depth int) {
 		for _, dep := range addon.Dependencies {
 			offeringKey := getOfferingKey(&dep)
 
@@ -747,13 +774,13 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 				processedOfferings[offeringKey] = true
 
 				// Recursively process this dependency's dependencies
-				processDependencies(&dep)
+				processDependencies(&dep, depth+1)
 			}
 		}
 	}
 
 	// Start processing from the main addon's dependencies
-	processDependencies(mainAddon)
+	processDependencies(mainAddon, 0)
 
 	return deploymentList
 }
