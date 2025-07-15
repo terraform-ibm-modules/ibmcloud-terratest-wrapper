@@ -248,11 +248,21 @@ func (options *TestAddonOptions) RunAddonTest() error {
 				options.Logger.ShortInfo("  Resolved References:")
 				for _, ref := range res_resp.References {
 					if ref.Code != 200 {
-						options.Logger.ShortWarn(fmt.Sprintf("%s   %s - Error: %s", common.ColorizeString(common.Colors.Red, "✘"), ref.Reference, ref.State))
-						options.Logger.ShortWarn(fmt.Sprintf("      Message: %s", ref.Message))
-						options.Logger.ShortWarn(fmt.Sprintf("      Code: %d", ref.Code))
-						// Store failed ref for later evaluation instead of failing immediately
-						failedRefs = append(failedRefs, ref.Reference)
+						// Check if this is a valid reference that cannot be resolved until after member deployment
+						// This is a valid scenario and should be treated as a warning, not an error
+						if strings.Contains(ref.Message, "project reference requires") && strings.Contains(ref.Message, "member configuration") && strings.Contains(ref.Message, "to be deployed") {
+							options.Logger.ShortWarn(fmt.Sprintf("%s   %s - Warning: %s", common.ColorizeString(common.Colors.Yellow, "⚠"), ref.Reference, ref.State))
+							options.Logger.ShortWarn(fmt.Sprintf("      Message: %s", ref.Message))
+							options.Logger.ShortWarn(fmt.Sprintf("      Code: %d", ref.Code))
+							options.Logger.ShortWarn(fmt.Sprintf("      This is a valid reference that cannot be resolved until the member configuration is deployed."))
+							// This is a warning, not an error, so don't add to failedRefs
+						} else {
+							options.Logger.ShortWarn(fmt.Sprintf("%s   %s - Error: %s", common.ColorizeString(common.Colors.Red, "✘"), ref.Reference, ref.State))
+							options.Logger.ShortWarn(fmt.Sprintf("      Message: %s", ref.Message))
+							options.Logger.ShortWarn(fmt.Sprintf("      Code: %d", ref.Code))
+							// Store failed ref for later evaluation instead of failing immediately
+							failedRefs = append(failedRefs, ref.Reference)
+						}
 						continue
 					}
 

@@ -549,3 +549,30 @@ func TestMinimalReproduction(t *testing.T) {
 - IBM Cloud documentation
 - Developer forums and communities
 - IBM Cloud support channels
+
+#### Member Configuration Deployment Reference Warning
+
+**Warning message:**
+
+```text
+⚠   ref://project.example/configs/member-config/inputs/resource_group_name - Warning: unresolved
+      Message: The project reference requires the specified member configuration deploy-arch-ibm-account-infra-base-abc123 to be deployed. Please deploy the referring configuration.
+      Code: 400
+      This is a valid reference that cannot be resolved until the member configuration is deployed.
+```
+
+**Cause**: This occurs when a reference points to a resource that will be created by a member configuration that hasn't been deployed yet. This is a normal part of the deployment process in multi-tier architectures.
+
+**Behavior**: The framework treats this as a warning, not an error. The test will continue and the reference will be resolved once the member configuration is deployed.
+
+**Solutions:**
+
+1. **Normal Operation**: This is expected behavior. The framework will proceed with deployment and the reference will resolve automatically.
+
+2. **If the reference fails during actual deployment**: This indicates a real issue with the reference configuration that needs to be addressed.
+
+3. **Skip reference validation** (for development/debugging):
+
+   ```golang
+   options.SkipRefValidation = true
+   ```

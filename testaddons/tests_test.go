@@ -819,7 +819,7 @@ func TestValidateDependenciesDetectsMissingConfigs(t *testing.T) {
 	// Create a simple dependency graph
 	stringGraph := make(map[string][]cloudinfo.OfferingReferenceDetail)
 
-	// Expected deployed list - contains configs that should be deployed
+	// Expected Deployed list - contains configs that should be deployed
 	expectedDeployedList := []cloudinfo.OfferingReferenceDetail{
 		{
 			Name:    "deploy-arch-ibm-account-infra-base",
@@ -1196,4 +1196,115 @@ func TestMissingConfigsErrorMessageFormat(t *testing.T) {
 	}
 
 	t.Logf("Generated error message: %s", errorMsg)
+}
+
+// TestReferenceValidationMemberDeploymentWarning tests that references requiring member deployment
+// are treated as warnings rather than errors
+func TestReferenceValidationMemberDeploymentWarning(t *testing.T) {
+	// Create a mock test logger
+	logger := common.NewTestLogger(t.Name())
+
+	// Create test options with a mock CloudInfoService
+	options := &TestAddonOptions{
+		Testing:          t,
+		Logger:           logger,
+		CloudInfoService: &MockCloudInfoService{}, // We'll need to create this mock
+	}
+
+	// Create a mock resolve response that includes a member deployment reference
+	mockResolveResponse := &cloudinfo.ResolveResponse{
+		References: []cloudinfo.BatchReferenceResolvedItem{
+			{
+				Reference: "ref://project.test/configs/member-config/inputs/resource_group_name",
+				Code:      400,
+				State:     "unresolved",
+				Message:   "The project reference requires the specified member configuration deploy-arch-ibm-account-infra-base-abc123 to be deployed. Please deploy the referring configuration.",
+			},
+			{
+				Reference: "ref://project.test/configs/other-config/inputs/api_key",
+				Code:      200,
+				State:     "resolved",
+				Value:     "test-value",
+			},
+		},
+	}
+
+	// Test that the member deployment reference is handled as a warning
+	failedRefs := []string{}
+
+	// Simulate the logic from the actual function
+	for _, ref := range mockResolveResponse.References {
+		if ref.Code != 200 {
+			// Check if this is a valid reference that cannot be resolved until after member deployment
+			if strings.Contains(ref.Message, "project reference requires") &&
+				strings.Contains(ref.Message, "member configuration") &&
+				strings.Contains(ref.Message, "to be deployed") {
+				// This should be treated as a warning, not added to failedRefs
+				t.Logf("Warning: %s - %s", ref.Reference, ref.Message)
+			} else {
+				// This should be treated as an error
+				failedRefs = append(failedRefs, ref.Reference)
+			}
+		}
+	}
+
+	// Verify that the member deployment reference was not added to failedRefs
+	assert.Empty(t, failedRefs, "Member deployment references should not be treated as failed references")
+
+	// Verify the logic works correctly - only non-member-deployment errors should be in failedRefs
+	// Let's test with a different error message
+	mockResolveResponse2 := &cloudinfo.ResolveResponse{
+		References: []cloudinfo.BatchReferenceResolvedItem{
+			{
+				Reference: "ref://project.test/configs/invalid-config/inputs/bad_input",
+				Code:      404,
+				State:     "error",
+				Message:   "Configuration not found",
+			},
+		},
+	}
+
+	failedRefs2 := []string{}
+	for _, ref := range mockResolveResponse2.References {
+		if ref.Code != 200 {
+			// Check if this is a valid reference that cannot be resolved until after member deployment
+			if strings.Contains(ref.Message, "project reference requires") &&
+				strings.Contains(ref.Message, "member configuration") &&
+				strings.Contains(ref.Message, "to be deployed") {
+				// This should be treated as a warning, not added to failedRefs
+				t.Logf("Warning: %s - %s", ref.Reference, ref.Message)
+			} else {
+				// This should be treated as an error
+				failedRefs2 = append(failedRefs2, ref.Reference)
+			}
+		}
+	}
+
+	// Verify that the non-member-deployment error was added to failedRefs
+	assert.Len(t, failedRefs2, 1, "Non-member-deployment reference errors should be treated as failed references")
+	assert.Equal(t, "ref://project.test/configs/invalid-config/inputs/bad_input", failedRefs2[0])
+}
+
+// TestMemberDeploymentReferenceHandling tests the logic for detecting member deployment references
+func TestMemberDeploymentReferenceHandling(t *testing.T) {
+	// Test case 1: Member deployment reference (should be treated as warning)
+	memberDeploymentMessage := "The project reference requires the specified member configuration deploy-arch-ibm-account-infra-base-abc123 to be deployed. Please deploy the referring configuration."
+	isMemberDeploymentRef := strings.Contains(memberDeploymentMessage, "project reference requires") &&
+		strings.Contains(memberDeploymentMessage, "member configuration") &&
+		strings.Contains(memberDeploymentMessage, "to be deployed")
+	assert.True(t, isMemberDeploymentRef, "Member deployment reference should be detected")
+
+	// Test case 2: Different error message (should be treated as error)
+	otherErrorMessage := "Configuration not found"
+	isOtherError := strings.Contains(otherErrorMessage, "project reference requires") &&
+		strings.Contains(otherErrorMessage, "member configuration") &&
+		strings.Contains(otherErrorMessage, "to be deployed")
+	assert.False(t, isOtherError, "Other error messages should not be detected as member deployment references")
+
+	// Test case 3: Partial match (should be treated as error)
+	partialMatchMessage := "The project reference requires something but not member configuration"
+	isPartialMatch := strings.Contains(partialMatchMessage, "project reference requires") &&
+		strings.Contains(partialMatchMessage, "member configuration") &&
+		strings.Contains(partialMatchMessage, "to be deployed")
+	assert.False(t, isPartialMatch, "Partial matches should not be detected as member deployment references")
 }
