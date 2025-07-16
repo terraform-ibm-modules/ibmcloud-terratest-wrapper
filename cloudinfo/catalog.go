@@ -756,8 +756,8 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 
 	// Recursively process dependencies in hierarchy order
 	// This ensures topmost instances take precedence over deeper occurrences
-	var processDependencies func(addon *AddonConfig, depth int)
-	processDependencies = func(addon *AddonConfig, depth int) {
+	var processDependencies func(addon *AddonConfig)
+	processDependencies = func(addon *AddonConfig) {
 		for _, dep := range addon.Dependencies {
 			offeringKey := getOfferingKey(&dep)
 
@@ -774,13 +774,13 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 				processedOfferings[offeringKey] = true
 
 				// Recursively process this dependency's dependencies
-				processDependencies(&dep, depth+1)
+				processDependencies(&dep)
 			}
 		}
 	}
 
 	// Start processing from the main addon's dependencies
-	processDependencies(mainAddon, 0)
+	processDependencies(mainAddon)
 
 	return deploymentList
 }
