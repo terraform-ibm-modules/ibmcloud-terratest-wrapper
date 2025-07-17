@@ -69,6 +69,12 @@ options.SkipRefValidation = true
 - Automatically skips validation on known transient errors **only when infrastructure deployment is enabled**
 - **Validation-only mode**: When `SkipInfrastructureDeployment = true`, intermittent errors are NOT automatically skipped to ensure reference issues are caught
 
+**Special handling for member deployment references:**
+
+- References that require member configurations to be deployed first are treated as **warnings**, not errors
+- These are valid references that will resolve once the member configuration is deployed
+- The framework will proceed with deployment and the references will resolve automatically
+
 **When to skip:**
 
 - Known issues with reference resolution service (only in full deployment mode)
