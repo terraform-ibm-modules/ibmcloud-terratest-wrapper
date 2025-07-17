@@ -1201,15 +1201,6 @@ func TestMissingConfigsErrorMessageFormat(t *testing.T) {
 // TestReferenceValidationMemberDeploymentWarning tests that references requiring member deployment
 // are treated as warnings rather than errors
 func TestReferenceValidationMemberDeploymentWarning(t *testing.T) {
-	// Create a mock test logger
-	logger := common.NewTestLogger(t.Name())
-
-	// Create test options with a mock CloudInfoService
-	options := &TestAddonOptions{
-		Testing:          t,
-		Logger:           logger,
-		CloudInfoService: &MockCloudInfoService{}, // We'll need to create this mock
-	}
 
 	// Create a mock resolve response that includes a member deployment reference
 	mockResolveResponse := &cloudinfo.ResolveResponse{
