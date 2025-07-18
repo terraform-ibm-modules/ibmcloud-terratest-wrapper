@@ -1185,3 +1185,280 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 		})
 	}()
 }
+
+// RunAddonPermutationTest executes all permutations of direct dependencies for the addon
+// without manual configuration. It automatically discovers dependencies and generates
+// all enabled/disabled combinations, excluding the default "on by default" case.
+// All permutations skip infrastructure deployment for efficiency.
+func (options *TestAddonOptions) RunAddonPermutationTest() error {
+	require.NotNil(options.Testing, options.Testing, "Testing is required")
+	require.NotEmpty(options.Testing, options.AddonConfig.OfferingName, "AddonConfig.OfferingName is required")
+	require.NotEmpty(options.Testing, options.AddonConfig.OfferingFlavor, "AddonConfig.OfferingFlavor is required")
+	require.NotEmpty(options.Testing, options.Prefix, "Prefix is required")
+
+	// Step 1: Discover dependencies from catalog
+	dependencies, err := options.discoverDependencies()
+	if err != nil {
+		return fmt.Errorf("failed to discover dependencies: %w", err)
+	}
+
+	if len(dependencies) == 0 {
+		options.Testing.Skip("No dependencies found to test permutations")
+		return nil
+	}
+
+	// Step 2: Generate all permutations of dependencies
+	testCases := options.generatePermutations(dependencies)
+
+	if len(testCases) == 0 {
+		options.Testing.Skip("No permutations generated (all would be default configuration)")
+		return nil
+	}
+
+	// Step 3: Execute all permutations in parallel using matrix test infrastructure
+	matrix := AddonTestMatrix{
+		TestCases:   testCases,
+		BaseOptions: options,
+		BaseSetupFunc: func(baseOptions *TestAddonOptions, testCase AddonTestCase) *TestAddonOptions {
+			// Clone base options for each test case
+			testOptions := baseOptions.copy()
+			testOptions.Prefix = testCase.Prefix
+			testOptions.TestCaseName = testCase.Name
+			testOptions.SkipInfrastructureDeployment = testCase.SkipInfrastructureDeployment
+			return testOptions
+		},
+		AddonConfigFunc: func(testOptions *TestAddonOptions, testCase AddonTestCase) cloudinfo.AddonConfig {
+			// Use the base addon config but override dependencies
+			config := testOptions.AddonConfig
+			config.Dependencies = testCase.Dependencies
+			config.Prefix = testOptions.Prefix
+			return config
+		},
+	}
+
+	// Execute the matrix test
+	options.RunAddonTestMatrix(matrix)
+	return nil
+}
+
+// discoverDependencies automatically discovers direct dependencies from the catalog
+func (options *TestAddonOptions) discoverDependencies() ([]cloudinfo.AddonConfig, error) {
+	// Use existing CloudInfoService if available, otherwise create a new one
+	var cloudInfoService cloudinfo.CloudInfoServiceI
+	if options.CloudInfoService != nil {
+		cloudInfoService = options.CloudInfoService
+	} else {
+		// Create a temporary CloudInfoService for catalog operations
+		service, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
+			Logger: options.Logger,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create CloudInfoService: %w", err)
+		}
+		cloudInfoService = service
+	}
+
+	// Create a temporary catalog for dependency discovery
+	catalogName := fmt.Sprintf("temp-catalog-%s", common.UniqueId())
+	catalog, err := cloudInfoService.CreateCatalog(catalogName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temporary catalog: %w", err)
+	}
+
+	// Cleanup catalog after discovery
+	defer func() {
+		if catalog != nil && catalog.ID != nil {
+			_ = cloudInfoService.DeleteCatalog(*catalog.ID)
+		}
+	}()
+
+	// Import the addon offering to get its dependencies
+	offering, err := cloudInfoService.ImportOfferingWithValidation(
+		*catalog.ID,
+		options.AddonConfig.OfferingName,
+		options.AddonConfig.OfferingFlavor,
+		"1.0.0", // Use a default version for discovery
+		cloudinfo.InstallKindTerraform,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to import offering for dependency discovery: %w", err)
+	}
+
+	// Get component references to discover dependencies
+	if len(offering.Kinds) == 0 || len(offering.Kinds[0].Versions) == 0 {
+		return nil, fmt.Errorf("no versions found in imported offering")
+	}
+
+	versionLocator := *offering.Kinds[0].Versions[0].VersionLocator
+	componentsReferences, err := cloudInfoService.GetComponentReferences(versionLocator)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get component references: %w", err)
+	}
+
+	// Convert component references to AddonConfig list
+	var dependencies []cloudinfo.AddonConfig
+
+	// Process required dependencies first
+	for _, component := range componentsReferences.Required.OfferingReferences {
+		if component.OfferingReference.DefaultFlavor == "" ||
+			component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name {
+			dep := cloudinfo.AddonConfig{
+				OfferingName:    component.OfferingReference.Name,
+				OfferingFlavor:  component.OfferingReference.Flavor.Name,
+				OfferingLabel:   component.OfferingReference.Label,
+				CatalogID:       component.OfferingReference.CatalogID,
+				OfferingID:      component.OfferingReference.ID,
+				VersionLocator:  component.OfferingReference.VersionLocator,
+				ResolvedVersion: component.OfferingReference.Version,
+				Enabled:         core.BoolPtr(true), // Required dependencies are always enabled
+				Prefix:          options.Prefix,
+				Inputs:          make(map[string]interface{}),
+			}
+			dependencies = append(dependencies, dep)
+		}
+	}
+
+	// Process optional dependencies
+	for _, component := range componentsReferences.Optional.OfferingReferences {
+		if component.OfferingReference.DefaultFlavor == "" ||
+			component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name {
+			dep := cloudinfo.AddonConfig{
+				OfferingName:    component.OfferingReference.Name,
+				OfferingFlavor:  component.OfferingReference.Flavor.Name,
+				OfferingLabel:   component.OfferingReference.Label,
+				CatalogID:       component.OfferingReference.CatalogID,
+				OfferingID:      component.OfferingReference.ID,
+				VersionLocator:  component.OfferingReference.VersionLocator,
+				ResolvedVersion: component.OfferingReference.Version,
+				Enabled:         core.BoolPtr(component.OfferingReference.OnByDefault),
+				OnByDefault:     core.BoolPtr(component.OfferingReference.OnByDefault),
+				Prefix:          options.Prefix,
+				Inputs:          make(map[string]interface{}),
+			}
+			dependencies = append(dependencies, dep)
+		}
+	}
+
+	return dependencies, nil
+}
+
+// generatePermutations creates all enabled/disabled combinations of dependencies
+func (options *TestAddonOptions) generatePermutations(dependencies []cloudinfo.AddonConfig) []AddonTestCase {
+	var testCases []AddonTestCase
+
+	// Generate all 2^n permutations of dependencies (root addon is always present)
+	numDeps := len(dependencies)
+	totalPermutations := 1 << numDeps // 2^n where n = number of dependencies
+
+	// Sequential counter for unique prefix generation
+	permIndex := 0
+	basePrefix := options.shortenPrefix(options.Prefix)
+
+	for i := 0; i < totalPermutations; i++ {
+		// Create a copy of dependencies for this permutation
+		permutationDeps := make([]cloudinfo.AddonConfig, len(dependencies))
+		copy(permutationDeps, dependencies)
+
+		// Generate permutation name based on disabled dependencies
+		var disabledNames []string
+
+		// Set enabled/disabled based on bit pattern
+		for j := 0; j < numDeps; j++ {
+			if (i & (1 << j)) == 0 {
+				// Bit is 0, disable this dependency
+				permutationDeps[j].Enabled = core.BoolPtr(false)
+				disabledNames = append(disabledNames, permutationDeps[j].OfferingName)
+			} else {
+				// Bit is 1, enable this dependency
+				permutationDeps[j].Enabled = core.BoolPtr(true)
+			}
+		}
+
+		// Skip the "on by default" case (default configuration)
+		// This excludes the combination where all dependencies match their OnByDefault values
+		if options.isDefaultConfiguration(permutationDeps, dependencies) {
+			continue
+		}
+
+		// Create test case name with sequential numbering
+		testCaseName := fmt.Sprintf("%s-permutation-%d", options.AddonConfig.OfferingName, permIndex)
+		if len(disabledNames) > 0 {
+			testCaseName = fmt.Sprintf("%s-permutation-%d-disabled-%s", options.AddonConfig.OfferingName, permIndex,
+				options.joinNames(disabledNames, "-"))
+		}
+
+		// Generate unique prefix using sequential counter
+		uniquePrefix := fmt.Sprintf("%s%d", basePrefix, permIndex)
+
+		testCase := AddonTestCase{
+			Name:                         testCaseName,
+			Prefix:                       uniquePrefix,
+			Dependencies:                 permutationDeps,
+			SkipInfrastructureDeployment: true, // Always skip infrastructure deployment
+		}
+
+		testCases = append(testCases, testCase)
+		permIndex++ // Only increment for generated test cases
+	}
+
+	return testCases
+}
+
+// isDefaultConfiguration checks if a permutation matches the default "on by default" configuration
+func (options *TestAddonOptions) isDefaultConfiguration(permutation []cloudinfo.AddonConfig, originalDependencies []cloudinfo.AddonConfig) bool {
+	if len(permutation) != len(originalDependencies) {
+		return false
+	}
+
+	for i, dep := range permutation {
+		originalDep := originalDependencies[i]
+
+		// Check if this dependency's enabled state matches its OnByDefault value
+		expectedEnabled := false
+		if originalDep.OnByDefault != nil {
+			expectedEnabled = *originalDep.OnByDefault
+		}
+
+		actualEnabled := false
+		if dep.Enabled != nil {
+			actualEnabled = *dep.Enabled
+		}
+
+		if expectedEnabled != actualEnabled {
+			return false
+		}
+	}
+
+	return true
+}
+
+// shortenPrefix truncates a prefix to fit within the 8-character limit
+// while preserving enough information to identify the test case
+func (options *TestAddonOptions) shortenPrefix(prefix string) string {
+	const maxPrefixLength = 8
+
+	// If already short enough, return as is
+	if len(prefix) <= maxPrefixLength-2 { // Reserve 2 characters for numbering (0-99)
+		return prefix
+	}
+
+	// Truncate to leave room for numbering
+	maxBaseLength := maxPrefixLength - 2
+	return prefix[:maxBaseLength]
+}
+
+// joinNames joins a slice of strings with a separator, handling empty slices
+func (options *TestAddonOptions) joinNames(names []string, separator string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	if len(names) == 1 {
+		return names[0]
+	}
+
+	result := names[0]
+	for i := 1; i < len(names); i++ {
+		result += separator + names[i]
+	}
+	return result
+}
