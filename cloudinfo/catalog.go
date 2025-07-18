@@ -955,12 +955,50 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 		if version.ID != nil && *version.ID == VersionID {
 			inputs := []CatalogInput{}
 			for _, configuration := range version.Configuration {
+				// Check critical fields that are required for deployment
+				if configuration.Key == nil {
+					// Safe to skip: A configuration without a key is unusable for deployment.
+					// The key is required to identify which input this configuration represents.
+					// We continue processing other configurations that might be valid, allowing
+					// the deployment to proceed with the valid configurations found.
+					if offering.ID != nil {
+						infoSvc.Logger.ShortError(fmt.Sprintf("Error: configuration Key is nil for offering %s, version %s", *offering.ID, VersionID))
+					} else {
+						infoSvc.Logger.ShortError(fmt.Sprintf("Error: configuration Key is nil for offering with nil ID, version %s", VersionID))
+					}
+					continue
+				}
+
+				if configuration.Type == nil {
+					// Safe to skip: A configuration without a type is unusable for deployment.
+					// The type is required to validate and process the configuration value correctly.
+					// We continue processing other configurations that might be valid, allowing
+					// the deployment to proceed with the valid configurations found.
+					if offering.ID != nil {
+						infoSvc.Logger.ShortError(fmt.Sprintf("Error: configuration Type is nil for offering %s, version %s, key %s", *offering.ID, VersionID, *configuration.Key))
+					} else {
+						infoSvc.Logger.ShortError(fmt.Sprintf("Error: configuration Type is nil for offering with nil ID, version %s, key %s", VersionID, *configuration.Key))
+					}
+					continue
+				}
+
+				// Handle optional fields with safe defaults
+				required := false
+				if configuration.Required != nil {
+					required = *configuration.Required
+				}
+
+				description := ""
+				if configuration.Description != nil {
+					description = *configuration.Description
+				}
+
 				input := CatalogInput{
 					Key:          *configuration.Key,
 					Type:         *configuration.Type,
 					DefaultValue: configuration.DefaultValue,
-					Required:     *configuration.Required,
-					Description:  *configuration.Description,
+					Required:     required,
+					Description:  description,
 				}
 				inputs = append(inputs, input)
 			}
