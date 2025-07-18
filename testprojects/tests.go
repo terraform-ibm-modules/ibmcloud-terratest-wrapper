@@ -108,7 +108,15 @@ func (options *TestProjectsOptions) ConfigureTestStack() error {
 				validInputs := "Valid Inputs:\n"
 
 				for _, configuration := range version.Configuration {
-					validInputs += fmt.Sprintf("\t%s\n", *configuration.Key)
+					if configuration.Key != nil {
+						validInputs += fmt.Sprintf("\t%s\n", *configuration.Key)
+					} else {
+						// Safe fallback: This is only for error message display, not core functionality.
+						// Using a placeholder name allows the error message to remain helpful even when
+						// the catalog configuration is malformed. The actual stack creation failure
+						// is handled elsewhere - this just provides diagnostic information.
+						validInputs += fmt.Sprintf("\t<unnamed_configuration>\n")
+					}
 				}
 
 				sdkProblem.Summary = fmt.Sprintf("%s Inputs possibly removed or renamed.\n%s", sdkProblem.Summary, validInputs)
