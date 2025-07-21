@@ -195,8 +195,11 @@ func (mock *resourceControllerServiceMock) RunReclamationAction(options *resourc
 
 // Resource Manager mock
 type resourceManagerServiceMock struct {
-	mockResourceGroupList *resourcemanagerv2.ResourceGroupList
-	resourceGroups        map[string]string // map of resource group names to IDs
+	mockResourceGroupList             *resourcemanagerv2.ResourceGroupList
+	resourceGroups                    map[string]string // map of resource group names to IDs
+	mockResCreateResourceGroup        *resourcemanagerv2.ResCreateResourceGroup
+	mockNewDeleteResourceGroupOptions *resourcemanagerv2.DeleteResourceGroupOptions
+	mockDeleteResourceGroup           *core.DetailedResponse
 }
 
 func (s *resourceManagerServiceMock) NewListResourceGroupsOptions() *resourcemanagerv2.ListResourceGroupsOptions {
@@ -205,6 +208,29 @@ func (s *resourceManagerServiceMock) NewListResourceGroupsOptions() *resourceman
 
 func (s *resourceManagerServiceMock) ListResourceGroups(*resourcemanagerv2.ListResourceGroupsOptions) (*resourcemanagerv2.ResourceGroupList, *core.DetailedResponse, error) {
 	return s.mockResourceGroupList, nil, nil
+}
+
+func (s *resourceManagerServiceMock) NewCreateResourceGroupOptions() *resourcemanagerv2.CreateResourceGroupOptions {
+	return &resourcemanagerv2.CreateResourceGroupOptions{
+		Name: core.StringPtr(""),
+	}
+}
+
+func (s *resourceManagerServiceMock) CreateResourceGroup(*resourcemanagerv2.CreateResourceGroupOptions) (*resourcemanagerv2.ResCreateResourceGroup, *core.DetailedResponse, error) {
+	resp := &core.DetailedResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+	}
+
+	return s.mockResCreateResourceGroup, resp, nil
+}
+
+func (s *resourceManagerServiceMock) NewDeleteResourceGroupOptions(string) *resourcemanagerv2.DeleteResourceGroupOptions {
+	return s.mockNewDeleteResourceGroupOptions
+}
+
+func (s *resourceManagerServiceMock) DeleteResourceGroup(*resourcemanagerv2.DeleteResourceGroupOptions) (*core.DetailedResponse, error) {
+	return s.mockDeleteResourceGroup, nil
 }
 
 func (s *resourceManagerServiceMock) GetResourceGroupIDByName(name string) (string, error) {

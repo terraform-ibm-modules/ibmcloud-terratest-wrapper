@@ -183,6 +183,10 @@ type resourceControllerService interface {
 type resourceManagerService interface {
 	NewListResourceGroupsOptions() *resourcemanagerv2.ListResourceGroupsOptions
 	ListResourceGroups(*resourcemanagerv2.ListResourceGroupsOptions) (*resourcemanagerv2.ResourceGroupList, *core.DetailedResponse, error)
+	NewCreateResourceGroupOptions() *resourcemanagerv2.CreateResourceGroupOptions
+	CreateResourceGroup(*resourcemanagerv2.CreateResourceGroupOptions) (*resourcemanagerv2.ResCreateResourceGroup, *core.DetailedResponse, error)
+	NewDeleteResourceGroupOptions(string) *resourcemanagerv2.DeleteResourceGroupOptions
+	DeleteResourceGroup(*resourcemanagerv2.DeleteResourceGroupOptions) (*core.DetailedResponse, error)
 }
 
 // ibmPowerService for external IBM Powercloud Service API. Used for mocking.
