@@ -20,7 +20,7 @@ func TestMatrixCatalogSharingLogic(t *testing.T) {
 		baseOptions := &TestAddonOptions{
 			Prefix:      "test-matrix",
 			CatalogName: "shared-catalog-test",
-			Logger:      common.NewTestLogger("MatrixTest"),
+			Logger:      common.CreateSmartAutoBufferingLogger("MatrixTest", false),
 			AddonConfig: cloudinfo.AddonConfig{
 				OfferingInstallKind: cloudinfo.InstallKindTerraform,
 				OfferingName:        "test-addon",

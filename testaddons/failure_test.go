@@ -16,7 +16,7 @@ func TestMatrixCatalogNilPointerIssue(t *testing.T) {
 		// This test reproduces the exact conditions that cause the nil pointer dereference
 		// The issue occurs when we try to log catalog information but the catalog is nil
 
-		logger := common.NewTestLogger("TestNilCatalog")
+		logger := common.CreateSmartAutoBufferingLogger("TestNilCatalog", false)
 
 		// Simulate the scenario where catalog creation failed and catalog is nil
 		var testOptions *TestAddonOptions
@@ -63,7 +63,7 @@ func TestMatrixCatalogNilPointerIssue(t *testing.T) {
 
 	t.Run("SafeCatalogLogging", func(t *testing.T) {
 		// This test shows how the logging should be fixed
-		logger := common.NewTestLogger("TestSafeCatalog")
+		logger := common.CreateSmartAutoBufferingLogger("TestSafeCatalog", false)
 
 		// Test with nil catalog
 		var testOptions *TestAddonOptions = &TestAddonOptions{
@@ -99,7 +99,7 @@ func TestMatrixCatalogNilPointerIssue(t *testing.T) {
 
 	t.Run("FixedMatrixLogging", func(t *testing.T) {
 		// This test verifies that the fix for nil catalog logging works correctly
-		logger := common.NewTestLogger("TestFixedMatrix")
+		logger := common.CreateSmartAutoBufferingLogger("TestFixedMatrix", false)
 
 		// Test the fixed logging pattern from the matrix code
 		var testOptions *TestAddonOptions = &TestAddonOptions{
@@ -137,7 +137,7 @@ func TestMatrixCatalogNilPointerIssue(t *testing.T) {
 		// This test reproduces the race condition where the first test case
 		// is still creating the catalog while other test cases try to access it
 
-		logger := common.NewTestLogger("TestRaceCondition")
+		logger := common.CreateSmartAutoBufferingLogger("TestRaceCondition", false)
 
 		// Simulate the problematic scenario
 		var sharedCatalogOptions *TestAddonOptions
@@ -191,7 +191,7 @@ func TestMatrixCatalogNilPointerIssue(t *testing.T) {
 		// This test verifies that the race condition fix works correctly
 		// The fix ensures catalog creation completes before other test cases can access it
 
-		logger := common.NewTestLogger("TestFixedRace")
+		logger := common.CreateSmartAutoBufferingLogger("TestFixedRace", false)
 
 		// Simulate the FIXED logic where mutex is held during catalog creation
 		var sharedCatalogOptions *TestAddonOptions

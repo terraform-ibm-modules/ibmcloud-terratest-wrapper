@@ -16,7 +16,7 @@ import (
 // are included in the expected dependency graph even if they're not marked as "OnByDefault"
 func TestBuildDependencyGraphWithManualDependencies(t *testing.T) {
 	// Create a mock test logger
-	logger := common.NewTestLogger(t.Name())
+	logger := common.CreateSmartAutoBufferingLogger(t.Name(), false)
 
 	// Create test options with a mock CloudInfoService
 	options := &TestAddonOptions{
@@ -94,7 +94,7 @@ func TestBuildDependencyGraphWithManualDependencies(t *testing.T) {
 // TestBuildDependencyGraphObservabilityScenario tests the exact scenario described in the user's problem:
 // deploy-arch-ibm-observability with manually enabled dependencies
 func TestBuildDependencyGraphObservabilityScenario(t *testing.T) {
-	logger := common.NewTestLogger(t.Name())
+	logger := common.CreateSmartAutoBufferingLogger(t.Name(), false)
 
 	options := &TestAddonOptions{
 		Testing:          t,
@@ -201,7 +201,7 @@ func TestBuildDependencyGraphObservabilityScenario(t *testing.T) {
 // marked as OnByDefault in the catalog but manually disabled via Enabled=false
 // are NOT included in the expected dependency graph
 func TestBuildDependencyGraphWithManuallyDisabledDependency(t *testing.T) {
-	logger := common.NewTestLogger(t.Name())
+	logger := common.CreateSmartAutoBufferingLogger(t.Name(), false)
 
 	options := &TestAddonOptions{
 		Testing:          t,
@@ -275,7 +275,7 @@ func TestBuildDependencyGraphWithManuallyDisabledDependency(t *testing.T) {
 // TestBuildDependencyGraphWithOfferingLevelDisable tests that disabling a dependency
 // at the offering level affects all flavors of that offering, not just the specific flavor
 func TestBuildDependencyGraphWithOfferingLevelDisable(t *testing.T) {
-	logger := common.NewTestLogger(t.Name())
+	logger := common.CreateSmartAutoBufferingLogger(t.Name(), false)
 
 	options := &TestAddonOptions{
 		Testing:          t,
@@ -358,7 +358,7 @@ func TestBuildDependencyGraphWithOfferingLevelDisable(t *testing.T) {
 // TestBuildDependencyGraphWithTreeLevelDisable tests that disabling a dependency
 // at the offering level affects the entire dependency tree, not just immediate children
 func TestBuildDependencyGraphWithTreeLevelDisable(t *testing.T) {
-	logger := common.NewTestLogger(t.Name())
+	logger := common.CreateSmartAutoBufferingLogger(t.Name(), false)
 
 	options := &TestAddonOptions{
 		Testing:          t,
@@ -808,7 +808,7 @@ func (m *MockCloudInfoServiceWithTreeDeps) GetOfferingVersionLocatorByConstraint
 // TestValidateDependenciesDetectsMissingConfigs tests that validateDependencies
 // properly detects when expected configurations are missing from the deployed list
 func TestValidateDependenciesDetectsMissingConfigs(t *testing.T) {
-	logger := common.NewTestLogger(t.Name())
+	logger := common.CreateSmartAutoBufferingLogger(t.Name(), false)
 
 	options := &TestAddonOptions{
 		Testing:          t,
@@ -855,7 +855,7 @@ func TestValidateDependenciesDetectsMissingConfigs(t *testing.T) {
 // TestValidateDependenciesDetectsUnexpectedConfigs tests that validateDependencies
 // properly detects when unexpected configurations are deployed
 func TestValidateDependenciesDetectsUnexpectedConfigs(t *testing.T) {
-	logger := common.NewTestLogger(t.Name())
+	logger := common.CreateSmartAutoBufferingLogger(t.Name(), false)
 
 	options := &TestAddonOptions{
 		Testing:          t,
@@ -902,7 +902,7 @@ func TestValidateDependenciesDetectsUnexpectedConfigs(t *testing.T) {
 // TestValidateDependenciesSuccess tests that validateDependencies passes when
 // expected and actual configurations match exactly
 func TestValidateDependenciesSuccess(t *testing.T) {
-	logger := common.NewTestLogger(t.Name())
+	logger := common.CreateSmartAutoBufferingLogger(t.Name(), false)
 
 	options := &TestAddonOptions{
 		Testing:          t,
@@ -938,7 +938,7 @@ func TestValidateDependenciesSuccess(t *testing.T) {
 // TestPrintConsolidatedValidationSummary tests the consolidated validation summary output
 func TestPrintConsolidatedValidationSummary(t *testing.T) {
 	// Create a mock test logger
-	logger := common.NewTestLogger(t.Name())
+	logger := common.CreateSmartAutoBufferingLogger(t.Name(), false)
 
 	// Create test options
 	options := &TestAddonOptions{

@@ -7,6 +7,7 @@ import (
 
 	"github.com/IBM/project-go-sdk/projectv1"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
 // getConfigDetailsWithRetry retrieves configuration details with retry logic to handle API timing issues
@@ -111,52 +112,71 @@ func (options *TestAddonOptions) validateInputsWithRetry(configID string, target
 
 	_, missingInputs := options.validateRequiredInputs(finalConfigDetails, targetAddon)
 
-	options.Logger.ShortError(fmt.Sprintf("Input validation failed after %d attempts - inputs still appear missing:", maxRetries))
+	options.Logger.ShortWarn(fmt.Sprintf("Input validation failed after %d attempts - inputs still appear missing (test will continue and attempt deployment in case inputs resolve during deployment):", maxRetries))
 	for _, missing := range missingInputs {
-		options.Logger.ShortError(fmt.Sprintf("  %s", missing))
+		options.Logger.ShortWarn(fmt.Sprintf("  %s", missing))
 	}
 
 	// Show detailed retry debug information when all attempts fail
-	options.Logger.ShortError("=== RETRY VALIDATION DEBUG INFO ===")
-	options.Logger.ShortError(fmt.Sprintf("Configuration ID: %s", configID))
-	options.Logger.ShortError(fmt.Sprintf("Retry attempts: %d", maxRetries))
-	options.Logger.ShortError(fmt.Sprintf("Retry delay: %v", retryDelay))
+	options.Logger.ShortWarn("=== RETRY VALIDATION DEBUG INFO ===")
+	options.Logger.ShortWarn(fmt.Sprintf("Configuration ID: %s", configID))
+	options.Logger.ShortWarn(fmt.Sprintf("Retry attempts: %d", maxRetries))
+	options.Logger.ShortWarn(fmt.Sprintf("Retry delay: %v", retryDelay))
 
-	options.Logger.ShortError("Final configuration state:")
+	options.Logger.ShortWarn("Final configuration state:")
 	if finalConfigDetails.State != nil {
-		options.Logger.ShortError(fmt.Sprintf("  State: %s", *finalConfigDetails.State))
+		options.Logger.ShortWarn(fmt.Sprintf("  State: %s", *finalConfigDetails.State))
 	}
 	if finalConfigDetails.StateCode != nil {
-		options.Logger.ShortError(fmt.Sprintf("  StateCode: %s", string(*finalConfigDetails.StateCode)))
+		options.Logger.ShortWarn(fmt.Sprintf("  StateCode: %s", string(*finalConfigDetails.StateCode)))
 	}
 
-	options.Logger.ShortError("All inputs in final configuration:")
+	options.Logger.ShortWarn("All inputs in final configuration:")
 	if finalConfigDetails.Definition != nil {
 		if resp, ok := finalConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
 			for key, value := range resp.Inputs {
 				// Don't log sensitive values
 				if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
-					options.Logger.ShortError(fmt.Sprintf("    %s: [REDACTED]", key))
+					options.Logger.ShortWarn(fmt.Sprintf("    %s: [REDACTED]", key))
 				} else {
-					options.Logger.ShortError(fmt.Sprintf("    %s: %v (type: %T)", key, value, value))
+					options.Logger.ShortWarn(fmt.Sprintf("    %s: %v (type: %T)", key, value, value))
 				}
 			}
 		} else {
-			options.Logger.ShortError("    No inputs found in configuration definition")
+			options.Logger.ShortWarn("    No inputs found in configuration definition")
 		}
 	}
 
-	options.Logger.ShortError("Required inputs that were checked:")
+	options.Logger.ShortWarn("Missing required inputs summary:")
+	for _, input := range targetAddon.OfferingInputs {
+		if input.Required && input.Key != "ibmcloud_api_key" {
+			found := false
+			if finalConfigDetails.Definition != nil {
+				if resp, ok := finalConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
+					if _, exists := resp.Inputs[input.Key]; exists {
+						found = true
+					}
+				}
+			}
+			status := "✓ PROVIDED"
+			if !found {
+				status = "✗ MISSING"
+			}
+			options.Logger.ShortWarn(fmt.Sprintf("    %s: %s", input.Key, status))
+		}
+	}
+
+	options.Logger.ShortWarn("Required inputs that were checked:")
 	for _, input := range targetAddon.OfferingInputs {
 		if input.Required && input.Key != "ibmcloud_api_key" {
 			defaultInfo := "no default"
 			if input.DefaultValue != nil {
 				defaultInfo = fmt.Sprintf("default: %v", input.DefaultValue)
 			}
-			options.Logger.ShortError(fmt.Sprintf("    %s (%s)", input.Key, defaultInfo))
+			options.Logger.ShortWarn(fmt.Sprintf("    %s (%s)", input.Key, defaultInfo))
 		}
 	}
-	options.Logger.ShortError("=== END RETRY DEBUG INFO ===")
+	options.Logger.ShortCustom("=== END RETRY DEBUG INFO ===", common.Colors.Cyan)
 
 	return false, missingInputs
 }
