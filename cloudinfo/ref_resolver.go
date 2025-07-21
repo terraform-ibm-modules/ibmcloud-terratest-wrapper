@@ -217,7 +217,7 @@ func (infoSvc *CloudInfoService) ResolveReferences(region string, references []R
 
 	// For dev/test/staging environments, use traditional retry logic
 	if isDevTestStagingRegion(region) {
-		return infoSvc.resolveReferencesWithRetry(region, references, defaultRetryCount)
+		return infoSvc.resolveReferencesWithRetry(region, references, defaultRetryCount, false)
 	}
 
 	// For production regions, try once then failover to alternative regions
@@ -225,12 +225,13 @@ func (infoSvc *CloudInfoService) ResolveReferences(region string, references []R
 }
 
 // resolveReferencesWithRetry implements the actual reference resolution with retry logic
-func (infoSvc *CloudInfoService) resolveReferencesWithRetry(region string, references []Reference, maxRetries int) (*ResolveResponse, error) {
+func (infoSvc *CloudInfoService) resolveReferencesWithRetry(region string, references []Reference, maxRetries int, hasMoreRegions bool) (*ResolveResponse, error) {
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		isRetryAttempt := attempt < maxRetries // True for all but the last attempt
-		result, err := infoSvc.doResolveReferencesWithContext(region, references, isRetryAttempt)
+		isRetryAttempt := attempt < maxRetries                      // True for all but the last attempt
+		hasMoreAttempts := (attempt < maxRetries) || hasMoreRegions // True if more retries OR more regions available
+		result, err := infoSvc.doResolveReferencesWithContext(region, references, isRetryAttempt, hasMoreAttempts)
 
 		if err == nil {
 			return result, nil
@@ -339,7 +340,11 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRegionFailover(primaryRegi
 		infoSvc.Logger.ShortInfo(fmt.Sprintf("Attempting reference resolution in primary region: %s", primaryRegion))
 	}
 
-	result, err := infoSvc.resolveReferencesWithRetry(primaryRegion, references, 1)
+	// Get preferred fallback regions to determine if more regions are available
+	fallbackRegions := getPreferredFallbackRegions(primaryRegion)
+	hasMoreRegions := len(fallbackRegions) > 0
+
+	result, err := infoSvc.resolveReferencesWithRetry(primaryRegion, references, 1, hasMoreRegions)
 	if err == nil {
 		return result, nil
 	}
@@ -351,16 +356,15 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRegionFailover(primaryRegi
 		infoSvc.Logger.ShortWarn(fmt.Sprintf("Primary region %s failed, trying fallback regions...", primaryRegion))
 	}
 
-	// Get preferred fallback regions
-	fallbackRegions := getPreferredFallbackRegions(primaryRegion)
-
 	// Try each fallback region once
-	for _, fallbackRegion := range fallbackRegions {
+	for i, fallbackRegion := range fallbackRegions {
 		if infoSvc.Logger != nil {
 			infoSvc.Logger.ShortInfo(fmt.Sprintf("Attempting reference resolution in fallback region: %s", fallbackRegion))
 		}
 
-		result, err := infoSvc.doResolveReferences(fallbackRegion, references)
+		// Check if this is the last fallback region
+		hasMoreAttempts := i < len(fallbackRegions)-1
+		result, err := infoSvc.doResolveReferencesWithContext(fallbackRegion, references, false, hasMoreAttempts)
 		if err == nil {
 			if infoSvc.Logger != nil {
 				infoSvc.Logger.ShortInfo(fmt.Sprintf("Reference resolution successful in fallback region: %s", fallbackRegion))
@@ -430,11 +434,11 @@ func (e *EnhancedHttpError) Unwrap() error {
 
 // doResolveReferences performs the actual reference resolution without retry logic
 func (infoSvc *CloudInfoService) doResolveReferences(region string, references []Reference) (*ResolveResponse, error) {
-	return infoSvc.doResolveReferencesWithContext(region, references, false)
+	return infoSvc.doResolveReferencesWithContext(region, references, false, false)
 }
 
 // doResolveReferencesWithContext performs the actual reference resolution with context for logging level
-func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, references []Reference, isRetryAttempt bool) (*ResolveResponse, error) {
+func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, references []Reference, isRetryAttempt bool, hasMoreAttempts bool) (*ResolveResponse, error) {
 	// Get service URL for the region using the variable that can be overridden in tests
 	serviceURL, err := CloudInfo_GetRefResolverServiceURLForRegion(region)
 	if err != nil {
@@ -509,12 +513,19 @@ func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, r
 
 			// Use warning level for retryable errors during retry attempts, error level for final attempts or non-retryable errors
 			logLevel := "error"
-			if isRetryAttempt && isRetryableError {
+			if (isRetryAttempt && isRetryableError) || hasMoreAttempts {
 				logLevel = "warn"
 			}
 
 			if logLevel == "warn" {
-				infoSvc.Logger.ShortWarn(fmt.Sprintf("Reference resolution failed (HTTP %d), will retry - this is often transient", resp.StatusCode))
+				// For warnings, show brief one-line message based on error type
+				if resp.StatusCode == 500 && strings.Contains(bodyStr, "Failed to validate api key token") {
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Reference resolution failed (HTTP %d), will retry - API key validation issue", resp.StatusCode))
+				} else if resp.StatusCode == 404 && strings.Contains(bodyStr, "could not be found") {
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Reference resolution failed (HTTP %d), will retry - project reference not found", resp.StatusCode))
+				} else {
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Reference resolution failed (HTTP %d), will retry - transient error", resp.StatusCode))
+				}
 			} else {
 				infoSvc.Logger.ShortError("===== Reference Resolution Failed =====")
 				infoSvc.Logger.ShortError(fmt.Sprintf("HTTP Status: %d", resp.StatusCode))
@@ -523,106 +534,58 @@ func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, r
 				infoSvc.Logger.ShortError(fmt.Sprintf("Number of references: %d", len(references)))
 			}
 
-			// For retryable errors during retry attempts, use warning level for diagnostic details
-			if resp.StatusCode == 500 && strings.Contains(bodyStr, "Failed to validate api key token") {
-				if logLevel == "warn" {
-					// For retry attempts, just log a simple warning - detailed diagnostics only on final failure
-					infoSvc.Logger.ShortWarn("API key validation failed (often transient)")
-				} else {
-					// Final attempt or non-retryable - use error level with full diagnostics
-					// Log all references being resolved
-					infoSvc.Logger.ShortError("References being resolved:")
-					for i, ref := range references {
-						infoSvc.Logger.ShortError(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
-					}
-
-					// Log authentication details (masked for security)
-					if len(token) > 10 {
-						maskedToken := token[:6] + "..." + token[len(token)-4:]
-						infoSvc.Logger.ShortError(fmt.Sprintf("Token: %s", maskedToken))
-					}
-
-					// Log API key metadata for debugging
-					if iamAuth, ok := infoSvc.authenticator.(*core.IamAuthenticator); ok {
-						if len(iamAuth.ApiKey) > 0 {
-							infoSvc.Logger.ShortError(fmt.Sprintf("API key length: %d characters", len(iamAuth.ApiKey)))
-							infoSvc.Logger.ShortError(fmt.Sprintf("API key prefix: %s...", iamAuth.ApiKey[:min(6, len(iamAuth.ApiKey))]))
-						}
-					}
-
-					// Log response details
-					infoSvc.Logger.ShortError(fmt.Sprintf("Response body: %s", bodyStr))
-					infoSvc.Logger.ShortError(fmt.Sprintf("Response headers: %v", resp.Header))
+			// For final errors, show detailed diagnostics
+			if logLevel == "error" {
+				// Log all references being resolved
+				infoSvc.Logger.ShortError("References being resolved:")
+				for i, ref := range references {
+					infoSvc.Logger.ShortError(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
 				}
-			} else {
-				// For other types of errors (non-API key validation), handle based on retry context
-				if logLevel == "warn" {
-					// For retry attempts, minimal logging - just note the error type
-					infoSvc.Logger.ShortWarn(fmt.Sprintf("Reference resolution error (will retry): %s", strings.Split(bodyStr, "\n")[0]))
-				} else {
-					// Final attempt - show full diagnostics
-					// Log all references being resolved at error level for final attempts
-					infoSvc.Logger.ShortError("References being resolved:")
-					for i, ref := range references {
-						infoSvc.Logger.ShortError(fmt.Sprintf("  [%d] %s", i+1, ref.Reference))
-					}
 
-					// Log authentication details (masked for security)
-					if len(token) > 10 {
-						maskedToken := token[:6] + "..." + token[len(token)-4:]
-						infoSvc.Logger.ShortError(fmt.Sprintf("Token: %s", maskedToken))
-					}
-
-					// Log response details
-					infoSvc.Logger.ShortError(fmt.Sprintf("Response body: %s", bodyStr))
-					infoSvc.Logger.ShortError(fmt.Sprintf("Response headers: %v", resp.Header))
+				// Log authentication details (masked for security)
+				if len(token) > 10 {
+					maskedToken := token[:6] + "..." + token[len(token)-4:]
+					infoSvc.Logger.ShortError(fmt.Sprintf("Token: %s", maskedToken))
 				}
+
+				// Log API key metadata for debugging
+				if iamAuth, ok := infoSvc.authenticator.(*core.IamAuthenticator); ok {
+					if len(iamAuth.ApiKey) > 0 {
+						infoSvc.Logger.ShortError(fmt.Sprintf("API key length: %d characters", len(iamAuth.ApiKey)))
+						infoSvc.Logger.ShortError(fmt.Sprintf("API key prefix: %s...", iamAuth.ApiKey[:min(6, len(iamAuth.ApiKey))]))
+					}
+				}
+
+				// Log response details
+				infoSvc.Logger.ShortError(fmt.Sprintf("Response body: %s", bodyStr))
+				infoSvc.Logger.ShortError(fmt.Sprintf("Response headers: %v", resp.Header))
 			}
 
-			// Special handling for specific known intermittent issues
-			if resp.StatusCode == 500 && strings.Contains(bodyStr, "Failed to validate api key token") {
-				logMessage := func(msg string) {
-					if logLevel == "warn" {
-						infoSvc.Logger.ShortWarn(msg)
-					} else {
-						infoSvc.Logger.ShortError(msg)
-					}
+			// Special handling for specific known intermittent issues - only show detailed explanations for final errors
+			if logLevel == "error" {
+				if resp.StatusCode == 500 && strings.Contains(bodyStr, "Failed to validate api key token") {
+					infoSvc.Logger.ShortError("========================================")
+					infoSvc.Logger.ShortError("API KEY VALIDATION FAILURE DETECTED")
+					infoSvc.Logger.ShortError("This is a known intermittent issue with IBM Cloud's reference resolution service.")
+					infoSvc.Logger.ShortError("The API key is valid (or tests wouldn't have reached this point).")
+					infoSvc.Logger.ShortError("Re-running the test typically resolves this transient issue.")
+					infoSvc.Logger.ShortError("========================================")
+				} else if resp.StatusCode == 404 && strings.Contains(bodyStr, "could not be found") {
+					infoSvc.Logger.ShortError("========================================")
+					infoSvc.Logger.ShortError("PROJECT REFERENCE NOT FOUND DETECTED")
+					infoSvc.Logger.ShortError("This is a known intermittent issue where project references cannot be found during provisioning.")
+					infoSvc.Logger.ShortError("This commonly occurs when project resources are still being set up.")
+					infoSvc.Logger.ShortError("Re-running the test typically resolves this transient issue.")
+					infoSvc.Logger.ShortError("========================================")
 				}
-				logMessage("========================================")
-				logMessage("API KEY VALIDATION FAILURE DETECTED")
-				logMessage("This is a known intermittent issue with IBM Cloud's reference resolution service.")
-				logMessage("The API key is valid (or tests wouldn't have reached this point).")
-				logMessage("Re-running the test typically resolves this transient issue.")
-				logMessage("========================================")
-			} else if resp.StatusCode == 404 && strings.Contains(bodyStr, "could not be found") {
-				logMessage := func(msg string) {
-					if logLevel == "warn" {
-						infoSvc.Logger.ShortWarn(msg)
-					} else {
-						infoSvc.Logger.ShortError(msg)
-					}
-				}
-				logMessage("========================================")
-				logMessage("PROJECT REFERENCE NOT FOUND DETECTED")
-				logMessage("This is a known intermittent issue where project references cannot be found during provisioning.")
-				logMessage("This commonly occurs when project resources are still being set up.")
-				logMessage("Re-running the test typically resolves this transient issue.")
-				logMessage("========================================")
-			} else if resp.StatusCode == 429 {
-				logMessage := func(msg string) {
-					if logLevel == "warn" {
-						infoSvc.Logger.ShortWarn(msg)
-					} else {
-						infoSvc.Logger.ShortError(msg)
-					}
-				}
-				logMessage("========================================")
-				logMessage("RATE LIMITING DETECTED (429)")
-				logMessage("This occurs when multiple parallel tests hit the same API endpoints simultaneously.")
-				logMessage("Consider using StaggerDelay in your AddonTestMatrix to space out test starts.")
-				logMessage("Example: matrix.StaggerDelay = testaddons.StaggerDelay(10 * time.Second) // 10 second stagger")
-				logMessage("Re-running the test typically resolves this issue.")
-				logMessage("========================================")
+			} else if resp.StatusCode == 429 && logLevel == "error" {
+				infoSvc.Logger.ShortError("========================================")
+				infoSvc.Logger.ShortError("RATE LIMITING DETECTED (429)")
+				infoSvc.Logger.ShortError("This occurs when multiple parallel tests hit the same API endpoints simultaneously.")
+				infoSvc.Logger.ShortError("Consider using StaggerDelay in your AddonTestMatrix to space out test starts.")
+				infoSvc.Logger.ShortError("Example: matrix.StaggerDelay = testaddons.StaggerDelay(10 * time.Second) // 10 second stagger")
+				infoSvc.Logger.ShortError("Re-running the test typically resolves this issue.")
+				infoSvc.Logger.ShortError("========================================")
 			}
 		}
 

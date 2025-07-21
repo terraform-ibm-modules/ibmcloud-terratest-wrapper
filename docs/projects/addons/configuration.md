@@ -379,6 +379,111 @@ options.DeployTimeoutMinutes = 120  // 2 hours instead of default 6 hours
 - Consider resource complexity when setting timeouts
 - Parallel tests may need longer timeouts due to resource contention
 
+## Logging and Output Configuration
+
+### Quiet Mode
+
+Control log verbosity during test execution to reduce noise while maintaining essential feedback:
+
+```golang
+options.QuietMode = core.BoolPtr(true)  // Enable quiet mode (default: false)
+```
+
+**Quiet Mode Features:**
+
+- **Suppresses verbose operational logs**: Eliminates detailed API calls, configuration details, and internal operations
+- **Shows essential progress feedback**: Displays high-level stages with visual indicators
+- **Maintains test result visibility**: Always shows final test results and error messages
+- **Reduces noise during parallel execution**: Particularly useful for matrix and permutation testing
+
+**Progress Feedback in Quiet Mode:**
+
+When quiet mode is enabled, you'll see clean progress indicators instead of verbose logs:
+
+```
+🔄 Setting up test Catalog and Project
+🔄 Deploying Configurations to Project
+🔄 Validating dependencies
+✅ Infrastructure deployment completed
+🔄 Cleaning up resources
+```
+
+**Progress Indicator Types:**
+
+- `🔄` **Stage indicators**: Setup, deployment, validation, cleanup phases
+- `✅` **Success confirmations**: Successful completion of major operations
+- `ℹ️` **Essential status updates**: Critical information that bypasses quiet mode
+- `✓ Passed` / `✗ Failed`: Final test results
+
+### Verbose Mode (Default)
+
+For detailed debugging and development, use verbose mode:
+
+```golang
+options.QuietMode = core.BoolPtr(false)  // Show all logs (default behavior)
+// Or simply omit QuietMode to use default verbose behavior
+```
+
+Verbose mode shows:
+- All API calls and responses
+- Detailed configuration information
+- Step-by-step operation logs
+- Full dependency validation details
+- Complete reference resolution logs
+
+### Automatic Quiet Mode (Permutation Testing)
+
+Some test types automatically enable quiet mode for better user experience:
+
+```golang
+func TestAddonPermutations(t *testing.T) {
+    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing: t,
+        Prefix:  "addon-perm",
+        AddonConfig: cloudinfo.AddonConfig{
+            OfferingName: "my-addon",
+            // QuietMode automatically set to true for permutation tests
+        },
+    })
+
+    // Permutation tests use quiet mode by default to reduce log noise
+    err := options.RunAddonPermutationTest()
+    assert.NoError(t, err)
+}
+```
+
+**Override automatic behavior:**
+```golang
+// Force verbose mode even for permutation tests
+options.QuietMode = core.BoolPtr(false)
+err := options.RunAddonPermutationTest()
+```
+
+### Matrix Test Quiet Mode
+
+Matrix tests inherit quiet mode settings from `BaseOptions`:
+
+```golang
+baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:   t,
+    Prefix:    "matrix-test",
+    QuietMode: core.BoolPtr(true), // Applies to all test cases in the matrix
+})
+
+matrix := testaddons.AddonTestMatrix{
+    TestCases:   testCases,
+    BaseOptions: baseOptions, // QuietMode inherited by all test cases
+}
+
+baseOptions.RunAddonTestMatrix(matrix)
+```
+
+**Matrix-specific quiet mode features:**
+- Individual test progress: `🔄 Starting test: test-case-name`
+- Stagger delay messages only shown in verbose mode
+- Clean test results: `✓ Passed: test-case-name`
+- Shared catalog creation progress indicators
+
 ## Skip Options
 
 ### Infrastructure Operations

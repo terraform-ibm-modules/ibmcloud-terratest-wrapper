@@ -45,6 +45,11 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		}()
 	}
 
+	// Show setup progress in quiet mode
+	if options.QuietMode != nil && *options.QuietMode {
+		options.Logger.ProgressStage("Setting up test Catalog and Project")
+	}
+
 	setupErr := options.testSetup()
 	if !assert.NoError(options.Testing, setupErr) {
 		options.Testing.Fail()
@@ -52,6 +57,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	}
 
 	// Deploy Addon to Project
+	if options.QuietMode != nil && *options.QuietMode {
+		options.Logger.ProgressStage("Deploying Configurations to Project")
+	}
 	options.Logger.ShortInfo("Deploying the addon to project")
 	deployedConfigs, err := options.CloudInfoService.DeployAddonToProject(&options.AddonConfig, options.currentProjectConfig)
 
@@ -89,11 +97,21 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	configDetails.MemberConfigs = nil
 	for _, config := range deployedConfigs.Configs {
 
-		prjCfg, _, _ := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+		prjCfg, _, err := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
 			ProjectID: options.currentProjectConfig.ProjectID,
 			Name:      config.Name,
 			ConfigID:  config.ConfigID,
 		})
+		if err != nil {
+			options.Logger.ShortError(fmt.Sprintf("Error retrieving config %s: %v", config.Name, err))
+			options.Testing.Fail()
+			return fmt.Errorf("error retrieving config %s: %w", config.Name, err)
+		}
+		if prjCfg == nil {
+			options.Logger.ShortError(fmt.Sprintf("Retrieved config %s is nil", config.Name))
+			options.Testing.Fail()
+			return fmt.Errorf("retrieved config %s is nil", config.Name)
+		}
 		configDetails.Members = append(configDetails.Members, *prjCfg)
 
 		configDetails.MemberConfigs = append(configDetails.MemberConfigs, projectv1.StackConfigMember{
@@ -445,6 +463,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 
 	// Now run dependency validation before evaluating the collected validation issues
 	if !options.SkipDependencyValidation {
+		if options.QuietMode != nil && *options.QuietMode {
+			options.Logger.ProgressStage("Validating dependencies")
+		}
 		options.Logger.ShortInfo("Starting with dependency validation")
 		var rootCatalogID, rootOfferingID, rootVersionLocator string
 		rootVersionLocator = options.AddonConfig.VersionLocator
@@ -869,6 +890,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			options.Testing.Fail()
 			return fmt.Errorf("errors occurred during deploy")
 		}
+		if options.QuietMode != nil && *options.QuietMode {
+			options.Logger.ProgressSuccess("Infrastructure deployment completed")
+		}
 		options.Logger.ShortInfo("Deploy completed successfully")
 		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✔"))
 	} else {
@@ -965,10 +989,17 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 			// Each test waits a progressively longer time before starting
 			if staggerDelay > 0 && testIndex > 0 {
 				staggerWait := time.Duration(testIndex) * staggerDelay
-				// Log using fmt.Printf since we don't have a logger instance yet
-				fmt.Printf("[%s - STAGGER] Delaying test start by %v to prevent rate limiting (test %d/%d)\n",
-					tc.Name, staggerWait, testIndex+1, len(matrix.TestCases))
+				// Only log stagger messages in verbose mode
+				if matrix.BaseOptions.QuietMode == nil || !*matrix.BaseOptions.QuietMode {
+					fmt.Printf("[%s - STAGGER] Delaying test start by %v to prevent rate limiting (test %d/%d)\n",
+						tc.Name, staggerWait, testIndex+1, len(matrix.TestCases))
+				}
 				time.Sleep(staggerWait)
+			}
+
+			// Show test start progress in quiet mode
+			if matrix.BaseOptions.QuietMode != nil && *matrix.BaseOptions.QuietMode {
+				fmt.Printf("🔄 Starting test: %s\n", tc.Name)
 			}
 
 			// Start with a copy of BaseOptions and customize for this test case
@@ -1005,14 +1036,28 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				testOptions.Logger = common.NewTestLogger(parentTestName)
 			}
 
+			// Set quiet mode on the logger
+			if testOptions.QuietMode != nil && *testOptions.QuietMode {
+				testOptions.Logger.SetQuietMode(true)
+				// In quiet mode, don't show individual test start messages
+			} else {
+				testOptions.Logger.SetQuietMode(false)
+				// Show individual test start messages in verbose mode
+				fmt.Printf("  Running test: %s\n", tc.Name)
+			}
+
 			// Ensure CloudInfoService is initialized before using it for catalog operations
 			if testOptions.CloudInfoService == nil {
-				cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
+				cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
+					Logger: testOptions.Logger,
+				})
 				if err != nil {
 					require.NoError(t, err, "Failed to initialize CloudInfoService")
 					return
 				}
 				testOptions.CloudInfoService = cloudInfoSvc
+			} else {
+				// Update the existing CloudInfoService logger with quiet mode setting
 				testOptions.CloudInfoService.SetLogger(testOptions.Logger)
 			}
 
@@ -1172,6 +1217,16 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 
 			// Run the test - each test creates its own project
 			err := testOptions.RunAddonTest()
+
+			// Handle result display in quiet mode
+			if testOptions.QuietMode != nil && *testOptions.QuietMode {
+				if err != nil {
+					fmt.Printf("  ✗ Failed: %s (error: %v)\n", tc.Name, err)
+				} else {
+					fmt.Printf("  ✓ Passed: %s\n", tc.Name)
+				}
+			}
+
 			require.NoError(t, err, "Addon Test had an unexpected error")
 		})
 	}
@@ -1196,6 +1251,17 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 	require.NotEmpty(options.Testing, options.AddonConfig.OfferingFlavor, "AddonConfig.OfferingFlavor is required")
 	require.NotEmpty(options.Testing, options.Prefix, "Prefix is required")
 
+	// Ensure OfferingInstallKind is set to a valid value, defaulting to Terraform
+	if !options.AddonConfig.OfferingInstallKind.Valid() {
+		options.AddonConfig.OfferingInstallKind = cloudinfo.InstallKindTerraform
+	}
+
+	// Enable quiet mode by default for permutation tests to reduce log noise
+	// but respect explicit user setting
+	if options.QuietMode == nil {
+		options.QuietMode = core.BoolPtr(true)
+	}
+
 	// Step 1: Discover dependencies from catalog
 	dependencies, err := options.discoverDependencies()
 	if err != nil {
@@ -1215,7 +1281,23 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 		return nil
 	}
 
-	// Step 3: Execute all permutations in parallel using matrix test infrastructure
+	// Step 3: Show minimal progress information for permutation tests
+	// Ensure logger is initialized before using it
+	if options.Logger == nil {
+		options.Logger = common.NewTestLogger("TestDependencyPermutations")
+	}
+
+	if options.QuietMode != nil && *options.QuietMode {
+		options.Logger.SetQuietMode(true)
+		// Show minimal progress in quiet mode
+		fmt.Printf("Running %d dependency permutation tests for %s (quiet mode - minimal output)...\n", len(testCases), options.AddonConfig.OfferingName)
+	} else {
+		options.Logger.SetQuietMode(false)
+		// Show verbose progress in verbose mode
+		fmt.Printf("Running %d dependency permutation tests for %s (verbose mode - full output)...\n", len(testCases), options.AddonConfig.OfferingName)
+	}
+
+	// Step 4: Execute all permutations in parallel using matrix test infrastructure
 	matrix := AddonTestMatrix{
 		TestCases:   testCases,
 		BaseOptions: options,
@@ -1225,19 +1307,37 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 			testOptions.Prefix = testCase.Prefix
 			testOptions.TestCaseName = testCase.Name
 			testOptions.SkipInfrastructureDeployment = testCase.SkipInfrastructureDeployment
+			// Inherit quiet mode from base options
+			if baseOptions.QuietMode != nil {
+				testOptions.QuietMode = core.BoolPtr(*baseOptions.QuietMode)
+			}
+			testOptions.VerboseOnFailure = baseOptions.VerboseOnFailure
 			return testOptions
 		},
 		AddonConfigFunc: func(testOptions *TestAddonOptions, testCase AddonTestCase) cloudinfo.AddonConfig {
-			// Use the base addon config but override dependencies
+			// Create a proper copy that preserves the original inputs
 			config := testOptions.AddonConfig
+
+			// Copy the Inputs map to avoid sharing reference
+			if config.Inputs != nil {
+				inputsCopy := make(map[string]interface{})
+				for k, v := range config.Inputs {
+					inputsCopy[k] = v
+				}
+				config.Inputs = inputsCopy
+			}
+
+			// Set permutation-specific values
 			config.Dependencies = testCase.Dependencies
 			config.Prefix = testOptions.Prefix
+
 			return config
 		},
 	}
 
 	// Execute the matrix test
 	options.RunAddonTestMatrix(matrix)
+
 	return nil
 }
 
@@ -1303,16 +1403,18 @@ func (options *TestAddonOptions) discoverDependencies() ([]cloudinfo.AddonConfig
 		if component.OfferingReference.DefaultFlavor == "" ||
 			component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name {
 			dep := cloudinfo.AddonConfig{
-				OfferingName:    component.OfferingReference.Name,
-				OfferingFlavor:  component.OfferingReference.Flavor.Name,
-				OfferingLabel:   component.OfferingReference.Label,
-				CatalogID:       component.OfferingReference.CatalogID,
-				OfferingID:      component.OfferingReference.ID,
-				VersionLocator:  component.OfferingReference.VersionLocator,
-				ResolvedVersion: component.OfferingReference.Version,
-				Enabled:         core.BoolPtr(true), // Required dependencies are always enabled
-				Prefix:          options.Prefix,
-				Inputs:          make(map[string]interface{}),
+				OfferingName:        component.OfferingReference.Name,
+				OfferingFlavor:      component.OfferingReference.Flavor.Name,
+				OfferingLabel:       component.OfferingReference.Label,
+				CatalogID:           component.OfferingReference.CatalogID,
+				OfferingID:          component.OfferingReference.ID,
+				VersionLocator:      component.OfferingReference.VersionLocator,
+				ResolvedVersion:     component.OfferingReference.Version,
+				Enabled:             core.BoolPtr(true), // Required dependencies are always enabled
+				Prefix:              options.Prefix,
+				Inputs:              make(map[string]interface{}),
+				OfferingInstallKind: cloudinfo.InstallKindTerraform,
+				Dependencies:        []cloudinfo.AddonConfig{},
 			}
 			dependencies = append(dependencies, dep)
 		}
@@ -1323,17 +1425,19 @@ func (options *TestAddonOptions) discoverDependencies() ([]cloudinfo.AddonConfig
 		if component.OfferingReference.DefaultFlavor == "" ||
 			component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name {
 			dep := cloudinfo.AddonConfig{
-				OfferingName:    component.OfferingReference.Name,
-				OfferingFlavor:  component.OfferingReference.Flavor.Name,
-				OfferingLabel:   component.OfferingReference.Label,
-				CatalogID:       component.OfferingReference.CatalogID,
-				OfferingID:      component.OfferingReference.ID,
-				VersionLocator:  component.OfferingReference.VersionLocator,
-				ResolvedVersion: component.OfferingReference.Version,
-				Enabled:         core.BoolPtr(component.OfferingReference.OnByDefault),
-				OnByDefault:     core.BoolPtr(component.OfferingReference.OnByDefault),
-				Prefix:          options.Prefix,
-				Inputs:          make(map[string]interface{}),
+				OfferingName:        component.OfferingReference.Name,
+				OfferingFlavor:      component.OfferingReference.Flavor.Name,
+				OfferingLabel:       component.OfferingReference.Label,
+				CatalogID:           component.OfferingReference.CatalogID,
+				OfferingID:          component.OfferingReference.ID,
+				VersionLocator:      component.OfferingReference.VersionLocator,
+				ResolvedVersion:     component.OfferingReference.Version,
+				Enabled:             core.BoolPtr(component.OfferingReference.OnByDefault),
+				OnByDefault:         core.BoolPtr(component.OfferingReference.OnByDefault),
+				Prefix:              options.Prefix,
+				Inputs:              make(map[string]interface{}),
+				OfferingInstallKind: cloudinfo.InstallKindTerraform,
+				Dependencies:        []cloudinfo.AddonConfig{},
 			}
 			dependencies = append(dependencies, dep)
 		}
@@ -1380,11 +1484,30 @@ func (options *TestAddonOptions) generatePermutations(dependencies []cloudinfo.A
 			continue
 		}
 
-		// Create test case name with sequential numbering
-		testCaseName := fmt.Sprintf("%s-permutation-%d", options.AddonConfig.OfferingName, permIndex)
+		// Create test case name with sequential numbering using shortened names
+		// Apply existing shortening pattern to main offering name
+		mainOfferingShortName := options.AddonConfig.OfferingName
+		if strings.HasPrefix(mainOfferingShortName, "deploy-arch-ibm-") {
+			mainOfferingShortName = strings.TrimPrefix(mainOfferingShortName, "deploy-arch-ibm-")
+		} else if strings.HasPrefix(mainOfferingShortName, "deploy-arch-") {
+			mainOfferingShortName = strings.TrimPrefix(mainOfferingShortName, "deploy-arch-")
+		}
+
+		testCaseName := fmt.Sprintf("%s-%d", mainOfferingShortName, permIndex)
 		if len(disabledNames) > 0 {
-			testCaseName = fmt.Sprintf("%s-permutation-%d-disabled-%s", options.AddonConfig.OfferingName, permIndex,
-				options.joinNames(disabledNames, "-"))
+			// Apply shortening to dependency names as well
+			var shortenedDisabledNames []string
+			for _, name := range disabledNames {
+				shortName := name
+				if strings.HasPrefix(shortName, "deploy-arch-ibm-") {
+					shortName = strings.TrimPrefix(shortName, "deploy-arch-ibm-")
+				} else if strings.HasPrefix(shortName, "deploy-arch-") {
+					shortName = strings.TrimPrefix(shortName, "deploy-arch-")
+				}
+				shortenedDisabledNames = append(shortenedDisabledNames, shortName)
+			}
+			testCaseName = fmt.Sprintf("%s-%d-disable-%s", mainOfferingShortName, permIndex,
+				options.joinNames(shortenedDisabledNames, "-"))
 		}
 
 		// Generate unique prefix using sequential counter

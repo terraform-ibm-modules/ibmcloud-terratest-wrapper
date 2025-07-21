@@ -44,7 +44,6 @@ import (
 )
 
 func TestSecretsManagerDependencyPermutations(t *testing.T) {
-    t.Parallel()
 
     options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
@@ -73,7 +72,6 @@ func TestSecretsManagerDependencyPermutations(t *testing.T) {
 
 ```golang
 func TestKMSAddonPermutations(t *testing.T) {
-    t.Parallel()
 
     options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
@@ -109,7 +107,7 @@ func TestKMSAddonPermutations(t *testing.T) {
 
 The framework automatically configures the following settings for permutation tests:
 
-- **Logging Mode**: Set to "failure_only" to reduce log noise
+- **Quiet Mode**: Automatically enabled (`QuietMode: true`) to reduce log noise and show clean progress indicators
 - **Infrastructure Deployment**: Set to `SkipInfrastructureDeployment: true` for all permutations
 - **Parallel Execution**: Uses `RunAddonTestMatrix` for efficient parallel testing
 - **Validation Focus**: All permutations perform validation-only testing
@@ -174,22 +172,51 @@ The "all dependencies enabled" case is excluded as it represents the default con
 
 ## Example Output
 
-### Success Case
-With failure-only logging enabled (automatic), successful permutations produce minimal output:
+### Quiet Mode (Default)
+With quiet mode enabled automatically, you'll see clean progress indicators and results:
+
 ```
-=== RUN   TestSecretsManagerDependencyPermutations
---- PASS: TestSecretsManagerDependencyPermutations (45.23s)
+[CloudInfoService] Importing offering: fully-configurable from branch URL...
+[CloudInfoService] Imported offering: Cloud automation for Event Notifications...
+Running 15 dependency permutation tests for deploy-arch-ibm-event-notifications (quiet mode - minimal output)...
+🔄 Starting test: event-notifications-0-disable-kms-cos-account-infra-base-observability
+🔄 Setting up test Catalog and Project
+🔄 Deploying Configurations to Project
+🔄 Validating dependencies
+✅ Infrastructure deployment completed
+🔄 Cleaning up resources
+  ✓ Passed: event-notifications-0-disable-kms-cos-account-infra-base-observability
+🔄 Starting test: event-notifications-4-disable-kms-cos-observability
+🔄 Setting up test Catalog and Project
+🔄 Deploying Configurations to Project
+🔄 Validating dependencies
+✅ Infrastructure deployment completed
+🔄 Cleaning up resources
+  ✓ Passed: event-notifications-4-disable-kms-cos-observability
+...
+  ✓ Passed: event-notifications-14
 PASS
+```
+
+### Verbose Mode
+For detailed debugging, override the automatic quiet mode:
+
+```golang
+options.QuietMode = core.BoolPtr(false)  // Enable verbose output
+err := options.RunAddonPermutationTest()
 ```
 
 ### Failure Case
 When permutations fail validation, you'll see detailed error information:
 ```
 === RUN   TestSecretsManagerDependencyPermutations
-=== RUN   TestSecretsManagerDependencyPermutations/sm-perm-03
-    permutation_test.go:42: Dependency validation failed: KMS dependency required but not enabled
+🔄 Starting test: sm-perm-03-disable-kms
+🔄 Setting up test Catalog and Project
+🔄 Deploying Configurations to Project
+🔄 Validating dependencies
+  ✗ Failed: sm-perm-03-disable-kms (error: dependency validation failed: 1 missing configs: [deploy-arch-ibm-kms (v5.1.4, fully-configurable)])
 --- FAIL: TestSecretsManagerDependencyPermutations (47.82s)
-    --- FAIL: TestSecretsManagerDependencyPermutations/sm-perm-03 (12.34s)
+    --- FAIL: TestSecretsManagerDependencyPermutations/sm-perm-03-disable-kms (12.34s)
 ```
 
 ## Comparing with Manual Matrix Testing

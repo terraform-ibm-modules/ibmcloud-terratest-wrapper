@@ -66,6 +66,7 @@ func TestRunAddonTests(t *testing.T) {
         Testing:       t,
         Prefix:        "matrix-test", // Individual test cases will override with their own prefixes
         ResourceGroup: "my-resource-group",
+        QuietMode:     core.BoolPtr(true), // Enable quiet mode for clean parallel test output
     })
 
     matrix := testaddons.AddonTestMatrix{
@@ -133,6 +134,7 @@ func TestMultipleAddons(t *testing.T) {
         Testing:       t,
         Prefix:        "matrix-test", // Individual test cases will override with their own prefixes
         ResourceGroup: "my-resource-group",
+        QuietMode:     core.BoolPtr(true), // Enable quiet mode for clean parallel test output
     })
 
     matrix := testaddons.AddonTestMatrix{
@@ -540,6 +542,7 @@ func TestComprehensiveAddonMatrix(t *testing.T) {
             Testing:       t,
             Prefix:        "comprehensive-test",
             ResourceGroup: "my-resource-group",
+            QuietMode:     core.BoolPtr(true), // Enable quiet mode for clean output
         }),
         BaseSetupFunc: func(baseOptions *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) *testaddons.TestAddonOptions {
             // Optional: customize per test case if needed

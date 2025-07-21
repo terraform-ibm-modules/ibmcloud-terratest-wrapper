@@ -128,12 +128,13 @@ func (options *TestAddonOptions) testSetup() error {
 
 	// create new CloudInfoService if not supplied
 	if options.CloudInfoService == nil {
-		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
+		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
+			Logger: options.Logger,
+		})
 		if err != nil {
 			return err
 		}
 		options.CloudInfoService = cloudInfoSvc
-		options.CloudInfoService.SetLogger(options.Logger)
 	}
 
 	if err := options.setupCatalog(); err != nil {
@@ -333,6 +334,10 @@ func (options *TestAddonOptions) TestTearDown() {
 
 // testTearDown performs the test teardown
 func (options *TestAddonOptions) testTearDown() {
+	// Show teardown progress in quiet mode
+	if options.QuietMode != nil && *options.QuietMode {
+		options.Logger.ProgressStage("Cleaning up resources")
+	}
 	// perform the test teardown
 	options.Logger.ShortInfo("Performing test teardown")
 
