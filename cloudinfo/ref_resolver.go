@@ -622,6 +622,13 @@ func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, r
 		if infoSvc.Logger != nil {
 			infoSvc.Logger.ShortError(fmt.Sprintf("Failed to parse JSON response: %v", err))
 			infoSvc.Logger.ShortError(fmt.Sprintf("Raw response: %s", string(bodyBytes)))
+
+			// Provide additional context for common JSON unmarshaling errors
+			if strings.Contains(err.Error(), "cannot unmarshal") {
+				infoSvc.Logger.ShortError("This appears to be a JSON structure mismatch error.")
+				infoSvc.Logger.ShortError("The API response structure may have changed, or the API returned unexpected data types.")
+				infoSvc.Logger.ShortError("Please check if the reference resolver API has been updated or if there are any ongoing service issues.")
+			}
 		}
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
