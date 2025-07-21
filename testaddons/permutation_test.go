@@ -1,6 +1,8 @@
 package testaddons
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/IBM/go-sdk-core/v5/core"
@@ -286,7 +288,7 @@ func TestRunAddonPermutationTestWithMock(t *testing.T) {
 			Testing:          t,
 			Prefix:           "test-prefix",
 			CloudInfoService: mockService,
-			Logger:           common.NewTestLogger(t.Name()),
+			Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
 			AddonConfig: cloudinfo.AddonConfig{
 				OfferingName:   "test-addon",
 				OfferingFlavor: "test-flavor",
@@ -369,7 +371,7 @@ func TestRunAddonPermutationTestNoDependencies(t *testing.T) {
 		Testing:          t,
 		Prefix:           "test-prefix",
 		CloudInfoService: mockService,
-		Logger:           common.NewTestLogger(t.Name()),
+		Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
 		AddonConfig: cloudinfo.AddonConfig{
 			OfferingName:   "test-addon",
 			OfferingFlavor: "test-flavor",
@@ -383,4 +385,175 @@ func TestRunAddonPermutationTestNoDependencies(t *testing.T) {
 
 	// Verify mock expectations were met
 	mockService.AssertExpectations(t)
+}
+
+// TestCreateInitialAbbreviation tests the basic abbreviation functionality
+func TestCreateInitialAbbreviation(t *testing.T) {
+	options := &TestAddonOptions{
+		Testing: t,
+		Prefix:  "test-prefix",
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Simple multi-word name",
+			input:    "cloud-monitoring",
+			expected: "c-m",
+		},
+		{
+			name:     "Deploy arch IBM prefix",
+			input:    "deploy-arch-ibm-observability",
+			expected: "dai-o",
+		},
+		{
+			name:     "Deploy arch prefix",
+			input:    "deploy-arch-observability",
+			expected: "da-o",
+		},
+		{
+			name:     "Name with numbers",
+			input:    "service-v2-config",
+			expected: "s-v2-c",
+		},
+		{
+			name:     "Name with keywords",
+			input:    "test-disable-basic",
+			expected: "test-disable-basic",
+		},
+		{
+			name:     "Single word",
+			input:    "kms",
+			expected: "k",
+		},
+		{
+			name:     "Empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "Complex real example",
+			input:    "event-notifications-advanced",
+			expected: "e-n-advanced",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := options.createInitialAbbreviation(tt.input)
+			assert.Equal(t, tt.expected, result, "Expected %s but got %s for input %s", tt.expected, result, tt.input)
+		})
+	}
+}
+
+// TestAbbreviateWithCollisionResolution tests collision resolution
+func TestAbbreviateWithCollisionResolution(t *testing.T) {
+	options := &TestAddonOptions{
+		Testing: t,
+		Prefix:  "test-prefix",
+	}
+
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{
+			name:     "No collisions",
+			input:    []string{"cloud-monitoring", "key-management", "account-infra"},
+			expected: []string{"c-m", "k-m", "a-i"},
+		},
+		{
+			name:     "Two collisions",
+			input:    []string{"cloud-monitoring", "cloud-metrics"},
+			expected: []string{"c-m", "c-me"},
+		},
+		{
+			name:     "Three way collision",
+			input:    []string{"cloud-monitoring", "cloud-metrics", "cloud-manager"},
+			expected: []string{"c-m", "c-me", "c-ma"},
+		},
+		{
+			name:     "Empty input",
+			input:    []string{},
+			expected: []string{},
+		},
+		{
+			name:     "Single item",
+			input:    []string{"cloud-monitoring"},
+			expected: []string{"c-m"},
+		},
+		{
+			name:     "Real world example",
+			input:    []string{"cloud-monitoring", "kms", "account-infra", "base", "cos", "cloud-logs", "activity-tracker"},
+			expected: []string{"c-m", "k", "a-i", "b", "c", "c-l", "a-t"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := options.abbreviateWithCollisionResolution(tt.input)
+			assert.Equal(t, tt.expected, result, "Expected %v but got %v for input %v", tt.expected, result, tt.input)
+		})
+	}
+}
+
+// TestProjectNameLengthCompliance tests that project names stay under the 128 character limit
+func TestProjectNameLengthCompliance(t *testing.T) {
+	options := &TestAddonOptions{
+		Testing: t,
+		Prefix:  "test-prefix",
+		AddonConfig: cloudinfo.AddonConfig{
+			OfferingName: "deploy-arch-ibm-event-notifications-advanced",
+		},
+	}
+
+	// Test with many long dependency names
+	longDependencyNames := []string{
+		"deploy-arch-ibm-cloud-monitoring-advanced",
+		"deploy-arch-ibm-key-management-service",
+		"deploy-arch-ibm-account-infrastructure-base",
+		"deploy-arch-ibm-cloud-object-storage",
+		"deploy-arch-ibm-cloud-logs-advanced",
+		"deploy-arch-ibm-activity-tracker-service",
+		"deploy-arch-ibm-security-compliance-center",
+	}
+
+	// Test permutation test name generation
+	randomPrefix := "abc123"
+	mainOfferingAbbrev := options.createInitialAbbreviation(options.AddonConfig.OfferingName)
+	abbreviatedDisabledNames := options.abbreviateWithCollisionResolution(longDependencyNames)
+
+	testCaseName := fmt.Sprintf("%s-%s-40-disable-%s", randomPrefix, mainOfferingAbbrev,
+		strings.Join(abbreviatedDisabledNames, "-"))
+
+	assert.True(t, len(testCaseName) < 128, "Project name length %d exceeds limit: %s", len(testCaseName), testCaseName)
+
+	// Test matrix test name generation
+	nameComponents := []string{randomPrefix, mainOfferingAbbrev, "basic", "test-prefix"}
+	matrixTestName := strings.Join(nameComponents, "-")
+
+	assert.True(t, len(matrixTestName) < 128, "Matrix test name length %d exceeds limit: %s", len(matrixTestName), matrixTestName)
+
+	// Verify the names are still readable
+	assert.Contains(t, testCaseName, randomPrefix)
+	assert.Contains(t, testCaseName, "disable")
+	assert.Contains(t, matrixTestName, randomPrefix)
+}
+
+// TestRandomPrefixGeneration tests that random prefixes provide uniqueness
+func TestRandomPrefixGeneration(t *testing.T) {
+	// Generate multiple random prefixes and ensure they're different
+	prefixes := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		prefix := common.UniqueId(6)
+		assert.Len(t, prefix, 6, "Random prefix should be 6 characters long")
+		assert.False(t, prefixes[prefix], "Random prefix %s was generated twice", prefix)
+		prefixes[prefix] = true
+	}
+
+	assert.Len(t, prefixes, 100, "Should have generated 100 unique prefixes")
 }
