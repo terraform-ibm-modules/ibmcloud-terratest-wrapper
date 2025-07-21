@@ -26,34 +26,32 @@ func (infoSvc *CloudInfoService) GetResourceGroupIDByName(resourceGroupName stri
 	return "", fmt.Errorf("resource group with name %s not found", resourceGroupName)
 }
 
-func (infoSvc *CloudInfoService) CreateResourceGroup(name string) (*resourcemanagerv2.ResCreateResourceGroup, error) {
-	fmt.Println("Creating resource group: ", name)
+// CreateResourceGroup will create a resource group with a given name using the Resource Manager service.
+func (infoSvc *CloudInfoService) CreateResourceGroup(name string) (*resourcemanagerv2.ResCreateResourceGroup, *core.DetailedResponse, error) {
 	resourceGroupOptions := infoSvc.resourceManagerService.NewCreateResourceGroupOptions()
 	resourceGroupOptions.SetName(name)
-	resourceGroup, _, err := infoSvc.resourceManagerService.CreateResourceGroup(resourceGroupOptions)
-
-	if err != nil {
-		infoSvc.Logger.Error(fmt.Sprintf("Could not create resource group: %v", err))
-	}
-
-	return resourceGroup, err
+	return infoSvc.resourceManagerService.CreateResourceGroup(resourceGroupOptions)
 }
 
+// DeleteResourceGroup will delete a resource group with a given ID using the Resource Manager service.
 func (infoSvc *CloudInfoService) DeleteResourceGroup(resourceGroupId string) (*core.DetailedResponse, error) {
-	fmt.Println("Deleting resource group: ", resourceGroupId)
 	resourceGroupOptions := infoSvc.resourceManagerService.NewDeleteResourceGroupOptions(resourceGroupId)
-	resp, err := infoSvc.resourceManagerService.DeleteResourceGroup(resourceGroupOptions)
-
-	if err != nil {
-		infoSvc.Logger.Error(fmt.Sprintf("Could not delete resource group: %v", err))
-	}
-
-	return resp, err
+	return infoSvc.resourceManagerService.DeleteResourceGroup(resourceGroupOptions)
 }
 
+// WithNewResourceGroup is a context manager that will create a resource group,
+// execute a given task that uses the created resource group and deletes the resource group.
 func (infoSvc *CloudInfoService) WithNewResourceGroup(name string, task func() error) error {
 	fmt.Println("Running task inside resource group context...")
-	resourceGroup, _ := infoSvc.CreateResourceGroup(name)
+	resourceGroup, resp, err := infoSvc.CreateResourceGroup(name)
+	fmt.Printf("Created resource group %s with ID %s", name, *resourceGroup.ID)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
 	defer infoSvc.DeleteResourceGroup(*resourceGroup.ID)
 
 	if err := task(); err != nil {

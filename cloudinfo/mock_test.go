@@ -217,7 +217,12 @@ func (s *resourceManagerServiceMock) NewCreateResourceGroupOptions() *resourcema
 }
 
 func (s *resourceManagerServiceMock) CreateResourceGroup(*resourcemanagerv2.CreateResourceGroupOptions) (*resourcemanagerv2.ResCreateResourceGroup, *core.DetailedResponse, error) {
-	return s.mockResCreateResourceGroup, nil, nil
+	resp := &core.DetailedResponse{
+		StatusCode: 200,
+		Headers:    map[string][]string{"Content-Type": {"application/json"}},
+	}
+
+	return s.mockResCreateResourceGroup, resp, nil
 }
 
 func (s *resourceManagerServiceMock) NewDeleteResourceGroupOptions(string) *resourcemanagerv2.DeleteResourceGroupOptions {

@@ -59,10 +59,10 @@ func TestCreateResourceGroup(t *testing.T) {
 	}
 
 	t.Run("CreateResourceGroup_Success", func(t *testing.T) {
-		resp, err := infoSvc.CreateResourceGroup("test-group")
+		resourceGroup, resp, err := infoSvc.CreateResourceGroup("test-group")
 		assert.NotNil(t, resp)
 		assert.Nil(t, err)
-		assert.Equal(t, "test-id", *resp.ID)
+		assert.Equal(t, "test-id", *resourceGroup.ID)
 	})
 }
 
