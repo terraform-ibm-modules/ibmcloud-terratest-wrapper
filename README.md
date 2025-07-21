@@ -19,6 +19,11 @@ For detailed information on specific testing frameworks:
 
 ### Quick Links
 
+**Logging:**
+
+- [Logging Guide](docs/logging.md) - Complete logging configuration and usage guide
+- [Enhanced Error Handling](docs/logging/examples.md#enhanced-error-handling-methods) - CriticalError, FatalError, and ErrorWithContext methods
+
 **Addon Testing:**
 
 - [Addon Testing Overview](docs/projects/addons/overview.md) - Get started with addon testing
