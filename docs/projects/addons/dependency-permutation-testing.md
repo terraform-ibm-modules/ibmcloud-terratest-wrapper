@@ -17,14 +17,16 @@ Dependency permutation testing solves the problem of manually creating test case
 
 ## When to Use Permutation Testing
 
-### Use `RunAddonPermutationTest()` when:
+### Use `RunAddonPermutationTest()` when
+
 - You want to test all possible dependency combinations
 - You need comprehensive validation without deployment costs
 - You want to catch dependency configuration issues early
 - You don't want to manually maintain permutation test cases
 - You're focused on validation rather than full deployment testing
 
-### Use Manual Matrix Testing when:
+### Use Manual Matrix Testing when
+
 - You need specific custom configurations for each test case
 - You want to control exactly which scenarios to test
 - You need some full deployment tests mixed with validation tests
@@ -61,35 +63,8 @@ func TestSecretsManagerDependencyPermutations(t *testing.T) {
         },
     })
 
-    err := options.RunAddonPermutationTest()
-    if err != nil {
-        t.Fatalf("Dependency permutation test failed: %v", err)
-    }
-}
-```
-
-### Alternative Pattern with Error Handling
-
-```golang
-func TestKMSAddonPermutations(t *testing.T) {
-
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
-        Testing: t,
-        Prefix:  "kms-perm",
-        AddonConfig: cloudinfo.AddonConfig{
-            OfferingName:   "deploy-arch-ibm-kms",
-            OfferingFlavor: "fully-configurable",
-            Inputs: map[string]interface{}{
-                "prefix":                       "kms-perm",
-                "region":                       "us-south",
-                "existing_resource_group_name": "default",
-                "service_plan":                 "tiered-pricing",
-            },
-        },
-    })
-
-    err := options.RunAddonPermutationTest()
-    assert.NoError(t, err, "Dependency permutation test should not fail")
+   err := options.RunAddonPermutationTest()
+   assert.NoError(t, err, "Dependency permutation test should not fail")
 }
 ```
 
@@ -115,18 +90,23 @@ The framework automatically configures the following settings for permutation te
 ## How It Works
 
 ### 1. Dependency Discovery
+
 The method automatically queries the IBM Cloud catalog to discover all direct dependencies of the specified addon using the addon's metadata.
 
 ### 2. Permutation Generation
+
 Creates all 2^n combinations of discovered dependencies being enabled/disabled:
+
 - **Root addon**: Always present (doesn't participate in permutation)
 - **Dependencies**: Each dependency can be enabled or disabled
 - **Combinations**: For n dependencies, generates 2^n total combinations
 
 ### 3. Default Filtering
+
 Excludes the "on by default" case since this is typically covered by existing default configuration tests.
 
 ### 4. Parallel Execution
+
 Uses the existing matrix test infrastructure to run all permutations in parallel for efficiency.
 
 ## Generated Test Cases
@@ -151,21 +131,25 @@ The "all dependencies enabled" case is excluded as it represents the default con
 ## Benefits
 
 ### Comprehensive Coverage
+
 - Tests all possible dependency combinations automatically
 - Catches dependency configuration issues that manual testing might miss
 - Ensures addon works correctly with any dependency configuration
 
 ### Zero Maintenance
+
 - No need to manually define test cases for each permutation
 - Automatically adapts when dependencies change
 - Reduces test code maintenance burden
 
 ### Cost Effective
+
 - Validation-only mode avoids infrastructure deployment costs
 - Parallel execution reduces total test time
 - Failure-only logging reduces noise and focuses on issues
 
 ### Scalable
+
 - Works with any number of dependencies
 - Automatically adjusts to new dependencies
 - No code changes required when dependency structure changes
@@ -173,6 +157,7 @@ The "all dependencies enabled" case is excluded as it represents the default con
 ## Example Output
 
 ### Quiet Mode (Default)
+
 With quiet mode enabled automatically, you'll see clean progress indicators and results:
 
 ```
@@ -199,6 +184,7 @@ PASS
 ```
 
 ### Verbose Mode
+
 For detailed debugging, override the automatic quiet mode:
 
 ```golang
@@ -207,7 +193,9 @@ err := options.RunAddonPermutationTest()
 ```
 
 ### Failure Case
+
 When permutations fail validation, you'll see detailed error information:
+
 ```
 === RUN   TestSecretsManagerDependencyPermutations
 🔄 Starting test: sm-perm-03-disable-kms
@@ -222,6 +210,7 @@ When permutations fail validation, you'll see detailed error information:
 ## Comparing with Manual Matrix Testing
 
 ### Dependency Permutation Testing (Automated)
+
 **Best for**: Comprehensive validation of all dependency combinations
 
 ```golang
@@ -246,6 +235,7 @@ func TestAddonPermutations(t *testing.T) {
 ```
 
 ### Manual Matrix Testing (Explicit Control)
+
 **Best for**: Custom scenarios with specific configurations
 
 ```golang
@@ -293,7 +283,9 @@ func TestAddonMatrix(t *testing.T) {
 ## Best Practices
 
 ### 1. Use Descriptive Prefixes
+
 Use clear, short prefixes that identify your addon:
+
 ```golang
 options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
     Testing: t,
@@ -303,7 +295,9 @@ options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
 ```
 
 ### 2. Include Required Configuration
+
 Ensure all required inputs are provided:
+
 ```golang
 AddonConfig: cloudinfo.AddonConfig{
     OfferingName:   "deploy-arch-ibm-secrets-manager",
@@ -319,7 +313,9 @@ AddonConfig: cloudinfo.AddonConfig{
 ```
 
 ### 3. Use Appropriate Service Plans
+
 Choose cost-effective service plans for testing:
+
 ```golang
 Inputs: map[string]interface{}{
     "service_plan": "trial",          // Use trial/free plans when available
@@ -328,7 +324,9 @@ Inputs: map[string]interface{}{
 ```
 
 ### 4. Run as Parallel Tests
+
 Always mark permutation tests as parallel:
+
 ```golang
 func TestAddonPermutations(t *testing.T) {
     t.Parallel()  // Enable parallel execution
@@ -340,6 +338,7 @@ func TestAddonPermutations(t *testing.T) {
 ## Integration with Existing Testing
 
 ### Combined Testing Strategy
+
 Use permutation testing alongside other testing approaches:
 
 ```golang
@@ -400,25 +399,31 @@ func TestAddonDependencyPermutations(t *testing.T) {
 ### Common Issues
 
 **No Dependencies Found**
+
 ```
 Error: No dependencies found for addon 'my-addon'
 ```
+
 - Verify the addon name and flavor are correct
 - Check that the addon has dependencies defined in the catalog
 - Ensure the addon is properly imported in the catalog
 
 **Validation Failures**
+
 ```
 Error: Dependency validation failed for permutation 'addon-perm-03'
 ```
+
 - Check that all required inputs are provided
 - Verify dependency configurations are valid
 - Review the specific error message for details
 
 **Timeout Issues**
+
 ```
 Error: Test timed out after 30 minutes
 ```
+
 - Large numbers of dependencies can create many permutations
 - Consider using failure-only logging to reduce overhead
 - Verify parallel execution is enabled
