@@ -108,6 +108,17 @@ func (options *TestAddonOptions) testSetup() error {
 		}
 	}
 
+	// create new CloudInfoService if not supplied
+	if options.CloudInfoService == nil {
+		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
+			Logger: options.Logger,
+		})
+		if err != nil {
+			return err
+		}
+		options.CloudInfoService = cloudInfoSvc
+	}
+
 	// get current branch and repo url and validate branch exists for offering import
 	// Use the cloudinfo helper to prepare offering import (validates branch exists)
 	branchUrl, repo, branch, err := options.CloudInfoService.PrepareOfferingImport()
@@ -125,17 +136,6 @@ func (options *TestAddonOptions) testSetup() error {
 	options.Logger.ShortInfo(fmt.Sprintf("Current branch: %s", branch))
 	options.Logger.ShortInfo(fmt.Sprintf("Current repo: %s", repo))
 	options.Logger.ShortInfo(fmt.Sprintf("Current branch URL: %s", *options.currentBranchUrl))
-
-	// create new CloudInfoService if not supplied
-	if options.CloudInfoService == nil {
-		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
-			Logger: options.Logger,
-		})
-		if err != nil {
-			return err
-		}
-		options.CloudInfoService = cloudInfoSvc
-	}
 
 	if err := options.setupCatalog(); err != nil {
 		return err
