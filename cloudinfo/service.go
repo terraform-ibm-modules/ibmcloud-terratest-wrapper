@@ -51,7 +51,7 @@ type CloudInfoService struct {
 	// schematics is regional, this map contains schematics services by location
 	schematicsServices map[string]schematicsService
 	ApiKey             string
-	Logger             *common.TestLogger // Logger for CloudInfoService
+	Logger             common.Logger // Logger for CloudInfoService
 	// activeRefResolverRegion tracks the currently active region for ref resolution after failover
 	activeRefResolverRegion string
 	refResolverLock         sync.Mutex
@@ -109,11 +109,13 @@ type CloudInfoServiceI interface {
 	GetReclamationIdFromCRN(CRN string) (string, error)
 	DeleteInstanceFromReclamationId(reclamationID string) error
 	DeleteInstanceFromReclamationByCRN(CRN string) error
-	GetLogger() *common.TestLogger
-	SetLogger(logger *common.TestLogger)
+	GetLogger() common.Logger
+	SetLogger(logger common.Logger)
 	GetApiKey() string
 	ResolveReferences(region string, references []Reference) (*ResolveResponse, error)
+	ResolveReferencesWithContext(region string, references []Reference, batchMode bool) (*ResolveResponse, error)
 	ResolveReferencesFromStrings(region string, refStrings []string, projectNameOrID string) (*ResolveResponse, error)
+	ResolveReferencesFromStringsWithContext(region string, refStrings []string, projectNameOrID string, batchMode bool) (*ResolveResponse, error)
 	// TODO: Implement these methods
 	// GetInputs(projectID, configID string) ([]InputDetail, error)
 	// GetOutputs(projectID, configID string) ([]projects.OutputValue, error)
@@ -137,7 +139,7 @@ type CloudInfoServiceOptions struct {
 	SchematicsServices        map[string]schematicsService
 	// StackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	StackDefinitionCreator StackDefinitionCreator
-	Logger                 *common.TestLogger // Logger option for CloudInfoService
+	Logger                 common.Logger // Logger option for CloudInfoService
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -320,7 +322,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 	if options.Logger != nil {
 		infoSvc.Logger = options.Logger
 	} else {
-		infoSvc.Logger = common.NewTestLogger("CloudInfoService")
+		infoSvc.Logger = common.CreateSmartAutoBufferingLogger("CloudInfoService", false)
 	}
 
 	// if authenticator is not supplied, create new IamAuthenticator with supplied api key
@@ -536,7 +538,7 @@ func NewCloudInfoServiceFromEnv(apiKeyEnv string, options CloudInfoServiceOption
 
 	// Make sure to pass the logger along
 	if options.Logger == nil {
-		options.Logger = common.NewTestLogger("CloudInfoService")
+		options.Logger = common.CreateSmartAutoBufferingLogger("CloudInfoService", false)
 	}
 
 	return NewCloudInfoServiceWithKey(options)
@@ -551,12 +553,12 @@ type StackDefinitionCreator interface {
 }
 
 // GetLogger returns the current logger
-func (infoSvc *CloudInfoService) GetLogger() *common.TestLogger {
+func (infoSvc *CloudInfoService) GetLogger() common.Logger {
 	return infoSvc.Logger
 }
 
 // SetLogger sets a new logger
-func (infoSvc *CloudInfoService) SetLogger(logger *common.TestLogger) {
+func (infoSvc *CloudInfoService) SetLogger(logger common.Logger) {
 	infoSvc.Logger = logger
 }
 

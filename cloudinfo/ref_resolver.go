@@ -202,6 +202,11 @@ func replaceConfigIDWithName(reference, configID, configName string) string {
 
 // ResolveReferences resolves a list of references using the ref-resolver API with region failover
 func (infoSvc *CloudInfoService) ResolveReferences(region string, references []Reference) (*ResolveResponse, error) {
+	return infoSvc.ResolveReferencesWithContext(region, references, false)
+}
+
+// ResolveReferencesWithContext resolves references with optional batch context to reduce logging verbosity
+func (infoSvc *CloudInfoService) ResolveReferencesWithContext(region string, references []Reference, batchMode bool) (*ResolveResponse, error) {
 	// Check if we have an active region from previous failover
 	infoSvc.refResolverLock.Lock()
 	activeRegion := infoSvc.activeRefResolverRegion
@@ -209,7 +214,7 @@ func (infoSvc *CloudInfoService) ResolveReferences(region string, references []R
 
 	// If we have an active region from previous failover, use it instead of the requested region
 	if activeRegion != "" && activeRegion != region {
-		if infoSvc.Logger != nil {
+		if infoSvc.Logger != nil && !batchMode {
 			infoSvc.Logger.ShortInfo(fmt.Sprintf("Using active region %s instead of requested region %s (from previous successful failover)", activeRegion, region))
 		}
 		region = activeRegion
@@ -217,15 +222,20 @@ func (infoSvc *CloudInfoService) ResolveReferences(region string, references []R
 
 	// For dev/test/staging environments, use traditional retry logic
 	if isDevTestStagingRegion(region) {
-		return infoSvc.resolveReferencesWithRetry(region, references, defaultRetryCount, false)
+		return infoSvc.resolveReferencesWithRetryContext(region, references, defaultRetryCount, false, batchMode)
 	}
 
 	// For production regions, try once then failover to alternative regions
-	return infoSvc.resolveReferencesWithRegionFailover(region, references)
+	return infoSvc.resolveReferencesWithRegionFailoverContext(region, references, batchMode)
 }
 
 // resolveReferencesWithRetry implements the actual reference resolution with retry logic
 func (infoSvc *CloudInfoService) resolveReferencesWithRetry(region string, references []Reference, maxRetries int, hasMoreRegions bool) (*ResolveResponse, error) {
+	return infoSvc.resolveReferencesWithRetryContext(region, references, maxRetries, hasMoreRegions, false)
+}
+
+// resolveReferencesWithRetryContext implements the actual reference resolution with retry logic and batch context
+func (infoSvc *CloudInfoService) resolveReferencesWithRetryContext(region string, references []Reference, maxRetries int, hasMoreRegions bool, batchMode bool) (*ResolveResponse, error) {
 	var lastErr error
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -248,7 +258,7 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRetry(region string, refer
 		if httpErr, ok := err.(*HttpError); ok {
 			if shouldRetryReferenceResolution(httpErr.StatusCode, httpErr.Body) {
 				waitTime := time.Duration(defaultInitialRetryWait*(1<<attempt)) * time.Second // exponential backoff
-				if infoSvc.Logger != nil {
+				if infoSvc.Logger != nil && !batchMode {
 					infoSvc.Logger.ShortWarn(fmt.Sprintf("Reference resolution failed with retryable error (attempt %d/%d), retrying in %v...",
 						attempt+1, maxRetries+1, waitTime))
 
@@ -267,7 +277,7 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRetry(region string, refer
 				// Force token refresh for API key validation errors by creating a new authenticator instance
 				// This addresses a known issue where cached tokens expire during retry attempts
 				if infoSvc.authenticator != nil && strings.Contains(httpErr.Body, "Failed to validate api key token") {
-					if infoSvc.Logger != nil {
+					if infoSvc.Logger != nil && !batchMode {
 						infoSvc.Logger.ShortInfo("Forcing token refresh due to API key validation failure")
 					}
 					// Create a new authenticator to force fresh token retrieval
@@ -332,11 +342,16 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRetry(region string, refer
 
 // resolveReferencesWithRegionFailover implements region failover for production environments
 func (infoSvc *CloudInfoService) resolveReferencesWithRegionFailover(primaryRegion string, references []Reference) (*ResolveResponse, error) {
+	return infoSvc.resolveReferencesWithRegionFailoverContext(primaryRegion, references, false)
+}
+
+// resolveReferencesWithRegionFailoverContext implements region failover with batch context for production environments
+func (infoSvc *CloudInfoService) resolveReferencesWithRegionFailoverContext(primaryRegion string, references []Reference, batchMode bool) (*ResolveResponse, error) {
 	var lastErr error
 	var attempts []string
 
 	// Try primary region first with one retry for API key validation failures
-	if infoSvc.Logger != nil {
+	if infoSvc.Logger != nil && !batchMode {
 		infoSvc.Logger.ShortInfo(fmt.Sprintf("Attempting reference resolution in primary region: %s", primaryRegion))
 	}
 
@@ -344,7 +359,7 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRegionFailover(primaryRegi
 	fallbackRegions := getPreferredFallbackRegions(primaryRegion)
 	hasMoreRegions := len(fallbackRegions) > 0
 
-	result, err := infoSvc.resolveReferencesWithRetry(primaryRegion, references, 1, hasMoreRegions)
+	result, err := infoSvc.resolveReferencesWithRetryContext(primaryRegion, references, 1, hasMoreRegions, batchMode)
 	if err == nil {
 		return result, nil
 	}
@@ -352,13 +367,13 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRegionFailover(primaryRegi
 	lastErr = err
 	attempts = append(attempts, primaryRegion)
 
-	if infoSvc.Logger != nil {
+	if infoSvc.Logger != nil && !batchMode {
 		infoSvc.Logger.ShortWarn(fmt.Sprintf("Primary region %s failed, trying fallback regions...", primaryRegion))
 	}
 
 	// Try each fallback region once
 	for i, fallbackRegion := range fallbackRegions {
-		if infoSvc.Logger != nil {
+		if infoSvc.Logger != nil && !batchMode {
 			infoSvc.Logger.ShortInfo(fmt.Sprintf("Attempting reference resolution in fallback region: %s", fallbackRegion))
 		}
 
@@ -366,7 +381,7 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRegionFailover(primaryRegi
 		hasMoreAttempts := i < len(fallbackRegions)-1
 		result, err := infoSvc.doResolveReferencesWithContext(fallbackRegion, references, false, hasMoreAttempts)
 		if err == nil {
-			if infoSvc.Logger != nil {
+			if infoSvc.Logger != nil && !batchMode {
 				infoSvc.Logger.ShortInfo(fmt.Sprintf("Reference resolution successful in fallback region: %s", fallbackRegion))
 			}
 
@@ -375,7 +390,7 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRegionFailover(primaryRegi
 			infoSvc.activeRefResolverRegion = fallbackRegion
 			infoSvc.refResolverLock.Unlock()
 
-			if infoSvc.Logger != nil {
+			if infoSvc.Logger != nil && !batchMode {
 				infoSvc.Logger.ShortInfo(fmt.Sprintf("Set active ref-resolver region to %s for subsequent requests", fallbackRegion))
 			}
 
@@ -385,7 +400,7 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRegionFailover(primaryRegi
 		lastErr = err
 		attempts = append(attempts, fallbackRegion)
 
-		if infoSvc.Logger != nil {
+		if infoSvc.Logger != nil && !batchMode {
 			infoSvc.Logger.ShortWarn(fmt.Sprintf("Fallback region %s failed: %v", fallbackRegion, err))
 		}
 	}
@@ -865,11 +880,21 @@ func (infoSvc *CloudInfoService) ResolveReferencesFromStrings(
 	region string,
 	refStrings []string,
 	projectID string) (*ResolveResponse, error) {
+	return infoSvc.ResolveReferencesFromStringsWithContext(region, refStrings, projectID, false)
+}
+
+// ResolveReferencesFromStringsWithContext resolves references with optional batch context to reduce logging verbosity
+func (infoSvc *CloudInfoService) ResolveReferencesFromStringsWithContext(
+	region string,
+	refStrings []string,
+	projectID string,
+	batchMode bool) (*ResolveResponse, error) {
 
 	// Initialize a cache to hold project info to avoid redundant API calls
 	projectCache := make(map[string]*ProjectInfo)
 
-	if infoSvc.Logger != nil {
+	// Only log detailed start message if not in batch mode
+	if infoSvc.Logger != nil && !batchMode {
 		infoSvc.Logger.ShortInfo(fmt.Sprintf("Starting reference resolution for project: %s (%d references)", projectID, len(refStrings)))
 	}
 
@@ -882,7 +907,8 @@ func (infoSvc *CloudInfoService) ResolveReferencesFromStrings(
 		return nil, fmt.Errorf("failed to get project info: %v", err)
 	}
 
-	if infoSvc.Logger != nil {
+	// Only log project info in detailed mode (not batch mode)
+	if infoSvc.Logger != nil && !batchMode {
 		infoSvc.Logger.ShortInfo(fmt.Sprintf("Using project: %s (ID: %s)", projectInfo.Name, projectInfo.ID))
 	}
 
@@ -894,5 +920,5 @@ func (infoSvc *CloudInfoService) ResolveReferencesFromStrings(
 		return nil, fmt.Errorf("failed to transform references: %v", err)
 	}
 
-	return infoSvc.ResolveReferences(region, references)
+	return infoSvc.ResolveReferencesWithContext(region, references, batchMode)
 }

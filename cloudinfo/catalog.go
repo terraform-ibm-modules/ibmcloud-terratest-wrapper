@@ -969,17 +969,24 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 					continue
 				}
 
-				if configuration.Type == nil {
-					// Safe to skip: A configuration without a type is unusable for deployment.
-					// The type is required to validate and process the configuration value correctly.
-					// We continue processing other configurations that might be valid, allowing
-					// the deployment to proceed with the valid configurations found.
-					if offering.ID != nil {
-						infoSvc.Logger.ShortError(fmt.Sprintf("Error: configuration Type is nil for offering %s, version %s, key %s", *offering.ID, VersionID, *configuration.Key))
-					} else {
-						infoSvc.Logger.ShortError(fmt.Sprintf("Error: configuration Type is nil for offering with nil ID, version %s, key %s", VersionID, *configuration.Key))
+				// Determine configuration type with fallback logic
+				var configType string
+				if configuration.Type != nil {
+					configType = *configuration.Type
+				} else {
+					// Check for type in custom_config as fallback
+					var foundInCustomConfig bool
+					if configuration.CustomConfig != nil && configuration.CustomConfig.Type != nil {
+						configType = *configuration.CustomConfig.Type
+						foundInCustomConfig = true
+						infoSvc.Logger.ShortInfo(fmt.Sprintf("Using type from custom_config for key %s: %s", *configuration.Key, configType))
 					}
-					continue
+
+					if !foundInCustomConfig {
+						// Default to string as last resort
+						configType = "string"
+						infoSvc.Logger.ShortWarn(fmt.Sprintf("Warning: no type information found for key %s, defaulting to 'string'", *configuration.Key))
+					}
 				}
 
 				// Handle optional fields with safe defaults
@@ -995,7 +1002,7 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 
 				input := CatalogInput{
 					Key:          *configuration.Key,
-					Type:         *configuration.Type,
+					Type:         configType,
 					DefaultValue: configuration.DefaultValue,
 					Required:     required,
 					Description:  description,
