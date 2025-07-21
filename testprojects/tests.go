@@ -246,7 +246,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				failed = true
 				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location)
 				options.Logger.ShortError(terraLogs)
-				errorList = append(errorList, fmt.Errorf(logMessage))
+				errorList = append(errorList, fmt.Errorf("%s", logMessage))
 			case project.ProjectConfig_State_Draft:
 				if stateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite || (stateCode == project.ProjectConfig_StateCode_AwaitingMemberDeployment && strings.HasSuffix(memberName, " Container")) {
 					currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
@@ -340,7 +340,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 						errorMessage.WriteString(fmt.Sprintf("\nUnresolved References:\n%s", unResolvedRefs))
 					}
 				}
-				errorList = append(errorList, fmt.Errorf(errorMessage.String()))
+				errorList = append(errorList, fmt.Errorf("%s", errorMessage.String()))
 				failed = true
 			}
 

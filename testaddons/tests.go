@@ -254,7 +254,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 							options.Logger.ShortWarn(fmt.Sprintf("%s   %s - Warning: %s", common.ColorizeString(common.Colors.Yellow, "⚠"), ref.Reference, ref.State))
 							options.Logger.ShortWarn(fmt.Sprintf("      Message: %s", ref.Message))
 							options.Logger.ShortWarn(fmt.Sprintf("      Code: %d", ref.Code))
-							options.Logger.ShortWarn(fmt.Sprintf("      This is a valid reference that cannot be resolved until the member configuration is deployed."))
+							options.Logger.ShortWarn("      This is a valid reference that cannot be resolved until the member configuration is deployed.")
 							// This is a warning, not an error, so don't add to failedRefs
 						} else {
 							options.Logger.ShortWarn(fmt.Sprintf("%s   %s - Error: %s", common.ColorizeString(common.Colors.Red, "✘"), ref.Reference, ref.State))
@@ -635,7 +635,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 				errorMsg = "dependency validation failed - check validation output above for details"
 			}
 
-			return fmt.Errorf(errorMsg)
+			return fmt.Errorf("%s", errorMsg)
 		}
 	}
 
@@ -1052,8 +1052,8 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				if testOptions.AddonConfig.OfferingName != "" {
 					// Extract a shorter, more readable name from the offering
 					offeringShortName := testOptions.AddonConfig.OfferingName
-					if strings.HasPrefix(offeringShortName, "deploy-arch-") {
-						offeringShortName = strings.TrimPrefix(offeringShortName, "deploy-arch-")
+					if after, ok := strings.CutPrefix(offeringShortName, "deploy-arch-"); ok {
+						offeringShortName = after
 					}
 					nameComponents = append(nameComponents, offeringShortName)
 				}
