@@ -47,6 +47,7 @@ The addon testing documentation is organized into the following focused guides:
 - **[Testing Process Overview](testing-process.md)** - Detailed explanation of the automated testing lifecycle
 - **[Configuration Guide](configuration.md)** - Complete configuration options and advanced settings
 - **[Parallel Testing Guide](parallel-testing.md)** - Matrix testing and parallel execution patterns
+- **[Dependency Permutation Testing](dependency-permutation-testing.md)** - Automated testing of all dependency combinations
 - **[Validation and Hooks](validation-hooks.md)** - Built-in validations and custom hook points
 - **[Examples](examples.md)** - Comprehensive examples for common scenarios
 - **[Troubleshooting](troubleshooting.md)** - Common issues and solutions
@@ -56,6 +57,7 @@ The addon testing documentation is organized into the following focused guides:
 - **Automated Lifecycle Management**: Handles catalog creation, offering import, project setup, deployment, and cleanup
 - **Built-in Validations**: Reference validation, dependency validation, and local change checks
 - **Parallel Testing Support**: Run multiple test configurations simultaneously with matrix testing
+- **Dependency Permutation Testing**: Automatically test all possible dependency combinations
 - **Flexible Hooks**: Inject custom code at key points in the testing process
 - **Comprehensive Logging**: Detailed logging throughout the testing process
 - **Dependency Management**: Automatic dependency discovery and validation
@@ -83,4 +85,5 @@ Hook functions allow you to inject custom code at specific points in the testing
 - Start with the [Examples Guide](examples.md) to see common patterns
 - Review the [Configuration Guide](configuration.md) for detailed options
 - Check out [Parallel Testing Guide](parallel-testing.md) for matrix testing approaches
+- Learn about [Dependency Permutation Testing](dependency-permutation-testing.md) for automated dependency validation
 - See [Validation and Hooks](validation-hooks.md) for advanced customization

@@ -1,10 +1,16 @@
 # Parallel Testing Guide
 
-This guide covers how to run multiple addon test configurations in parallel using the **matrix testing approach**. Matrix testing is the **primary and recommended pattern** for parallel addon testing, providing a clean, declarative way to define multiple test scenarios.
+This guide covers how to run multiple addon test configurations in parallel using both **matrix testing** and **dependency permutation testing**. These approaches provide different ways to test multiple scenarios efficiently.
 
-## Matrix Testing Pattern (Recommended)
+## Testing Approaches Overview
 
-Matrix testing uses the `AddonTestMatrix` structure to define test cases and run them in parallel. This is the primary approach for parallel testing in the framework.
+### Matrix Testing (Manual Control)
+Matrix testing uses the `AddonTestMatrix` structure to define specific test cases and run them in parallel. This approach gives you full control over which scenarios to test and how to configure them.
+
+### Dependency Permutation Testing (Automated)
+Dependency permutation testing uses `RunAddonPermutationTest()` to automatically test all possible dependency combinations. This approach provides comprehensive validation with minimal configuration.
+
+## Matrix Testing Pattern
 
 ### Basic Matrix Test Structure
 
@@ -60,6 +66,7 @@ func TestRunAddonTests(t *testing.T) {
         Testing:       t,
         Prefix:        "matrix-test", // Individual test cases will override with their own prefixes
         ResourceGroup: "my-resource-group",
+        QuietMode:     core.BoolPtr(true), // Enable quiet mode for clean parallel test output
     })
 
     matrix := testaddons.AddonTestMatrix{
@@ -127,6 +134,7 @@ func TestMultipleAddons(t *testing.T) {
         Testing:       t,
         Prefix:        "matrix-test", // Individual test cases will override with their own prefixes
         ResourceGroup: "my-resource-group",
+        QuietMode:     core.BoolPtr(true), // Enable quiet mode for clean parallel test output
     })
 
     matrix := testaddons.AddonTestMatrix{
@@ -534,6 +542,7 @@ func TestComprehensiveAddonMatrix(t *testing.T) {
             Testing:       t,
             Prefix:        "comprehensive-test",
             ResourceGroup: "my-resource-group",
+            QuietMode:     core.BoolPtr(true), // Enable quiet mode for clean output
         }),
         BaseSetupFunc: func(baseOptions *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) *testaddons.TestAddonOptions {
             // Optional: customize per test case if needed
@@ -844,21 +853,228 @@ testCases := []testaddons.AddonTestCase{
 }
 ```
 
+## Dependency Permutation Testing
+
+### Overview
+
+Dependency permutation testing automatically tests all possible combinations of addon dependencies without manual configuration. Use `RunAddonPermutationTest()` for comprehensive dependency validation.
+
+### Basic Permutation Test
+
+```golang
+package test
+
+import (
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+    "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testaddons"
+)
+
+func TestAddonDependencyPermutations(t *testing.T) {
+    t.Parallel()
+
+    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing: t,
+        Prefix:  "addon-perm",
+        AddonConfig: cloudinfo.AddonConfig{
+            OfferingName:   "my-addon",
+            OfferingFlavor: "standard",
+            Inputs: map[string]interface{}{
+                "prefix": "addon-perm",
+                "region": "us-south",
+            },
+        },
+    })
+
+    // Automatically tests all dependency combinations
+    err := options.RunAddonPermutationTest()
+    assert.NoError(t, err)
+}
+```
+
+### How Permutation Testing Works
+
+1. **Automatic Discovery**: Discovers all dependencies from the catalog
+2. **Permutation Generation**: Creates all 2^n combinations of dependencies (enabled/disabled)
+3. **Validation-Only**: All permutations skip infrastructure deployment
+4. **Parallel Execution**: Runs all permutations in parallel for efficiency
+
+### Example: Addon with 3 Dependencies
+
+For an addon with 3 dependencies (KMS, Observability, EventNotifications):
+
+- **Total combinations**: 2^3 = 8
+- **Generated test cases**: 7 (excluding "all dependencies enabled" default case)
+- **Test time**: All run in parallel, typically 2-5 minutes total
+
+## Choosing Your Testing Approach
+
+### Use Matrix Testing When:
+- You need specific custom configurations
+- You want to control exactly which scenarios to test
+- You need some full deployment tests mixed with validation tests
+- You want to customize individual test behavior
+- You're testing multiple flavors or regions
+
+### Use Dependency Permutation Testing When:
+- You want to test all possible dependency combinations
+- You need comprehensive validation without deployment costs
+- You want to catch dependency configuration issues early
+- You don't want to manually maintain permutation test cases
+- You're focused on dependency validation rather than full deployment
+
+### Combined Approach (Recommended)
+
+Use both approaches together for comprehensive coverage:
+
+```golang
+package test
+
+import (
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+    "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testaddons"
+)
+
+// Full deployment test for primary scenario
+func TestAddonPrimaryDeployment(t *testing.T) {
+    t.Parallel()
+
+    options := setupAddonOptions(t, "addon-deploy")
+    options.AddonConfig = cloudinfo.NewAddonConfigTerraform(
+        options.Prefix,
+        "my-addon",
+        "standard",
+        map[string]interface{}{
+            "prefix": options.Prefix,
+            "region": "us-south",
+        },
+    )
+
+    err := options.RunAddonTest()
+    assert.NoError(t, err)
+}
+
+// Matrix testing for specific custom scenarios
+func TestAddonCustomScenarios(t *testing.T) {
+    testCases := []testaddons.AddonTestCase{
+        {
+            Name:   "PremiumPlan",
+            Prefix: "premium",
+            Inputs: map[string]interface{}{
+                "plan": "premium",
+            },
+        },
+        {
+            Name:   "EuropeRegion",
+            Prefix: "eu",
+            Inputs: map[string]interface{}{
+                "region": "eu-gb",
+            },
+        },
+    }
+
+    matrix := testaddons.AddonTestMatrix{
+        TestCases: testCases,
+        BaseOptions: baseOptions,
+        AddonConfigFunc: func(options *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) cloudinfo.AddonConfig {
+            return cloudinfo.NewAddonConfigTerraform(
+                options.Prefix,
+                "my-addon",
+                "standard",
+                map[string]interface{}{
+                    "prefix": options.Prefix,
+                },
+            )
+        },
+    }
+
+    baseOptions.RunAddonTestMatrix(matrix)
+}
+
+// Permutation testing for comprehensive dependency validation
+func TestAddonDependencyPermutations(t *testing.T) {
+    t.Parallel()
+
+    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing: t,
+        Prefix:  "addon-perm",
+        AddonConfig: cloudinfo.AddonConfig{
+            OfferingName:   "my-addon",
+            OfferingFlavor: "standard",
+            Inputs: map[string]interface{}{
+                "prefix": "addon-perm",
+                "region": "us-south",
+            },
+        },
+    })
+
+    err := options.RunAddonPermutationTest()
+    assert.NoError(t, err)
+}
+```
+
+## Performance Comparison
+
+### Matrix Testing
+- **Setup Time**: Manual configuration required
+- **Flexibility**: Full control over test scenarios
+- **Maintenance**: Manual updates when adding scenarios
+- **Coverage**: Tests specific scenarios you define
+
+### Dependency Permutation Testing
+- **Setup Time**: Minimal configuration required
+- **Flexibility**: Automated, no manual control
+- **Maintenance**: Zero maintenance, adapts automatically
+- **Coverage**: Tests all possible dependency combinations
+
+## Best Practices
+
+### 1. Use Both Approaches Together
+Combine matrix testing for specific scenarios with permutation testing for comprehensive dependency validation.
+
+### 2. Optimize for Cost and Time
+- Use permutation testing for validation-only dependency testing
+- Use matrix testing for specific deployment scenarios
+- Mix validation-only and deployment tests in matrices
+
+### 3. Organize Your Tests
+```golang
+// tests/addon_test.go - Primary deployment test
+func TestAddonPrimaryDeployment(t *testing.T) { ... }
+
+// tests/addon_scenarios_test.go - Custom scenarios with matrix testing
+func TestAddonCustomScenarios(t *testing.T) { ... }
+
+// tests/addon_permutations_test.go - Dependency permutations
+func TestAddonDependencyPermutations(t *testing.T) { ... }
+```
+
+### 4. Use Clear Naming
+- Use descriptive test names that indicate the testing approach
+- Use clear prefixes that identify the test type
+- Document which approach is used in each test function
+
 ## Summary
 
-Matrix testing with `AddonTestMatrix` is the **primary and recommended approach** for parallel addon testing. Key benefits:
+### Matrix Testing
+✅ **Full Control**: Define exactly which scenarios to test
+✅ **Mixed Testing**: Combine deployment and validation tests
+✅ **Custom Configuration**: Tailor each test case individually
+✅ **Explicit Scenarios**: Clear visibility into what's being tested
 
-✅ **Declarative Configuration**: Define test scenarios clearly in `TestCases`
-✅ **Mixed Testing Types**: Combine full deployment and validation-only tests
-✅ **Cost Optimization**: Use `SkipInfrastructureDeployment` for expensive scenarios
-✅ **Maintainable**: Clean separation of setup, configuration, and test cases
-✅ **Scalable**: Easy to add new test scenarios
+### Dependency Permutation Testing
+✅ **Comprehensive Coverage**: Tests all possible dependency combinations
+✅ **Zero Maintenance**: Automatically adapts to dependency changes
+✅ **Cost Effective**: Validation-only testing reduces costs
+✅ **Automated Discovery**: No manual dependency configuration
 
-The matrix pattern allows you to:
+### Combined Approach (Recommended)
+Use both approaches together:
+- **Matrix testing** for specific custom scenarios and deployment testing
+- **Dependency permutation testing** for comprehensive dependency validation
+- **Primary deployment test** for full end-to-end validation
 
-- Deploy critical scenarios fully
-- Validate alternative configurations quickly
-- Test complex dependencies without deployment costs
-- Scale testing coverage efficiently
-
-**Use this pattern as your primary approach for parallel addon testing.**
+This provides the best balance of comprehensive coverage, cost efficiency, and maintainability.

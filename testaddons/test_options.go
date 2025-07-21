@@ -109,6 +109,15 @@ type TestAddonOptions struct {
 	// Matrix tests automatically set this using the AddonTestCase.Name field.
 	TestCaseName string
 
+	// QuietMode If set to true, detailed logs are buffered and only shown on test failure.
+	// When false, all logs are shown immediately. When nil, permutation tests default to true,
+	// individual tests default to false for backward compatibility.
+	QuietMode *bool
+
+	// VerboseOnFailure If set to true, detailed logs are shown when a test fails.
+	// Only effective when QuietMode is true. Default is true.
+	VerboseOnFailure bool
+
 	// internal use
 	currentProject       *project.Project
 	currentProjectConfig *cloudinfo.ProjectsConfig
@@ -213,6 +222,11 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 		newOptions.LocalChangesIgnorePattern = append(defaultIgnorePatterns, newOptions.LocalChangesIgnorePattern...)
 	}
 
+	// Set default logging behavior (VerboseOnFailure defaults to true)
+	if !newOptions.VerboseOnFailure {
+		newOptions.VerboseOnFailure = true
+	}
+
 	return newOptions
 }
 
@@ -285,6 +299,7 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		PreUndeployHook:              options.PreUndeployHook,
 		PostUndeployHook:             options.PostUndeployHook,
 		Logger:                       options.Logger,
+		QuietMode:                    copyBoolPointer(options.QuietMode),
 
 		// These fields are not copied as they are managed per test instance
 		catalog:              nil,

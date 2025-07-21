@@ -379,6 +379,111 @@ options.DeployTimeoutMinutes = 120  // 2 hours instead of default 6 hours
 - Consider resource complexity when setting timeouts
 - Parallel tests may need longer timeouts due to resource contention
 
+## Logging and Output Configuration
+
+### Quiet Mode
+
+Control log verbosity during test execution to reduce noise while maintaining essential feedback:
+
+```golang
+options.QuietMode = core.BoolPtr(true)  // Enable quiet mode (default: false)
+```
+
+**Quiet Mode Features:**
+
+- **Suppresses verbose operational logs**: Eliminates detailed API calls, configuration details, and internal operations
+- **Shows essential progress feedback**: Displays high-level stages with visual indicators
+- **Maintains test result visibility**: Always shows final test results and error messages
+- **Reduces noise during parallel execution**: Particularly useful for matrix and permutation testing
+
+**Progress Feedback in Quiet Mode:**
+
+When quiet mode is enabled, you'll see clean progress indicators instead of verbose logs:
+
+```
+🔄 Setting up test Catalog and Project
+🔄 Deploying Configurations to Project
+🔄 Validating dependencies
+✅ Infrastructure deployment completed
+🔄 Cleaning up resources
+```
+
+**Progress Indicator Types:**
+
+- `🔄` **Stage indicators**: Setup, deployment, validation, cleanup phases
+- `✅` **Success confirmations**: Successful completion of major operations
+- `ℹ️` **Essential status updates**: Critical information that bypasses quiet mode
+- `✓ Passed` / `✗ Failed`: Final test results
+
+### Verbose Mode (Default)
+
+For detailed debugging and development, use verbose mode:
+
+```golang
+options.QuietMode = core.BoolPtr(false)  // Show all logs (default behavior)
+// Or simply omit QuietMode to use default verbose behavior
+```
+
+Verbose mode shows:
+- All API calls and responses
+- Detailed configuration information
+- Step-by-step operation logs
+- Full dependency validation details
+- Complete reference resolution logs
+
+### Automatic Quiet Mode (Permutation Testing)
+
+Some test types automatically enable quiet mode for better user experience:
+
+```golang
+func TestAddonPermutations(t *testing.T) {
+    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing: t,
+        Prefix:  "addon-perm",
+        AddonConfig: cloudinfo.AddonConfig{
+            OfferingName: "my-addon",
+            // QuietMode automatically set to true for permutation tests
+        },
+    })
+
+    // Permutation tests use quiet mode by default to reduce log noise
+    err := options.RunAddonPermutationTest()
+    assert.NoError(t, err)
+}
+```
+
+**Override automatic behavior:**
+```golang
+// Force verbose mode even for permutation tests
+options.QuietMode = core.BoolPtr(false)
+err := options.RunAddonPermutationTest()
+```
+
+### Matrix Test Quiet Mode
+
+Matrix tests inherit quiet mode settings from `BaseOptions`:
+
+```golang
+baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:   t,
+    Prefix:    "matrix-test",
+    QuietMode: core.BoolPtr(true), // Applies to all test cases in the matrix
+})
+
+matrix := testaddons.AddonTestMatrix{
+    TestCases:   testCases,
+    BaseOptions: baseOptions, // QuietMode inherited by all test cases
+}
+
+baseOptions.RunAddonTestMatrix(matrix)
+```
+
+**Matrix-specific quiet mode features:**
+- Individual test progress: `🔄 Starting test: test-case-name`
+- Stagger delay messages only shown in verbose mode
+- Clean test results: `✓ Passed: test-case-name`
+- Shared catalog creation progress indicators
+
 ## Skip Options
 
 ### Infrastructure Operations
@@ -762,3 +867,162 @@ options.SharedCatalog = core.BoolPtr(false)  // Each test creates own catalog
 // Efficient: share catalogs between tests (projects still isolated)
 options.SharedCatalog = core.BoolPtr(true)   // Share catalogs between tests
 ```
+
+## Testing Methods
+
+The addon testing framework provides several methods for running tests, each optimized for different use cases:
+
+### RunAddonTest() - Single Test Execution
+
+The primary method for running a single addon test with full lifecycle management:
+
+```golang
+func TestBasicAddon(t *testing.T) {
+    t.Parallel()
+
+    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing: t,
+        Prefix:  "basic-addon",
+        AddonConfig: cloudinfo.NewAddonConfigTerraform(
+            "basic-addon",
+            "my-addon",
+            "standard",
+            map[string]interface{}{
+                "prefix": "basic-addon",
+                "region": "us-south",
+            },
+        ),
+    })
+
+    err := options.RunAddonTest()
+    assert.NoError(t, err)
+}
+```
+
+### RunAddonTestMatrix() - Matrix Testing
+
+For running multiple test scenarios with custom configurations:
+
+```golang
+func TestAddonMatrix(t *testing.T) {
+    testCases := []testaddons.AddonTestCase{
+        {
+            Name:   "BasicScenario",
+            Prefix: "basic",
+        },
+        {
+            Name:   "CustomScenario",
+            Prefix: "custom",
+            Inputs: map[string]interface{}{
+                "region": "eu-gb",
+            },
+        },
+    }
+
+    matrix := testaddons.AddonTestMatrix{
+        TestCases: testCases,
+        BaseOptions: baseOptions,
+        AddonConfigFunc: func(options *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) cloudinfo.AddonConfig {
+            return cloudinfo.NewAddonConfigTerraform(
+                options.Prefix,
+                "my-addon",
+                "standard",
+                map[string]interface{}{
+                    "prefix": options.Prefix,
+                },
+            )
+        },
+    }
+
+    baseOptions.RunAddonTestMatrix(matrix)
+}
+```
+
+### RunAddonPermutationTest() - Dependency Permutation Testing
+
+For automatically testing all possible dependency combinations:
+
+```golang
+func TestAddonDependencyPermutations(t *testing.T) {
+    t.Parallel()
+
+    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing: t,
+        Prefix:  "addon-perm",
+        AddonConfig: cloudinfo.AddonConfig{
+            OfferingName:   "my-addon",
+            OfferingFlavor: "standard",
+            Inputs: map[string]interface{}{
+                "prefix": "addon-perm",
+                "region": "us-south",
+            },
+        },
+    })
+
+    err := options.RunAddonPermutationTest()
+    assert.NoError(t, err)
+}
+```
+
+#### RunAddonPermutationTest() Configuration
+
+The `RunAddonPermutationTest()` method automatically configures several settings:
+
+- **Logging Mode**: Set to "failure_only" to reduce log noise
+- **Infrastructure Deployment**: Set to `SkipInfrastructureDeployment: true` for all permutations
+- **Parallel Execution**: Uses matrix testing infrastructure for efficient parallel execution
+- **Dependency Discovery**: Automatically queries catalog for addon dependencies
+- **Permutation Generation**: Creates all 2^n combinations of dependencies (enabled/disabled)
+
+#### Required Configuration for Permutation Testing
+
+```golang
+options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,                        // Required: testing.T object
+    Prefix:  "addon-perm",             // Required: unique prefix for resources
+    AddonConfig: cloudinfo.AddonConfig{
+        OfferingName:   "my-addon",    // Required: addon name
+        OfferingFlavor: "standard",    // Required: addon flavor
+        Inputs: map[string]interface{}{ // Required: addon inputs
+            "prefix": "addon-perm",
+            "region": "us-south",
+            // Include all required inputs for your addon
+        },
+    },
+})
+```
+
+#### Permutation Test Behavior
+
+- **Automatic Discovery**: Discovers all direct dependencies from the catalog
+- **Validation-Only**: All permutations skip infrastructure deployment for efficiency
+- **Parallel Execution**: All permutations run in parallel
+- **Failure-Only Logging**: Only shows output for failed permutations
+- **Excludes Default**: Excludes the "on by default" case (covered by regular tests)
+
+### Method Comparison
+
+| Method | Use Case | Manual Configuration | Dependency Testing | Full Deployment |
+|--------|----------|---------------------|-------------------|-----------------|
+| `RunAddonTest()` | Single test scenario | Manual | Manual | Yes |
+| `RunAddonTestMatrix()` | Multiple custom scenarios | Manual | Manual | Configurable |
+| `RunAddonPermutationTest()` | All dependency combinations | Automatic | Automatic | No (validation-only) |
+
+### Choosing the Right Method
+
+**Use `RunAddonTest()` when:**
+- Testing a single, specific scenario
+- Need full deployment testing
+- Want maximum control over configuration
+
+**Use `RunAddonTestMatrix()` when:**
+- Testing multiple specific scenarios
+- Need custom configuration for each test case
+- Want to mix deployment and validation tests
+- Need explicit control over dependencies
+
+**Use `RunAddonPermutationTest()` when:**
+- Want to test all possible dependency combinations
+- Need comprehensive dependency validation
+- Want zero-maintenance permutation testing
+- Focused on validation rather than deployment

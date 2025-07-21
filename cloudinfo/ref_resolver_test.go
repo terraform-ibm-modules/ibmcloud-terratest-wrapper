@@ -1170,7 +1170,7 @@ func TestResolveReferencesRetry(t *testing.T) {
 		assert.NotNil(t, result)
 		assert.Equal(t, "corr-456", result.CorrelationID)
 		assert.Equal(t, 3, callCount) // Should have made 3 calls total (initial + 2 retries)
-		assert.Equal(t, "resolved-after-retry", result.References[0].Value)
+		assert.Equal(t, "resolved-after-retry", result.References[0].GetValueAsString())
 	})
 }
 
@@ -1260,7 +1260,7 @@ func TestResolveReferencesRetryWithTokenRefresh(t *testing.T) {
 		// Note: The current implementation creates a new authenticator instance rather than
 		// calling a refresh method, so we verify the behavior indirectly by ensuring
 		// the retry logic completes successfully after the token validation errors
-		assert.Equal(t, "refreshed-token-value", result.References[0].Value)
+		assert.Equal(t, "refreshed-token-value", result.References[0].GetValueAsString())
 	})
 }
 

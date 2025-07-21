@@ -699,6 +699,155 @@ func TestMultiRegionAddon(t *testing.T) {
 }
 ```
 
+## Dependency Permutation Testing Examples
+
+### Basic Permutation Test
+
+The `RunAddonPermutationTest()` method automatically tests all possible dependency combinations for your addon:
+
+```golang
+package test
+
+import (
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+    "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testaddons"
+)
+
+// TestSecretsManagerPermutations tests all dependency combinations automatically
+func TestSecretsManagerPermutations(t *testing.T) {
+    t.Parallel()
+
+    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing: t,
+        Prefix:  "sm-perm",
+        AddonConfig: cloudinfo.AddonConfig{
+            OfferingName:   "deploy-arch-ibm-secrets-manager",
+            OfferingFlavor: "fully-configurable",
+            Inputs: map[string]interface{}{
+                "prefix":                       "sm-perm",
+                "region":                       "us-south",
+                "existing_resource_group_name": "default",
+                "service_plan":                 "trial",
+                "enable_platform_metrics":     false,
+            },
+        },
+    })
+
+    err := options.RunAddonPermutationTest()
+    assert.NoError(t, err, "Dependency permutation test should not fail")
+}
+```
+
+### Multiple Addon Permutation Tests
+
+```golang
+func TestMultipleAddonPermutations(t *testing.T) {
+    // Test Secrets Manager permutations
+    t.Run("SecretsManager", func(t *testing.T) {
+        t.Parallel()
+
+        options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+            Testing: t,
+            Prefix:  "sm-perm",
+            AddonConfig: cloudinfo.AddonConfig{
+                OfferingName:   "deploy-arch-ibm-secrets-manager",
+                OfferingFlavor: "fully-configurable",
+                Inputs: map[string]interface{}{
+                    "prefix":                       "sm-perm",
+                    "region":                       "us-south",
+                    "existing_resource_group_name": "default",
+                    "service_plan":                 "trial",
+                },
+            },
+        })
+
+        err := options.RunAddonPermutationTest()
+        assert.NoError(t, err)
+    })
+
+    // Test KMS permutations
+    t.Run("KMS", func(t *testing.T) {
+        t.Parallel()
+
+        options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+            Testing: t,
+            Prefix:  "kms-perm",
+            AddonConfig: cloudinfo.AddonConfig{
+                OfferingName:   "deploy-arch-ibm-kms",
+                OfferingFlavor: "fully-configurable",
+                Inputs: map[string]interface{}{
+                    "prefix":                       "kms-perm",
+                    "region":                       "us-south",
+                    "existing_resource_group_name": "default",
+                    "service_plan":                 "tiered-pricing",
+                },
+            },
+        })
+
+        err := options.RunAddonPermutationTest()
+        assert.NoError(t, err)
+    })
+}
+```
+
+### Combined Testing Strategy
+
+Use permutation testing alongside other testing approaches:
+
+```golang
+package test
+
+import (
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+    "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testaddons"
+)
+
+// Full deployment test for primary scenario
+func TestAddonFullDeployment(t *testing.T) {
+    t.Parallel()
+
+    options := setupAddonOptions(t, "addon-deploy")
+
+    options.AddonConfig = cloudinfo.NewAddonConfigTerraform(
+        options.Prefix,
+        "my-addon",
+        "standard",
+        map[string]interface{}{
+            "prefix": options.Prefix,
+            "region": "us-south",
+        },
+    )
+
+    err := options.RunAddonTest()
+    assert.NoError(t, err, "Full deployment test should not fail")
+}
+
+// Permutation testing for comprehensive dependency validation
+func TestAddonDependencyPermutations(t *testing.T) {
+    t.Parallel()
+
+    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        Testing: t,
+        Prefix:  "addon-perm",
+        AddonConfig: cloudinfo.AddonConfig{
+            OfferingName:   "my-addon",
+            OfferingFlavor: "standard",
+            Inputs: map[string]interface{}{
+                "prefix": "addon-perm",
+                "region": "us-south",
+            },
+        },
+    })
+
+    err := options.RunAddonPermutationTest()
+    assert.NoError(t, err, "Dependency permutation test should not fail")
+}
+```
+
 ## Error Handling Example
 
 ### Test with Error Handling and Retry Logic

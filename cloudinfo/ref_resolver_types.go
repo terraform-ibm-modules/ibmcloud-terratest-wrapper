@@ -1,6 +1,8 @@
 // Package cloudinfo contains functions and methods for searching and detailing various resources located in the IBM Cloud
 package cloudinfo
 
+import "fmt"
+
 // Reference represents a reference to resolve
 type Reference struct {
 	Reference string `json:"reference"`
@@ -20,7 +22,7 @@ type ValueObjectResolvedItem struct {
 // BatchReferenceResolvedItem represents a single reference resolution result
 type BatchReferenceResolvedItem struct {
 	Message     string                   `json:"message,omitempty"`
-	Value       string                   `json:"value,omitempty"`
+	Value       interface{}              `json:"value,omitempty"`
 	ValueObject *ValueObjectResolvedItem `json:"value_object,omitempty"`
 	ContentType string                   `json:"content_type"`
 	TypeID      string                   `json:"type_id,omitempty"`
@@ -31,6 +33,32 @@ type BatchReferenceResolvedItem struct {
 	StateCode   string                   `json:"state_code,omitempty"`
 	Code        int                      `json:"code"`
 	RequestID   string                   `json:"request_id,omitempty"`
+}
+
+// GetValueAsString safely converts the Value field to a string representation
+// Returns the string value for string types, converts bool/numbers to strings,
+// and returns empty string for null/nil values
+func (item *BatchReferenceResolvedItem) GetValueAsString() string {
+	if item.Value == nil {
+		return ""
+	}
+
+	switch v := item.Value.(type) {
+	case string:
+		return v
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	case float64:
+		return fmt.Sprintf("%.0f", v)
+	case int:
+		return fmt.Sprintf("%d", v)
+	default:
+		// For any other type, convert to string representation
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 // ResolveResponse represents the response from the ref-resolver API
