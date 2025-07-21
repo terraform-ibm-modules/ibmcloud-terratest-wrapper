@@ -40,7 +40,12 @@ func (infoSvc *CloudInfoService) DeleteResourceGroup(resourceGroupId string) (*c
 }
 
 // WithNewResourceGroup is a context manager that will create a resource group,
-// execute a given task that uses the created resource group and deletes the resource group.
+// execute a given task that uses the created resource group and deletes the resource group
+// example running schematic test in a given resource group:
+//
+//	err = sharedInfoSvc.WithNewResourceGroup("myResourceGroup", func() error {
+//		return options.RunSchematicTest()
+//	})
 func (infoSvc *CloudInfoService) WithNewResourceGroup(name string, task func() error) error {
 	fmt.Println("Running task inside resource group context...")
 	resourceGroup, resp, err := infoSvc.CreateResourceGroup(name)
