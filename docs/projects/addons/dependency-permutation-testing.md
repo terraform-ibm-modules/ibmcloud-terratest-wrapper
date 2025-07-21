@@ -11,7 +11,7 @@ Dependency permutation testing solves the problem of manually creating test case
 - **Automatic Dependency Discovery**: Discovers all direct dependencies from the catalog metadata
 - **Algorithmic Permutation Generation**: Generates all 2^n combinations of dependencies (where n = number of dependencies)
 - **Validation-Only Testing**: All permutations use validation-only mode for efficiency and cost savings
-- **Failure-Only Logging**: Reduces noise by showing only failed permutations
+- **Comprehensive Final Report**: Automatically generates a detailed summary report with error details and failure patterns
 - **Parallel Execution**: Leverages matrix testing infrastructure for efficient parallel execution
 - **Zero Maintenance**: No manual test case creation or maintenance required
 
@@ -109,6 +109,21 @@ Excludes the "on by default" case since this is typically covered by existing de
 
 Uses the existing matrix test infrastructure to run all permutations in parallel for efficiency.
 
+### 5. Final Report Generation
+
+After all tests complete, automatically generates a comprehensive final report that includes:
+
+- **Executive Summary**: Pass/fail counts and success rates
+- **Passing Tests**: Collapsed list of successful permutations
+- **Failed Tests**: Detailed error information for each failure, including:
+  - Test configuration (which addons were enabled/disabled)
+  - Complete error messages for debugging
+  - Categorized error types (validation, deployment, configuration, runtime)
+- **Failure Pattern Analysis**: Groups failures by common causes for quick scanning
+- **Resource Prefix Information**: For correlating with logs if needed
+
+This eliminates the need to dig through individual test logs when debugging failures across many permutations.
+
 ## Generated Test Cases
 
 ### Example: Addon with 3 Dependencies
@@ -146,7 +161,7 @@ The "all dependencies enabled" case is excluded as it represents the default con
 
 - Validation-only mode avoids infrastructure deployment costs
 - Parallel execution reduces total test time
-- Failure-only logging reduces noise and focuses on issues
+- Comprehensive final report eliminates need to dig through individual test logs
 
 ### Scalable
 
@@ -156,9 +171,9 @@ The "all dependencies enabled" case is excluded as it represents the default con
 
 ## Example Output
 
-### Quiet Mode (Default)
+### Quiet Mode with Final Report (Default)
 
-With quiet mode enabled automatically, you'll see clean progress indicators and results:
+With quiet mode enabled automatically, you'll see clean progress indicators during execution followed by a comprehensive final report:
 
 ```
 [CloudInfoService] Importing offering: fully-configurable from branch URL...
@@ -180,6 +195,53 @@ Running 15 dependency permutation tests for deploy-arch-ibm-event-notifications 
   ✓ Passed: event-notifications-4-disable-kms-cos-observability
 ...
   ✓ Passed: event-notifications-14
+
+================================================================================
+🧪 PERMUTATION TEST REPORT - Complete
+================================================================================
+📊 Summary: 15 total tests | ✅ 13 passed (86.7%) | ❌ 2 failed (13.3%)
+
+🎯 PASSING TESTS (13) - Collapsed for brevity
+├─ ✅ event-notifications-0-disable-kms-cos-account-infra-base-observability
+├─ ✅ event-notifications-4-disable-kms-cos-observability
+└─ ... 11 more passing tests (expand with --verbose)
+
+❌ FAILED TESTS (2) - Complete Error Details
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1/2 ❌ event-notifications-7-disable-kms-cos                               │
+│     📁 Prefix: en-perm-kms-cos-8472                                         │
+│     🔧 Addons: event-notifications=enabled, kms=disabled, cos=disabled      │
+│                                                                             │
+│     🔴 VALIDATION ERRORS:                                                   │
+│     • event-notifications addon requires 'kms' dependency but it's disabled │
+│     • event-notifications addon requires 'cos' dependency but it's disabled │
+│                                                                             │
+│     🔴 CONFIGURATION ERRORS:                                                │
+│     • Missing configs: ['deploy-arch-ibm-kms', 'deploy-arch-ibm-cos']      │
+│     • Project validation failed: 2 errors, 0 warnings                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2/2 ❌ event-notifications-12-disable-observability                        │
+│     📁 Prefix: en-perm-obs-9384                                            │
+│     🔧 Addons: event-notifications=enabled, observability=disabled,        │
+│            [3 others enabled]                                              │
+│                                                                             │
+│     🔴 DEPLOYMENT ERRORS:                                                   │
+│     • TriggerDeployAndWait failed: deployment timeout after 15 minutes     │
+│     • Configuration state stuck in 'ApplyingFailed'                        │
+│                                                                             │
+│     🔴 RUNTIME ERRORS:                                                      │
+│     • TestRunAddonTest failed: deployment validation failed                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+🔍 FAILURE PATTERNS (for quick scanning)
+├─ Dependency Issues: 1 test (missing required dependencies)
+└─ Deployment Errors: 1 test (TriggerDeployAndWait failures)
+
+📁 Full test logs available if additional context needed
+================================================================================
+
 PASS
 ```
 
@@ -188,7 +250,7 @@ PASS
 For detailed debugging, override the automatic quiet mode:
 
 ```golang
-options.QuietMode = core.BoolPtr(false)  // Enable verbose output
+options.QuietMode = false  // Enable verbose output
 err := options.RunAddonPermutationTest()
 ```
 

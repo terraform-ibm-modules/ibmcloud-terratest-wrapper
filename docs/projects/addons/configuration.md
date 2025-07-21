@@ -386,7 +386,7 @@ options.DeployTimeoutMinutes = 120  // 2 hours instead of default 6 hours
 Control log verbosity during test execution to reduce noise while maintaining essential feedback:
 
 ```golang
-options.QuietMode = core.BoolPtr(true)  // Enable quiet mode (default: false)
+options.QuietMode = true  // Enable quiet mode (default: false)
 ```
 
 **Quiet Mode Features:**
@@ -420,7 +420,7 @@ When quiet mode is enabled, you'll see clean progress indicators instead of verb
 For detailed debugging and development, use verbose mode:
 
 ```golang
-options.QuietMode = core.BoolPtr(false)  // Show all logs (default behavior)
+options.QuietMode = false  // Show all logs (default behavior)
 // Or simply omit QuietMode to use default verbose behavior
 ```
 
@@ -455,7 +455,7 @@ func TestAddonPermutations(t *testing.T) {
 **Override automatic behavior:**
 ```golang
 // Force verbose mode even for permutation tests
-options.QuietMode = core.BoolPtr(false)
+options.QuietMode = false
 err := options.RunAddonPermutationTest()
 ```
 
@@ -467,7 +467,7 @@ Matrix tests inherit quiet mode settings from `BaseOptions`:
 baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
     Testing:   t,
     Prefix:    "matrix-test",
-    QuietMode: core.BoolPtr(true), // Applies to all test cases in the matrix
+    QuietMode: true, // Applies to all test cases in the matrix
 })
 
 matrix := testaddons.AddonTestMatrix{

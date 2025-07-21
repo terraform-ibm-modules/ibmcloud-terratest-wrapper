@@ -16,7 +16,7 @@ Matrix testing solves the problem of creating multiple similar tests by providin
 
 - **Shared Catalog Management**: Creates one catalog for all test cases instead of N catalogs
 - **Configurable Test Cases**: Each test case can have unique inputs, prefixes, and settings
-- **Staggered Execution**: Optional delay between test starts to prevent rate limiting
+- **Batched Staggered Execution**: Advanced batching system with 87% faster execution for large test suites
 - **Quiet Mode Support**: Clean progress indicators and reduced log noise
 - **Automatic Resource Cleanup**: Guaranteed cleanup of shared resources
 
@@ -67,7 +67,7 @@ func TestAddonMatrix(t *testing.T) {
         Testing:       t,
         Prefix:        "matrix-test",
         ResourceGroup: "my-resource-group",
-        QuietMode:     core.BoolPtr(true), // Enable quiet mode for clean output
+        QuietMode:     true, // Enable quiet mode for clean output
     })
 
     // Create matrix configuration
@@ -133,7 +133,7 @@ func TestAdvancedAddonMatrix(t *testing.T) {
         Testing:       t,
         Prefix:        "advanced-matrix",
         ResourceGroup: "my-resource-group",
-        QuietMode:     core.BoolPtr(true),
+        QuietMode:     true,
     })
 
     matrix := testaddons.AddonTestMatrix{
@@ -194,24 +194,53 @@ type AddonTestCase struct {
 
 ```golang
 type AddonTestMatrix struct {
-    TestCases       []AddonTestCase                       // Test cases to run (required)
-    BaseOptions     *TestAddonOptions                     // Common options (required)
-    BaseSetupFunc   func(*TestAddonOptions, AddonTestCase) *TestAddonOptions  // Optional customization
-    AddonConfigFunc func(*TestAddonOptions, AddonTestCase) cloudinfo.AddonConfig // Config generator (required)
-    StaggerDelay    *time.Duration                        // Optional delay between test starts
+    TestCases        []AddonTestCase                       // Test cases to run (required)
+    BaseOptions      *TestAddonOptions                     // Common options (required)
+    BaseSetupFunc    func(*TestAddonOptions, AddonTestCase) *TestAddonOptions  // Optional customization
+    AddonConfigFunc  func(*TestAddonOptions, AddonTestCase) cloudinfo.AddonConfig // Config generator (required)
+    StaggerDelay     *time.Duration                        // Delay between batches (default: 10s)
+    StaggerBatchSize *int                                  // Tests per batch (default: 8)
+    WithinBatchDelay *time.Duration                        // Delay within batches (default: 2s)
 }
 ```
 
-### Stagger Delay Configuration
+### Stagger Configuration
+
+The framework supports advanced batched staggering for efficient rate limiting protection:
 
 ```golang
+// Default batched staggering (8 tests per batch, 10s between batches, 2s within batches)
 matrix := testaddons.AddonTestMatrix{
-    TestCases:    testCases,
-    BaseOptions:  baseOptions,
-    StaggerDelay: core.DurationPtr(15 * time.Second), // 15 second delay between tests
+    TestCases:   testCases,
+    BaseOptions: baseOptions,
+    // Batched staggering is enabled by default
+    // ... other configuration
+}
+
+// Custom batched staggering for high-volume tests
+matrix := testaddons.AddonTestMatrix{
+    TestCases:        testCases,
+    BaseOptions:      baseOptions,
+    StaggerDelay:     testaddons.StaggerDelay(15 * time.Second),        // Delay between batches
+    StaggerBatchSize: testaddons.StaggerBatchSize(20),                  // Tests per batch
+    WithinBatchDelay: testaddons.WithinBatchDelay(1 * time.Second),     // Delay within each batch
+    // ... other configuration
+}
+
+// Legacy linear staggering (not recommended for >20 tests)
+matrix := testaddons.AddonTestMatrix{
+    TestCases:        testCases,
+    BaseOptions:      baseOptions,
+    StaggerDelay:     testaddons.StaggerDelay(10 * time.Second),        // Linear delay
+    StaggerBatchSize: testaddons.StaggerBatchSize(0),                   // Disable batching
     // ... other configuration
 }
 ```
+
+**Benefits of Batched Staggering:**
+- **87% reduction** in setup delays for large test suites (50+ tests)
+- **Scalable approach** that works efficiently with any number of tests
+- **Maintains rate limiting protection** through batch boundaries
 
 ## Quiet Mode Features
 
@@ -299,7 +328,7 @@ testCases := []testaddons.AddonTestCase{
 baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
     Testing:   t,
     Prefix:    "matrix-test",
-    QuietMode: core.BoolPtr(true), // Recommended for matrix tests
+    QuietMode: true, // Recommended for matrix tests
 })
 ```
 
