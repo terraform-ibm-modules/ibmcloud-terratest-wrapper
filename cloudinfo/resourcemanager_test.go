@@ -1,9 +1,12 @@
 package cloudinfo
 
 import (
+	"errors"
+	"testing"
+
+	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestGetResourceGroupIDByName(t *testing.T) {
@@ -43,5 +46,76 @@ func TestGetResourceGroupIDByName(t *testing.T) {
 		resourceGroupId, err := infoSvc.GetResourceGroupIDByName(groupName1)
 		assert.Nil(t, err)
 		assert.Equal(t, groupId1, resourceGroupId)
+	})
+}
+
+func TestCreateResourceGroup(t *testing.T) {
+	infoSvc := CloudInfoService{
+		resourceManagerService: &resourceManagerServiceMock{
+			mockResCreateResourceGroup: &resourcemanagerv2.ResCreateResourceGroup{
+				ID: core.StringPtr("test-id"),
+			},
+		},
+	}
+
+	t.Run("CreateResourceGroup_Success", func(t *testing.T) {
+		resp, err := infoSvc.CreateResourceGroup("test-group")
+		assert.NotNil(t, resp)
+		assert.Nil(t, err)
+		assert.Equal(t, "test-id", *resp.ID)
+	})
+}
+
+func TestDeleteResourceGroup(t *testing.T) {
+	infoSvc := CloudInfoService{
+		resourceManagerService: &resourceManagerServiceMock{},
+	}
+
+	t.Run("DeleteResourceGroup", func(t *testing.T) {
+		infoSvc.resourceManagerService = &resourceManagerServiceMock{
+			mockDeleteResourceGroup: &core.DetailedResponse{StatusCode: 200},
+		}
+		resp, err := infoSvc.DeleteResourceGroup("test-group")
+		assert.Equal(t, resp.StatusCode, 200)
+		assert.Nil(t, err)
+	})
+}
+
+func TestWithNewResourceGroup(t *testing.T) {
+
+	t.Run("WithNewResourceGroup_Success", func(t *testing.T) {
+		infoSvc := CloudInfoService{
+			resourceManagerService: &resourceManagerServiceMock{
+				mockResCreateResourceGroup: &resourcemanagerv2.ResCreateResourceGroup{
+					ID: core.StringPtr("test-id"),
+				},
+			},
+		}
+
+		task := func() error {
+			// Simulate successful task
+			return nil
+		}
+
+		err := infoSvc.WithNewResourceGroup("test-group", task)
+		assert.Nil(t, err)
+	})
+
+	t.Run("WithNewResourceGroup_TaskFails", func(t *testing.T) {
+		infoSvc := CloudInfoService{
+			resourceManagerService: &resourceManagerServiceMock{
+				mockResCreateResourceGroup: &resourcemanagerv2.ResCreateResourceGroup{
+					ID: core.StringPtr("test-id"),
+				},
+			},
+		}
+
+		task := func() error {
+			return errors.New("task failed")
+		}
+
+		err := infoSvc.WithNewResourceGroup("test-group", task)
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "task execution failed")
 	})
 }
