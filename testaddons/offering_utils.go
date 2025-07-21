@@ -13,6 +13,8 @@ func SetOfferingDetails(options *TestAddonOptions) {
 	// Check if offering is nil
 	if options.offering == nil {
 		options.Logger.ShortError("Error: offering is nil, cannot set offering details")
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return
 	}
@@ -20,6 +22,8 @@ func SetOfferingDetails(options *TestAddonOptions) {
 	// Check if offering ID is nil
 	if options.offering.ID == nil {
 		options.Logger.ShortError("Error: offering ID is nil, cannot set offering details")
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return
 	}
@@ -27,6 +31,8 @@ func SetOfferingDetails(options *TestAddonOptions) {
 	// Check if offering CatalogID is nil
 	if options.offering.CatalogID == nil {
 		options.Logger.ShortError("Error: offering CatalogID is nil, cannot set offering details")
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return
 	}
@@ -44,7 +50,7 @@ func SetOfferingDetails(options *TestAddonOptions) {
 
 	// Use common retry utility for getting top level offering in parallel execution
 	config := common.CatalogOperationRetryConfig()
-	config.Logger = options.Logger
+	config.Logger = options.Logger.GetUnderlyingLogger()
 	config.OperationName = fmt.Sprintf("GetOffering catalogID='%s', offeringID='%s'", *options.offering.CatalogID, *options.offering.ID)
 	config.MaxRetries = 3 // Keep same retry count as before
 
@@ -61,11 +67,15 @@ func SetOfferingDetails(options *TestAddonOptions) {
 
 	if err != nil {
 		options.Logger.ShortError(fmt.Sprintf("Error retrieving top level offering: %s from catalog: %s - %v", *options.offering.ID, *options.offering.CatalogID, err))
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return
 	}
 	if topLevelOffering == nil || len(topLevelOffering.Kinds) == 0 || topLevelOffering.Kinds[0].InstallKind == nil {
 		options.Logger.ShortError(fmt.Sprintf("Error, top level offering: %s, install kind is nil or not available", *options.offering.ID))
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return
 	}
@@ -93,13 +103,15 @@ func SetOfferingDetails(options *TestAddonOptions) {
 		dependencyVersionID := offeringDependencyVersionLocator[1]
 		if dependency.OfferingID == "" {
 			options.Logger.ShortError(fmt.Sprintf("Error, dependency offering ID is not set for dependency: %s", dependency.OfferingName))
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return
 		}
 
 		// Use common retry utility for dependency offerings as well
 		dependencyConfig := common.CatalogOperationRetryConfig()
-		dependencyConfig.Logger = options.Logger
+		dependencyConfig.Logger = options.Logger.GetUnderlyingLogger()
 		dependencyConfig.OperationName = fmt.Sprintf("GetOffering dependency catalogID='%s', offeringID='%s'", dependencyCatalogID, dependency.OfferingID)
 		dependencyConfig.MaxRetries = 3 // Keep same retry count as before
 
@@ -116,6 +128,8 @@ func SetOfferingDetails(options *TestAddonOptions) {
 
 		if err != nil {
 			options.Logger.ShortError(fmt.Sprintf("Error retrieving dependency offering: %s from catalog: %s - %v", dependency.OfferingID, dependencyCatalogID, err))
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return
 		}

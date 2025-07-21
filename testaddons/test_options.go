@@ -110,9 +110,8 @@ type TestAddonOptions struct {
 	TestCaseName string
 
 	// QuietMode If set to true, detailed logs are buffered and only shown on test failure.
-	// When false, all logs are shown immediately. When nil, permutation tests default to true,
-	// individual tests default to false for backward compatibility.
-	QuietMode *bool
+	// When false, all logs are shown immediately. Default is false.
+	QuietMode bool
 
 	// VerboseOnFailure If set to true, detailed logs are shown when a test fails.
 	// Only effective when QuietMode is true. Default is true.
@@ -137,7 +136,18 @@ type TestAddonOptions struct {
 	PreUndeployHook  func(options *TestAddonOptions) error // If this fails, the undeploy will continue
 	PostUndeployHook func(options *TestAddonOptions) error
 
-	Logger *common.TestLogger
+	Logger common.Logger
+
+	// PermutationTestReport stores results for permutation test reporting
+	PermutationTestReport *PermutationTestReport
+	// CollectResults enables collection of test results for final reporting
+	CollectResults bool
+	// Internal fields for error collection during test execution
+	lastValidationResult    *ValidationResult
+	lastDeploymentErrors    []error
+	lastConfigurationErrors []string
+	lastRuntimeErrors       []string
+	lastMissingInputs       []string
 }
 
 // TestAddonsOptionsDefault Default constructor for TestAddonOptions
@@ -227,6 +237,17 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 		newOptions.VerboseOnFailure = true
 	}
 
+	// Initialize logger if not already set to prevent nil pointer panics
+	if newOptions.Logger == nil {
+		testName := "addon-test"
+		if newOptions.Testing != nil && newOptions.Testing.Name() != "" {
+			testName = newOptions.Testing.Name()
+		}
+
+		// Use the QuietMode setting directly (defaults to false)
+		newOptions.Logger = common.CreateSmartAutoBufferingLogger(testName, newOptions.QuietMode)
+	}
+
 	return newOptions
 }
 
@@ -299,7 +320,7 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		PreUndeployHook:              options.PreUndeployHook,
 		PostUndeployHook:             options.PostUndeployHook,
 		Logger:                       options.Logger,
-		QuietMode:                    copyBoolPointer(options.QuietMode),
+		QuietMode:                    options.QuietMode,
 
 		// These fields are not copied as they are managed per test instance
 		catalog:              nil,
@@ -341,4 +362,51 @@ func (options *TestAddonOptions) CleanupSharedResources() {
 			options.Logger.ShortInfo(fmt.Sprintf("Deleted the shared catalog %s with ID %s", *options.catalog.Label, *options.catalog.ID))
 		}
 	}
+}
+
+// collectTestResult creates a PermutationTestResult from test execution
+func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, addonConfig cloudinfo.AddonConfig, testError error) PermutationTestResult {
+	// Create base result
+	result := PermutationTestResult{
+		Name:        testName,
+		Prefix:      testPrefix,
+		AddonConfig: []cloudinfo.AddonConfig{addonConfig},
+		Passed:      testError == nil,
+	}
+
+	// Collect validation errors if available
+	if options.lastValidationResult != nil {
+		result.ValidationResult = options.lastValidationResult
+	}
+
+	// Collect other error categories
+	if options.lastDeploymentErrors != nil {
+		result.DeploymentErrors = append(result.DeploymentErrors, options.lastDeploymentErrors...)
+	}
+
+	if options.lastConfigurationErrors != nil {
+		result.ConfigurationErrors = append(result.ConfigurationErrors, options.lastConfigurationErrors...)
+	}
+
+	if options.lastRuntimeErrors != nil {
+		result.RuntimeErrors = append(result.RuntimeErrors, options.lastRuntimeErrors...)
+	}
+
+	if options.lastMissingInputs != nil {
+		result.MissingInputs = append(result.MissingInputs, options.lastMissingInputs...)
+	}
+
+	// If test failed but we don't have detailed error info, capture the main error
+	if testError != nil && len(result.DeploymentErrors) == 0 && len(result.ConfigurationErrors) == 0 && len(result.RuntimeErrors) == 0 {
+		result.RuntimeErrors = append(result.RuntimeErrors, testError.Error())
+	}
+
+	// Reset error collection fields for next test
+	options.lastValidationResult = nil
+	options.lastDeploymentErrors = nil
+	options.lastConfigurationErrors = nil
+	options.lastRuntimeErrors = nil
+	options.lastMissingInputs = nil
+
+	return result
 }
