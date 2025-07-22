@@ -661,12 +661,12 @@ func TestWithTestify(t *testing.T) {
     result := performOperation()
 
     if !assert.NotNil(t, result, "Result should not be nil") {
-        logger.MarkFailed() // Show debug logs on assertion failure
+        logger.ErrorWithContext("Assertion failed: Result should not be nil")
         return
     }
 
     if !assert.Equal(t, "expected", result.Value, "Values should match") {
-        logger.MarkFailed()
+        logger.ErrorWithContext("Assertion failed: Values should match")
         return
     }
 
@@ -711,8 +711,8 @@ func TestTerraformIntegration(t *testing.T) {
     output := terraform.Output(t, terraformOptions, "resource_id")
 
     if output == "" {
-        logger.MarkFailed()
-        t.Fatalf("Expected non-empty resource_id output")
+        logger.CriticalError("Expected non-empty resource_id output")
+        return
     }
 
     logger.ProgressSuccess("Terraform test completed successfully")
@@ -740,23 +740,23 @@ func TestComplexIntegration(t *testing.T) {
     logger.ShortInfo("Creating catalog")
     catalog, err := createCatalog(testConfig)
     if err != nil {
-        logger.MarkFailed()
-        t.Fatalf("Failed to create catalog: %v", err)
+        logger.CriticalError("Failed to create catalog: %v", err)
+        return
     }
 
     // Phase 2: Offering operations
     logger.ShortInfo("Importing offering")
     offering, err := importOffering(catalog, testConfig.OfferingPath)
     if err != nil {
-        logger.MarkFailed()
-        t.Fatalf("Failed to import offering: %v", err)
+        logger.CriticalError("Failed to import offering: %v", err)
+        return
     }
 
     // Phase 3: Validation
     logger.ShortInfo("Validating configuration")
     if err := validateOffering(offering); err != nil {
-        logger.MarkFailed()
-        t.Fatalf("Validation failed: %v", err)
+        logger.CriticalError("Validation failed: %v", err)
+        return
     }
 
     // Cleanup phase
@@ -794,8 +794,8 @@ func TestBatchProcessing(t *testing.T) {
         logger.ShortInfo("Getting offering details") // Only shows once in batch mode
 
         if err := processItem(item); err != nil {
-            logger.MarkFailed()
-            t.Fatalf("Failed to process item %s: %v", item, err)
+            logger.CriticalError("Failed to process item %s: %v", item, err)
+            return
         }
 
         logger.ShortInfo("Request completed") // Shows completion for each
