@@ -557,3 +557,32 @@ func TestRandomPrefixGeneration(t *testing.T) {
 
 	assert.Len(t, prefixes, 100, "Should have generated 100 unique prefixes")
 }
+
+// TestDependencyPermutations tests the full dependency permutation functionality
+// This is the real test that should generate permutation reports when it fails
+func TestDependencyPermutations(t *testing.T) {
+	// Skip test - this is a demonstration of how the real test should be structured
+	// In a real environment, ensure the branch exists and API keys are configured
+	t.Skip("This test requires proper branch setup and API keys - see example below for proper structure")
+
+	// Example of how a real TestDependencyPermutations test should look:
+	/*
+		options := TestAddonsOptionsDefault(&TestAddonOptions{
+			Testing: t,
+			Prefix:  "test-perm",
+			AddonConfig: cloudinfo.AddonConfig{
+				OfferingName:        "test-offering-name",
+				OfferingFlavor:      "test-flavor",
+				OfferingInstallKind: cloudinfo.InstallKindTerraform, // This is the key fix - must be set!
+				Inputs: map[string]interface{}{
+					"prefix":                       "test-perm",
+					"region":                       "us-south",
+					"existing_resource_group_name": "test-resource-group",
+				},
+			},
+		})
+
+		err := options.RunAddonPermutationTest()
+		assert.NoError(t, err, "Dependency permutation test should not fail")
+	*/
+}

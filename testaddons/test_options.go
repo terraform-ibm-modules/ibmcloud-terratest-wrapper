@@ -2,6 +2,7 @@ package testaddons
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -366,11 +367,14 @@ func (options *TestAddonOptions) CleanupSharedResources() {
 
 // collectTestResult creates a PermutationTestResult from test execution
 func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, addonConfig cloudinfo.AddonConfig, testError error) PermutationTestResult {
-	// Create base result
+	// Create base result with complete addon configuration including all dependencies
+	// First entry is the main addon (always enabled), followed by all dependencies
+	completeAddonConfig := append([]cloudinfo.AddonConfig{addonConfig}, addonConfig.Dependencies...)
+
 	result := PermutationTestResult{
 		Name:        testName,
 		Prefix:      testPrefix,
-		AddonConfig: []cloudinfo.AddonConfig{addonConfig},
+		AddonConfig: completeAddonConfig,
 		Passed:      testError == nil,
 	}
 
@@ -396,9 +400,9 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 		result.MissingInputs = append(result.MissingInputs, options.lastMissingInputs...)
 	}
 
-	// If test failed but we don't have detailed error info, capture the main error
-	if testError != nil && len(result.DeploymentErrors) == 0 && len(result.ConfigurationErrors) == 0 && len(result.RuntimeErrors) == 0 {
-		result.RuntimeErrors = append(result.RuntimeErrors, testError.Error())
+	// If test failed, parse and categorize the main error
+	if testError != nil {
+		options.categorizeError(testError, &result)
 	}
 
 	// Reset error collection fields for next test
@@ -409,4 +413,46 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 	options.lastMissingInputs = nil
 
 	return result
+}
+
+// categorizeError parses the main test error and categorizes it appropriately
+func (options *TestAddonOptions) categorizeError(testError error, result *PermutationTestResult) {
+	errorStr := testError.Error()
+
+	// Check if we already have detailed error info
+	hasDetailedErrors := len(result.DeploymentErrors) > 0 || len(result.ConfigurationErrors) > 0 ||
+		len(result.RuntimeErrors) > 0 || (result.ValidationResult != nil && !result.ValidationResult.IsValid)
+
+	// If we don't have detailed errors, try to categorize the main error
+	if !hasDetailedErrors {
+		switch {
+		case strings.Contains(errorStr, "missing required inputs"):
+			// Parse missing inputs from error message
+			result.ConfigurationErrors = append(result.ConfigurationErrors, errorStr)
+		case strings.Contains(errorStr, "dependency validation failed"):
+			// Create a simple ValidationResult for dependency failures
+			result.ValidationResult = &ValidationResult{
+				IsValid:  false,
+				Messages: []string{errorStr},
+			}
+		case strings.Contains(errorStr, "deployment timeout") || strings.Contains(errorStr, "TriggerDeployAndWait"):
+			result.DeploymentErrors = append(result.DeploymentErrors, testError)
+		case strings.Contains(errorStr, "panic:") || strings.Contains(errorStr, "runtime error"):
+			result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
+		case strings.Contains(errorStr, "unexpected configs"):
+			// This is also a validation issue
+			result.ValidationResult = &ValidationResult{
+				IsValid:  false,
+				Messages: []string{errorStr},
+			}
+		default:
+			// General runtime error
+			result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
+		}
+	} else {
+		// We have detailed errors, but still add the main error for completeness if it's not redundant
+		if !strings.Contains(errorStr, "Addon Test had an unexpected error") {
+			result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
+		}
+	}
 }

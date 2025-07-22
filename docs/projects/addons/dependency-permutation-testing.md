@@ -12,7 +12,7 @@ Dependency permutation testing solves the problem of manually creating test case
 - **Algorithmic Permutation Generation**: Generates all 2^n combinations of dependencies (where n = number of dependencies)
 - **Validation-Only Testing**: All permutations use validation-only mode for efficiency and cost savings
 - **Comprehensive Final Report**: Automatically generates a detailed summary report with error details and failure patterns
-- **Parallel Execution**: Leverages matrix testing infrastructure for efficient parallel execution
+- **Reliable Execution**: Runs all permutations in parallel while guaranteeing final report generation even when individual tests fail
 - **Zero Maintenance**: No manual test case creation or maintenance required
 
 ## When to Use Permutation Testing
@@ -63,8 +63,8 @@ func TestSecretsManagerDependencyPermutations(t *testing.T) {
         },
     })
 
-   err := options.RunAddonPermutationTest()
-   assert.NoError(t, err, "Dependency permutation test should not fail")
+    err := options.RunAddonPermutationTest()
+    assert.NoError(t, err, "Dependency permutation test should not fail")
 }
 ```
 
@@ -84,7 +84,7 @@ The framework automatically configures the following settings for permutation te
 
 - **Quiet Mode**: Automatically enabled (`QuietMode: true`) to reduce log noise and show clean progress indicators
 - **Infrastructure Deployment**: Set to `SkipInfrastructureDeployment: true` for all permutations
-- **Parallel Execution**: Uses `RunAddonTestMatrix` for efficient parallel testing
+- **Parallel Execution**: Uses matrix testing infrastructure for efficient parallel execution with reliable final reporting
 - **Validation Focus**: All permutations perform validation-only testing
 
 ## How It Works
@@ -107,7 +107,7 @@ Excludes the "on by default" case since this is typically covered by existing de
 
 ### 4. Parallel Execution
 
-Uses the existing matrix test infrastructure to run all permutations in parallel for efficiency.
+Runs all permutations in parallel using the matrix testing infrastructure to ensure efficient execution while guaranteeing comprehensive result collection and reliable final reporting regardless of individual test failures.
 
 ### 5. Final Report Generation
 
@@ -235,9 +235,6 @@ Running 15 dependency permutation tests for deploy-arch-ibm-event-notifications 
 │     • TestRunAddonTest failed: deployment validation failed                 │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-🔍 FAILURE PATTERNS (for quick scanning)
-├─ Dependency Issues: 1 test (missing required dependencies)
-└─ Deployment Errors: 1 test (TriggerDeployAndWait failures)
 
 📁 Full test logs available if additional context needed
 ================================================================================
