@@ -95,8 +95,8 @@ isQuiet := logger.IsQuietMode()
 ```golang
 bufferedLogger := common.NewBufferedTestLogger("test-name", true)
 
-// Mark test as failed (triggers buffer flush)
-bufferedLogger.MarkFailed()
+// Use enhanced error methods for automatic buffer management
+bufferedLogger.CriticalError("Test failed - shows buffer context with prominent error")
 
 // Manual buffer operations
 bufferedLogger.FlushBuffer()        // Always flush
@@ -451,7 +451,9 @@ func TestWithDynamicConfig(t *testing.T) {
 | `SetPrefix` | Set log prefix | `prefix` |
 | `EnableDateTime` | Toggle timestamps | `enable` |
 | `SetQuietMode` | Toggle quiet mode | `quiet` |
-| `MarkFailed` | Mark for buffer flush | none |
+| `CriticalError` | Critical failure with context | `message string` |
+| `ErrorWithContext` | Moderate error with context | `message string` |
+| `FatalError` | Immediate error bypass | `message string` |
 | `EnableBatchMode` | Reduce repetitive messages | none |
 | `DisableBatchMode` | Re-enable all messages | none |
 

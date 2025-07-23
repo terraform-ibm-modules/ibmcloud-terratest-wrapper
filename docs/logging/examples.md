@@ -661,12 +661,12 @@ func TestWithTestify(t *testing.T) {
     result := performOperation()
 
     if !assert.NotNil(t, result, "Result should not be nil") {
-        logger.MarkFailed() // Show debug logs on assertion failure
+        logger.ErrorWithContext("Assertion failed: Result should not be nil")
         return
     }
 
     if !assert.Equal(t, "expected", result.Value, "Values should match") {
-        logger.MarkFailed()
+        logger.ErrorWithContext("Assertion failed: Values should match")
         return
     }
 
@@ -711,8 +711,8 @@ func TestTerraformIntegration(t *testing.T) {
     output := terraform.Output(t, terraformOptions, "resource_id")
 
     if output == "" {
-        logger.MarkFailed()
-        t.Fatalf("Expected non-empty resource_id output")
+        logger.CriticalError("Expected non-empty resource_id output")
+        return
     }
 
     logger.ProgressSuccess("Terraform test completed successfully")
@@ -740,23 +740,23 @@ func TestComplexIntegration(t *testing.T) {
     logger.ShortInfo("Creating catalog")
     catalog, err := createCatalog(testConfig)
     if err != nil {
-        logger.MarkFailed()
-        t.Fatalf("Failed to create catalog: %v", err)
+        logger.CriticalError(fmt.Sprintf("Failed to create catalog: %v", err))
+        return
     }
 
     // Phase 2: Offering operations
     logger.ShortInfo("Importing offering")
     offering, err := importOffering(catalog, testConfig.OfferingPath)
     if err != nil {
-        logger.MarkFailed()
-        t.Fatalf("Failed to import offering: %v", err)
+        logger.CriticalError(fmt.Sprintf("Failed to import offering: %v", err))
+        return
     }
 
     // Phase 3: Validation
     logger.ShortInfo("Validating configuration")
     if err := validateOffering(offering); err != nil {
-        logger.MarkFailed()
-        t.Fatalf("Validation failed: %v", err)
+        logger.CriticalError(fmt.Sprintf("Validation failed: %v", err))
+        return
     }
 
     // Cleanup phase
@@ -794,8 +794,8 @@ func TestBatchProcessing(t *testing.T) {
         logger.ShortInfo("Getting offering details") // Only shows once in batch mode
 
         if err := processItem(item); err != nil {
-            logger.MarkFailed()
-            t.Fatalf("Failed to process item %s: %v", item, err)
+            logger.CriticalError(fmt.Sprintf("Failed to process item %s: %v", item, err))
+            return
         }
 
         logger.ShortInfo("Request completed") // Shows completion for each
@@ -919,7 +919,7 @@ func TestErrorWithContextExample(t *testing.T) {
 ## Best Practices from Examples
 
 1. **Always use `t.Parallel()` with BufferedTestLogger**
-2. **Use enhanced error methods instead of manual `MarkFailed()` calls**
+2. **Use enhanced error methods for automatic buffer management and error handling**
 3. **Choose error method based on severity**: CriticalError > ErrorWithContext > FatalError
 4. **Use progress methods for user-facing status updates**
 5. **Leverage predefined factory functions when possible**
