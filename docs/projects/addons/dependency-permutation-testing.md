@@ -124,6 +124,21 @@ After all tests complete, automatically generates a comprehensive final report t
 
 This eliminates the need to dig through individual test logs when debugging failures across many permutations.
 
+### 5. Final Report Generation
+
+After all tests complete, automatically generates a comprehensive final report that includes:
+
+- **Executive Summary**: Pass/fail counts and success rates
+- **Passing Tests**: Collapsed list of successful permutations
+- **Failed Tests**: Detailed error information for each failure, including:
+  - Test configuration (which addons were enabled/disabled)
+  - Complete error messages for debugging
+  - Categorized error types (validation, deployment, configuration, runtime)
+- **Failure Pattern Analysis**: Groups failures by common causes for quick scanning
+- **Resource Prefix Information**: For correlating with logs if needed
+
+This eliminates the need to dig through individual test logs when debugging failures across many permutations.
+
 ## Generated Test Cases
 
 ### Example: Addon with 3 Dependencies
@@ -235,6 +250,9 @@ Running 15 dependency permutation tests for deploy-arch-ibm-event-notifications 
 │     • TestRunAddonTest failed: deployment validation failed                 │
 └─────────────────────────────────────────────────────────────────────────────┘
 
+🔍 FAILURE PATTERNS (for quick scanning)
+├─ Dependency Issues: 1 test (missing required dependencies)
+└─ Deployment Errors: 1 test (TriggerDeployAndWait failures)
 
 📁 Full test logs available if additional context needed
 ================================================================================
