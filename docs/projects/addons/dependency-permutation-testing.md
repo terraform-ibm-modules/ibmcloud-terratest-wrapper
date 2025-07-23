@@ -148,15 +148,17 @@ For an addon with 3 dependencies (KMS, Observability, EventNotifications):
 **Structure**: 1 root addon (always present) + 3 dependencies = 2^3 = 8 total combinations
 **Generated**: 8 - 1 = 7 test cases (excluding "on by default" case)
 
-1. `sm-perm-01` - All dependencies disabled
-2. `sm-perm-02` - Only EventNotifications enabled
-3. `sm-perm-03` - Only Observability enabled
-4. `sm-perm-04` - Observability + EventNotifications enabled
-5. `sm-perm-05` - Only KMS enabled
-6. `sm-perm-06` - KMS + EventNotifications enabled
-7. `sm-perm-07` - KMS + Observability enabled
+1. `abc123-sm-01-disable-k-o-e` - All dependencies disabled
+2. `abc123-sm-02-disable-k-o` - Only EventNotifications enabled
+3. `abc123-sm-03-disable-k-e` - Only Observability enabled
+4. `abc123-sm-04-disable-k` - Observability + EventNotifications enabled
+5. `abc123-sm-05-disable-o-e` - Only KMS enabled
+6. `abc123-sm-06-disable-o` - KMS + EventNotifications enabled
+7. `abc123-sm-07-disable-e` - KMS + Observability enabled
 
 The "all dependencies enabled" case is excluded as it represents the default configuration.
+
+Test names use abbreviated forms to stay within project name limits and include random prefixes for uniqueness.
 
 ## Benefits
 
@@ -194,42 +196,44 @@ With quiet mode enabled automatically, you'll see clean progress indicators duri
 [CloudInfoService] Importing offering: fully-configurable from branch URL...
 [CloudInfoService] Imported offering: Cloud automation for Event Notifications...
 Running 15 dependency permutation tests for deploy-arch-ibm-event-notifications (quiet mode - minimal output)...
-🔄 Starting test: event-notifications-0-disable-kms-cos-account-infra-base-observability
+🔄 Starting test: abc123-e-n-0-disable-k-c-a-b-o
 🔄 Setting up test Catalog and Project
 🔄 Deploying Configurations to Project
 🔄 Validating dependencies
 ✅ Infrastructure deployment completed
 🔄 Cleaning up resources
-  ✓ Passed: event-notifications-0-disable-kms-cos-account-infra-base-observability
-🔄 Starting test: event-notifications-4-disable-kms-cos-observability
+  ✓ Passed: abc123-e-n-0-disable-k-c-a-b-o
+🔄 Starting test: abc123-e-n-4-disable-k-c-o
 🔄 Setting up test Catalog and Project
 🔄 Deploying Configurations to Project
 🔄 Validating dependencies
 ✅ Infrastructure deployment completed
 🔄 Cleaning up resources
-  ✓ Passed: event-notifications-4-disable-kms-cos-observability
+  ✓ Passed: abc123-e-n-4-disable-k-c-o
 ...
-  ✓ Passed: event-notifications-14
+  ✓ Passed: abc123-e-n-14
 
 ================================================================================
 🧪 PERMUTATION TEST REPORT - Complete
 ================================================================================
-📊 Summary: 15 total tests | ✅ 13 passed (86.7%) | ❌ 2 failed (13.3%)
+📊 Summary: 63 total tests | ✅ 24 passed (38.1%) | ❌ 39 failed (61.9%)
 
-🎯 PASSING TESTS (13) - Collapsed for brevity
-├─ ✅ event-notifications-0-disable-kms-cos-account-infra-base-observability
-├─ ✅ event-notifications-4-disable-kms-cos-observability
-└─ ... 11 more passing tests (expand with --verbose)
+✅ PASSED: 24 tests completed successfully
 
-❌ FAILED TESTS (2) - Complete Error Details
+❌ FAILED TESTS (39) - Complete Error Details
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ 1/2 ❌ event-notifications-7-disable-kms-cos                               │
-│     📁 Prefix: en-perm-kms-cos-8472                                         │
-│     🔧 Addons: event-notifications=enabled, kms=disabled, cos=disabled      │
+│ 1/39 ❌ abc123-e-n-7-disable-d-a-i-k-c-b-o                                │
+│     📁 Prefix: abc123-en-7834                                               │
+│     🔧 Addons: Main: deploy-arch-ibm-event-notifications (enabled)         │
+│            Dependencies: 3 enabled, 4 disabled                             │
+│            ✅ Enabled: deploy-arch-ibm-cloud-monitoring,                    │
+│            deploy-arch-ibm-cos, deploy-arch-ibm-cloud-logs                 │
+│            ❌ Disabled: deploy-arch-ibm-kms, deploy-arch-ibm-cos,           │
+│            deploy-arch-ibm-account-infra-base, deploy-arch-ibm-observ...   │
 │                                                                             │
 │     🔴 VALIDATION ERRORS:                                                   │
 │     • event-notifications addon requires 'kms' dependency but it's disabled │
-│     • event-notifications addon requires 'cos' dependency but it's disabled │
+│     • Missing required addon configurations in project                      │
 │                                                                             │
 │     🔴 CONFIGURATION ERRORS:                                                │
 │     • Missing configs: ['deploy-arch-ibm-kms', 'deploy-arch-ibm-cos']      │
@@ -237,10 +241,11 @@ Running 15 dependency permutation tests for deploy-arch-ibm-event-notifications 
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ 2/2 ❌ event-notifications-12-disable-observability                        │
-│     📁 Prefix: en-perm-obs-9384                                            │
-│     🔧 Addons: event-notifications=enabled, observability=disabled,        │
-│            [3 others enabled]                                              │
+│ 2/39 ❌ abc123-e-n-12-disable-c-m                                          │
+│     📁 Prefix: abc123-en-9384                                               │
+│     🔧 Addons: Main: deploy-arch-ibm-event-notifications (enabled)         │
+│            Dependencies: 6 enabled, 1 disabled                             │
+│            ❌ Disabled: deploy-arch-ibm-cloud-monitoring                    │
 │                                                                             │
 │     🔴 DEPLOYMENT ERRORS:                                                   │
 │     • TriggerDeployAndWait failed: deployment timeout after 15 minutes     │
@@ -249,10 +254,6 @@ Running 15 dependency permutation tests for deploy-arch-ibm-event-notifications 
 │     🔴 RUNTIME ERRORS:                                                      │
 │     • TestRunAddonTest failed: deployment validation failed                 │
 └─────────────────────────────────────────────────────────────────────────────┘
-
-🔍 FAILURE PATTERNS (for quick scanning)
-├─ Dependency Issues: 1 test (missing required dependencies)
-└─ Deployment Errors: 1 test (TriggerDeployAndWait failures)
 
 📁 Full test logs available if additional context needed
 ================================================================================
@@ -275,13 +276,13 @@ When permutations fail validation, you'll see detailed error information:
 
 ```
 === RUN   TestSecretsManagerDependencyPermutations
-🔄 Starting test: sm-perm-03-disable-kms
+🔄 Starting test: abc123-sm-03-disable-k
 🔄 Setting up test Catalog and Project
 🔄 Deploying Configurations to Project
 🔄 Validating dependencies
-  ✗ Failed: sm-perm-03-disable-kms (error: dependency validation failed: 1 missing configs: [deploy-arch-ibm-kms (v5.1.4, fully-configurable)])
+  ✗ Failed: abc123-sm-03-disable-k (error: dependency validation failed: 1 missing configs: [deploy-arch-ibm-kms (v5.1.4, fully-configurable)])
 --- FAIL: TestSecretsManagerDependencyPermutations (47.82s)
-    --- FAIL: TestSecretsManagerDependencyPermutations/sm-perm-03-disable-kms (12.34s)
+    --- FAIL: TestSecretsManagerDependencyPermutations/abc123-sm-03-disable-k (12.34s)
 ```
 
 ## Comparing with Manual Matrix Testing
