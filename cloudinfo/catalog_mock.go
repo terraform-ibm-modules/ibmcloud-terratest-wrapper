@@ -306,12 +306,12 @@ func (m *MockCloudInfoServiceForPermutation) GetApiKey() string {
 	return args.String(0)
 }
 
-func (m *MockCloudInfoServiceForPermutation) GetLogger() *common.TestLogger {
+func (m *MockCloudInfoServiceForPermutation) GetLogger() common.Logger {
 	args := m.Called()
-	return args.Get(0).(*common.TestLogger)
+	return args.Get(0).(common.Logger)
 }
 
-func (m *MockCloudInfoServiceForPermutation) SetLogger(logger *common.TestLogger) {
+func (m *MockCloudInfoServiceForPermutation) SetLogger(logger common.Logger) {
 	m.Called(logger)
 }
 
@@ -359,6 +359,28 @@ func (m *MockCloudInfoServiceForPermutation) ResolveReferences(region string, re
 
 func (m *MockCloudInfoServiceForPermutation) ResolveReferencesFromStrings(region string, refStrings []string, projectNameOrID string) (*ResolveResponse, error) {
 	args := m.Called(region, refStrings, projectNameOrID)
+
+	var response *ResolveResponse
+	if args.Get(0) != nil {
+		response = args.Get(0).(*ResolveResponse)
+	}
+
+	return response, args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) ResolveReferencesFromStringsWithContext(region string, refStrings []string, projectNameOrID string, batchMode bool) (*ResolveResponse, error) {
+	args := m.Called(region, refStrings, projectNameOrID, batchMode)
+
+	var response *ResolveResponse
+	if args.Get(0) != nil {
+		response = args.Get(0).(*ResolveResponse)
+	}
+
+	return response, args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) ResolveReferencesWithContext(region string, references []Reference, batchMode bool) (*ResolveResponse, error) {
+	args := m.Called(region, references, batchMode)
 
 	var response *ResolveResponse
 	if args.Get(0) != nil {

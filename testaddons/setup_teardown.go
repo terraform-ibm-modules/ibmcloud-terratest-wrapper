@@ -16,6 +16,8 @@ import (
 func (options *TestAddonOptions) TestSetup() error {
 	setupErr := options.testSetup()
 	if !assert.NoError(options.Testing, setupErr) {
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("test setup has failed: %w", setupErr)
 	}
@@ -26,7 +28,7 @@ func (options *TestAddonOptions) TestSetup() error {
 func (options *TestAddonOptions) testSetup() error {
 	// setup logger
 	if options.Logger == nil {
-		options.Logger = common.NewTestLogger(options.Testing.Name())
+		options.Logger = common.CreateSmartAutoBufferingLogger(options.Testing.Name(), false)
 	}
 
 	// Set logger prefix based on available identifiers (in order of preference)
@@ -52,6 +54,8 @@ func (options *TestAddonOptions) testSetup() error {
 	isChanges, files, err := common.ChangesToBePush(options.Testing, repoRoot)
 	if err != nil {
 		options.Logger.ShortError("Error checking for local changes in the repository")
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("error checking for local changes in the repository: %w", err)
 	}
@@ -97,6 +101,8 @@ func (options *TestAddonOptions) testSetup() error {
 			for _, file := range files {
 				options.Logger.ShortError(fmt.Sprintf("  %s", file))
 			}
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return fmt.Errorf("local changes found in the repository")
 		} else {
@@ -124,6 +130,8 @@ func (options *TestAddonOptions) testSetup() error {
 	branchUrl, repo, branch, err := options.CloudInfoService.PrepareOfferingImport()
 	if err != nil {
 		options.Logger.ShortError(fmt.Sprintf("Error preparing offering import: %v", err))
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("error preparing offering import: %w", err)
 	}
@@ -170,6 +178,8 @@ func (options *TestAddonOptions) setupCatalog() error {
 			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
 			if err != nil {
 				options.Logger.ShortError(fmt.Sprintf("Error creating catalog for shared use: %v", err))
+				options.Logger.MarkFailed()
+				options.Logger.FlushOnFailure()
 				options.Testing.Fail()
 				return fmt.Errorf("error creating catalog for shared use: %w", err)
 			}
@@ -185,6 +195,8 @@ func (options *TestAddonOptions) setupCatalog() error {
 			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
 			if err != nil {
 				options.Logger.ShortError(fmt.Sprintf("Error creating a new catalog: %v", err))
+				options.Logger.MarkFailed()
+				options.Logger.FlushOnFailure()
 				options.Testing.Fail()
 				return fmt.Errorf("error creating a new catalog: %w", err)
 			}
@@ -209,12 +221,16 @@ func (options *TestAddonOptions) setupOffering() error {
 	// ensure install kind is set or return an error
 	if !options.AddonConfig.OfferingInstallKind.Valid() {
 		options.Logger.ShortError(fmt.Sprintf("'%s' is not valid for OfferingInstallKind", options.AddonConfig.OfferingInstallKind.String()))
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("'%s' is not valid for OfferingInstallKind", options.AddonConfig.OfferingInstallKind.String())
 	}
 	// check offering name set or fail
 	if options.AddonConfig.OfferingName == "" {
 		options.Logger.ShortError("AddonConfig.OfferingName is not set")
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("AddonConfig.OfferingName is not set")
 	}
@@ -249,6 +265,8 @@ func (options *TestAddonOptions) setupOffering() error {
 		offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, options.AddonConfig.OfferingName, options.AddonConfig.OfferingFlavor, version, options.AddonConfig.OfferingInstallKind)
 		if err != nil {
 			options.Logger.ShortError(fmt.Sprintf("Error importing the offering: %v", err))
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return fmt.Errorf("error importing the offering: %w", err)
 		}
@@ -298,6 +316,8 @@ func (options *TestAddonOptions) setupProject() error {
 		if err != nil {
 			options.Logger.ShortError(fmt.Sprintf("Error creating a new project: %v", err))
 			options.Logger.ShortError(fmt.Sprintf("Response: %v", resp))
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return fmt.Errorf("error creating a new project: %w", err)
 		}
@@ -335,9 +355,13 @@ func (options *TestAddonOptions) TestTearDown() {
 // testTearDown performs the test teardown
 func (options *TestAddonOptions) testTearDown() {
 	// Show teardown progress in quiet mode
-	if options.QuietMode != nil && *options.QuietMode {
+	if options.QuietMode {
 		options.Logger.ProgressStage("Cleaning up resources")
 	}
+
+	// Flush buffered logs if test failed to show debug information during cleanup
+	options.Logger.FlushOnFailure()
+
 	// perform the test teardown
 	options.Logger.ShortInfo("Performing test teardown")
 
@@ -366,6 +390,8 @@ func (options *TestAddonOptions) testTearDown() {
 		err := options.CloudInfoService.DeleteCatalog(*options.catalog.ID)
 		if err != nil {
 			options.Logger.ShortError(fmt.Sprintf("Error deleting the catalog: %v", err))
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 		} else {
 			options.Logger.ShortInfo(fmt.Sprintf("Deleted the catalog %s with ID %s", *options.catalog.Label, *options.catalog.ID))

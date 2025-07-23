@@ -31,33 +31,48 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		// ensure we always run the test tear down, even if a panic occurs
 		defer func() {
 			if r := recover(); r != nil {
-
-				options.Testing.Fail()
 				// Get the file and line number where the panic occurred
 				_, file, line, ok := runtime.Caller(4)
+
+				// Safely handle logger - use Testing.Log if Logger is nil
+				panicMsg := ""
 				if ok {
-					options.Logger.ShortError(fmt.Sprintf("Recovered from panic: %v\nOccurred at: %s:%d\n", r, file, line))
+					panicMsg = fmt.Sprintf("Recovered from panic: %v\nOccurred at: %s:%d\n", r, file, line)
 				} else {
-					options.Logger.ShortError(fmt.Sprintf("Recovered from panic: %v", r))
+					panicMsg = fmt.Sprintf("Recovered from panic: %v", r)
 				}
+
+				if options.Logger != nil {
+					options.Logger.ShortError(panicMsg)
+					// Mark as failed and flush debug logs on panic
+					options.Logger.MarkFailed()
+					options.Logger.FlushOnFailure()
+				} else {
+					// Fallback to testing.T if logger is not available
+					options.Testing.Logf("ERROR: %s", panicMsg)
+				}
+
+				options.Testing.Fail()
 			}
 			options.TestTearDown()
 		}()
 	}
 
 	// Show setup progress in quiet mode
-	if options.QuietMode != nil && *options.QuietMode {
+	if options.QuietMode {
 		options.Logger.ProgressStage("Setting up test Catalog and Project")
 	}
 
 	setupErr := options.testSetup()
 	if !assert.NoError(options.Testing, setupErr) {
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("test setup has failed:%w", setupErr)
 	}
 
 	// Deploy Addon to Project
-	if options.QuietMode != nil && *options.QuietMode {
+	if options.QuietMode {
 		options.Logger.ProgressStage("Deploying Configurations to Project")
 	}
 	options.Logger.ShortInfo("Deploying the addon to project")
@@ -65,6 +80,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 
 	if err != nil {
 		options.Logger.ShortError(fmt.Sprintf("Error deploying the addon to project: %v", err))
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("error deploying the addon to project: %w", err)
 	}
@@ -78,6 +95,10 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	}
 	options.Logger.ShortInfo("Addon deployed successfully")
 
+	// Show configuration update progress in quiet mode
+	if options.QuietMode {
+		options.Logger.ProgressStage("Updating configuration inputs")
+	}
 	options.Logger.ShortInfo("Updating Configurations")
 	// Configure Addon
 	addonID := options.AddonConfig.ConfigID
@@ -104,11 +125,15 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		})
 		if err != nil {
 			options.Logger.ShortError(fmt.Sprintf("Error retrieving config %s: %v", config.Name, err))
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return fmt.Errorf("error retrieving config %s: %w", config.Name, err)
 		}
 		if prjCfg == nil {
 			options.Logger.ShortError(fmt.Sprintf("Retrieved config %s is nil", config.Name))
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return fmt.Errorf("retrieved config %s is nil", config.Name)
 		}
@@ -131,6 +156,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	prjConfig, response, err := options.CloudInfoService.UpdateConfig(&configDetails, &confPatch)
 	if err != nil {
 		options.Logger.ShortError(fmt.Sprintf("Error updating the configuration: %v", err))
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("error updating the configuration: %w", err)
 	}
@@ -150,7 +177,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		Prefix:               options.Prefix,
 		ProjectName:          options.ProjectName,
 		CloudInfoService:     options.CloudInfoService,
-		Logger:               options.Logger,
+		Logger:               options.Logger.GetUnderlyingLogger(),
 		Testing:              options.Testing,
 		DeployTimeoutMinutes: options.DeployTimeoutMinutes,
 		StackPollTimeSeconds: 60,
@@ -162,6 +189,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	allConfigs, err := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
 	if err != nil {
 		options.Logger.ShortError(fmt.Sprintf("Error getting the configuration: %v", err))
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("error getting the configuration: %w", err)
 	}
@@ -173,6 +202,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	waitingOnInputs := make([]string, 0)
 	failedRefs := []string{}
 	missingRequiredInputs := make([]string, 0)
+	totalReferencesProcessed := 0
 
 	// These variables will store the collected validation issues
 	// They are declared here but will only be evaluated after dependency validation
@@ -188,6 +218,17 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		}
 	}
 
+	// Show configuration processing progress in quiet mode
+	if options.QuietMode {
+		options.Logger.ProgressStage("Processing configuration details")
+	}
+
+	// Enable batch mode for smart logger if processing multiple configs
+	if smartLogger, ok := options.Logger.(*common.SmartLogger); ok && len(allConfigs) > 1 {
+		smartLogger.EnableBatchMode()
+		defer smartLogger.DisableBatchMode()
+	}
+
 	for _, config := range allConfigs {
 		options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", *config.Definition.Name, *config.ID))
 
@@ -198,6 +239,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 
 		if err != nil {
 			options.Logger.ShortError(fmt.Sprintf("Error getting the configuration: %v", err))
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return fmt.Errorf("error getting the configuration: %w", err)
 		}
@@ -215,6 +258,10 @@ func (options *TestAddonOptions) RunAddonTest() error {
 
 		// Skip reference validation if the flag is set
 		if !options.SkipRefValidation {
+			// Show reference validation progress in quiet mode (only once for all configs)
+			if config == allConfigs[0] && options.QuietMode {
+				options.Logger.ProgressStage("Validating configuration references")
+			}
 			options.Logger.ShortInfo("  References:")
 			references := []string{}
 
@@ -223,11 +270,14 @@ func (options *TestAddonOptions) RunAddonTest() error {
 				if inputStr, ok := input.(string); ok && strings.HasPrefix(inputStr, "ref:/") {
 					options.Logger.ShortInfo(fmt.Sprintf("    %s", inputStr))
 					references = append(references, inputStr)
+					totalReferencesProcessed++
 				}
 			}
 
 			if len(references) > 0 {
-				res_resp, err := options.CloudInfoService.ResolveReferencesFromStrings(*options.currentProject.Location, references, options.currentProjectConfig.ProjectID)
+				// Use batch mode to reduce logging verbosity when processing multiple configs
+				batchMode := len(allConfigs) > 1
+				res_resp, err := options.CloudInfoService.ResolveReferencesFromStringsWithContext(*options.currentProject.Location, references, options.currentProjectConfig.ProjectID, batchMode)
 				if err != nil {
 					// Check if this is a known intermittent error that should be skipped
 					// This can occur as either a direct HttpError or as an EnhancedHttpError with additional context
@@ -260,6 +310,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 					}
 					// For other errors, fail the test as before
 					options.Logger.ShortError(fmt.Sprintf("Error resolving references: %v", err))
+					options.Logger.MarkFailed()
+					options.Logger.FlushOnFailure()
 					options.Testing.Fail()
 					return fmt.Errorf("error resolving references: %w", err)
 				}
@@ -385,6 +437,10 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		}
 
 		// Validate required inputs with retry mechanism to handle database timing issues
+		// Show input validation progress in quiet mode (only once for all configs)
+		if config == allConfigs[0] && options.QuietMode {
+			options.Logger.ProgressStage("Validating required inputs")
+		}
 		options.Logger.ShortInfo("Validating required inputs...")
 		for _, input := range targetAddon.OfferingInputs {
 			if input.Required {
@@ -411,6 +467,11 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		} else {
 			options.Logger.ShortInfo(fmt.Sprintf("All required inputs set for addon: %s", *currentConfigDetails.ID))
 		}
+	}
+
+	// Show reference validation completion in quiet mode if references were processed
+	if !options.SkipRefValidation && options.QuietMode && len(allConfigs) > 1 && totalReferencesProcessed > 0 {
+		options.Logger.ProgressSuccess(fmt.Sprintf("Reference validation completed (%d configurations, %d references)", len(allConfigs), totalReferencesProcessed))
 	}
 
 	if !options.SkipRefValidation && len(failedRefs) > 0 {
@@ -463,8 +524,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 
 	// Now run dependency validation before evaluating the collected validation issues
 	if !options.SkipDependencyValidation {
-		if options.QuietMode != nil && *options.QuietMode {
-			options.Logger.ProgressStage("Validating dependencies")
+		if options.QuietMode {
+			options.Logger.ProgressStage("Building dependency graph")
 		}
 		options.Logger.ShortInfo("Starting with dependency validation")
 		var rootCatalogID, rootOfferingID, rootVersionLocator string
@@ -499,6 +560,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo("Expected dependency tree:")
 		options.PrintDependencyTree(graph, expectedDeployedList)
 
+		if options.QuietMode {
+			options.Logger.ProgressStage("Analyzing deployed configurations")
+		}
 		options.Logger.ShortInfo("Building the actually deployed configs")
 
 		if options.deployedConfigs == nil {
@@ -523,6 +587,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			options.Logger.ShortInfo("Built deployed list from deployment response")
 		}
 
+		if options.QuietMode {
+			options.Logger.ProgressStage("Validating dependency compliance")
+		}
 		// First validate what is actually deployed to get the validation results
 		validationResult := options.validateDependencies(graph, expectedDeployedList, actuallyDeployedResult.ActuallyDeployedList)
 
@@ -668,14 +735,15 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		}
 
 		// Enhanced debugging information when validation fails
-		options.Logger.ShortError("=== INPUT VALIDATION FAILURE DEBUG INFO ===")
-		options.Logger.ShortError("Attempting to get current configuration details for debugging...")
+		options.Logger.ShortWarn("=== INPUT VALIDATION FAILURE DEBUG INFO ===")
+		options.Logger.ShortWarn(fmt.Sprintf("FAILURE SUMMARY: %d configurations have missing required inputs - %s", len(inputValidationIssues), strings.Join(inputValidationIssues, "; ")))
+		options.Logger.ShortWarn("Attempting to get current configuration details for debugging...")
 
 		allConfigs, debugErr := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
 		if debugErr != nil {
-			options.Logger.ShortError(fmt.Sprintf("Could not retrieve configs for debugging: %v", debugErr))
+			options.Logger.ShortWarn(fmt.Sprintf("Could not retrieve configs for debugging: %v", debugErr))
 		} else {
-			options.Logger.ShortError(fmt.Sprintf("Found %d configurations in project:", len(allConfigs)))
+			options.Logger.ShortWarn(fmt.Sprintf("Found %d configurations in project:", len(allConfigs)))
 			for _, config := range allConfigs {
 				configDetails, _, getErr := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
 					ProjectID: options.currentProjectConfig.ProjectID,
@@ -683,22 +751,43 @@ func (options *TestAddonOptions) RunAddonTest() error {
 				})
 
 				if getErr != nil {
-					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s) - ERROR: %v", *config.Definition.Name, *config.ID, getErr))
+					options.Logger.ShortWarn(fmt.Sprintf("  Config: %s (ID: %s) - ERROR: %v", *config.Definition.Name, *config.ID, getErr))
 				} else {
-					options.Logger.ShortError(fmt.Sprintf("  Config: %s (ID: %s)", *config.Definition.Name, *config.ID))
-					options.Logger.ShortError(fmt.Sprintf("    State: %s", func() string {
+					configName := *config.Definition.Name
+					if configName == "" {
+						configName = "(unnamed config)"
+					}
+					options.Logger.ShortWarn(fmt.Sprintf("  Config: %s (ID: %s)", configName, *config.ID))
+
+					stateInfo := func() string {
 						if configDetails.State != nil {
 							return *configDetails.State
 						}
 						return "unknown"
-					}()))
-					options.Logger.ShortError(fmt.Sprintf("    StateCode: %s", func() string {
+					}()
+					stateCodeInfo := func() string {
 						if configDetails.StateCode != nil {
 							return string(*configDetails.StateCode)
 						}
 						return "unknown"
-					}()))
-					options.Logger.ShortError(fmt.Sprintf("    LocatorID: %s", func() string {
+					}()
+
+					// Add state explanation
+					stateExplanation := ""
+					switch stateCodeInfo {
+					case "awaiting_input":
+						stateExplanation = " (waiting for required inputs to be provided)"
+					case "awaiting_prerequisite":
+						stateExplanation = " (waiting for dependent configurations to complete)"
+					case "awaiting_validation":
+						stateExplanation = " (ready to validate - inputs complete)"
+					case "awaiting_member_deployment":
+						stateExplanation = " (waiting for member configurations to deploy)"
+					}
+
+					options.Logger.ShortWarn(fmt.Sprintf("    State: %s", stateInfo))
+					options.Logger.ShortWarn(fmt.Sprintf("    StateCode: %s%s", stateCodeInfo, stateExplanation))
+					options.Logger.ShortWarn(fmt.Sprintf("    LocatorID: %s", func() string {
 						if configDetails.Definition != nil {
 							if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.LocatorID != nil {
 								return *resp.LocatorID
@@ -710,13 +799,13 @@ func (options *TestAddonOptions) RunAddonTest() error {
 					// Show current input values
 					if configDetails.Definition != nil {
 						if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
-							options.Logger.ShortError("    Current Inputs:")
+							options.Logger.ShortWarn("    Current Inputs:")
 							for key, value := range resp.Inputs {
 								// Don't log sensitive values
 								if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
-									options.Logger.ShortError(fmt.Sprintf("      %s: [REDACTED]", key))
+									options.Logger.ShortWarn(fmt.Sprintf("      %s: [REDACTED]", key))
 								} else {
-									options.Logger.ShortError(fmt.Sprintf("      %s: %v", key, value))
+									options.Logger.ShortWarn(fmt.Sprintf("      %s: %v", key, value))
 								}
 							}
 						}
@@ -725,21 +814,33 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			}
 		}
 
-		options.Logger.ShortError("Expected addon configuration details:")
-		options.Logger.ShortError(fmt.Sprintf("  Main Addon Name: %s", options.AddonConfig.OfferingName))
-		options.Logger.ShortError(fmt.Sprintf("  Main Addon Version: %s", options.AddonConfig.VersionID))
-		options.Logger.ShortError(fmt.Sprintf("  Main Addon Config Name: %s", options.AddonConfig.ConfigName))
-		options.Logger.ShortError(fmt.Sprintf("  Prefix: %s", options.AddonConfig.Prefix))
+		options.Logger.ShortWarn("Expected addon configuration details:")
+		options.Logger.ShortWarn(fmt.Sprintf("  Main Addon Name: %s", options.AddonConfig.OfferingName))
+		options.Logger.ShortWarn(fmt.Sprintf("  Main Addon Version: %s", options.AddonConfig.VersionID))
+		configNameDisplay := options.AddonConfig.ConfigName
+		if configNameDisplay == "" {
+			configNameDisplay = "(blank - will be auto-generated)"
+		}
+		options.Logger.ShortWarn(fmt.Sprintf("  Main Addon Config Name: %s", configNameDisplay))
+		options.Logger.ShortWarn(fmt.Sprintf("  Prefix: %s", options.AddonConfig.Prefix))
 		if len(options.AddonConfig.Dependencies) > 0 {
-			options.Logger.ShortError("  Dependencies:")
+			options.Logger.ShortWarn("  Dependencies:")
 			for i, dep := range options.AddonConfig.Dependencies {
-				options.Logger.ShortError(fmt.Sprintf("    [%d] Name: %s, Version: %s, ConfigName: %s", i, dep.OfferingName, dep.VersionID, dep.ConfigName))
+				depConfigName := dep.ConfigName
+				if depConfigName == "" {
+					depConfigName = "(blank - will be auto-generated)"
+				}
+				options.Logger.ShortWarn(fmt.Sprintf("    [%d] Name: %s, Version: %s, ConfigName: %s", i, dep.OfferingName, dep.VersionID, depConfigName))
 			}
 		}
-		options.Logger.ShortError("=== END DEBUG INFO ===")
+		options.Logger.ShortCustom("=== END DEBUG INFO ===", common.Colors.Cyan)
 
-		options.Logger.ShortError("Cannot proceed with deployment - required inputs must be provided")
-		options.Logger.ShortError("Note: Missing inputs may be caused by missing dependencies shown above")
+		// Use the new CriticalError helper method for consistent error handling
+		errorMessage := fmt.Sprintf("Missing required inputs - %s", strings.Join(inputValidationIssues, "; "))
+		options.Logger.CriticalError(errorMessage)
+		options.Logger.ShortCustom("Cannot proceed with deployment - required inputs must be provided", common.Colors.Red)
+		options.Logger.ShortCustom("Note: Missing inputs may be caused by missing dependencies shown above", common.Colors.Red)
+
 		options.Testing.Fail()
 		return fmt.Errorf("missing required inputs: %s", strings.Join(inputValidationIssues, "; "))
 	}
@@ -849,7 +950,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 				options.Logger.ShortError(fmt.Sprintf("    [%d] Name: %s, Version: %s, ConfigName: %s", i, dep.OfferingName, dep.VersionID, dep.ConfigName))
 			}
 		}
-		options.Logger.ShortError("=== END DEBUG INFO ===")
+		options.Logger.ShortCustom("=== END DEBUG INFO ===", common.Colors.Cyan)
 
 		// Create a specific, actionable error message
 		var errorMsg string
@@ -861,7 +962,10 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			errorMsg = "configurations waiting on inputs - check debug output above for details"
 		}
 
-		options.Logger.ShortError("Note: Missing inputs may be caused by missing dependencies shown above")
+		// Use the new CriticalError helper method for consistent error handling
+		options.Logger.CriticalError(fmt.Sprintf("Found %s", errorMsg))
+		options.Logger.ShortCustom("Note: Missing inputs may be caused by missing dependencies shown above", common.Colors.Red)
+
 		options.Testing.Fail()
 		return fmt.Errorf("found %s", errorMsg)
 	}
@@ -881,16 +985,21 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	options.Logger.ShortInfo("Dependency validation completed successfully")
 
 	if !options.SkipInfrastructureDeployment {
+		if options.QuietMode {
+			options.Logger.ProgressStage("Deploying infrastructure")
+		}
 		errorList := deployOptions.TriggerDeployAndWait()
 		if len(errorList) > 0 {
 			options.Logger.ShortError("Errors occurred during deploy")
 			for _, err := range errorList {
 				options.Logger.ShortError(fmt.Sprintf("  %v", err))
 			}
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return fmt.Errorf("errors occurred during deploy")
 		}
-		if options.QuietMode != nil && *options.QuietMode {
+		if options.QuietMode {
 			options.Logger.ProgressSuccess("Infrastructure deployment completed")
 		}
 		options.Logger.ShortInfo("Deploy completed successfully")
@@ -904,6 +1013,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo("Running PostDeployHook")
 		hookErr := options.PostDeployHook(options)
 		if hookErr != nil {
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return hookErr
 		}
@@ -914,6 +1025,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo("Running PreUndeployHook")
 		hookErr := options.PreUndeployHook(options)
 		if hookErr != nil {
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return hookErr
 		}
@@ -924,12 +1037,17 @@ func (options *TestAddonOptions) RunAddonTest() error {
 
 	// Trigger Undeploy
 	if !options.SkipInfrastructureDeployment {
+		if options.QuietMode {
+			options.Logger.ProgressStage("Cleaning up infrastructure")
+		}
 		undeployErrs := deployOptions.TriggerUnDeployAndWait()
 		if len(undeployErrs) > 0 {
 			options.Logger.ShortError("Errors occurred during undeploy")
 			for _, err := range undeployErrs {
 				options.Logger.ShortError(fmt.Sprintf("  %v", err))
 			}
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return fmt.Errorf("errors occurred during undeploy")
 		}
@@ -943,6 +1061,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo("Running PostUndeployHook")
 		hookErr := options.PostUndeployHook(options)
 		if hookErr != nil {
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
 			return hookErr
 		}
@@ -975,9 +1095,23 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 		staggerDelay = *matrix.StaggerDelay
 	}
 
+	// Set default batch configuration for staggered execution
+	batchSize := 8
+	if matrix.StaggerBatchSize != nil {
+		batchSize = *matrix.StaggerBatchSize
+	}
+
+	withinBatchDelay := 2 * time.Second
+	if matrix.WithinBatchDelay != nil {
+		withinBatchDelay = *matrix.WithinBatchDelay
+	}
+
 	// Create shared resource tracking for the matrix
 	var sharedCatalogOptions *TestAddonOptions
 	var sharedMutex = &sync.Mutex{}
+
+	// Generate a random prefix once per matrix test run for UI grouping
+	randomPrefix := common.UniqueId(6)
 
 	for i, tc := range matrix.TestCases {
 		tc := tc       // Capture loop variable for parallel execution
@@ -986,20 +1120,39 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 			t.Parallel()
 
 			// Implement staggered start to prevent rate limiting
-			// Each test waits a progressively longer time before starting
+			// Use batched approach to prevent excessive delays for large test suites
 			if staggerDelay > 0 && testIndex > 0 {
-				staggerWait := time.Duration(testIndex) * staggerDelay
+				var staggerWait time.Duration
+				var batchNumber, inBatchIndex int
+
+				if batchSize > 0 {
+					// Batched staggering: group tests into batches with smaller delays within batches
+					batchNumber = testIndex / batchSize
+					inBatchIndex = testIndex % batchSize
+					staggerWait = time.Duration(batchNumber)*staggerDelay + time.Duration(inBatchIndex)*withinBatchDelay
+				} else {
+					// Linear staggering: original behavior when batch size is 0
+					staggerWait = time.Duration(testIndex) * staggerDelay
+					batchNumber = 0
+					inBatchIndex = testIndex
+				}
+
 				// Only log stagger messages in verbose mode
-				if matrix.BaseOptions.QuietMode == nil || !*matrix.BaseOptions.QuietMode {
-					fmt.Printf("[%s - STAGGER] Delaying test start by %v to prevent rate limiting (test %d/%d)\n",
-						tc.Name, staggerWait, testIndex+1, len(matrix.TestCases))
+				if !matrix.BaseOptions.QuietMode {
+					if batchSize > 0 {
+						matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("[%s - STAGGER] Delaying test start by %v to prevent rate limiting (batch %d, position %d/%d, test %d/%d)",
+							tc.Name, staggerWait, batchNumber, inBatchIndex+1, batchSize, testIndex+1, len(matrix.TestCases)))
+					} else {
+						matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("[%s - STAGGER] Delaying test start by %v to prevent rate limiting (test %d/%d)",
+							tc.Name, staggerWait, testIndex+1, len(matrix.TestCases)))
+					}
 				}
 				time.Sleep(staggerWait)
 			}
 
 			// Show test start progress in quiet mode
-			if matrix.BaseOptions.QuietMode != nil && *matrix.BaseOptions.QuietMode {
-				fmt.Printf("🔄 Starting test: %s\n", tc.Name)
+			if matrix.BaseOptions.QuietMode {
+				matrix.BaseOptions.Logger.ProgressStage(fmt.Sprintf("Starting test: %s", tc.Name))
 			}
 
 			// Start with a copy of BaseOptions and customize for this test case
@@ -1033,17 +1186,17 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 
 			// Ensure logger is initialized before using it
 			if testOptions.Logger == nil {
-				testOptions.Logger = common.NewTestLogger(parentTestName)
+				testOptions.Logger = common.CreateSmartAutoBufferingLogger(parentTestName, false)
 			}
 
 			// Set quiet mode on the logger
-			if testOptions.QuietMode != nil && *testOptions.QuietMode {
+			if testOptions.QuietMode {
 				testOptions.Logger.SetQuietMode(true)
 				// In quiet mode, don't show individual test start messages
 			} else {
 				testOptions.Logger.SetQuietMode(false)
 				// Show individual test start messages in verbose mode
-				fmt.Printf("  Running test: %s\n", tc.Name)
+				testOptions.Logger.ShortInfo(fmt.Sprintf("Running test: %s", tc.Name))
 			}
 
 			// Ensure CloudInfoService is initialized before using it for catalog operations
@@ -1058,7 +1211,7 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				testOptions.CloudInfoService = cloudInfoSvc
 			} else {
 				// Update the existing CloudInfoService logger with quiet mode setting
-				testOptions.CloudInfoService.SetLogger(testOptions.Logger)
+				testOptions.CloudInfoService.SetLogger(testOptions.Logger.GetUnderlyingLogger())
 			}
 
 			// Matrix tests always use shared catalogs for efficiency, regardless of SharedCatalog setting
@@ -1090,22 +1243,20 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				testOptions.AddonConfig.Dependencies = tc.Dependencies
 			}
 
-			// Set project name using test case and prefix
+			// Set project name using test case and prefix with abbreviations
 			if testOptions.Prefix != "" {
-				nameComponents := []string{}
+				nameComponents := []string{randomPrefix}
 
 				if testOptions.AddonConfig.OfferingName != "" {
-					// Extract a shorter, more readable name from the offering
-					offeringShortName := testOptions.AddonConfig.OfferingName
-					if after, ok := strings.CutPrefix(offeringShortName, "deploy-arch-"); ok {
-						offeringShortName = after
-					}
-					nameComponents = append(nameComponents, offeringShortName)
+					// Use abbreviation for offering name
+					offeringAbbrev := testOptions.createInitialAbbreviation(testOptions.AddonConfig.OfferingName)
+					nameComponents = append(nameComponents, offeringAbbrev)
 				}
 
-				// Add test case name in lowercase for readability
+				// Add abbreviated test case name for readability
 				if tc.Name != "" {
-					nameComponents = append(nameComponents, strings.ToLower(tc.Name))
+					testCaseAbbrev := testOptions.createInitialAbbreviation(strings.ToLower(tc.Name))
+					nameComponents = append(nameComponents, testCaseAbbrev)
 				}
 
 				nameComponents = append(nameComponents, testOptions.Prefix)
@@ -1218,12 +1369,23 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 			// Run the test - each test creates its own project
 			err := testOptions.RunAddonTest()
 
-			// Handle result display in quiet mode
-			if testOptions.QuietMode != nil && *testOptions.QuietMode {
-				if err != nil {
-					fmt.Printf("  ✗ Failed: %s (error: %v)\n", tc.Name, err)
+			// Collect result for final report if enabled
+			if matrix.BaseOptions.CollectResults && matrix.BaseOptions.PermutationTestReport != nil {
+				testResult := testOptions.collectTestResult(tc.Name, tc.Prefix, testOptions.AddonConfig, err)
+				matrix.BaseOptions.PermutationTestReport.Results = append(matrix.BaseOptions.PermutationTestReport.Results, testResult)
+				if testResult.Passed {
+					matrix.BaseOptions.PermutationTestReport.PassedTests++
 				} else {
-					fmt.Printf("  ✓ Passed: %s\n", tc.Name)
+					matrix.BaseOptions.PermutationTestReport.FailedTests++
+				}
+			}
+
+			// Handle result display in quiet mode
+			if testOptions.QuietMode {
+				if err != nil {
+					testOptions.Logger.ShortError(fmt.Sprintf("✗ Failed: %s (error: %v)", tc.Name, err))
+				} else {
+					testOptions.Logger.ProgressSuccess(fmt.Sprintf("Passed: %s", tc.Name))
 				}
 			}
 
@@ -1257,9 +1419,9 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 	}
 
 	// Enable quiet mode by default for permutation tests to reduce log noise
-	// but respect explicit user setting
-	if options.QuietMode == nil {
-		options.QuietMode = core.BoolPtr(true)
+	// Quiet mode will be false by default, but we set it to true for permutation tests
+	if !options.QuietMode {
+		options.QuietMode = true
 	}
 
 	// Step 1: Discover dependencies from catalog
@@ -1281,21 +1443,30 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 		return nil
 	}
 
-	// Step 3: Show minimal progress information for permutation tests
+	// Step 3: Initialize result collection and logging
 	// Ensure logger is initialized before using it
 	if options.Logger == nil {
-		options.Logger = common.NewTestLogger("TestDependencyPermutations")
+		options.Logger = common.CreateSmartAutoBufferingLogger("TestDependencyPermutations", false)
 	}
 
-	if options.QuietMode != nil && *options.QuietMode {
+	if options.QuietMode {
 		options.Logger.SetQuietMode(true)
-		// Show minimal progress in quiet mode
-		fmt.Printf("Running %d dependency permutation tests for %s (quiet mode - minimal output)...\n", len(testCases), options.AddonConfig.OfferingName)
 	} else {
 		options.Logger.SetQuietMode(false)
-		// Show verbose progress in verbose mode
-		fmt.Printf("Running %d dependency permutation tests for %s (verbose mode - full output)...\n", len(testCases), options.AddonConfig.OfferingName)
 	}
+
+	// Initialize result collection for final report
+	options.CollectResults = true
+	options.PermutationTestReport = &PermutationTestReport{
+		TotalTests:  len(testCases),
+		PassedTests: 0,
+		FailedTests: 0,
+		Results:     make([]PermutationTestResult, 0, len(testCases)),
+		StartTime:   time.Now(),
+	}
+
+	// Show permutation test start progress - logger will handle quiet/verbose differences
+	options.Logger.ProgressStage(fmt.Sprintf("Running %d dependency permutation tests for %s", len(testCases), options.AddonConfig.OfferingName))
 
 	// Step 4: Execute all permutations in parallel using matrix test infrastructure
 	matrix := AddonTestMatrix{
@@ -1308,9 +1479,7 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 			testOptions.TestCaseName = testCase.Name
 			testOptions.SkipInfrastructureDeployment = testCase.SkipInfrastructureDeployment
 			// Inherit quiet mode from base options
-			if baseOptions.QuietMode != nil {
-				testOptions.QuietMode = core.BoolPtr(*baseOptions.QuietMode)
-			}
+			testOptions.QuietMode = baseOptions.QuietMode
 			testOptions.VerboseOnFailure = baseOptions.VerboseOnFailure
 			return testOptions
 		},
@@ -1337,6 +1506,16 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 
 	// Execute the matrix test
 	options.RunAddonTestMatrix(matrix)
+
+	// Generate and display final report
+	if options.PermutationTestReport != nil {
+		options.PermutationTestReport.EndTime = time.Now()
+
+		// Use SmartLogger if available for consistent formatting
+		if smartLogger, ok := options.Logger.(*common.SmartLogger); ok {
+			options.PermutationTestReport.PrintPermutationReport(smartLogger)
+		}
+	}
 
 	return nil
 }
@@ -1454,6 +1633,9 @@ func (options *TestAddonOptions) generatePermutations(dependencies []cloudinfo.A
 	numDeps := len(dependencies)
 	totalPermutations := 1 << numDeps // 2^n where n = number of dependencies
 
+	// Generate a random prefix once per test run for UI grouping
+	randomPrefix := common.UniqueId(6)
+
 	// Sequential counter for unique prefix generation
 	permIndex := 0
 	basePrefix := options.shortenPrefix(options.Prefix)
@@ -1484,34 +1666,19 @@ func (options *TestAddonOptions) generatePermutations(dependencies []cloudinfo.A
 			continue
 		}
 
-		// Create test case name with sequential numbering using shortened names
-		// Apply existing shortening pattern to main offering name
-		mainOfferingShortName := options.AddonConfig.OfferingName
-		if strings.HasPrefix(mainOfferingShortName, "deploy-arch-ibm-") {
-			mainOfferingShortName = strings.TrimPrefix(mainOfferingShortName, "deploy-arch-ibm-")
-		} else if strings.HasPrefix(mainOfferingShortName, "deploy-arch-") {
-			mainOfferingShortName = strings.TrimPrefix(mainOfferingShortName, "deploy-arch-")
-		}
+		// Create test case name using abbreviations with collision resolution
+		mainOfferingAbbrev := options.createInitialAbbreviation(options.AddonConfig.OfferingName)
 
-		testCaseName := fmt.Sprintf("%s-%d", mainOfferingShortName, permIndex)
+		testCaseName := fmt.Sprintf("%s-%s-%d", randomPrefix, mainOfferingAbbrev, permIndex)
 		if len(disabledNames) > 0 {
-			// Apply shortening to dependency names as well
-			var shortenedDisabledNames []string
-			for _, name := range disabledNames {
-				shortName := name
-				if strings.HasPrefix(shortName, "deploy-arch-ibm-") {
-					shortName = strings.TrimPrefix(shortName, "deploy-arch-ibm-")
-				} else if strings.HasPrefix(shortName, "deploy-arch-") {
-					shortName = strings.TrimPrefix(shortName, "deploy-arch-")
-				}
-				shortenedDisabledNames = append(shortenedDisabledNames, shortName)
-			}
-			testCaseName = fmt.Sprintf("%s-%d-disable-%s", mainOfferingShortName, permIndex,
-				options.joinNames(shortenedDisabledNames, "-"))
+			// Use abbreviation with collision resolution for disabled dependency names
+			abbreviatedDisabledNames := options.abbreviateWithCollisionResolution(disabledNames)
+			testCaseName = fmt.Sprintf("%s-%s-%d-disable-%s", randomPrefix, mainOfferingAbbrev, permIndex,
+				strings.Join(abbreviatedDisabledNames, "-"))
 		}
 
-		// Generate unique prefix using sequential counter
-		uniquePrefix := fmt.Sprintf("%s%d", basePrefix, permIndex)
+		// Generate unique prefix using random prefix and sequential counter
+		uniquePrefix := fmt.Sprintf("%s-%s%d", randomPrefix, basePrefix, permIndex)
 
 		testCase := AddonTestCase{
 			Name:                         testCaseName,
@@ -1584,4 +1751,167 @@ func (options *TestAddonOptions) joinNames(names []string, separator string) str
 		result += separator + names[i]
 	}
 	return result
+}
+
+// abbreviateWithCollisionResolution creates abbreviated names for components, resolving collisions
+// by progressively adding characters until all names are unique within the given list
+func (options *TestAddonOptions) abbreviateWithCollisionResolution(names []string) []string {
+	if len(names) == 0 {
+		return names
+	}
+
+	abbreviated := make([]string, len(names))
+
+	// First pass: create initial abbreviations (first character of each dash-separated part)
+	for i, name := range names {
+		abbreviated[i] = options.createInitialAbbreviation(name)
+	}
+
+	// Resolve collisions by progressively adding characters
+	return options.resolveCollisions(names, abbreviated)
+}
+
+// createInitialAbbreviation creates first-character abbreviation for a component name
+func (options *TestAddonOptions) createInitialAbbreviation(name string) string {
+	if name == "" {
+		return ""
+	}
+
+	// Handle common prefixes first and replace with abbreviated versions
+	shortName := name
+	if strings.HasPrefix(shortName, "deploy-arch-ibm-") {
+		shortName = strings.TrimPrefix(shortName, "deploy-arch-ibm-")
+		shortName = "dai-" + shortName
+	} else if strings.HasPrefix(shortName, "deploy-arch-") {
+		shortName = strings.TrimPrefix(shortName, "deploy-arch-")
+		shortName = "da-" + shortName
+	}
+
+	// Split by dashes and take first character of each part
+	parts := strings.Split(shortName, "-")
+	var result strings.Builder
+
+	for i, part := range parts {
+		if part == "" {
+			continue
+		}
+		if i > 0 {
+			result.WriteString("-")
+		}
+		// Keep numbers and preserve certain keywords as-is
+		if options.isNumericOrKeyword(part) {
+			result.WriteString(part)
+		} else {
+			result.WriteByte(part[0])
+		}
+	}
+
+	return result.String()
+}
+
+// isNumericOrKeyword checks if a part should be kept as-is
+func (options *TestAddonOptions) isNumericOrKeyword(part string) bool {
+	// Keep parts that start with numbers or contain digits (like v2, v10, etc.)
+	if len(part) > 0 {
+		for _, char := range part {
+			if char >= '0' && char <= '9' {
+				return true
+			}
+		}
+	}
+
+	// Keep important keywords and our abbreviated prefixes
+	keywords := []string{"disable", "enable", "test", "basic", "advanced", "dai", "da"}
+	for _, keyword := range keywords {
+		if part == keyword {
+			return true
+		}
+	}
+
+	return false
+}
+
+// resolveCollisions progressively adds characters to resolve naming conflicts
+func (options *TestAddonOptions) resolveCollisions(originalNames []string, abbreviated []string) []string {
+	result := make([]string, len(abbreviated))
+	copy(result, abbreviated)
+
+	// Find collisions and resolve them
+	for {
+		collisions := options.findCollisions(result)
+		if len(collisions) == 0 {
+			break
+		}
+
+		// For each collision group, extend the later abbreviations (keep first as-is)
+		for _, indices := range collisions {
+			if len(indices) < 2 {
+				continue
+			}
+
+			// Extend all but the first abbreviation in the collision group
+			for i := 1; i < len(indices); i++ {
+				idx := indices[i]
+				result[idx] = options.extendAbbreviation(originalNames[idx], result[idx])
+			}
+		}
+	}
+
+	return result
+}
+
+// findCollisions returns a map of collision groups (abbreviated name -> list of indices)
+func (options *TestAddonOptions) findCollisions(abbreviated []string) map[string][]int {
+	collisions := make(map[string][]int)
+
+	for i, abbrev := range abbreviated {
+		collisions[abbrev] = append(collisions[abbrev], i)
+	}
+
+	// Remove entries that don't have collisions
+	for abbrev, indices := range collisions {
+		if len(indices) <= 1 {
+			delete(collisions, abbrev)
+		}
+	}
+
+	return collisions
+}
+
+// extendAbbreviation adds one more character to an abbreviation
+func (options *TestAddonOptions) extendAbbreviation(originalName, currentAbbrev string) string {
+	// Find the last part that was abbreviated and extend it
+	originalParts := strings.Split(originalName, "-")
+	abbrevParts := strings.Split(currentAbbrev, "-")
+
+	if len(abbrevParts) == 0 {
+		return currentAbbrev
+	}
+
+	// Work backwards to find the first abbreviated part we can extend
+	for i := len(abbrevParts) - 1; i >= 0; i-- {
+		if i < len(originalParts) {
+			originalPart := originalParts[i]
+			abbrevPart := abbrevParts[i]
+
+			// Skip if this part is a keyword or number (shouldn't be extended)
+			if options.isNumericOrKeyword(originalPart) {
+				continue
+			}
+
+			// Skip if already fully expanded
+			if abbrevPart == originalPart {
+				continue
+			}
+
+			// Extend this part by one character
+			if len(abbrevPart) < len(originalPart) {
+				abbrevParts[i] = originalPart[:len(abbrevPart)+1]
+				return strings.Join(abbrevParts, "-")
+			}
+		}
+	}
+
+	// If we can't extend any part, just append a character from the original
+	return currentAbbrev + "x"
 }

@@ -1,7 +1,9 @@
 package testaddons
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	"github.com/stretchr/testify/assert"
@@ -353,7 +355,7 @@ func TestMatrixLoggerInitialization(t *testing.T) {
 
 		// Simulate the logger initialization check from the matrix code
 		if mockOptions.Logger == nil {
-			mockOptions.Logger = common.NewTestLogger(mockOptions.Testing.Name())
+			mockOptions.Logger = common.CreateSmartAutoBufferingLogger(mockOptions.Testing.Name(), false)
 		}
 
 		// Now the logger should be available
@@ -400,7 +402,7 @@ func TestMatrixLoggerInitialization(t *testing.T) {
 		// Now simulate what the matrix code does - it should initialize logger before using it
 		// This is the critical part that was fixed
 		if testOptions.Logger == nil {
-			testOptions.Logger = common.NewTestLogger(testOptions.Testing.Name())
+			testOptions.Logger = common.CreateSmartAutoBufferingLogger(testOptions.Testing.Name(), false)
 		}
 
 		// Verify logger is now initialized and can be used without panic
@@ -438,7 +440,7 @@ func TestMatrixCatalogSharingFix(t *testing.T) {
 			testOptions := &TestAddonOptions{
 				Prefix:      tc.Prefix,
 				CatalogName: "shared-matrix-catalog",
-				Logger:      common.NewTestLogger(tc.Name),
+				Logger:      common.CreateSmartAutoBufferingLogger(tc.Name, false),
 			}
 
 			// This is the FIXED logic - catalog sharing happens BEFORE testSetup()
@@ -497,6 +499,196 @@ func TestMatrixCatalogSharingFix(t *testing.T) {
 		// The fix ensures this behavior is now correct
 		assert.True(t, true, "Fix documented - catalog creation moved to matrix logic")
 	})
+}
+
+// TestStaggerBatchingCalculations tests the batched staggering logic
+func TestStaggerBatchingCalculations(t *testing.T) {
+	tests := []struct {
+		name                string
+		testIndex           int
+		batchSize           int
+		staggerDelay        time.Duration
+		withinBatchDelay    time.Duration
+		expectedWait        time.Duration
+		expectedBatchNumber int
+		expectedInBatchIdx  int
+	}{
+		{
+			name:                "First test, no delay",
+			testIndex:           0,
+			batchSize:           8,
+			staggerDelay:        10 * time.Second,
+			withinBatchDelay:    2 * time.Second,
+			expectedWait:        0,
+			expectedBatchNumber: 0,
+			expectedInBatchIdx:  0,
+		},
+		{
+			name:                "Second test in first batch",
+			testIndex:           1,
+			batchSize:           8,
+			staggerDelay:        10 * time.Second,
+			withinBatchDelay:    2 * time.Second,
+			expectedWait:        2 * time.Second,
+			expectedBatchNumber: 0,
+			expectedInBatchIdx:  1,
+		},
+		{
+			name:                "Last test in first batch",
+			testIndex:           7,
+			batchSize:           8,
+			staggerDelay:        10 * time.Second,
+			withinBatchDelay:    2 * time.Second,
+			expectedWait:        14 * time.Second,
+			expectedBatchNumber: 0,
+			expectedInBatchIdx:  7,
+		},
+		{
+			name:                "First test in second batch",
+			testIndex:           8,
+			batchSize:           8,
+			staggerDelay:        10 * time.Second,
+			withinBatchDelay:    2 * time.Second,
+			expectedWait:        10 * time.Second,
+			expectedBatchNumber: 1,
+			expectedInBatchIdx:  0,
+		},
+		{
+			name:                "Second test in second batch",
+			testIndex:           9,
+			batchSize:           8,
+			staggerDelay:        10 * time.Second,
+			withinBatchDelay:    2 * time.Second,
+			expectedWait:        12 * time.Second,
+			expectedBatchNumber: 1,
+			expectedInBatchIdx:  1,
+		},
+		{
+			name:                "Test 50 with default batch size",
+			testIndex:           49,
+			batchSize:           8,
+			staggerDelay:        10 * time.Second,
+			withinBatchDelay:    2 * time.Second,
+			expectedWait:        62 * time.Second, // (49/8)*10 + (49%8)*2 = 6*10 + 1*2 = 62
+			expectedBatchNumber: 6,
+			expectedInBatchIdx:  1,
+		},
+		{
+			name:                "Test 100 with default batch size",
+			testIndex:           99,
+			batchSize:           8,
+			staggerDelay:        10 * time.Second,
+			withinBatchDelay:    2 * time.Second,
+			expectedWait:        126 * time.Second, // (99/8)*10 + (99%8)*2 = 12*10 + 3*2 = 126
+			expectedBatchNumber: 12,
+			expectedInBatchIdx:  3,
+		},
+		{
+			name:                "Linear staggering (batch size 0)",
+			testIndex:           10,
+			batchSize:           0,
+			staggerDelay:        10 * time.Second,
+			withinBatchDelay:    2 * time.Second,
+			expectedWait:        100 * time.Second, // 10 * 10 = 100 (linear)
+			expectedBatchNumber: 0,
+			expectedInBatchIdx:  10,
+		},
+		{
+			name:                "Large batch size (20)",
+			testIndex:           25,
+			batchSize:           20,
+			staggerDelay:        10 * time.Second,
+			withinBatchDelay:    1 * time.Second,
+			expectedWait:        15 * time.Second, // (25/20)*10 + (25%20)*1 = 1*10 + 5*1 = 15
+			expectedBatchNumber: 1,
+			expectedInBatchIdx:  5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Simulate the batching calculation logic from RunAddonTestMatrix
+			var actualWait time.Duration
+			var actualBatchNumber, actualInBatchIdx int
+
+			if tt.testIndex > 0 { // Skip first test (index 0)
+				if tt.batchSize > 0 {
+					// Batched staggering
+					actualBatchNumber = tt.testIndex / tt.batchSize
+					actualInBatchIdx = tt.testIndex % tt.batchSize
+					actualWait = time.Duration(actualBatchNumber)*tt.staggerDelay + time.Duration(actualInBatchIdx)*tt.withinBatchDelay
+				} else {
+					// Linear staggering
+					actualWait = time.Duration(tt.testIndex) * tt.staggerDelay
+					actualBatchNumber = 0
+					actualInBatchIdx = tt.testIndex
+				}
+			}
+
+			assert.Equal(t, tt.expectedWait, actualWait, "Stagger wait time mismatch")
+			assert.Equal(t, tt.expectedBatchNumber, actualBatchNumber, "Batch number mismatch")
+			assert.Equal(t, tt.expectedInBatchIdx, actualInBatchIdx, "In-batch index mismatch")
+		})
+	}
+}
+
+// TestStaggerBatchingHelperFunctions tests the helper functions for batch configuration
+func TestStaggerBatchingHelperFunctions(t *testing.T) {
+	t.Run("StaggerBatchSize", func(t *testing.T) {
+		size := StaggerBatchSize(12)
+		assert.NotNil(t, size)
+		assert.Equal(t, 12, *size)
+	})
+
+	t.Run("WithinBatchDelay", func(t *testing.T) {
+		delay := WithinBatchDelay(5 * time.Second)
+		assert.NotNil(t, delay)
+		assert.Equal(t, 5*time.Second, *delay)
+	})
+}
+
+// TestStaggerBatchingScalingComparison demonstrates the improvement in scaling
+func TestStaggerBatchingScalingComparison(t *testing.T) {
+	testCases := []struct {
+		testCount int
+		batchSize int
+	}{
+		{20, 8},
+		{50, 8},
+		{100, 8},
+		{200, 8},
+	}
+
+	staggerDelay := 10 * time.Second
+	withinBatchDelay := 2 * time.Second
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("%d tests", tc.testCount), func(t *testing.T) {
+			lastTestIndex := tc.testCount - 1
+
+			// Calculate linear staggering delay (original approach)
+			linearDelay := time.Duration(lastTestIndex) * staggerDelay
+
+			// Calculate batched staggering delay (new approach)
+			batchNumber := lastTestIndex / tc.batchSize
+			inBatchIndex := lastTestIndex % tc.batchSize
+			batchedDelay := time.Duration(batchNumber)*staggerDelay + time.Duration(inBatchIndex)*withinBatchDelay
+
+			// Log the improvement
+			t.Logf("Test count: %d", tc.testCount)
+			t.Logf("  Linear staggering (old): %v", linearDelay)
+			t.Logf("  Batched staggering (new): %v", batchedDelay)
+			t.Logf("  Improvement: %v reduction (%.1f%% less)",
+				linearDelay-batchedDelay,
+				float64(linearDelay-batchedDelay)/float64(linearDelay)*100)
+
+			// Assert that batched staggering is always better for large test counts
+			if tc.testCount >= 20 {
+				assert.Less(t, batchedDelay, linearDelay,
+					"Batched staggering should be faster for %d tests", tc.testCount)
+			}
+		})
+	}
 }
 
 // End of matrix test file

@@ -32,8 +32,8 @@ type RetryConfig struct {
 	Jitter bool
 	// RetryableErrorChecker is a function that determines if an error should be retried
 	RetryableErrorChecker func(error) bool
-	// Logger is used for logging retry attempts (optional) - use TestLogger interface
-	Logger *TestLogger
+	// Logger is used for logging retry attempts (optional) - use Logger interface
+	Logger Logger
 	// OperationName is used in log messages to identify the operation being retried
 	OperationName string
 }
