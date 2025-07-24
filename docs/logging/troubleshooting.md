@@ -16,7 +16,7 @@ This guide covers common issues, solutions, and debugging techniques for the log
 --- PASS: TestParallelOperation (10.25s)
 ```
 
-**Cause**: Using `TestLogger` in quiet mode or not calling `MarkFailed()` with `BufferedTestLogger`.
+**Cause**: Using `TestLogger` in quiet mode or not using enhanced error methods with `BufferedTestLogger`.
 
 **Solution**:
 ```golang
@@ -24,11 +24,11 @@ This guide covers common issues, solutions, and debugging techniques for the log
 logger := common.NewTestLogger(t.Name())
 logger.SetQuietMode(true)
 
-// ✅ Correct - BufferedTestLogger with failure marking
+// ✅ Correct - BufferedTestLogger with enhanced error methods
 logger := common.NewBufferedTestLogger(t.Name(), true)
 // ... test logic ...
 if err != nil {
-    logger.MarkFailed() // Essential!
+    logger.CriticalError(fmt.Sprintf("Test failed: %v", err)) // Automatically triggers buffer flush
     t.Fatalf("Test failed: %v", err)
 }
 ```
@@ -43,7 +43,7 @@ if err != nil {
     test.go:45: Test failed: operation timeout
 ```
 
-**Cause**: Forgetting to call `MarkFailed()` before test failure or using basic error handling.
+**Cause**: Not using enhanced error methods that automatically handle buffer flushing and context display.
 
 **Solution**:
 ```golang
@@ -52,16 +52,16 @@ if err != nil {
     t.Fatalf("Test failed: %v", err)
 }
 
-// ✅ Better - enhanced error methods handle everything automatically
+// ✅ Best - enhanced error methods handle everything automatically
 if err != nil {
     logger.CriticalError(fmt.Sprintf("Test failed: %v", err))
     return
 }
 
-// ✅ Also correct - manual approach
+// ✅ Alternative for moderate errors
 if err != nil {
-    logger.MarkFailed()
-    t.Fatalf("Test failed: %v", err)
+    logger.ErrorWithContext(fmt.Sprintf("Test failed: %v", err))
+    return
 }
 ```
 

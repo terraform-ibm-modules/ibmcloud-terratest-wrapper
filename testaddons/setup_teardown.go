@@ -16,8 +16,7 @@ import (
 func (options *TestAddonOptions) TestSetup() error {
 	setupErr := options.testSetup()
 	if !assert.NoError(options.Testing, setupErr) {
-		options.Logger.MarkFailed()
-		options.Logger.FlushOnFailure()
+		options.Logger.CriticalError(fmt.Sprintf("test setup has failed: %v", setupErr))
 		options.Testing.Fail()
 		return fmt.Errorf("test setup has failed: %w", setupErr)
 	}
@@ -53,9 +52,7 @@ func (options *TestAddonOptions) testSetup() error {
 
 	isChanges, files, err := common.ChangesToBePush(options.Testing, repoRoot)
 	if err != nil {
-		options.Logger.ShortError("Error checking for local changes in the repository")
-		options.Logger.MarkFailed()
-		options.Logger.FlushOnFailure()
+		options.Logger.CriticalError(fmt.Sprintf("Error checking for local changes in the repository: %v", err))
 		options.Testing.Fail()
 		return fmt.Errorf("error checking for local changes in the repository: %w", err)
 	}
@@ -96,13 +93,11 @@ func (options *TestAddonOptions) testSetup() error {
 
 	if isChanges {
 		if !options.SkipLocalChangeCheck {
-			options.Logger.ShortError("Local changes found in the repository, please commit, push or stash the changes before running the test")
-			options.Logger.ShortError("Files with changes:")
+			filesList := "\nFiles with changes:\n"
 			for _, file := range files {
-				options.Logger.ShortError(fmt.Sprintf("  %s", file))
+				filesList += fmt.Sprintf("  %s\n", file)
 			}
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
+			options.Logger.CriticalError(fmt.Sprintf("Local changes found in the repository, please commit, push or stash the changes before running the test%s", filesList))
 			options.Testing.Fail()
 			return fmt.Errorf("local changes found in the repository")
 		} else {
@@ -129,9 +124,7 @@ func (options *TestAddonOptions) testSetup() error {
 	// Use the cloudinfo helper to prepare offering import (validates branch exists)
 	branchUrl, repo, branch, err := options.CloudInfoService.PrepareOfferingImport()
 	if err != nil {
-		options.Logger.ShortError(fmt.Sprintf("Error preparing offering import: %v", err))
-		options.Logger.MarkFailed()
-		options.Logger.FlushOnFailure()
+		options.Logger.CriticalError(fmt.Sprintf("Error preparing offering import: %v", err))
 		options.Testing.Fail()
 		return fmt.Errorf("error preparing offering import: %w", err)
 	}
@@ -177,9 +170,7 @@ func (options *TestAddonOptions) setupCatalog() error {
 			options.Logger.ShortInfo("Creating catalog anyway to avoid test failure, but consider using matrix tests for proper catalog sharing")
 			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
 			if err != nil {
-				options.Logger.ShortError(fmt.Sprintf("Error creating catalog for shared use: %v", err))
-				options.Logger.MarkFailed()
-				options.Logger.FlushOnFailure()
+				options.Logger.CriticalError(fmt.Sprintf("Error creating catalog for shared use: %v", err))
 				options.Testing.Fail()
 				return fmt.Errorf("error creating catalog for shared use: %w", err)
 			}
@@ -194,9 +185,7 @@ func (options *TestAddonOptions) setupCatalog() error {
 			options.Logger.ShortInfo(fmt.Sprintf("Creating a new catalog: %s", options.CatalogName))
 			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
 			if err != nil {
-				options.Logger.ShortError(fmt.Sprintf("Error creating a new catalog: %v", err))
-				options.Logger.MarkFailed()
-				options.Logger.FlushOnFailure()
+				options.Logger.CriticalError(fmt.Sprintf("Error creating a new catalog: %v", err))
 				options.Testing.Fail()
 				return fmt.Errorf("error creating a new catalog: %w", err)
 			}
@@ -220,17 +209,13 @@ func (options *TestAddonOptions) setupOffering() error {
 	// import the offering
 	// ensure install kind is set or return an error
 	if !options.AddonConfig.OfferingInstallKind.Valid() {
-		options.Logger.ShortError(fmt.Sprintf("'%s' is not valid for OfferingInstallKind", options.AddonConfig.OfferingInstallKind.String()))
-		options.Logger.MarkFailed()
-		options.Logger.FlushOnFailure()
+		options.Logger.ErrorWithContext(fmt.Sprintf("'%s' is not valid for OfferingInstallKind", options.AddonConfig.OfferingInstallKind.String()))
 		options.Testing.Fail()
 		return fmt.Errorf("'%s' is not valid for OfferingInstallKind", options.AddonConfig.OfferingInstallKind.String())
 	}
 	// check offering name set or fail
 	if options.AddonConfig.OfferingName == "" {
-		options.Logger.ShortError("AddonConfig.OfferingName is not set")
-		options.Logger.MarkFailed()
-		options.Logger.FlushOnFailure()
+		options.Logger.ErrorWithContext("AddonConfig.OfferingName is not set")
 		options.Testing.Fail()
 		return fmt.Errorf("AddonConfig.OfferingName is not set")
 	}
@@ -264,9 +249,7 @@ func (options *TestAddonOptions) setupOffering() error {
 		options.Logger.ShortInfo(fmt.Sprintf("Importing the offering flavor: %s from branch: %s as version: %s", options.AddonConfig.OfferingFlavor, *options.currentBranchUrl, version))
 		offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, options.AddonConfig.OfferingName, options.AddonConfig.OfferingFlavor, version, options.AddonConfig.OfferingInstallKind)
 		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error importing the offering: %v", err))
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
+			options.Logger.CriticalError(fmt.Sprintf("Error importing the offering: %v", err))
 			options.Testing.Fail()
 			return fmt.Errorf("error importing the offering: %w", err)
 		}
@@ -314,10 +297,8 @@ func (options *TestAddonOptions) setupProject() error {
 		}
 		prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
 		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error creating a new project: %v", err))
-			options.Logger.ShortError(fmt.Sprintf("Response: %v", resp))
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
+			errorMsg := fmt.Sprintf("Error creating a new project: %v\nResponse: %v", err, resp)
+			options.Logger.CriticalError(errorMsg)
 			options.Testing.Fail()
 			return fmt.Errorf("error creating a new project: %w", err)
 		}
@@ -389,9 +370,7 @@ func (options *TestAddonOptions) testTearDown() {
 		options.Logger.ShortInfo(fmt.Sprintf("Deleting the catalog %s with ID %s (SharedCatalog=false)", *options.catalog.Label, *options.catalog.ID))
 		err := options.CloudInfoService.DeleteCatalog(*options.catalog.ID)
 		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error deleting the catalog: %v", err))
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
+			options.Logger.ErrorWithContext(fmt.Sprintf("Error deleting the catalog: %v", err))
 			options.Testing.Fail()
 		} else {
 			options.Logger.ShortInfo(fmt.Sprintf("Deleted the catalog %s with ID %s", *options.catalog.Label, *options.catalog.ID))

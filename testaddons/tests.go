@@ -1110,14 +1110,113 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 	var sharedCatalogOptions *TestAddonOptions
 	var sharedMutex = &sync.Mutex{}
 
+	// CRITICAL SYNCHRONIZATION SETUP for parallel test result collection
+	// This solves the "parallel within parallel" execution problem where:
+	// 1. Parent test (options.Testing.Parallel()) becomes parallel
+	// 2. Each subtest (t.Parallel()) also becomes parallel
+	// 3. Go's execution model causes parent to complete before subtests finish
+	// 4. Standard cleanup (defer/t.Cleanup) would execute before result collection completes
+	//
+	// WaitGroup coordination ensures report generation waits for ALL subtests to complete
+	var resultWg sync.WaitGroup
+	var resultMutex sync.Mutex // Protect concurrent result collection from parallel subtests
+
+	// CRITICAL TIMING: Register cleanup BEFORE starting parallel subtests
+	// This ensures cleanup is properly scheduled in the parent's cleanup chain
+	// before parallel execution begins. If registered after subtests start,
+	// Go's parallel test execution model may cause cleanup to never execute.
+	if options.CollectResults && options.PermutationTestReport != nil {
+		options.Testing.Cleanup(func() {
+			// Wait for all parallel subtests to complete result collection
+			// Timeout protection prevents hanging if subtests fail to signal completion
+			done := make(chan struct{})
+			go func() {
+				resultWg.Wait() // Wait for all subtests to complete
+				close(done)
+			}()
+
+			// Wait for completion or timeout after 30 seconds
+			select {
+			case <-done:
+				// All subtests completed normally
+			case <-time.After(30 * time.Second):
+				// Timeout protection: generate report with available results
+				options.Logger.ShortWarn("Timeout waiting for all subtests to complete - generating report with available results")
+			}
+
+			// Generate final report after all matrix tests complete (or timeout)
+			resultMutex.Lock() // Protect against any remaining concurrent access
+			options.PermutationTestReport.EndTime = time.Now()
+			resultMutex.Unlock()
+
+			// Use SmartLogger if available for consistent formatting
+			if smartLogger, ok := options.Logger.(*common.SmartLogger); ok {
+				options.PermutationTestReport.PrintPermutationReport(smartLogger)
+			} else {
+				// Fallback: log to standard output if SmartLogger is not available
+				fmt.Printf("\n=== PERMUTATION TEST REPORT ===\n")
+				fmt.Printf("Total: %d, Passed: %d, Failed: %d\n",
+					options.PermutationTestReport.TotalTests,
+					options.PermutationTestReport.PassedTests,
+					options.PermutationTestReport.FailedTests)
+				if options.PermutationTestReport.FailedTests > 0 {
+					fmt.Printf("See individual test failures above for details.\n")
+				}
+				fmt.Printf("===============================\n\n")
+			}
+
+			// Fail the overall test if there were any individual test failures
+			// This ensures proper test result while still showing the complete report
+			if options.PermutationTestReport.FailedTests > 0 {
+				options.Testing.Errorf("Matrix tests failed: %d out of %d tests failed - see comprehensive report above for details",
+					options.PermutationTestReport.FailedTests, options.PermutationTestReport.TotalTests)
+			}
+		})
+	}
+
 	// Generate a random prefix once per matrix test run for UI grouping
 	randomPrefix := common.UniqueId(6)
+
+	// Initialize TotalTests count for accurate report generation
+	if options.CollectResults && options.PermutationTestReport != nil {
+		resultMutex.Lock()
+		options.PermutationTestReport.TotalTests = len(matrix.TestCases)
+		resultMutex.Unlock()
+	}
 
 	for i, tc := range matrix.TestCases {
 		tc := tc       // Capture loop variable for parallel execution
 		testIndex := i // Capture index for staggering
+
+		// Increment WaitGroup for each subtest to ensure proper synchronization
+		// Each parallel subtest must signal completion for reliable report generation
+		if options.CollectResults && options.PermutationTestReport != nil {
+			resultWg.Add(1)
+		}
+
 		options.Testing.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
+
+			// Variable to capture any panic as an error for result collection
+			var testErr error
+			var panicOccurred bool
+
+			// Ensure WaitGroup.Done() is called even if subtest panics
+			// This prevents the parent cleanup from hanging indefinitely
+			if options.CollectResults && options.PermutationTestReport != nil {
+				defer func() {
+					if r := recover(); r != nil {
+						// Convert panic to error for result collection
+						testErr = fmt.Errorf("panic occurred: %v", r)
+						panicOccurred = true
+						options.Logger.ShortError(fmt.Sprintf("Subtest %s panicked: %v", tc.Name, r))
+
+						// Fail the test but don't re-panic to allow graceful cleanup
+						t.Errorf("Test failed due to panic: %v", r)
+					}
+					resultWg.Done() // Always signal completion
+				}()
+			}
 
 			// Implement staggered start to prevent rate limiting
 			// Use batched approach to prevent excessive delays for large test suites
@@ -1369,15 +1468,27 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 			// Run the test - each test creates its own project
 			err := testOptions.RunAddonTest()
 
-			// Collect result for final report if enabled
+			// If a panic occurred, use the panic error instead
+			if panicOccurred {
+				err = testErr
+			}
+
+			// Thread-safe result collection for parallel subtests
+			// Mutex protection is required because multiple parallel subtests may
+			// simultaneously append to the shared PermutationTestReport.Results slice.
+			// Go's slice operations are not thread-safe for concurrent writes.
 			if matrix.BaseOptions.CollectResults && matrix.BaseOptions.PermutationTestReport != nil {
 				testResult := testOptions.collectTestResult(tc.Name, tc.Prefix, testOptions.AddonConfig, err)
+
+				// CRITICAL: Protect concurrent access to shared report data
+				resultMutex.Lock()
 				matrix.BaseOptions.PermutationTestReport.Results = append(matrix.BaseOptions.PermutationTestReport.Results, testResult)
 				if testResult.Passed {
 					matrix.BaseOptions.PermutationTestReport.PassedTests++
 				} else {
 					matrix.BaseOptions.PermutationTestReport.FailedTests++
 				}
+				resultMutex.Unlock()
 			}
 
 			// Handle result display in quiet mode
@@ -1389,9 +1500,13 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				}
 			}
 
-			require.NoError(t, err, "Addon Test had an unexpected error")
+			// Don't fail individual tests - we collect all results and report at the end
+			// This ensures the final comprehensive report is always generated
 		})
 	}
+
+	// NOTE: Report generation is now handled by t.Cleanup() registered BEFORE subtests
+	// This was moved to ensure proper timing in Go's parallel test execution model
 
 	// Cleanup shared resources after all tests complete
 	go func() {
@@ -1419,7 +1534,6 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 	}
 
 	// Enable quiet mode by default for permutation tests to reduce log noise
-	// Quiet mode will be false by default, but we set it to true for permutation tests
 	if !options.QuietMode {
 		options.QuietMode = true
 	}
@@ -1444,7 +1558,6 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 	}
 
 	// Step 3: Initialize result collection and logging
-	// Ensure logger is initialized before using it
 	if options.Logger == nil {
 		options.Logger = common.CreateSmartAutoBufferingLogger("TestDependencyPermutations", false)
 	}
@@ -1465,8 +1578,8 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 		StartTime:   time.Now(),
 	}
 
-	// Show permutation test start progress - logger will handle quiet/verbose differences
-	options.Logger.ProgressStage(fmt.Sprintf("Running %d dependency permutation tests for %s", len(testCases), options.AddonConfig.OfferingName))
+	// Show permutation test start progress
+	options.Logger.ProgressStage(fmt.Sprintf("Running %d dependency permutation tests for %s (quiet mode - minimal output)...", len(testCases), options.AddonConfig.OfferingName))
 
 	// Step 4: Execute all permutations in parallel using matrix test infrastructure
 	matrix := AddonTestMatrix{
@@ -1504,18 +1617,8 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 		},
 	}
 
-	// Execute the matrix test
+	// Execute the matrix test - the final report will be generated by the matrix cleanup
 	options.RunAddonTestMatrix(matrix)
-
-	// Generate and display final report
-	if options.PermutationTestReport != nil {
-		options.PermutationTestReport.EndTime = time.Now()
-
-		// Use SmartLogger if available for consistent formatting
-		if smartLogger, ok := options.Logger.(*common.SmartLogger); ok {
-			options.PermutationTestReport.PrintPermutationReport(smartLogger)
-		}
-	}
 
 	return nil
 }

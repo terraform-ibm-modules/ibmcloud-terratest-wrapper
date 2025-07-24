@@ -21,8 +21,8 @@ func TestBasicIntegration(t *testing.T) {
     logger.ShortInfo("Starting integration test")
 
     if err := performOperation(); err != nil {
-        logger.MarkFailed() // Essential: triggers log output on failure
-        t.Fatalf("Operation failed: %v", err)
+        logger.CriticalError(fmt.Sprintf("Operation failed: %v", err))
+        return
     }
 
     logger.ShortInfo("Test completed successfully")
@@ -43,8 +43,8 @@ func TestParallelIntegration(t *testing.T) {
     // Test logic here
 
     if failed {
-        logger.MarkFailed() // Only failed tests show output
-        t.Fatalf("Test failed")
+        logger.CriticalError("Test failed")
+        return
     }
 }
 ```
@@ -71,8 +71,8 @@ func TestWithSubtests(t *testing.T) {
             logger.ShortInfo("Running scenario: %s", scenario.name)
 
             if err := runScenario(scenario.config); err != nil {
-                logger.MarkFailed()
-                t.Fatalf("Scenario %s failed: %v", scenario.name, err)
+                logger.CriticalError(fmt.Sprintf("Scenario %s failed: %v", scenario.name, err))
+                return
             }
         })
     }
@@ -101,13 +101,13 @@ func TestWithTestifyAssertions(t *testing.T) {
 
     // Use require for critical assertions
     if !require.NotNil(t, result, "Result should not be nil") {
-        logger.MarkFailed()
+        logger.CriticalError("Assertion failed: Result should not be nil")
         return
     }
 
     // Use assert for non-critical checks
     if !assert.Equal(t, "expected", result.Value, "Values should match") {
-        logger.MarkFailed() // Still mark failed for debug output
+        logger.ErrorWithContext("Assertion failed: Values should match")
         // Continue testing with assert
     }
 
@@ -142,8 +142,8 @@ func (suite *IntegrationTestSuite) SetupTest() {
 
 func (suite *IntegrationTestSuite) TestOperation() {
     if err := performOperation(); err != nil {
-        suite.logger.MarkFailed()
-        suite.Require().NoError(err, "Operation should succeed")
+        suite.logger.CriticalError(fmt.Sprintf("Operation should succeed: %v", err))
+        return
     }
 }
 
@@ -203,8 +203,8 @@ func TestTerraformModule(t *testing.T) {
     logger.ShortDebug("Resource ID: %s", resourceId)
 
     if resourceId == "" {
-        logger.MarkFailed()
-        t.Fatalf("Expected non-empty resource_id output")
+        logger.CriticalError("Expected non-empty resource_id output")
+        return
     }
 
     logger.ShortInfo("Terraform Apply Complete")
@@ -319,8 +319,8 @@ func TestHelperIntegration(t *testing.T) {
 
     output, err := options.RunTestConsistency()
     if err != nil {
-        options.Logger.MarkFailed()
-        t.Fatalf("Consistency test failed: %v", err)
+        options.Logger.CriticalError(fmt.Sprintf("Consistency test failed: %v", err))
+        return
     }
 
     options.Logger.ShortInfo("Consistency test passed")
@@ -356,8 +356,8 @@ func TestForCI(t *testing.T) {
     logger.ShortDebug("Debug info only shown on failure")
 
     if testFailed {
-        logger.MarkFailed() // Critical in CI to see failure details
-        t.Fatalf("Test failed")
+        logger.CriticalError("Test failed") // Critical in CI to see failure details
+        return
     }
 }
 ```
@@ -422,8 +422,8 @@ func TestMemoryEfficient(t *testing.T) {
     }
 
     if testFailed {
-        logger.MarkFailed()
-        t.Fatalf("Test failed")
+        logger.CriticalError("Test failed")
+        return
     }
 }
 ```
@@ -435,7 +435,7 @@ func TestMemoryEfficient(t *testing.T) {
 1. **Always use test names** for logger identification
 2. **Enable parallel execution** with `t.Parallel()`
 3. **Use quiet mode** for parallel tests
-4. **Call MarkFailed()** before test failures
+4. **Use enhanced error methods** for test failures
 5. **Choose appropriate logger type** for test complexity
 
 ### Framework-Specific Patterns
@@ -446,7 +446,7 @@ func TestMemoryEfficient(t *testing.T) {
 - Always pass `t.Name()` as test name
 
 #### For Testify
-- Call `MarkFailed()` even with `assert` failures
+- Use `ErrorWithContext()` for assertion failures, `CriticalError()` for critical failures
 - Use `require` for critical assertions that should stop execution
 - Configure logger in `SetupTest()` for test suites
 

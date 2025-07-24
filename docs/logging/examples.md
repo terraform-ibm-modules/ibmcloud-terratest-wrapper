@@ -740,7 +740,7 @@ func TestComplexIntegration(t *testing.T) {
     logger.ShortInfo("Creating catalog")
     catalog, err := createCatalog(testConfig)
     if err != nil {
-        logger.CriticalError("Failed to create catalog: %v", err)
+        logger.CriticalError(fmt.Sprintf("Failed to create catalog: %v", err))
         return
     }
 
@@ -748,14 +748,14 @@ func TestComplexIntegration(t *testing.T) {
     logger.ShortInfo("Importing offering")
     offering, err := importOffering(catalog, testConfig.OfferingPath)
     if err != nil {
-        logger.CriticalError("Failed to import offering: %v", err)
+        logger.CriticalError(fmt.Sprintf("Failed to import offering: %v", err))
         return
     }
 
     // Phase 3: Validation
     logger.ShortInfo("Validating configuration")
     if err := validateOffering(offering); err != nil {
-        logger.CriticalError("Validation failed: %v", err)
+        logger.CriticalError(fmt.Sprintf("Validation failed: %v", err))
         return
     }
 
@@ -794,7 +794,7 @@ func TestBatchProcessing(t *testing.T) {
         logger.ShortInfo("Getting offering details") // Only shows once in batch mode
 
         if err := processItem(item); err != nil {
-            logger.CriticalError("Failed to process item %s: %v", item, err)
+            logger.CriticalError(fmt.Sprintf("Failed to process item %s: %v", item, err))
             return
         }
 
@@ -919,7 +919,7 @@ func TestErrorWithContextExample(t *testing.T) {
 ## Best Practices from Examples
 
 1. **Always use `t.Parallel()` with BufferedTestLogger**
-2. **Use enhanced error methods instead of manual `MarkFailed()` calls**
+2. **Use enhanced error methods for automatic buffer management and error handling**
 3. **Choose error method based on severity**: CriticalError > ErrorWithContext > FatalError
 4. **Use progress methods for user-facing status updates**
 5. **Leverage predefined factory functions when possible**

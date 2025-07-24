@@ -37,8 +37,12 @@ type Logger interface {
     SetQuietMode(quiet bool)
     IsQuietMode() bool
 
-    // Buffering methods (no-op for TestLogger)
-    MarkFailed()
+    // Enhanced error methods (automatic buffer management)
+    CriticalError(message string)
+    ErrorWithContext(message string)
+    FatalError(message string)
+
+    // Manual buffering methods (no-op for TestLogger)
     FlushBuffer()
     FlushOnFailure()
     ClearBuffer()
@@ -488,9 +492,9 @@ func TestLoggerBehavior(t *testing.T) {
     logger.ShortInfo("Test message")
     assert.Equal(t, 0, len(buf.String())) // Should be buffered
 
-    logger.MarkFailed()
-    logger.FlushOnFailure()
+    logger.CriticalError("Test failed")
     assert.Contains(t, buf.String(), "Test message") // Should be flushed
+    assert.Contains(t, buf.String(), "CRITICAL ERROR") // Should show error
 }
 ```
 

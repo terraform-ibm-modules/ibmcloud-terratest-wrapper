@@ -37,181 +37,219 @@ func (report *PermutationTestReport) PrintPermutationReport(logger *common.Smart
 		return
 	}
 
+	// Build the entire report as a single string
+	var reportBuilder strings.Builder
+
 	// Header with summary
-	logger.ShortInfo("================================================================================")
-	logger.ShortInfo("🧪 PERMUTATION TEST REPORT - Complete")
-	logger.ShortInfo("================================================================================")
+	reportBuilder.WriteString("================================================================================\n")
+	reportBuilder.WriteString("🧪 PERMUTATION TEST REPORT - Complete\n")
+	reportBuilder.WriteString("================================================================================\n")
 
-	successRate := float64(report.PassedTests) / float64(report.TotalTests) * 100.0
-	summaryLine := fmt.Sprintf("📊 Summary: %d total tests | ✅ %d passed (%.1f%%) | ❌ %d failed (%.1f%%)",
-		report.TotalTests, report.PassedTests, successRate, report.FailedTests, 100.0-successRate)
-	logger.ShortInfo(summaryLine)
-	logger.ShortInfo("")
+	var summaryLine string
+	if report.TotalTests == 0 {
+		summaryLine = fmt.Sprintf("📊 Summary: %d total tests | ✅ %d passed | ❌ %d failed",
+			report.TotalTests, report.PassedTests, report.FailedTests)
+	} else {
+		successRate := float64(report.PassedTests) / float64(report.TotalTests) * 100.0
+		failureRate := float64(report.FailedTests) / float64(report.TotalTests) * 100.0
+		summaryLine = fmt.Sprintf("📊 Summary: %d total tests | ✅ %d passed (%.1f%%) | ❌ %d failed (%.1f%%)",
+			report.TotalTests, report.PassedTests, successRate, report.FailedTests, failureRate)
+	}
+	reportBuilder.WriteString(summaryLine + "\n\n")
 
-	// Passing tests section (collapsed)
+	// Passing tests section (summary only)
 	if report.PassedTests > 0 {
-		logger.ShortInfo(fmt.Sprintf("🎯 PASSING TESTS (%d) - Collapsed for brevity", report.PassedTests))
-		passedCount := 0
-		for _, result := range report.Results {
-			if result.Passed && passedCount < 3 {
-				logger.ShortInfo(fmt.Sprintf("├─ ✅ %s", result.Name))
-				passedCount++
-			}
-		}
-		if report.PassedTests > 3 {
-			logger.ShortInfo(fmt.Sprintf("└─ ... %d more passing tests (expand with --verbose)", report.PassedTests-3))
-		}
-		logger.ShortInfo("")
+		reportBuilder.WriteString(fmt.Sprintf("✅ PASSED: %d tests completed successfully\n\n", report.PassedTests))
 	}
 
 	// Failed tests section (detailed)
 	if report.FailedTests > 0 {
-		logger.ShortInfo(fmt.Sprintf("❌ FAILED TESTS (%d) - Complete Error Details", report.FailedTests))
+		reportBuilder.WriteString(fmt.Sprintf("❌ FAILED TESTS (%d) - Complete Error Details\n", report.FailedTests))
 		failureIndex := 1
 		for _, result := range report.Results {
 			if !result.Passed {
-				report.printFailedTest(logger, result, failureIndex, report.FailedTests)
+				failedTestReport := report.buildFailedTestReport(result, failureIndex, report.FailedTests)
+				reportBuilder.WriteString(failedTestReport)
 				failureIndex++
 			}
 		}
-		logger.ShortInfo("")
+		reportBuilder.WriteString("\n")
 	}
 
-	// Failure patterns analysis
-	if report.FailedTests > 0 {
-		report.printFailurePatterns(logger)
-		logger.ShortInfo("")
-	}
+	reportBuilder.WriteString("📁 Full test logs available if additional context needed\n")
+	reportBuilder.WriteString("================================================================================")
 
-	logger.ShortInfo("📁 Full test logs available if additional context needed")
-	logger.ShortInfo("================================================================================")
+	// Output the entire report as a single log entry - bypasses QuietMode
+	logger.ProgressSuccess("\n" + reportBuilder.String())
 }
 
-// printFailedTest outputs detailed information for a single failed test
-func (report *PermutationTestReport) printFailedTest(logger *common.SmartLogger, result PermutationTestResult, index int, total int) {
+// buildFailedTestReport builds detailed information for a single failed test as a string
+func (report *PermutationTestReport) buildFailedTestReport(result PermutationTestResult, index int, total int) string {
+	var builder strings.Builder
+
 	// Test header box
-	logger.ShortInfo("┌─────────────────────────────────────────────────────────────────────────────┐")
-	logger.ShortInfo(fmt.Sprintf("│ %d/%d ❌ %-69s │", index, total, result.Name))
-	logger.ShortInfo(fmt.Sprintf("│     📁 Prefix: %-59s │", result.Prefix))
+	builder.WriteString("┌─────────────────────────────────────────────────────────────────────────────┐\n")
+	builder.WriteString(fmt.Sprintf("│ %d/%d ❌ %-67s │\n", index, total, result.Name))
+	builder.WriteString(fmt.Sprintf("│     📁 Prefix: %-57s │\n", result.Prefix))
 
 	// Format addon configuration
 	addonSummary := report.formatAddonConfiguration(result.AddonConfig)
 	lines := report.wrapText(addonSummary, 63)
 	for i, line := range lines {
 		if i == 0 {
-			logger.ShortInfo(fmt.Sprintf("│     🔧 Addons: %-59s │", line))
+			builder.WriteString(fmt.Sprintf("│     🔧 Addons: %-57s │\n", line))
 		} else {
-			logger.ShortInfo(fmt.Sprintf("│            %-63s │", line))
+			builder.WriteString(fmt.Sprintf("│            %-63s │\n", line))
 		}
 	}
 
-	logger.ShortInfo("│                                                                             │")
+	builder.WriteString("│                                                                             │\n")
 
 	// Validation errors
 	if result.ValidationResult != nil && (!result.ValidationResult.IsValid || len(result.ValidationResult.DependencyErrors) > 0) {
-		logger.ShortInfo("│     🔴 VALIDATION ERRORS:                                                   │")
+		builder.WriteString("│     🔴 VALIDATION ERRORS:                                                   │\n")
 		for _, depError := range result.ValidationResult.DependencyErrors {
 			errorMsg := fmt.Sprintf("• %s addon requires '%s' dependency but it's disabled", depError.Addon.Name, depError.DependencyRequired.Name)
 			lines := report.wrapText(errorMsg, 67)
 			for _, line := range lines {
-				logger.ShortInfo(fmt.Sprintf("│     %-71s │", line))
+				builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
 			}
 		}
 		for _, msg := range result.ValidationResult.Messages {
 			lines := report.wrapText("• "+msg, 67)
 			for _, line := range lines {
-				logger.ShortInfo(fmt.Sprintf("│     %-71s │", line))
+				builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
 			}
 		}
-		logger.ShortInfo("│                                                                             │")
+		builder.WriteString("│                                                                             │\n")
 	}
 
 	// Deployment errors
 	if len(result.DeploymentErrors) > 0 || len(result.UndeploymentErrors) > 0 {
-		logger.ShortInfo("│     🔴 DEPLOYMENT ERRORS:                                                   │")
+		builder.WriteString("│     🔴 DEPLOYMENT ERRORS:                                                   │\n")
 		allDeployErrors := append(result.DeploymentErrors, result.UndeploymentErrors...)
 		for _, err := range allDeployErrors {
 			lines := report.wrapText("• "+err.Error(), 67)
 			for _, line := range lines {
-				logger.ShortInfo(fmt.Sprintf("│     %-71s │", line))
+				builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
 			}
 		}
-		logger.ShortInfo("│                                                                             │")
+		builder.WriteString("│                                                                             │\n")
 	}
 
 	// Configuration errors
 	if len(result.ConfigurationErrors) > 0 {
-		logger.ShortInfo("│     🔴 CONFIGURATION ERRORS:                                                │")
+		builder.WriteString("│     🔴 CONFIGURATION ERRORS:                                                │\n")
 		for _, err := range result.ConfigurationErrors {
 			lines := report.wrapText("• "+err, 67)
 			for _, line := range lines {
-				logger.ShortInfo(fmt.Sprintf("│     %-71s │", line))
+				builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
 			}
 		}
-		logger.ShortInfo("│                                                                             │")
+		builder.WriteString("│                                                                             │\n")
 	}
 
 	// Runtime errors (panics, etc.)
 	if len(result.RuntimeErrors) > 0 {
-		logger.ShortInfo("│     🔴 RUNTIME ERRORS:                                                      │")
+		builder.WriteString("│     🔴 RUNTIME ERRORS:                                                      │\n")
 		for _, err := range result.RuntimeErrors {
 			lines := report.wrapText("• "+err, 67)
 			for _, line := range lines {
-				logger.ShortInfo(fmt.Sprintf("│     %-71s │", line))
+				builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
 			}
 		}
-		logger.ShortInfo("│                                                                             │")
+		builder.WriteString("│                                                                             │\n")
 	}
 
 	// Missing inputs
 	if len(result.MissingInputs) > 0 {
-		logger.ShortInfo("│     🔴 MISSING INPUTS:                                                      │")
+		builder.WriteString("│     🔴 MISSING INPUTS:                                                      │\n")
 		inputsMsg := "• Required inputs missing: ['" + strings.Join(result.MissingInputs, "', '") + "']"
 		lines := report.wrapText(inputsMsg, 67)
 		for _, line := range lines {
-			logger.ShortInfo(fmt.Sprintf("│     %-71s │", line))
+			builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
 		}
-		logger.ShortInfo("│                                                                             │")
+		builder.WriteString("│                                                                             │\n")
 	}
 
-	logger.ShortInfo("└─────────────────────────────────────────────────────────────────────────────┘")
-	logger.ShortInfo("")
+	builder.WriteString("└─────────────────────────────────────────────────────────────────────────────┘\n")
+	builder.WriteString("\n")
+
+	return builder.String()
 }
 
-// formatAddonConfiguration creates a human-readable summary of addon configuration
+// formatAddonConfiguration creates a complete human-readable summary of addon configuration for debugging
 func (report *PermutationTestReport) formatAddonConfiguration(configs []cloudinfo.AddonConfig) string {
 	if len(configs) == 0 {
 		return "No addons configured"
 	}
 
-	enabled := []string{}
-	disabled := []string{}
+	// First entry is always the main addon (always enabled)
+	mainAddon := configs[0]
+	var summary strings.Builder
 
-	for _, config := range configs {
-		if config.Enabled != nil && *config.Enabled {
-			enabled = append(enabled, config.OfferingName)
-		} else {
-			disabled = append(disabled, config.OfferingName)
+	// Show main addon
+	summary.WriteString(fmt.Sprintf("Main: %s (enabled)", mainAddon.OfferingName))
+
+	// Process dependencies if any
+	if len(configs) > 1 {
+		dependencies := configs[1:] // Skip the main addon
+		enabled := []string{}
+		disabled := []string{}
+
+		for _, config := range dependencies {
+			if config.Enabled != nil && *config.Enabled {
+				enabled = append(enabled, config.OfferingName)
+			} else {
+				disabled = append(disabled, config.OfferingName)
+			}
 		}
-	}
 
-	var parts []string
-	if len(enabled) > 0 {
-		parts = append(parts, fmt.Sprintf("%s=enabled", strings.Join(enabled, ", ")))
-	}
-	if len(disabled) > 0 {
-		if len(disabled) > 5 {
-			parts = append(parts, fmt.Sprintf("[%d others disabled]", len(disabled)))
-		} else {
-			parts = append(parts, fmt.Sprintf("%s=disabled", strings.Join(disabled, ", ")))
+		// Add dependency summary on new line
+		summary.WriteString(fmt.Sprintf(" | Dependencies: %d enabled, %d disabled", len(enabled), len(disabled)))
+
+		// Add enabled dependencies on new line if any
+		if len(enabled) > 0 {
+			summary.WriteString(fmt.Sprintf(" | ✅ Enabled: %s", strings.Join(enabled, ", ")))
 		}
+
+		// Add disabled dependencies on new line if any
+		if len(disabled) > 0 {
+			summary.WriteString(fmt.Sprintf(" | ❌ Disabled: %s", strings.Join(disabled, ", ")))
+		}
+	} else {
+		summary.WriteString(" | No dependencies")
 	}
 
-	return strings.Join(parts, ", ")
+	return summary.String()
 }
 
-// wrapText wraps text to fit within specified width
+// wrapText wraps text to fit within specified width, with special handling for " | " separators
 func (report *PermutationTestReport) wrapText(text string, width int) []string {
+	if len(text) <= width {
+		return []string{text}
+	}
+
+	// First split on " | " to handle logical sections
+	sections := strings.Split(text, " | ")
+	var lines []string
+
+	for i, section := range sections {
+		// For sections after the first, add appropriate indentation
+		if i > 0 {
+			section = strings.TrimSpace(section)
+		}
+
+		// Wrap each section individually
+		sectionLines := report.wrapSection(section, width)
+		lines = append(lines, sectionLines...)
+	}
+
+	return lines
+}
+
+// wrapSection wraps a single section of text within the specified width
+func (report *PermutationTestReport) wrapSection(text string, width int) []string {
 	if len(text) <= width {
 		return []string{text}
 	}
@@ -239,38 +277,4 @@ func (report *PermutationTestReport) wrapText(text string, width int) []string {
 	}
 
 	return lines
-}
-
-// printFailurePatterns analyzes and displays common failure patterns
-func (report *PermutationTestReport) printFailurePatterns(logger *common.SmartLogger) {
-	patterns := map[string]int{
-		"Dependency Issues":      0,
-		"Deployment Errors":      0,
-		"Configuration Problems": 0,
-		"Runtime Panics":         0,
-	}
-
-	for _, result := range report.Results {
-		if !result.Passed {
-			if result.ValidationResult != nil && len(result.ValidationResult.DependencyErrors) > 0 {
-				patterns["Dependency Issues"]++
-			}
-			if len(result.DeploymentErrors) > 0 || len(result.UndeploymentErrors) > 0 {
-				patterns["Deployment Errors"]++
-			}
-			if len(result.ConfigurationErrors) > 0 || len(result.MissingInputs) > 0 {
-				patterns["Configuration Problems"]++
-			}
-			if len(result.RuntimeErrors) > 0 {
-				patterns["Runtime Panics"]++
-			}
-		}
-	}
-
-	logger.ShortInfo("🔍 FAILURE PATTERNS (for quick scanning)")
-	for pattern, count := range patterns {
-		if count > 0 {
-			logger.ShortInfo(fmt.Sprintf("├─ %s: %d tests", pattern, count))
-		}
-	}
 }
