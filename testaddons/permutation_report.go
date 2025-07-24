@@ -89,15 +89,15 @@ func (report *PermutationTestReport) buildFailedTestReport(result PermutationTes
 
 	// Test header box
 	builder.WriteString("┌─────────────────────────────────────────────────────────────────────────────┐\n")
-	builder.WriteString(fmt.Sprintf("│ %d/%d ❌ %-69s │\n", index, total, result.Name))
-	builder.WriteString(fmt.Sprintf("│     📁 Prefix: %-59s │\n", result.Prefix))
+	builder.WriteString(fmt.Sprintf("│ %d/%d ❌ %-67s │\n", index, total, result.Name))
+	builder.WriteString(fmt.Sprintf("│     📁 Prefix: %-57s │\n", result.Prefix))
 
 	// Format addon configuration
 	addonSummary := report.formatAddonConfiguration(result.AddonConfig)
 	lines := report.wrapText(addonSummary, 63)
 	for i, line := range lines {
 		if i == 0 {
-			builder.WriteString(fmt.Sprintf("│     🔧 Addons: %-59s │\n", line))
+			builder.WriteString(fmt.Sprintf("│     🔧 Addons: %-57s │\n", line))
 		} else {
 			builder.WriteString(fmt.Sprintf("│            %-63s │\n", line))
 		}
