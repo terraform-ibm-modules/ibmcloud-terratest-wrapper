@@ -401,6 +401,8 @@ func (options *TestAddonOptions) validateDependencies(graph map[string][]cloudin
 	}
 
 	// Generate summary messages
+	// Only add success message for truly successful validations - don't add it during failed tests
+	// The success message should only appear when the overall test passes, not just when validation passes
 	if result.IsValid {
 		result.Messages = append(result.Messages, "actually deployed configs are same as expected deployed configs")
 	} else {

@@ -144,11 +144,9 @@ type TestAddonOptions struct {
 	// CollectResults enables collection of test results for final reporting
 	CollectResults bool
 	// Internal fields for error collection during test execution
-	lastValidationResult    *ValidationResult
-	lastDeploymentErrors    []error
-	lastConfigurationErrors []string
-	lastRuntimeErrors       []string
-	lastMissingInputs       []string
+	lastValidationResult *ValidationResult
+	lastTransientErrors  []string
+	lastRuntimeErrors    []string
 }
 
 // TestAddonsOptionsDefault Default constructor for TestAddonOptions
@@ -383,21 +381,13 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 		result.ValidationResult = options.lastValidationResult
 	}
 
-	// Collect other error categories
-	if options.lastDeploymentErrors != nil {
-		result.DeploymentErrors = append(result.DeploymentErrors, options.lastDeploymentErrors...)
-	}
-
-	if options.lastConfigurationErrors != nil {
-		result.ConfigurationErrors = append(result.ConfigurationErrors, options.lastConfigurationErrors...)
+	// Collect other error categories (simplified)
+	if options.lastTransientErrors != nil {
+		result.TransientErrors = append(result.TransientErrors, options.lastTransientErrors...)
 	}
 
 	if options.lastRuntimeErrors != nil {
 		result.RuntimeErrors = append(result.RuntimeErrors, options.lastRuntimeErrors...)
-	}
-
-	if options.lastMissingInputs != nil {
-		result.MissingInputs = append(result.MissingInputs, options.lastMissingInputs...)
 	}
 
 	// If test failed, parse and categorize the main error
@@ -407,52 +397,212 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 
 	// Reset error collection fields for next test
 	options.lastValidationResult = nil
-	options.lastDeploymentErrors = nil
-	options.lastConfigurationErrors = nil
+	options.lastTransientErrors = nil
 	options.lastRuntimeErrors = nil
-	options.lastMissingInputs = nil
 
 	return result
 }
 
-// categorizeError parses the main test error and categorizes it appropriately
+// categorizeError parses the main test error and categorizes it into one of three simplified categories
 func (options *TestAddonOptions) categorizeError(testError error, result *PermutationTestResult) {
 	errorStr := testError.Error()
 
 	// Check if we already have detailed error info
-	hasDetailedErrors := len(result.DeploymentErrors) > 0 || len(result.ConfigurationErrors) > 0 ||
-		len(result.RuntimeErrors) > 0 || (result.ValidationResult != nil && !result.ValidationResult.IsValid)
+	hasDetailedErrors := (result.ValidationResult != nil && !result.ValidationResult.IsValid) ||
+		len(result.TransientErrors) > 0 || len(result.RuntimeErrors) > 0
 
 	// If we don't have detailed errors, try to categorize the main error
 	if !hasDetailedErrors {
 		switch {
+		// VALIDATION ERRORS: Configuration, dependency, and input validation issues
 		case strings.Contains(errorStr, "missing required inputs"):
-			// Parse missing inputs from error message
-			result.ConfigurationErrors = append(result.ConfigurationErrors, errorStr)
+			options.addValidationError(result, errorStr, "missing_inputs")
 		case strings.Contains(errorStr, "dependency validation failed"):
-			// Create a simple ValidationResult for dependency failures
-			result.ValidationResult = &ValidationResult{
-				IsValid:  false,
-				Messages: []string{errorStr},
-			}
+			options.addValidationError(result, errorStr, "dependency_validation")
+		case strings.Contains(errorStr, "unexpected configs"):
+			options.addValidationError(result, errorStr, "unexpected_configs")
+		case strings.Contains(errorStr, "should not be deployed"):
+			options.addValidationError(result, errorStr, "unexpected_deployment")
+		case strings.Contains(errorStr, "configuration validation"):
+			options.addValidationError(result, errorStr, "configuration")
+
+		// TRANSIENT ERRORS: API failures, timeouts, infrastructure issues
 		case strings.Contains(errorStr, "deployment timeout") || strings.Contains(errorStr, "TriggerDeployAndWait"):
-			result.DeploymentErrors = append(result.DeploymentErrors, testError)
+			result.TransientErrors = append(result.TransientErrors, errorStr)
+		case strings.Contains(errorStr, "TriggerUnDeployAndWait"):
+			result.TransientErrors = append(result.TransientErrors, errorStr)
+		case strings.Contains(errorStr, "5") && strings.Contains(errorStr, " error"): // 5xx errors
+			result.TransientErrors = append(result.TransientErrors, errorStr)
+		case strings.Contains(errorStr, "timeout"):
+			result.TransientErrors = append(result.TransientErrors, errorStr)
+		case strings.Contains(errorStr, "rate limit"):
+			result.TransientErrors = append(result.TransientErrors, errorStr)
+		case strings.Contains(errorStr, "network") || strings.Contains(errorStr, "connection"):
+			result.TransientErrors = append(result.TransientErrors, errorStr)
+
+		// RUNTIME ERRORS: Go panics, nil pointers, code bugs
 		case strings.Contains(errorStr, "panic:") || strings.Contains(errorStr, "runtime error"):
 			result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
-		case strings.Contains(errorStr, "unexpected configs"):
-			// This is also a validation issue
-			result.ValidationResult = &ValidationResult{
-				IsValid:  false,
-				Messages: []string{errorStr},
-			}
-		default:
-			// General runtime error
+		case strings.Contains(errorStr, "nil pointer"):
 			result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
+
+		default:
+			// Default to transient error for unknown issues (likely infrastructure)
+			result.TransientErrors = append(result.TransientErrors, errorStr)
 		}
 	} else {
-		// We have detailed errors, but still add the main error for completeness if it's not redundant
+		// We have detailed errors, but still add the main error if it's not redundant
 		if !strings.Contains(errorStr, "Addon Test had an unexpected error") {
-			result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
+			// Categorize the main error even when we have detailed errors
+			options.categorizeError(testError, &PermutationTestResult{}) // Recursive call to get category
 		}
 	}
+}
+
+// addValidationError helper function to add validation errors to ValidationResult
+func (options *TestAddonOptions) addValidationError(result *PermutationTestResult, errorStr string, errorType string) {
+	if result.ValidationResult == nil {
+		result.ValidationResult = &ValidationResult{
+			IsValid:             false,
+			Messages:            []string{},
+			MissingInputs:       []string{},
+			ConfigurationErrors: []string{},
+		}
+	}
+
+	switch errorType {
+	case "missing_inputs":
+		result.ValidationResult.MissingInputs = append(result.ValidationResult.MissingInputs, errorStr)
+	case "configuration":
+		result.ValidationResult.ConfigurationErrors = append(result.ValidationResult.ConfigurationErrors, errorStr)
+	default:
+		// Parse detailed validation info or add to messages
+		validationResult := options.parseValidationError(errorStr)
+		if validationResult != nil {
+			// Merge parsed validation result
+			options.mergeValidationResults(result.ValidationResult, validationResult)
+		} else {
+			result.ValidationResult.Messages = append(result.ValidationResult.Messages, errorStr)
+		}
+	}
+}
+
+// mergeValidationResults merges two ValidationResult objects
+func (options *TestAddonOptions) mergeValidationResults(target *ValidationResult, source *ValidationResult) {
+	target.DependencyErrors = append(target.DependencyErrors, source.DependencyErrors...)
+	target.UnexpectedConfigs = append(target.UnexpectedConfigs, source.UnexpectedConfigs...)
+	target.MissingConfigs = append(target.MissingConfigs, source.MissingConfigs...)
+	target.MissingInputs = append(target.MissingInputs, source.MissingInputs...)
+	target.ConfigurationErrors = append(target.ConfigurationErrors, source.ConfigurationErrors...)
+	target.Messages = append(target.Messages, source.Messages...)
+	if !source.IsValid {
+		target.IsValid = false
+	}
+}
+
+// parseValidationError parses validation error messages and creates detailed ValidationResult objects
+func (options *TestAddonOptions) parseValidationError(errorStr string) *ValidationResult {
+	validationResult := &ValidationResult{
+		IsValid:           false,
+		DependencyErrors:  []cloudinfo.DependencyError{},
+		UnexpectedConfigs: []cloudinfo.OfferingReferenceDetail{},
+		MissingConfigs:    []cloudinfo.OfferingReferenceDetail{},
+		Messages:          []string{},
+	}
+
+	// Parse "dependency validation failed: X unexpected configs" pattern
+	if strings.Contains(errorStr, "dependency validation failed:") && strings.Contains(errorStr, "unexpected configs") {
+		// Extract the number of unexpected configs
+		parts := strings.Split(errorStr, ":")
+		if len(parts) >= 2 {
+			configInfo := strings.TrimSpace(parts[1])
+			validationResult.Messages = append(validationResult.Messages, configInfo)
+
+			// Try to extract specific unexpected config names if available
+			// This would need more detailed parsing based on actual error format
+			// For now, add the general message
+			return validationResult
+		}
+	}
+
+	// Parse "Input validation failed after dependency validation" pattern
+	// This usually indicates missing required inputs due to disabled dependencies
+	if strings.Contains(errorStr, "Input validation failed after dependency validation") {
+		validationResult.Messages = append(validationResult.Messages, "Input validation failed after dependency validation")
+		return validationResult
+	}
+
+	// Parse specific config names from error messages like:
+	// "deploy-arch-ibm-cloud-logs (v1.5.6, fully-configurable) - should not be deployed"
+	if strings.Contains(errorStr, "should not be deployed") {
+		// Extract config details
+		configName := extractConfigNameFromError(errorStr)
+		version := extractVersionFromError(errorStr)
+		flavor := extractFlavorFromError(errorStr)
+
+		if configName != "" {
+			unexpectedConfig := cloudinfo.OfferingReferenceDetail{
+				Name:    configName,
+				Version: version,
+			}
+
+			// Add flavor information if available
+			if flavor != "" {
+				unexpectedConfig.Flavor = cloudinfo.Flavor{Name: flavor}
+			}
+
+			validationResult.UnexpectedConfigs = append(validationResult.UnexpectedConfigs, unexpectedConfig)
+			return validationResult
+		}
+	}
+
+	// Parse missing dependency patterns
+	if strings.Contains(errorStr, "missing:") && strings.Contains(errorStr, "(missing:") {
+		// This indicates missing required inputs, which is a validation issue
+		validationResult.Messages = append(validationResult.Messages, errorStr)
+		return validationResult
+	}
+
+	// If we couldn't parse specific details, return nil to use fallback
+	return nil
+}
+
+// Helper functions to extract config details from error messages
+func extractConfigNameFromError(errorStr string) string {
+	// Look for patterns like "deploy-arch-ibm-cloud-logs (v1.5.6, fully-configurable)"
+	if idx := strings.Index(errorStr, " (v"); idx != -1 {
+		return strings.TrimSpace(errorStr[:idx])
+	}
+
+	// Look for patterns with just config name before " - should not be deployed"
+	if idx := strings.Index(errorStr, " - should not be deployed"); idx != -1 {
+		return strings.TrimSpace(errorStr[:idx])
+	}
+
+	return ""
+}
+
+func extractVersionFromError(errorStr string) string {
+	// Look for version pattern like "(v1.5.6"
+	if start := strings.Index(errorStr, "(v"); start != -1 {
+		start += 2 // Skip "(v"
+		if end := strings.Index(errorStr[start:], ","); end != -1 {
+			return strings.TrimSpace(errorStr[start : start+end])
+		}
+		if end := strings.Index(errorStr[start:], ")"); end != -1 {
+			return strings.TrimSpace(errorStr[start : start+end])
+		}
+	}
+	return ""
+}
+
+func extractFlavorFromError(errorStr string) string {
+	// Look for flavor pattern like ", fully-configurable)"
+	if start := strings.Index(errorStr, ", "); start != -1 {
+		start += 2 // Skip ", "
+		if end := strings.Index(errorStr[start:], ")"); end != -1 {
+			return strings.TrimSpace(errorStr[start : start+end])
+		}
+	}
+	return ""
 }

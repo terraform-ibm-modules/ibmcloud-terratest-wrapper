@@ -593,6 +593,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		// First validate what is actually deployed to get the validation results
 		validationResult := options.validateDependencies(graph, expectedDeployedList, actuallyDeployedResult.ActuallyDeployedList)
 
+		// Store the validation result for error reporting
+		options.lastValidationResult = &validationResult
+
 		options.Logger.ShortInfo("Actually deployed configurations (with status):")
 
 		// Create deployment status maps for the tree view
@@ -734,6 +737,20 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			options.Logger.ShortError(fmt.Sprintf("  %s", issue))
 		}
 
+		// Store input validation issues in ValidationResult for proper categorization
+		if options.lastValidationResult == nil {
+			options.lastValidationResult = &ValidationResult{
+				IsValid:             false,
+				MissingInputs:       []string{},
+				ConfigurationErrors: []string{},
+				Messages:            []string{},
+			}
+		}
+
+		// Add missing inputs to ValidationResult
+		options.lastValidationResult.MissingInputs = append(options.lastValidationResult.MissingInputs, inputValidationIssues...)
+		options.lastValidationResult.IsValid = false
+
 		// Enhanced debugging information when validation fails
 		options.Logger.ShortWarn("=== INPUT VALIDATION FAILURE DEBUG INFO ===")
 		options.Logger.ShortWarn(fmt.Sprintf("FAILURE SUMMARY: %d configurations have missing required inputs - %s", len(inputValidationIssues), strings.Join(inputValidationIssues, "; ")))
@@ -850,6 +867,12 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortError("Found configurations waiting on inputs after dependency validation:")
 		for _, config := range waitingInputIssues {
 			options.Logger.ShortError(fmt.Sprintf("  %s", config))
+		}
+
+		// Add waiting input issues to the stored ValidationResult
+		if options.lastValidationResult != nil {
+			options.lastValidationResult.Messages = append(options.lastValidationResult.Messages, waitingInputIssues...)
+			options.lastValidationResult.IsValid = false
 		}
 
 		// Print current configuration input values for debugging - similar to missing inputs debug info

@@ -86,6 +86,15 @@ func (report *PermutationTestReport) PrintPermutationReport(logger *common.Smart
 		reportBuilder.WriteString("\n")
 	}
 
+	// Add aggregated summary if there are failures
+	if report.FailedTests > 0 {
+		aggregatedSummary := report.generateAggregatedSummary()
+		if aggregatedSummary != "" {
+			reportBuilder.WriteString(aggregatedSummary)
+			reportBuilder.WriteString("\n")
+		}
+	}
+
 	reportBuilder.WriteString("📁 Full test logs available if additional context needed\n")
 	reportBuilder.WriteString("================================================================================")
 
@@ -95,6 +104,8 @@ func (report *PermutationTestReport) PrintPermutationReport(logger *common.Smart
 
 // buildFailedTestReport builds detailed information for a single failed test as a string
 func (report *PermutationTestReport) buildFailedTestReport(result PermutationTestResult, index int, total int) string {
+	// No deduplication needed with simplified error categories
+
 	var builder strings.Builder
 
 	// Test header box
@@ -115,9 +126,29 @@ func (report *PermutationTestReport) buildFailedTestReport(result PermutationTes
 
 	builder.WriteString("│                                                                             │\n")
 
-	// Validation errors
-	if result.ValidationResult != nil && (!result.ValidationResult.IsValid || len(result.ValidationResult.DependencyErrors) > 0) {
+	// VALIDATION ERRORS: Configuration, dependency, and input validation issues
+	if result.ValidationResult != nil && report.hasValidationErrors(result.ValidationResult) {
 		builder.WriteString("│     🔴 VALIDATION ERRORS:                                                   │\n")
+
+		// Show missing inputs (most common validation issue) - grouped by config
+		groupedMissingInputs := report.groupMissingInputsByConfig(result.ValidationResult.MissingInputs)
+		for configName, inputs := range groupedMissingInputs {
+			// Display config header
+			headerLine := fmt.Sprintf("• %s missing inputs:", configName)
+			lines := report.wrapText(headerLine, 67)
+			for _, line := range lines {
+				builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
+			}
+
+			// Display each input as a separate bullet point
+			for _, input := range inputs {
+				inputLine := fmt.Sprintf("  - %s", input)
+				inputLines := report.wrapText(inputLine, 67)
+				for _, line := range inputLines {
+					builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
+				}
+			}
+		}
 
 		// Show dependency errors (requires specific dependencies that are disabled)
 		for _, depError := range result.ValidationResult.DependencyErrors {
@@ -128,28 +159,36 @@ func (report *PermutationTestReport) buildFailedTestReport(result PermutationTes
 			}
 		}
 
-		// Show unexpected configs with detailed information
+		// Show unexpected configs
 		for _, unexpected := range result.ValidationResult.UnexpectedConfigs {
-			errorMsg := fmt.Sprintf("• Unexpected: %s (v%s, %s)", unexpected.Name, unexpected.Version, unexpected.Flavor.Name)
+			errorMsg := fmt.Sprintf("• Unexpected: %s (%s, %s)", unexpected.Name, unexpected.Version, unexpected.Flavor.Name)
 			lines := report.wrapText(errorMsg, 67)
 			for _, line := range lines {
 				builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
 			}
 		}
 
-		// Show missing configs with detailed information
+		// Show missing configs
 		for _, missing := range result.ValidationResult.MissingConfigs {
-			errorMsg := fmt.Sprintf("• Missing: %s (v%s, %s)", missing.Name, missing.Version, missing.Flavor.Name)
+			errorMsg := fmt.Sprintf("• Missing: %s (%s, %s)", missing.Name, missing.Version, missing.Flavor.Name)
 			lines := report.wrapText(errorMsg, 67)
 			for _, line := range lines {
 				builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
 			}
 		}
 
-		// Show any other generic validation messages (fallback)
+		// Show configuration errors
+		for _, configError := range result.ValidationResult.ConfigurationErrors {
+			cleanedError := parseConfigurationError(configError)
+			lines := report.wrapText("• "+cleanedError, 67)
+			for _, line := range lines {
+				builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
+			}
+		}
+
+		// Show other validation messages (but skip success messages)
 		for _, msg := range result.ValidationResult.Messages {
-			// Skip generic messages that we've already covered with detailed info
-			if !strings.Contains(msg, "unexpected configs") && !strings.Contains(msg, "missing configs") {
+			if !strings.Contains(msg, "actually deployed configs are same as expected deployed configs") {
 				lines := report.wrapText("• "+msg, 67)
 				for _, line := range lines {
 					builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
@@ -160,12 +199,11 @@ func (report *PermutationTestReport) buildFailedTestReport(result PermutationTes
 		builder.WriteString("│                                                                             │\n")
 	}
 
-	// Deployment errors
-	if len(result.DeploymentErrors) > 0 || len(result.UndeploymentErrors) > 0 {
-		builder.WriteString("│     🔴 DEPLOYMENT ERRORS:                                                   │\n")
-		allDeployErrors := append(result.DeploymentErrors, result.UndeploymentErrors...)
-		for _, err := range allDeployErrors {
-			cleanedError := parseJSONErrorMessage(err.Error())
+	// TRANSIENT ERRORS: API failures, timeouts, infrastructure issues (may resolve on retry)
+	if len(result.TransientErrors) > 0 {
+		builder.WriteString("│     🔴 TRANSIENT ERRORS:                                                    │\n")
+		for _, err := range result.TransientErrors {
+			cleanedError := parseJSONErrorMessage(err)
 			lines := report.wrapText("• "+cleanedError, 67)
 			for _, line := range lines {
 				builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
@@ -174,22 +212,7 @@ func (report *PermutationTestReport) buildFailedTestReport(result PermutationTes
 		builder.WriteString("│                                                                             │\n")
 	}
 
-	// Configuration errors
-	if len(result.ConfigurationErrors) > 0 {
-		builder.WriteString("│     🔴 CONFIGURATION ERRORS:                                                │\n")
-		for _, err := range result.ConfigurationErrors {
-			// First try JSON parsing, then configuration-specific parsing
-			cleanedError := parseJSONErrorMessage(err)
-			formattedError := parseConfigurationError(cleanedError)
-			lines := report.wrapText("• "+formattedError, 67)
-			for _, line := range lines {
-				builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
-			}
-		}
-		builder.WriteString("│                                                                             │\n")
-	}
-
-	// Runtime errors (panics, etc.)
+	// RUNTIME ERRORS: Go panics, nil pointers, code bugs (require code fixes)
 	if len(result.RuntimeErrors) > 0 {
 		builder.WriteString("│     🔴 RUNTIME ERRORS:                                                      │\n")
 		for _, err := range result.RuntimeErrors {
@@ -202,21 +225,35 @@ func (report *PermutationTestReport) buildFailedTestReport(result PermutationTes
 		builder.WriteString("│                                                                             │\n")
 	}
 
-	// Missing inputs
-	if len(result.MissingInputs) > 0 {
-		builder.WriteString("│     🔴 MISSING INPUTS:                                                      │\n")
-		inputsMsg := "• Required inputs missing: ['" + strings.Join(result.MissingInputs, "', '") + "']"
-		lines := report.wrapText(inputsMsg, 67)
-		for _, line := range lines {
-			builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
-		}
-		builder.WriteString("│                                                                             │\n")
-	}
-
 	builder.WriteString("└─────────────────────────────────────────────────────────────────────────────┘\n")
 	builder.WriteString("\n")
 
 	return builder.String()
+}
+
+// hasValidationErrors checks if ValidationResult has any actual validation errors to display
+func (report *PermutationTestReport) hasValidationErrors(validationResult *ValidationResult) bool {
+	if validationResult == nil {
+		return false
+	}
+
+	return !validationResult.IsValid ||
+		len(validationResult.DependencyErrors) > 0 ||
+		len(validationResult.UnexpectedConfigs) > 0 ||
+		len(validationResult.MissingConfigs) > 0 ||
+		len(validationResult.MissingInputs) > 0 ||
+		len(validationResult.ConfigurationErrors) > 0 ||
+		(len(validationResult.Messages) > 0 && !report.isOnlySuccessMessages(validationResult.Messages))
+}
+
+// isOnlySuccessMessages checks if the messages array contains only success messages
+func (report *PermutationTestReport) isOnlySuccessMessages(messages []string) bool {
+	for _, msg := range messages {
+		if !strings.Contains(msg, "actually deployed configs are same as expected deployed configs") {
+			return false
+		}
+	}
+	return len(messages) > 0 // Only return true if there are messages and they're all success messages
 }
 
 // formatAddonConfiguration creates a complete human-readable summary of addon configuration for debugging
@@ -396,6 +433,72 @@ func parseJSONErrorMessage(errorMsg string) string {
 	return errorMsg
 }
 
+// groupMissingInputsByConfig groups missing inputs by config name to avoid duplicate entries
+func (report *PermutationTestReport) groupMissingInputsByConfig(missingInputs []string) map[string][]string {
+	configInputs := make(map[string][]string)
+
+	for _, missingInput := range missingInputs {
+		// Extract config name and input from various formats
+		configName, inputName := report.extractConfigAndInput(missingInput)
+		if configName != "" && inputName != "" {
+			// Add input to the config's list (avoid duplicates)
+			inputs := configInputs[configName]
+			found := false
+			for _, existing := range inputs {
+				if existing == inputName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				configInputs[configName] = append(configInputs[configName], inputName)
+			}
+		}
+	}
+
+	return configInputs
+}
+
+// extractConfigAndInput extracts config name and input name from various missing input formats
+func (report *PermutationTestReport) extractConfigAndInput(errorMsg string) (configName, inputName string) {
+	// Handle format: "config-name (missing: input1, input2, ...)"
+	if strings.Contains(errorMsg, " (missing: ") && strings.HasSuffix(errorMsg, ")") {
+		parts := strings.Split(errorMsg, " (missing: ")
+		if len(parts) == 2 {
+			configName = strings.TrimSpace(parts[0])
+			inputsPart := strings.TrimSuffix(parts[1], ")")
+
+			// Get first input (we'll process multiple inputs from same config separately)
+			inputs := strings.Split(inputsPart, ",")
+			if len(inputs) > 0 {
+				inputName = strings.TrimSpace(inputs[0])
+				return
+			}
+		}
+	}
+
+	// Handle format: "missing required inputs: config-name (missing: input1)"
+	if strings.Contains(errorMsg, "missing required inputs: ") && strings.Contains(errorMsg, " (missing: ") {
+		parts := strings.Split(errorMsg, "missing required inputs: ")
+		if len(parts) == 2 {
+			remainder := strings.TrimSpace(parts[1])
+			if idx := strings.Index(remainder, " (missing: "); idx != -1 {
+				configName = strings.TrimSpace(remainder[:idx])
+				inputsPart := remainder[idx+len(" (missing: "):]
+				inputsPart = strings.TrimSuffix(inputsPart, ")")
+
+				inputs := strings.Split(inputsPart, ",")
+				if len(inputs) > 0 {
+					inputName = strings.TrimSpace(inputs[0])
+					return
+				}
+			}
+		}
+	}
+
+	return "", ""
+}
+
 // parseConfigurationError reformats configuration error messages for better readability
 // Converts "missing required inputs: config-name (missing: input1); config-name (missing: input2)"
 // To "config-name missing required inputs:\n  - input1\n  - input2"
@@ -459,9 +562,12 @@ func parseConfigurationError(errorMsg string) string {
 
 	for i, configName := range configNames {
 		if i > 0 {
-			result.WriteString("; ")
+			result.WriteString("\n\n")
 		}
-		result.WriteString(fmt.Sprintf("%s missing required inputs: %s", configName, strings.Join(configInputs[configName], ", ")))
+		result.WriteString(fmt.Sprintf("%s missing required inputs:", configName))
+		for _, input := range configInputs[configName] {
+			result.WriteString(fmt.Sprintf("\n  - %s", input))
+		}
 	}
 
 	return result.String()
@@ -469,39 +575,33 @@ func parseConfigurationError(errorMsg string) string {
 
 // generateErrorDistribution creates a summary of error types across all failed tests
 func (report *PermutationTestReport) generateErrorDistribution() string {
-	var runtimeCount, configCount, deploymentCount, validationCount int
+	var validationCount, transientCount, runtimeCount int
 
-	// Count error types across all failed test results
+	// Count error types across all failed test results using simplified categories
 	for _, result := range report.Results {
 		if !result.Passed {
+			if report.hasValidationErrors(result.ValidationResult) {
+				validationCount++
+			}
+			if len(result.TransientErrors) > 0 {
+				transientCount++
+			}
 			if len(result.RuntimeErrors) > 0 {
 				runtimeCount++
-			}
-			if len(result.ConfigurationErrors) > 0 {
-				configCount++
-			}
-			if len(result.DeploymentErrors) > 0 || len(result.UndeploymentErrors) > 0 {
-				deploymentCount++
-			}
-			if result.ValidationResult != nil && !result.ValidationResult.IsValid {
-				validationCount++
 			}
 		}
 	}
 
 	// Build error distribution summary if there are any errors
 	var errorTypes []string
-	if runtimeCount > 0 {
-		errorTypes = append(errorTypes, fmt.Sprintf("%d Runtime errors", runtimeCount))
-	}
-	if configCount > 0 {
-		errorTypes = append(errorTypes, fmt.Sprintf("%d Configuration errors", configCount))
-	}
-	if deploymentCount > 0 {
-		errorTypes = append(errorTypes, fmt.Sprintf("%d Deployment errors", deploymentCount))
-	}
 	if validationCount > 0 {
 		errorTypes = append(errorTypes, fmt.Sprintf("%d Validation errors", validationCount))
+	}
+	if transientCount > 0 {
+		errorTypes = append(errorTypes, fmt.Sprintf("%d Transient errors", transientCount))
+	}
+	if runtimeCount > 0 {
+		errorTypes = append(errorTypes, fmt.Sprintf("%d Runtime errors", runtimeCount))
 	}
 
 	if len(errorTypes) == 0 {
@@ -509,4 +609,623 @@ func (report *PermutationTestReport) generateErrorDistribution() string {
 	}
 
 	return "🔍 Error Distribution: " + strings.Join(errorTypes, ", ")
+}
+
+// generateAggregatedSummary creates a comprehensive aggregated summary of error patterns
+func (report *PermutationTestReport) generateAggregatedSummary() string {
+	if report.FailedTests == 0 {
+		return ""
+	}
+
+	var summary strings.Builder
+	summary.WriteString("📊 AGGREGATED ERROR ANALYSIS\n")
+	summary.WriteString("================================================================================\n\n")
+
+	// Analyze configuration errors
+	configPatterns := report.analyzeConfigurationErrors()
+	if len(configPatterns) > 0 {
+		summary.WriteString("🔧 CONFIGURATION ERRORS (Root Cause Analysis):\n\n")
+		for _, pattern := range configPatterns {
+			summary.WriteString(fmt.Sprintf("• %s missing required inputs: %s\n", pattern.ConfigPattern, pattern.InputName))
+			if pattern.SuspectedRootCause != "" {
+				summary.WriteString(fmt.Sprintf("  Seen %d times → ROOT CAUSE: %s\n", pattern.Count, pattern.SuspectedRootCause))
+				summary.WriteString(fmt.Sprintf("  💡 SOLUTION: Add input mapping for when %s is disabled\n\n", extractDependencyName(pattern.SuspectedRootCause)))
+			} else {
+				summary.WriteString(fmt.Sprintf("  Seen %d times (requires further analysis)\n\n", pattern.Count))
+			}
+		}
+	}
+
+	// Analyze validation errors
+	validationPatterns := report.analyzeValidationErrors()
+	if len(validationPatterns) > 0 {
+		summary.WriteString("🔍 VALIDATION ERRORS:\n\n")
+		for _, pattern := range validationPatterns {
+			// Use consistent terminology: "Seen in X tests" for systematic patterns
+			testCount := pattern.Count
+			testWord := "test"
+			if testCount > 1 {
+				testWord = "tests"
+			}
+
+			summary.WriteString(fmt.Sprintf("• %s: %s\n", pattern.ErrorType, pattern.Pattern))
+			summary.WriteString(fmt.Sprintf("  Seen in %d %s → %s\n", testCount, testWord, report.getValidationInsight(pattern.ErrorType)))
+			if solution := report.getValidationSolution(pattern.ErrorType); solution != "" {
+				summary.WriteString(fmt.Sprintf("  💡 SOLUTION: %s\n", solution))
+			}
+			summary.WriteString("\n")
+		}
+	}
+
+	// Analyze transient errors
+	transientDetails := report.analyzeTransientErrors()
+	if transientDetails.RuntimeCount > 0 || transientDetails.DeploymentCount > 0 {
+		summary.WriteString("⚡ TRANSIENT ERRORS (Less Critical):\n")
+
+		if transientDetails.RuntimeCount > 0 {
+			// Use proper grammar: "1 occurrence" vs "X occurrences"
+			occurrenceWord := "occurrence"
+			if transientDetails.RuntimeCount > 1 {
+				occurrenceWord = "occurrences"
+			}
+			summary.WriteString(fmt.Sprintf("• Runtime errors: %d %s\n", transientDetails.RuntimeCount, occurrenceWord))
+
+			// Show sample error messages for debugging
+			for i, sample := range transientDetails.RuntimeSamples {
+				if i == 0 {
+					summary.WriteString(fmt.Sprintf("  - %s\n", sample))
+				} else if i == 1 && len(transientDetails.RuntimeSamples) > 1 {
+					if transientDetails.RuntimeCount > 2 {
+						summary.WriteString(fmt.Sprintf("  - %s (and %d more)\n", sample, transientDetails.RuntimeCount-2))
+					} else {
+						summary.WriteString(fmt.Sprintf("  - %s\n", sample))
+					}
+				}
+			}
+		}
+
+		if transientDetails.DeploymentCount > 0 {
+			// Use proper grammar: "1 occurrence" vs "X occurrences"
+			occurrenceWord := "occurrence"
+			if transientDetails.DeploymentCount > 1 {
+				occurrenceWord = "occurrences"
+			}
+			summary.WriteString(fmt.Sprintf("• Deployment errors: %d %s\n", transientDetails.DeploymentCount, occurrenceWord))
+
+			// Show sample error messages for debugging
+			for i, sample := range transientDetails.DeploymentSamples {
+				if i == 0 {
+					summary.WriteString(fmt.Sprintf("  - %s\n", sample))
+				} else if i == 1 && len(transientDetails.DeploymentSamples) > 1 {
+					if transientDetails.DeploymentCount > 2 {
+						summary.WriteString(fmt.Sprintf("  - %s (and %d more)\n", sample, transientDetails.DeploymentCount-2))
+					} else {
+						summary.WriteString(fmt.Sprintf("  - %s\n", sample))
+					}
+				}
+			}
+		}
+
+		summary.WriteString("\n")
+	}
+
+	// Generate action items
+	actionItems := report.generateActionItems(configPatterns)
+	if len(actionItems) > 0 {
+		summary.WriteString("📋 ACTION ITEMS:\n")
+		for i, item := range actionItems {
+			summary.WriteString(fmt.Sprintf("%d. %s\n", i+1, item))
+		}
+	}
+
+	// Add error accounting notice if analysis might be incomplete
+	errorAccountingNotice := report.checkErrorAccounting(configPatterns, validationPatterns, transientDetails)
+	if errorAccountingNotice != "" {
+		summary.WriteString(errorAccountingNotice)
+	}
+
+	return summary.String()
+}
+
+// checkErrorAccounting verifies if all failed tests are accounted for in the aggregated analysis
+func (report *PermutationTestReport) checkErrorAccounting(configPatterns []ConfigurationErrorPattern, validationPatterns []ValidationErrorPattern, transientDetails TransientErrorDetails) string {
+	// Count total errors across all patterns
+	var accountedFailures int
+
+	// Configuration errors
+	for _, pattern := range configPatterns {
+		accountedFailures += pattern.Count
+	}
+
+	// Validation errors
+	for _, pattern := range validationPatterns {
+		accountedFailures += pattern.Count
+	}
+
+	// Transient errors (simplified - each test can have multiple error types)
+	// Count unique tests that had transient errors but weren't already counted
+	transientFailures := make(map[string]bool)
+	for _, result := range report.Results {
+		if !result.Passed {
+			if len(result.TransientErrors) > 0 {
+				// Only count this if it's not already counted in validation errors
+				hasValidationError := report.hasValidationErrors(result.ValidationResult)
+
+				if !hasValidationError {
+					transientFailures[result.Name] = true
+				}
+			}
+		}
+	}
+	accountedFailures += len(transientFailures)
+
+	// Check if we're missing any failures
+	unaccountedFailures := report.FailedTests - accountedFailures
+
+	if unaccountedFailures > 0 {
+		var notice strings.Builder
+		notice.WriteString("\n")
+		notice.WriteString("⚠️  ERROR ANALYSIS INCOMPLETE\n")
+		notice.WriteString("=====================================\n")
+
+		// Be specific about what might be missing
+		if unaccountedFailures == 1 {
+			notice.WriteString("1 failure may not be fully represented in this summary.\n")
+		} else {
+			notice.WriteString(fmt.Sprintf("%d failures may not be fully represented in this summary.\n", unaccountedFailures))
+		}
+
+		notice.WriteString("This can happen when:\n")
+		notice.WriteString("• Error messages don't match expected patterns\n")
+		notice.WriteString("• New types of validation failures occur\n")
+		notice.WriteString("• Complex error combinations aren't fully parsed\n\n")
+		notice.WriteString("📋 RECOMMENDATION: Review the complete test logs above for additional validation details.\n")
+
+		return notice.String()
+	}
+
+	return ""
+}
+
+// analyzeConfigurationErrors groups configuration errors by pattern and identifies root causes
+func (report *PermutationTestReport) analyzeConfigurationErrors() []ConfigurationErrorPattern {
+	// Group errors by missing input patterns
+	inputPatterns := make(map[string][]AggregatedTestInfo)
+
+	for _, result := range report.Results {
+		if !result.Passed && report.hasValidationErrors(result.ValidationResult) {
+			testInfo := AggregatedTestInfo{
+				Name:         result.Name,
+				Prefix:       result.Prefix,
+				EnabledDeps:  extractEnabledDependencies(result.AddonConfig),
+				DisabledDeps: extractDisabledDependencies(result.AddonConfig),
+			}
+
+			// Check missing inputs and configuration errors in ValidationResult
+			if result.ValidationResult != nil {
+				// Check missing inputs - handle both formats
+				for _, missingInput := range result.ValidationResult.MissingInputs {
+					// Handle full error format: "missing required inputs: config (missing: input)"
+					if strings.Contains(missingInput, "missing required inputs:") {
+						cleanedError := parseConfigurationError(missingInput)
+						inputName, configPattern := extractInputPattern(cleanedError)
+						if inputName != "" && configPattern != "" {
+							key := fmt.Sprintf("%s|%s", configPattern, inputName)
+							inputPatterns[key] = append(inputPatterns[key], testInfo)
+						}
+					} else {
+						// Handle individual format: "config (missing: input)" or any other format
+						inputName, configPattern := extractInputPattern(missingInput)
+						if inputName != "" && configPattern != "" {
+							key := fmt.Sprintf("%s|%s", configPattern, inputName)
+							inputPatterns[key] = append(inputPatterns[key], testInfo)
+						}
+					}
+				}
+
+				// Check configuration errors
+				for _, configError := range result.ValidationResult.ConfigurationErrors {
+					if strings.Contains(configError, "missing required inputs:") {
+						cleanedError := parseConfigurationError(configError)
+						inputName, configPattern := extractInputPattern(cleanedError)
+						if inputName != "" && configPattern != "" {
+							key := fmt.Sprintf("%s|%s", configPattern, inputName)
+							inputPatterns[key] = append(inputPatterns[key], testInfo)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Convert to pattern list and analyze root causes
+	var patterns []ConfigurationErrorPattern
+	for key, tests := range inputPatterns {
+		parts := strings.Split(key, "|")
+		configPattern := parts[0]
+		inputName := parts[1]
+
+		pattern := ConfigurationErrorPattern{
+			ConfigPattern: configPattern,
+			InputName:     inputName,
+			Count:         len(tests),
+		}
+
+		// Identify root cause
+		commonDisabled := findCommonDisabledDependencies(tests)
+		if len(commonDisabled) == 1 {
+			pattern.SuspectedRootCause = commonDisabled[0] + " (disabled in all cases)"
+			pattern.ConfidenceLevel = "HIGH"
+		} else if len(commonDisabled) > 1 {
+			// Try to identify the most likely cause based on input name correlation
+			mostLikely := findMostLikelyRootCause(commonDisabled, inputName)
+			if mostLikely != "" {
+				pattern.SuspectedRootCause = mostLikely + " (disabled in all cases)"
+				pattern.ConfidenceLevel = "HIGH"
+			}
+		}
+
+		patterns = append(patterns, pattern)
+	}
+
+	// Sort by count (most common first)
+	for i := 0; i < len(patterns); i++ {
+		for j := i + 1; j < len(patterns); j++ {
+			if patterns[i].Count < patterns[j].Count {
+				patterns[i], patterns[j] = patterns[j], patterns[i]
+			}
+		}
+	}
+
+	return patterns
+}
+
+// analyzeValidationErrors groups validation errors by type
+func (report *PermutationTestReport) analyzeValidationErrors() []ValidationErrorPattern {
+	patternCounts := make(map[string]int)
+
+	for _, result := range report.Results {
+		if !result.Passed && result.ValidationResult != nil && !result.ValidationResult.IsValid {
+			// Count dependency errors
+			for _, depError := range result.ValidationResult.DependencyErrors {
+				pattern := fmt.Sprintf("%s addon requires '%s' dependency but it's disabled", depError.Addon.Name, depError.DependencyRequired.Name)
+				patternCounts["Missing dependency|"+pattern]++
+			}
+
+			// Count unexpected configs with clear description
+			for _, unexpected := range result.ValidationResult.UnexpectedConfigs {
+				pattern := fmt.Sprintf("%s (%s, %s) deployed when disabled", unexpected.Name, unexpected.Version, unexpected.Flavor.Name)
+				patternCounts["Unexpected config|"+pattern]++
+			}
+
+			// Count missing configs with clear description
+			for _, missing := range result.ValidationResult.MissingConfigs {
+				pattern := fmt.Sprintf("%s (%s, %s) expected but not deployed", missing.Name, missing.Version, missing.Flavor.Name)
+				patternCounts["Missing config|"+pattern]++
+			}
+
+			// Process generic validation messages (fallback for validation errors not in specific arrays)
+			for _, msg := range result.ValidationResult.Messages {
+				// Skip messages that are likely already covered by specific arrays
+				if !strings.Contains(msg, "unexpected configs") && !strings.Contains(msg, "missing configs") && !strings.Contains(msg, "dependency errors") {
+					// Skip success messages that shouldn't appear in error analysis
+					if !strings.Contains(msg, "actually deployed configs are same as expected deployed configs") {
+						patternCounts["Generic validation|"+msg]++
+					}
+				}
+			}
+		}
+	}
+
+	var patterns []ValidationErrorPattern
+	for key, count := range patternCounts {
+		parts := strings.Split(key, "|")
+		errorType := parts[0]
+		pattern := parts[1]
+
+		patterns = append(patterns, ValidationErrorPattern{
+			ErrorType: errorType,
+			Pattern:   pattern,
+			Count:     count,
+		})
+	}
+
+	// Sort by count (most common first)
+	for i := 0; i < len(patterns); i++ {
+		for j := i + 1; j < len(patterns); j++ {
+			if patterns[i].Count < patterns[j].Count {
+				patterns[i], patterns[j] = patterns[j], patterns[i]
+			}
+		}
+	}
+
+	return patterns
+}
+
+// analyzeTransientErrors analyzes transient error types and collects sample messages
+func (report *PermutationTestReport) analyzeTransientErrors() TransientErrorDetails {
+	details := TransientErrorDetails{}
+
+	for _, result := range report.Results {
+		if !result.Passed {
+			// Collect runtime errors and samples
+			if len(result.RuntimeErrors) > 0 {
+				details.RuntimeCount++
+				// Collect first few samples for debugging
+				for _, runtimeErr := range result.RuntimeErrors {
+					if len(details.RuntimeSamples) < 2 { // Limit to first 2 samples
+						cleanedError := parseJSONErrorMessage(runtimeErr)
+						details.RuntimeSamples = append(details.RuntimeSamples, cleanedError)
+					}
+				}
+			}
+
+			// Collect transient errors and samples (simplified)
+			if len(result.TransientErrors) > 0 {
+				details.DeploymentCount++ // Keep the same field name for backward compatibility in reporting
+				// Collect transient error samples
+				for _, transientErr := range result.TransientErrors {
+					if len(details.DeploymentSamples) < 2 { // Limit to first 2 samples
+						cleanedError := parseJSONErrorMessage(transientErr)
+						details.DeploymentSamples = append(details.DeploymentSamples, cleanedError)
+					}
+				}
+			}
+		}
+	}
+
+	return details
+}
+
+// generateActionItems creates actionable recommendations based on error patterns
+func (report *PermutationTestReport) generateActionItems(configPatterns []ConfigurationErrorPattern) []string {
+	var actions []string
+
+	for _, pattern := range configPatterns {
+		if pattern.SuspectedRootCause != "" && (pattern.ConfidenceLevel == "HIGH" || pattern.ConfidenceLevel == "MEDIUM") {
+			depName := extractDependencyName(pattern.SuspectedRootCause)
+			action := fmt.Sprintf("Add input mapping logic for %s disabled scenarios (fixes %d tests)", depName, pattern.Count)
+			actions = append(actions, action)
+		}
+	}
+
+	return actions
+}
+
+// Helper functions
+
+// extractEnabledDependencies extracts enabled dependency names from addon config
+func extractEnabledDependencies(configs []cloudinfo.AddonConfig) []string {
+	var enabled []string
+	for _, config := range configs {
+		if config.Enabled != nil && *config.Enabled {
+			enabled = append(enabled, config.OfferingName)
+		}
+	}
+	return enabled
+}
+
+// extractDisabledDependencies extracts disabled dependency names from addon config
+func extractDisabledDependencies(configs []cloudinfo.AddonConfig) []string {
+	var disabled []string
+	for _, config := range configs {
+		if config.Enabled == nil || !*config.Enabled {
+			disabled = append(disabled, config.OfferingName)
+		}
+	}
+	return disabled
+}
+
+// extractInputPattern extracts input name and config pattern from parsed error message
+func extractInputPattern(errorMsg string) (inputName, configPattern string) {
+	// Parse format: "config-name missing required inputs: input1, input2"
+	if strings.Contains(errorMsg, " missing required inputs: ") {
+		parts := strings.Split(errorMsg, " missing required inputs: ")
+		if len(parts) == 2 {
+			configName := strings.TrimSpace(parts[0])
+			inputs := strings.Split(strings.TrimSpace(parts[1]), ", ")
+			if len(inputs) > 0 {
+				// Replace random suffixes with * to create pattern
+				configPattern = replaceRandomSuffix(configName)
+				inputName = strings.TrimSpace(inputs[0]) // Use first input as primary
+			}
+		}
+		return
+	}
+
+	// Handle format: "missing required inputs: config-name (missing: input1, input2)"
+	if strings.Contains(errorMsg, "missing required inputs: ") && strings.Contains(errorMsg, " (missing: ") {
+		// Extract config name and inputs from full error format
+		parts := strings.Split(errorMsg, "missing required inputs: ")
+		if len(parts) == 2 {
+			remainder := strings.TrimSpace(parts[1])
+			// Split on " (missing: " to separate config name from inputs
+			if idx := strings.Index(remainder, " (missing: "); idx != -1 {
+				configName := strings.TrimSpace(remainder[:idx])
+				inputsPart := remainder[idx+len(" (missing: "):]
+				// Remove trailing ")"
+				inputsPart = strings.TrimSuffix(inputsPart, ")")
+
+				// Split inputs by comma and get first one
+				inputs := strings.Split(inputsPart, ",")
+				if len(inputs) > 0 {
+					inputName = strings.TrimSpace(inputs[0])
+					configPattern = replaceRandomSuffix(configName)
+					return
+				}
+			}
+		}
+	}
+
+	// Handle alternative format: "missing required inputs: input_name"
+	if strings.Contains(errorMsg, "missing required inputs: ") && !strings.Contains(errorMsg, " missing required inputs: ") && !strings.Contains(errorMsg, " (missing: ") {
+		parts := strings.Split(errorMsg, "missing required inputs: ")
+		if len(parts) == 2 {
+			inputs := strings.Split(strings.TrimSpace(parts[1]), ", ")
+			if len(inputs) > 0 {
+				inputName = strings.TrimSpace(inputs[0])
+				// Try to extract config name from context or use generic pattern
+				configPattern = "*" // Default pattern when config name is unclear
+			}
+		}
+		return
+	}
+
+	// Handle direct config format: "config-name (missing: input1, input2)"
+	if strings.Contains(errorMsg, " (missing: ") && !strings.Contains(errorMsg, "missing required inputs: ") {
+		// Extract config name and inputs directly
+		if idx := strings.Index(errorMsg, " (missing: "); idx != -1 {
+			configName := strings.TrimSpace(errorMsg[:idx])
+			inputsPart := errorMsg[idx+len(" (missing: "):]
+			// Remove trailing ")"
+			inputsPart = strings.TrimSuffix(inputsPart, ")")
+
+			// Split inputs by comma and get first one
+			inputs := strings.Split(inputsPart, ",")
+			if len(inputs) > 0 {
+				inputName = strings.TrimSpace(inputs[0])
+				configPattern = replaceRandomSuffix(configName)
+				return
+			}
+		}
+	}
+
+	// Handle simple missing input patterns
+	if strings.Contains(errorMsg, "missing: ") {
+		parts := strings.Split(errorMsg, "missing: ")
+		if len(parts) == 2 {
+			inputs := strings.Split(strings.TrimSpace(parts[1]), ", ")
+			if len(inputs) > 0 {
+				inputName = strings.TrimSpace(inputs[0])
+				configPattern = "*" // Generic pattern
+			}
+		}
+	}
+
+	return
+}
+
+// replaceRandomSuffix replaces random suffixes in config names to create patterns
+func replaceRandomSuffix(configName string) string {
+	// Look for pattern like "deploy-arch-ibm-cloud-logs-abc123"
+	parts := strings.Split(configName, "-")
+	if len(parts) > 0 {
+		lastPart := parts[len(parts)-1]
+		// If last part looks like a random suffix (alphanumeric, 5+ chars)
+		if len(lastPart) >= 5 && isAlphanumeric(lastPart) {
+			parts[len(parts)-1] = "*"
+			return strings.Join(parts, "-")
+		}
+	}
+	return configName
+}
+
+// isAlphanumeric checks if string contains only alphanumeric characters
+func isAlphanumeric(s string) bool {
+	for _, r := range s {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+			return false
+		}
+	}
+	return true
+}
+
+// findCommonDisabledDependencies finds dependencies disabled in ALL tests
+func findCommonDisabledDependencies(tests []AggregatedTestInfo) []string {
+	if len(tests) == 0 {
+		return nil
+	}
+
+	// Start with disabled deps from first test
+	common := make(map[string]bool)
+	for _, dep := range tests[0].DisabledDeps {
+		common[dep] = true
+	}
+
+	// Keep only deps that are disabled in ALL tests
+	for i := 1; i < len(tests); i++ {
+		testDisabled := make(map[string]bool)
+		for _, dep := range tests[i].DisabledDeps {
+			testDisabled[dep] = true
+		}
+
+		// Remove any dep not disabled in this test
+		for dep := range common {
+			if !testDisabled[dep] {
+				delete(common, dep)
+			}
+		}
+	}
+
+	var result []string
+	for dep := range common {
+		result = append(result, dep)
+	}
+	return result
+}
+
+// findMostLikelyRootCause analyzes multiple disabled deps to find most likely cause
+func findMostLikelyRootCause(disabledDeps []string, inputName string) string {
+	// Simple heuristic: look for name correlations
+	inputLower := strings.ToLower(inputName)
+
+	for _, dep := range disabledDeps {
+		depLower := strings.ToLower(dep)
+		// Look for substring matches
+		if strings.Contains(inputLower, "cos") && strings.Contains(depLower, "cos") {
+			return dep
+		}
+		if strings.Contains(inputLower, "logs") && strings.Contains(depLower, "logs") {
+			return dep
+		}
+		if strings.Contains(inputLower, "kms") && strings.Contains(depLower, "kms") {
+			return dep
+		}
+		if strings.Contains(inputLower, "monitoring") && strings.Contains(depLower, "monitoring") {
+			return dep
+		}
+	}
+
+	return ""
+}
+
+// extractDependencyName extracts clean dependency name from root cause string
+func extractDependencyName(rootCause string) string {
+	// Extract from format: "deploy-arch-ibm-cos (disabled in all cases)"
+	if strings.Contains(rootCause, " (") {
+		return strings.Split(rootCause, " (")[0]
+	}
+	return rootCause
+}
+
+// getValidationInsight provides actionable insight about what each validation error type means
+func (report *PermutationTestReport) getValidationInsight(errorType string) string {
+	switch errorType {
+	case "Unexpected config":
+		return "ISSUE: Configuration deployed despite being disabled in test setup"
+	case "Missing config":
+		return "ISSUE: Required dependency not deployed when expected"
+	case "Missing dependency":
+		return "ISSUE: Addon requires dependency that is disabled"
+	case "Generic validation":
+		return "ISSUE: Dependency validation failed"
+	default:
+		return "ISSUE: Validation constraint violated"
+	}
+}
+
+// getValidationSolution provides actionable solution for each validation error type
+func (report *PermutationTestReport) getValidationSolution(errorType string) string {
+	switch errorType {
+	case "Unexpected config":
+		return "Review dependency resolution logic for disabled components"
+	case "Missing config":
+		return "Check dependency requirements and deployment logic"
+	case "Missing dependency":
+		return "Enable required dependency or remove dependent addon"
+	case "Generic validation":
+		return "Review dependency validation rules and configuration"
+	default:
+		return ""
+	}
 }

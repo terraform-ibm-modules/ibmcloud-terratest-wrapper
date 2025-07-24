@@ -1,7 +1,6 @@
 package testaddons
 
 import (
-	"fmt"
 	"testing"
 	"time"
 
@@ -131,8 +130,15 @@ func TestMatrixReportGeneration(t *testing.T) {
 					{OfferingName: "deploy-arch-ibm-cos-advanced", Enabled: &[]bool{false}[0]},
 					{OfferingName: "deploy-arch-ibm-security-compliance", Enabled: &[]bool{false}[0]},
 				},
-				Passed:              false,
-				ConfigurationErrors: []string{"missing required inputs: deploy-arch-ibm-activity-tracker-jwqnfs (missing: cloud_logs_instance_name)"},
+				Passed: false,
+				ValidationResult: &ValidationResult{
+					IsValid: false,
+					MissingInputs: []string{
+						"deploy-arch-ibm-activity-tracker-jwqnfs (missing: cloud_logs_instance_name)",
+						"deploy-arch-ibm-activity-tracker-jwqnfs (missing: existing_cos_instance_crn)",
+						"deploy-arch-ibm-cloud-logs-abc123 (missing: existing_cos_instance_crn)",
+					},
+				},
 			},
 			{
 				Name:   "test-case-all-disabled",
@@ -147,9 +153,29 @@ func TestMatrixReportGeneration(t *testing.T) {
 					{OfferingName: "deploy-arch-ibm-cloud-logs", Enabled: &[]bool{false}[0]},
 					{OfferingName: "deploy-arch-ibm-cos-advanced", Enabled: &[]bool{false}[0]},
 				},
-				Passed:           false,
-				RuntimeErrors:    []string{"panic occurred: runtime error: invalid memory address"},
-				DeploymentErrors: []error{fmt.Errorf("deployment failed: timeout")},
+				Passed:          false,
+				RuntimeErrors:   []string{"panic occurred: runtime error: invalid memory address"},
+				TransientErrors: []string{"deployment failed: timeout"},
+			},
+			{
+				Name:   "test-case-config-errors",
+				Prefix: "tc-config-err",
+				AddonConfig: []cloudinfo.AddonConfig{
+					// Main addon (always enabled)
+					{OfferingName: "deploy-arch-ibm-event-notifications", Enabled: &[]bool{true}[0]},
+					// Several dependencies disabled, which should cause config errors
+					{OfferingName: "deploy-arch-ibm-cos", Enabled: &[]bool{false}[0]},
+					{OfferingName: "deploy-arch-ibm-event-notifications", Enabled: &[]bool{false}[0]},
+					{OfferingName: "deploy-arch-ibm-cloud-logs", Enabled: &[]bool{false}[0]},
+				},
+				Passed: false,
+				ValidationResult: &ValidationResult{
+					IsValid: false,
+					ConfigurationErrors: []string{
+						"missing required inputs: deploy-arch-ibm-activity-tracker-xyz789 (missing: cloud_logs_instance_name)",
+						"missing required inputs: deploy-arch-ibm-cloud-logs-def456 (missing: existing_cos_instance_crn)",
+					},
+				},
 			},
 		}
 
@@ -157,7 +183,7 @@ func TestMatrixReportGeneration(t *testing.T) {
 		options.PermutationTestReport.Results = mockResults
 		options.PermutationTestReport.TotalTests = len(mockResults)
 		options.PermutationTestReport.PassedTests = 0
-		options.PermutationTestReport.FailedTests = 2
+		options.PermutationTestReport.FailedTests = 3
 		options.PermutationTestReport.EndTime = time.Now()
 
 		// Test the actual report generation - cast logger to SmartLogger
@@ -292,7 +318,10 @@ func TestMatrixReportGeneration_QuietMode(t *testing.T) {
 				AddonConfig:   []cloudinfo.AddonConfig{{OfferingName: "test-addon-quiet"}},
 				Passed:        false,
 				RuntimeErrors: []string{"QuietMode test failure simulation"},
-				MissingInputs: []string{"required_input", "api_key"},
+				ValidationResult: &ValidationResult{
+					IsValid:       false,
+					MissingInputs: []string{"required_input", "api_key"},
+				},
 			},
 		}
 
