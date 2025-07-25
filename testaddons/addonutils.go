@@ -120,60 +120,28 @@ func checkCircularReference(key string, visited map[string]bool) (bool, func()) 
 
 // Common Validation Utils
 // isValidationError checks if an error string indicates a validation issue
+// Uses the new structured ErrorPattern system from test_options.go for consistency
 func isValidationError(errorStr string) bool {
-	validationPatterns := []string{
-		MissingInputsPattern,
-		DependencyValidationPattern,
-		UnexpectedConfigsPattern,
-		ShouldNotBeDeployedPattern,
-		"configuration validation",
-	}
-
-	for _, pattern := range validationPatterns {
-		if strings.Contains(errorStr, pattern) {
-			return true
-		}
+	if pattern, found := classifyError(errorStr); found {
+		return pattern.Type == ValidationError
 	}
 	return false
 }
 
 // isTransientError checks if an error string indicates a transient/infrastructure issue
+// Uses the new structured ErrorPattern system from test_options.go for consistency
 func isTransientError(errorStr string) bool {
-	transientPatterns := []string{
-		"deployment timeout",
-		"TriggerDeployAndWait",
-		"TriggerUnDeployAndWait",
-		"timeout",
-		"rate limit",
-		"network",
-		"connection",
-		"5", // 5xx errors
-	}
-
-	for _, pattern := range transientPatterns {
-		if strings.Contains(errorStr, pattern) {
-			if pattern == "5" && strings.Contains(errorStr, " error") {
-				return true // 5xx errors
-			} else if pattern != "5" {
-				return true
-			}
-		}
+	if pattern, found := classifyError(errorStr); found {
+		return pattern.Type == TransientError
 	}
 	return false
 }
 
 // isRuntimeError checks if an error string indicates a runtime/code issue
+// Uses the new structured ErrorPattern system from test_options.go for consistency
 func isRuntimeError(errorStr string) bool {
-	runtimePatterns := []string{
-		"panic:",
-		"runtime error",
-		"nil pointer",
-	}
-
-	for _, pattern := range runtimePatterns {
-		if strings.Contains(errorStr, pattern) {
-			return true
-		}
+	if pattern, found := classifyError(errorStr); found {
+		return pattern.Type == RuntimeError
 	}
 	return false
 }

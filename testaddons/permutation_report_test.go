@@ -366,3 +366,132 @@ func TestMatrixReportGeneration_QuietMode(t *testing.T) {
 	// Key assertion: Report generation should work regardless of QuietMode setting
 	t.Logf("✅ QuietMode test validates that comprehensive reports work with quiet logging!")
 }
+
+// TestMessageClassification tests the new structured message classification system
+// replacing fragile string matching with typed classification
+func TestMessageClassification(t *testing.T) {
+	testCases := []struct {
+		name         string
+		message      string
+		expectedType MessageType
+		shouldFilter bool
+	}{
+		{
+			name:         "Success message",
+			message:      "actually deployed configs are same as expected deployed configs",
+			expectedType: MessageTypeSuccessMessage,
+			shouldFilter: true,
+		},
+		{
+			name:         "Unexpected config message",
+			message:      "dependency validation failed: 2 unexpected configs detected",
+			expectedType: MessageTypeUnexpectedConfig,
+			shouldFilter: false,
+		},
+		{
+			name:         "Missing config message",
+			message:      "validation failed: missing configs in deployment",
+			expectedType: MessageTypeMissingConfig,
+			shouldFilter: false,
+		},
+		{
+			name:         "Dependency error message",
+			message:      "critical dependency errors found in configuration",
+			expectedType: MessageTypeDependencyError,
+			shouldFilter: false,
+		},
+		{
+			name:         "Input validation message",
+			message:      "missing required inputs: existing_cos_instance_crn",
+			expectedType: MessageTypeInputValidation,
+			shouldFilter: false,
+		},
+		{
+			name:         "Generic validation message",
+			message:      "some other validation error occurred",
+			expectedType: MessageTypeGeneral,
+			shouldFilter: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test classification
+			actualType := classifyMessage(tc.message)
+			assert.Equal(t, tc.expectedType, actualType,
+				"Message should be classified as %s but got %s", tc.expectedType, actualType)
+
+			// Test filtering
+			actualFilter := shouldFilterMessage(tc.message)
+			assert.Equal(t, tc.shouldFilter, actualFilter,
+				"Message filtering should be %v but got %v", tc.shouldFilter, actualFilter)
+		})
+	}
+}
+
+// TestMessageTypeString tests the String() method for MessageType enum
+func TestMessageTypeString(t *testing.T) {
+	testCases := []struct {
+		messageType    MessageType
+		expectedString string
+	}{
+		{MessageTypeUnexpectedConfig, "UnexpectedConfig"},
+		{MessageTypeMissingConfig, "MissingConfig"},
+		{MessageTypeDependencyError, "DependencyError"},
+		{MessageTypeInputValidation, "InputValidation"},
+		{MessageTypeSuccessMessage, "SuccessMessage"},
+		{MessageTypeGeneral, "General"},
+		{MessageType(999), "Unknown"}, // Test unknown type
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.expectedString, func(t *testing.T) {
+			actual := tc.messageType.String()
+			assert.Equal(t, tc.expectedString, actual,
+				"MessageType(%d).String() should return %s but got %s",
+				tc.messageType, tc.expectedString, actual)
+		})
+	}
+}
+
+// TestImprovedMessageFiltering tests that the new classification system
+// properly replaces the old fragile string matching patterns
+func TestImprovedMessageFiltering(t *testing.T) {
+	messages := []string{
+		"actually deployed configs are same as expected deployed configs",
+		"unexpected configs deployed when disabled",
+		"missing required inputs: deploy-arch-ibm-cos",
+		"dependency errors in validation",
+		"some other validation error",
+	}
+
+	// Test that only success messages are filtered
+	filteredCount := 0
+	for _, msg := range messages {
+		if shouldFilterMessage(msg) {
+			filteredCount++
+		}
+	}
+
+	assert.Equal(t, 1, filteredCount, "Only 1 success message should be filtered")
+
+	// Test that isOnlySuccessMessages works correctly with mixed messages
+	hasNonSuccess := false
+	for _, msg := range messages {
+		if !shouldFilterMessage(msg) {
+			hasNonSuccess = true
+			break
+		}
+	}
+	assert.True(t, hasNonSuccess, "Should detect non-success messages in mixed array")
+
+	// Test with only success messages
+	successOnlyMessages := []string{
+		"actually deployed configs are same as expected deployed configs",
+		"actually deployed configs are same as expected deployed configs",
+	}
+
+	report := &PermutationTestReport{}
+	isOnlySuccess := report.isOnlySuccessMessages(successOnlyMessages)
+	assert.True(t, isOnlySuccess, "Should correctly identify array with only success messages")
+}

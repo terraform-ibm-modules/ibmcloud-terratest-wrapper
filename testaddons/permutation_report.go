@@ -10,6 +10,75 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
+// MessageType defines the category of validation/error messages for structured classification
+type MessageType int
+
+const (
+	MessageTypeUnexpectedConfig MessageType = iota // unexpected configs deployed when disabled
+	MessageTypeMissingConfig                       // missing configs that should be deployed
+	MessageTypeDependencyError                     // dependency validation errors
+	MessageTypeInputValidation                     // missing or invalid input validation
+	MessageTypeSuccessMessage                      // success messages that should be filtered
+	MessageTypeGeneral                             // other validation messages
+)
+
+// String returns the string representation of MessageType
+func (mt MessageType) String() string {
+	switch mt {
+	case MessageTypeUnexpectedConfig:
+		return "UnexpectedConfig"
+	case MessageTypeMissingConfig:
+		return "MissingConfig"
+	case MessageTypeDependencyError:
+		return "DependencyError"
+	case MessageTypeInputValidation:
+		return "InputValidation"
+	case MessageTypeSuccessMessage:
+		return "SuccessMessage"
+	case MessageTypeGeneral:
+		return "General"
+	default:
+		return "Unknown"
+	}
+}
+
+// classifyMessage categorizes a validation message into predefined types
+// replacing fragile strings.Contains() checks with structured classification
+func classifyMessage(msg string) MessageType {
+	// Success messages - should be filtered out in most contexts
+	if strings.Contains(msg, "actually deployed configs are same as expected deployed configs") {
+		return MessageTypeSuccessMessage
+	}
+
+	// Configuration-related errors
+	if strings.Contains(msg, "unexpected configs") {
+		return MessageTypeUnexpectedConfig
+	}
+	if strings.Contains(msg, "missing configs") {
+		return MessageTypeMissingConfig
+	}
+
+	// Dependency validation errors
+	if strings.Contains(msg, "dependency errors") {
+		return MessageTypeDependencyError
+	}
+
+	// Input validation errors
+	if strings.Contains(msg, "missing required inputs") || strings.Contains(msg, "input validation") {
+		return MessageTypeInputValidation
+	}
+
+	// Default to general validation message
+	return MessageTypeGeneral
+}
+
+// shouldFilterMessage determines if a message should be excluded from reports
+// based on its classification type
+func shouldFilterMessage(msg string) bool {
+	messageType := classifyMessage(msg)
+	return messageType == MessageTypeSuccessMessage
+}
+
 // GeneratePermutationReport creates a comprehensive final report for all permutation tests
 func GeneratePermutationReport(results []PermutationTestResult) *PermutationTestReport {
 	report := &PermutationTestReport{
@@ -188,7 +257,7 @@ func (report *PermutationTestReport) buildFailedTestReport(result PermutationTes
 
 		// Show other validation messages (but skip success messages)
 		for _, msg := range result.ValidationResult.Messages {
-			if !strings.Contains(msg, "actually deployed configs are same as expected deployed configs") {
+			if !shouldFilterMessage(msg) {
 				lines := report.wrapText("• "+msg, 67)
 				for _, line := range lines {
 					builder.WriteString(fmt.Sprintf("│     %-71s │\n", line))
@@ -249,7 +318,7 @@ func (report *PermutationTestReport) hasValidationErrors(validationResult *Valid
 // isOnlySuccessMessages checks if the messages array contains only success messages
 func (report *PermutationTestReport) isOnlySuccessMessages(messages []string) bool {
 	for _, msg := range messages {
-		if !strings.Contains(msg, "actually deployed configs are same as expected deployed configs") {
+		if !shouldFilterMessage(msg) {
 			return false
 		}
 	}
@@ -906,12 +975,12 @@ func (report *PermutationTestReport) analyzeValidationErrors() []ValidationError
 
 			// Process generic validation messages (fallback for validation errors not in specific arrays)
 			for _, msg := range result.ValidationResult.Messages {
-				// Skip messages that are likely already covered by specific arrays
-				if !strings.Contains(msg, "unexpected configs") && !strings.Contains(msg, "missing configs") && !strings.Contains(msg, "dependency errors") {
-					// Skip success messages that shouldn't appear in error analysis
-					if !strings.Contains(msg, "actually deployed configs are same as expected deployed configs") {
-						patternCounts["Generic validation|"+msg]++
-					}
+				messageType := classifyMessage(msg)
+
+				// Only process general messages that aren't covered by specific arrays
+				// and aren't success messages that should be filtered
+				if messageType == MessageTypeGeneral {
+					patternCounts["Generic validation|"+msg]++
 				}
 			}
 		}

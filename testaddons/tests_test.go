@@ -1280,23 +1280,17 @@ func TestReferenceValidationMemberDeploymentWarning(t *testing.T) {
 func TestMemberDeploymentReferenceHandling(t *testing.T) {
 	// Test case 1: Member deployment reference (should be treated as warning)
 	memberDeploymentMessage := "The project reference requires the specified member configuration deploy-arch-ibm-account-infra-base-abc123 to be deployed. Please deploy the referring configuration."
-	isMemberDeploymentRef := strings.Contains(memberDeploymentMessage, "project reference requires") &&
-		strings.Contains(memberDeploymentMessage, "member configuration") &&
-		strings.Contains(memberDeploymentMessage, "to be deployed")
+	isMemberDeploymentRef := IsMemberDeploymentReference(memberDeploymentMessage)
 	assert.True(t, isMemberDeploymentRef, "Member deployment reference should be detected")
 
 	// Test case 2: Different error message (should be treated as error)
 	otherErrorMessage := "Configuration not found"
-	isOtherError := strings.Contains(otherErrorMessage, "project reference requires") &&
-		strings.Contains(otherErrorMessage, "member configuration") &&
-		strings.Contains(otherErrorMessage, "to be deployed")
+	isOtherError := IsMemberDeploymentReference(otherErrorMessage)
 	assert.False(t, isOtherError, "Other error messages should not be detected as member deployment references")
 
 	// Test case 3: Partial match (should be treated as error)
 	partialMatchMessage := "The project reference requires something but not member configuration"
-	isPartialMatch := strings.Contains(partialMatchMessage, "project reference requires") &&
-		strings.Contains(partialMatchMessage, "member configuration") &&
-		strings.Contains(partialMatchMessage, "to be deployed")
+	isPartialMatch := IsMemberDeploymentReference(partialMatchMessage)
 	assert.False(t, isPartialMatch, "Partial matches should not be detected as member deployment references")
 }
 
@@ -1329,5 +1323,664 @@ func TestCategorizeError_NoDuplicateEntries(t *testing.T) {
 		errorStr := result.ValidationResult.MissingInputs[0]
 		assert.Contains(t, errorStr, "deploy-arch-ibm-cloud-logs-test", "Error should contain component name")
 		assert.Contains(t, errorStr, "existing_cos_instance_crn", "Error should contain missing input name")
+	}
+}
+
+// TestErrorPatternClassification tests the new structured error classification system
+// replacing fragile string matching with regex-based pattern matching
+func TestErrorPatternClassification(t *testing.T) {
+	testCases := []struct {
+		name            string
+		errorMessage    string
+		expectedType    ErrorType
+		expectedSubtype string
+		shouldMatch     bool
+	}{
+		{
+			name:            "Missing required inputs validation error",
+			errorMessage:    "missing required inputs: deploy-arch-ibm-cos",
+			expectedType:    ValidationError,
+			expectedSubtype: "missing_inputs",
+			shouldMatch:     true,
+		},
+		{
+			name:            "Deployment timeout transient error",
+			errorMessage:    "deployment timeout after 300 seconds",
+			expectedType:    TransientError,
+			expectedSubtype: "deployment_timeout",
+			shouldMatch:     true,
+		},
+		{
+			name:            "Runtime panic error",
+			errorMessage:    "panic: runtime error: index out of range",
+			expectedType:    RuntimeError,
+			expectedSubtype: "panic",
+			shouldMatch:     true,
+		},
+		{
+			name:            "Unknown error pattern",
+			errorMessage:    "some completely unknown error message",
+			expectedType:    ValidationError, // Will be ignored since shouldMatch is false
+			expectedSubtype: "",
+			shouldMatch:     false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pattern, found := classifyError(tc.errorMessage)
+
+			assert.Equal(t, tc.shouldMatch, found,
+				"Pattern matching result should be %v", tc.shouldMatch)
+
+			if tc.shouldMatch {
+				assert.Equal(t, tc.expectedType, pattern.Type,
+					"Error should be classified as %s but got %s", tc.expectedType, pattern.Type)
+				assert.Equal(t, tc.expectedSubtype, pattern.Subtype,
+					"Error subtype should be %s but got %s", tc.expectedSubtype, pattern.Subtype)
+				assert.Greater(t, pattern.Confidence, 0.0,
+					"Confidence should be greater than 0")
+				assert.LessOrEqual(t, pattern.Confidence, 1.0,
+					"Confidence should not exceed 1.0")
+			}
+		})
+	}
+}
+
+// TestReferenceErrorDetector tests the new structured reference error detection system
+// replacing complex multi-condition string matching with reusable pattern detection
+func TestReferenceErrorDetector(t *testing.T) {
+	testCases := []struct {
+		name         string
+		message      string
+		shouldDetect bool
+		description  string
+	}{
+		{
+			name:         "Complete member deployment reference",
+			message:      "The project reference requires the specified member configuration deploy-arch-ibm-account-infra-base-abc123 to be deployed. Please deploy the referring configuration.",
+			shouldDetect: true,
+			description:  "Should detect complete member deployment reference message",
+		},
+		{
+			name:         "Member deployment reference with different wording",
+			message:      "project reference requires member configuration xyz to be deployed",
+			shouldDetect: true,
+			description:  "Should detect reference with minimal required phrases",
+		},
+		{
+			name:         "Missing 'project reference requires' phrase",
+			message:      "member configuration deploy-arch-ibm-cos to be deployed",
+			shouldDetect: false,
+			description:  "Should not detect when missing required phrase",
+		},
+		{
+			name:         "Missing 'member configuration' phrase",
+			message:      "The project reference requires something to be deployed",
+			shouldDetect: false,
+			description:  "Should not detect when missing required phrase",
+		},
+		{
+			name:         "Missing 'to be deployed' phrase",
+			message:      "The project reference requires the member configuration xyz",
+			shouldDetect: false,
+			description:  "Should not detect when missing required phrase",
+		},
+		{
+			name:         "Completely different error message",
+			message:      "Configuration not found in catalog",
+			shouldDetect: false,
+			description:  "Should not detect unrelated error messages",
+		},
+		{
+			name:         "Empty message",
+			message:      "",
+			shouldDetect: false,
+			description:  "Should not detect empty messages",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test the high-level function
+			detected := IsMemberDeploymentReference(tc.message)
+			assert.Equal(t, tc.shouldDetect, detected, tc.description)
+
+			// Test the detector directly
+			detectedDirect := memberDeploymentReferenceDetector.IsReferenceError(tc.message)
+			assert.Equal(t, tc.shouldDetect, detectedDirect, "Direct detector call should match high-level function")
+		})
+	}
+}
+
+// TestReferenceErrorDetectorCustom tests creating custom detectors for different reference patterns
+func TestReferenceErrorDetectorCustom(t *testing.T) {
+	// Create a custom detector for a different type of reference error
+	customDetector := &ReferenceErrorDetector{
+		RequiredPhrases: []string{
+			"invalid reference",
+			"configuration",
+		},
+		ExcludePhrases: []string{
+			"to be deployed", // This would make it a member deployment reference
+		},
+	}
+
+	testCases := []struct {
+		name         string
+		message      string
+		shouldDetect bool
+	}{
+		{
+			name:         "Custom pattern match",
+			message:      "invalid reference to configuration xyz",
+			shouldDetect: true,
+		},
+		{
+			name:         "Excluded by member deployment phrase",
+			message:      "invalid reference to configuration xyz to be deployed",
+			shouldDetect: false,
+		},
+		{
+			name:         "Missing required phrase",
+			message:      "invalid reference to something else",
+			shouldDetect: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			detected := customDetector.IsReferenceError(tc.message)
+			assert.Equal(t, tc.shouldDetect, detected,
+				"Custom detector should properly match pattern")
+		})
+	}
+}
+
+// TestAPIErrorDetector tests the new structured API error detection system
+// replacing complex multi-condition string matching with classified error types
+// TestConfigurationMatcher tests the new structured configuration matching system
+// replacing fragile strings.Contains() checks with configurable matching strategies
+func TestConfigurationMatcher(t *testing.T) {
+	// Test configuration for main addon
+	mainAddon := cloudinfo.AddonConfig{
+		OfferingName: "deploy-arch-ibm-event-notifications",
+		ConfigName:   "event-notifications-config",
+	}
+
+	// Test configuration for dependency
+	dependency := cloudinfo.AddonConfig{
+		OfferingName: "deploy-arch-ibm-kms",
+		ConfigName:   "kms-config",
+	}
+
+	testCases := []struct {
+		name         string
+		addonConfig  cloudinfo.AddonConfig
+		configName   string
+		shouldMatch  bool
+		expectedRule string
+	}{
+		{
+			name:         "Exact config name match",
+			addonConfig:  mainAddon,
+			configName:   "event-notifications-config",
+			shouldMatch:  true,
+			expectedRule: "ExactNameMatch",
+		},
+		{
+			name:         "Contains config name match",
+			addonConfig:  mainAddon,
+			configName:   "my-event-notifications-config-abc123",
+			shouldMatch:  true,
+			expectedRule: "ContainsNameMatch",
+		},
+		{
+			name:         "Exact offering name match",
+			addonConfig:  dependency,
+			configName:   "deploy-arch-ibm-kms",
+			shouldMatch:  true,
+			expectedRule: "ExactNameMatch",
+		},
+		{
+			name:         "Contains offering name match",
+			addonConfig:  dependency,
+			configName:   "deploy-arch-ibm-kms-xyz789",
+			shouldMatch:  true,
+			expectedRule: "ContainsNameMatch",
+		},
+		{
+			name:         "Base offering name match",
+			addonConfig:  cloudinfo.AddonConfig{OfferingName: "deploy-arch-ibm-kms:flavor"},
+			configName:   "deploy-arch-ibm-kms-instance",
+			shouldMatch:  true,
+			expectedRule: "BaseNameMatch",
+		},
+		{
+			name:         "No match",
+			addonConfig:  mainAddon,
+			configName:   "completely-different-config",
+			shouldMatch:  false,
+			expectedRule: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			matcher := NewConfigurationMatcherForAddon(tc.addonConfig)
+			matched, rule := matcher.IsMatch(tc.configName)
+
+			assert.Equal(t, tc.shouldMatch, matched,
+				"Configuration matching should be %v for config '%s'", tc.shouldMatch, tc.configName)
+
+			if tc.shouldMatch {
+				assert.NotNil(t, rule, "Matching rule should be returned when match is found")
+				assert.Equal(t, tc.expectedRule, rule.Strategy.String(),
+					"Expected strategy %s but got %s", tc.expectedRule, rule.Strategy.String())
+			} else {
+				assert.Nil(t, rule, "No rule should be returned when no match is found")
+			}
+		})
+	}
+}
+
+// TestConfigurationMatchStrategy tests the enum string representation
+func TestConfigurationMatchStrategy(t *testing.T) {
+	testCases := []struct {
+		strategy ConfigurationMatchStrategy
+		expected string
+	}{
+		{ExactNameMatch, "ExactNameMatch"},
+		{ContainsNameMatch, "ContainsNameMatch"},
+		{BaseNameMatch, "BaseNameMatch"},
+		{PrefixNameMatch, "PrefixNameMatch"},
+		{ConfigurationMatchStrategy(999), "UnknownStrategy"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.expected, func(t *testing.T) {
+			actual := tc.strategy.String()
+			assert.Equal(t, tc.expected, actual,
+				"Strategy(%d).String() should return %s but got %s",
+				tc.strategy, tc.expected, actual)
+		})
+	}
+}
+
+// TestConfigurationMatchRule tests individual rule matching logic
+func TestConfigurationMatchRule(t *testing.T) {
+	testCases := []struct {
+		name        string
+		rule        ConfigurationMatchRule
+		configName  string
+		shouldMatch bool
+	}{
+		{
+			name: "Exact match rule",
+			rule: ConfigurationMatchRule{
+				Strategy: ExactNameMatch,
+				Pattern:  "exact-config-name",
+			},
+			configName:  "exact-config-name",
+			shouldMatch: true,
+		},
+		{
+			name: "Exact match rule - no match",
+			rule: ConfigurationMatchRule{
+				Strategy: ExactNameMatch,
+				Pattern:  "exact-config-name",
+			},
+			configName:  "different-config-name",
+			shouldMatch: false,
+		},
+		{
+			name: "Contains match rule",
+			rule: ConfigurationMatchRule{
+				Strategy: ContainsNameMatch,
+				Pattern:  "kms",
+			},
+			configName:  "deploy-arch-ibm-kms-advanced",
+			shouldMatch: true,
+		},
+		{
+			name: "Base name match rule",
+			rule: ConfigurationMatchRule{
+				Strategy: BaseNameMatch,
+				Pattern:  "deploy-arch-ibm-kms:advanced",
+			},
+			configName:  "deploy-arch-ibm-kms-instance",
+			shouldMatch: true,
+		},
+		{
+			name: "Prefix match rule",
+			rule: ConfigurationMatchRule{
+				Strategy: PrefixNameMatch,
+				Pattern:  "deploy-arch",
+			},
+			configName:  "deploy-arch-ibm-event-notifications",
+			shouldMatch: true,
+		},
+		{
+			name: "Prefix match rule - no match",
+			rule: ConfigurationMatchRule{
+				Strategy: PrefixNameMatch,
+				Pattern:  "deploy-arch",
+			},
+			configName:  "custom-deploy-arch-config",
+			shouldMatch: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			actual := tc.rule.IsMatch(tc.configName)
+			assert.Equal(t, tc.shouldMatch, actual,
+				"Rule with strategy %s and pattern '%s' should %v match config '%s'",
+				tc.rule.Strategy.String(), tc.rule.Pattern, tc.shouldMatch, tc.configName)
+		})
+	}
+}
+
+// TestSensitiveDataDetector tests the new structured sensitive data detection system
+// replacing fragile strings.Contains() checks with configurable pattern matching
+func TestSensitiveDataDetector(t *testing.T) {
+	detector := NewSensitiveDataDetector()
+
+	testCases := []struct {
+		name           string
+		fieldName      string
+		expectedType   SensitiveFieldType
+		shouldBeMasked bool
+		expectedMask   string
+	}{
+		{
+			name:           "API key field",
+			fieldName:      "ibmcloud_api_key",
+			expectedType:   APIKeyField,
+			shouldBeMasked: true,
+			expectedMask:   "[API_KEY_REDACTED]",
+		},
+		{
+			name:           "Password field",
+			fieldName:      "user_password",
+			expectedType:   PasswordField,
+			shouldBeMasked: true,
+			expectedMask:   "[PASSWORD_REDACTED]",
+		},
+		{
+			name:           "Secret field",
+			fieldName:      "private_key_data",
+			expectedType:   SecretField,
+			shouldBeMasked: true,
+			expectedMask:   "[SECRET_REDACTED]",
+		},
+		{
+			name:           "Certificate field",
+			fieldName:      "tls_certificate",
+			expectedType:   CertificateField,
+			shouldBeMasked: true,
+			expectedMask:   "[CERTIFICATE_REDACTED]",
+		},
+		{
+			name:           "Non-sensitive field",
+			fieldName:      "resource_group_name",
+			expectedType:   NonSensitiveField,
+			shouldBeMasked: false,
+			expectedMask:   "test-value",
+		},
+		{
+			name:           "Case insensitive API key",
+			fieldName:      "IBMCLOUD_API_KEY",
+			expectedType:   APIKeyField,
+			shouldBeMasked: true,
+			expectedMask:   "[API_KEY_REDACTED]",
+		},
+		{
+			name:           "Partial match password",
+			fieldName:      "admin_password_hash",
+			expectedType:   PasswordField,
+			shouldBeMasked: true,
+			expectedMask:   "[PASSWORD_REDACTED]",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test field classification
+			actualType := detector.ClassifyField(tc.fieldName)
+			assert.Equal(t, tc.expectedType, actualType,
+				"Field '%s' should be classified as %s but got %s",
+				tc.fieldName, tc.expectedType.String(), actualType.String())
+
+			// Test sensitivity detection
+			isSensitive := detector.IsSensitive(tc.fieldName)
+			assert.Equal(t, tc.shouldBeMasked, isSensitive,
+				"Field '%s' sensitivity should be %v but got %v",
+				tc.fieldName, tc.shouldBeMasked, isSensitive)
+
+			// Test value masking
+			maskedValue := detector.GetMaskedValue(tc.fieldName, "test-value")
+			assert.Equal(t, tc.expectedMask, maskedValue,
+				"Field '%s' masked value should be '%s' but got '%s'",
+				tc.fieldName, tc.expectedMask, maskedValue)
+
+			// Test logging decision
+			shouldLog := detector.ShouldLogValue(tc.fieldName)
+			assert.Equal(t, !tc.shouldBeMasked, shouldLog,
+				"Field '%s' should log value: %v but got %v",
+				tc.fieldName, !tc.shouldBeMasked, shouldLog)
+		})
+	}
+}
+
+// TestSensitiveFieldType tests the enum string representation
+func TestSensitiveFieldType(t *testing.T) {
+	testCases := []struct {
+		fieldType SensitiveFieldType
+		expected  string
+	}{
+		{APIKeyField, "APIKeyField"},
+		{PasswordField, "PasswordField"},
+		{SecretField, "SecretField"},
+		{CertificateField, "CertificateField"},
+		{NonSensitiveField, "NonSensitiveField"},
+		{SensitiveFieldType(999), "UnknownField"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.expected, func(t *testing.T) {
+			actual := tc.fieldType.String()
+			assert.Equal(t, tc.expected, actual,
+				"SensitiveFieldType(%d).String() should return %s but got %s",
+				tc.fieldType, tc.expected, actual)
+		})
+	}
+}
+
+// TestPackageLevelSensitivityFunctions tests the convenience functions
+func TestPackageLevelSensitivityFunctions(t *testing.T) {
+	testCases := []struct {
+		fieldName    string
+		shouldMask   bool
+		expectedMask string
+	}{
+		{"ibmcloud_api_key", true, "[API_KEY_REDACTED]"},
+		{"user_password", true, "[PASSWORD_REDACTED]"},
+		{"resource_group", false, "test-value"},
+		{"secret_key", true, "[SECRET_REDACTED]"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.fieldName, func(t *testing.T) {
+			// Test package-level sensitivity check
+			isSensitive := IsSensitiveField(tc.fieldName)
+			assert.Equal(t, tc.shouldMask, isSensitive,
+				"IsSensitiveField('%s') should return %v but got %v",
+				tc.fieldName, tc.shouldMask, isSensitive)
+
+			// Test package-level masked value
+			maskedValue := GetSafeMaskedValue(tc.fieldName, "test-value")
+			assert.Equal(t, tc.expectedMask, maskedValue,
+				"GetSafeMaskedValue('%s', 'test-value') should return '%s' but got '%s'",
+				tc.fieldName, tc.expectedMask, maskedValue)
+		})
+	}
+}
+
+// TestLegacyErrorClassificationUpdated tests that legacy error classification functions
+// now use the new structured ErrorPattern system for consistency
+func TestLegacyErrorClassificationUpdated(t *testing.T) {
+	testCases := []struct {
+		name         string
+		errorMessage string
+		isValidation bool
+		isTransient  bool
+		isRuntime    bool
+	}{
+		{
+			name:         "Validation error - missing inputs",
+			errorMessage: "missing required inputs: deploy-arch-ibm-cos",
+			isValidation: true,
+			isTransient:  false,
+			isRuntime:    false,
+		},
+		{
+			name:         "Validation error - dependency validation",
+			errorMessage: "dependency validation failed: 2 unexpected configs",
+			isValidation: true,
+			isTransient:  false,
+			isRuntime:    false,
+		},
+		{
+			name:         "Transient error - deployment timeout",
+			errorMessage: "deployment timeout occurred during TriggerDeployAndWait",
+			isValidation: false,
+			isTransient:  true,
+			isRuntime:    false,
+		},
+		{
+			name:         "Transient error - server error",
+			errorMessage: "500 Internal Server error occurred",
+			isValidation: false,
+			isTransient:  true,
+			isRuntime:    false,
+		},
+		{
+			name:         "Runtime error - panic",
+			errorMessage: "panic: runtime error: invalid memory address",
+			isValidation: false,
+			isTransient:  false,
+			isRuntime:    true,
+		},
+		{
+			name:         "Runtime error - nil pointer",
+			errorMessage: "nil pointer dereference in function",
+			isValidation: false,
+			isTransient:  false,
+			isRuntime:    true,
+		},
+		{
+			name:         "Unknown error - defaults to false",
+			errorMessage: "some completely unknown error type",
+			isValidation: false,
+			isTransient:  false,
+			isRuntime:    false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test validation error classification
+			actualValidation := isValidationError(tc.errorMessage)
+			assert.Equal(t, tc.isValidation, actualValidation,
+				"isValidationError('%s') should return %v but got %v",
+				tc.errorMessage, tc.isValidation, actualValidation)
+
+			// Test transient error classification
+			actualTransient := isTransientError(tc.errorMessage)
+			assert.Equal(t, tc.isTransient, actualTransient,
+				"isTransientError('%s') should return %v but got %v",
+				tc.errorMessage, tc.isTransient, actualTransient)
+
+			// Test runtime error classification
+			actualRuntime := isRuntimeError(tc.errorMessage)
+			assert.Equal(t, tc.isRuntime, actualRuntime,
+				"isRuntimeError('%s') should return %v but got %v",
+				tc.errorMessage, tc.isRuntime, actualRuntime)
+
+			// Ensure only one category is true (or none for unknown errors)
+			trueCount := 0
+			if actualValidation {
+				trueCount++
+			}
+			if actualTransient {
+				trueCount++
+			}
+			if actualRuntime {
+				trueCount++
+			}
+
+			assert.LessOrEqual(t, trueCount, 1,
+				"Error should be classified into at most one category, but got %d for: %s",
+				trueCount, tc.errorMessage)
+		})
+	}
+}
+
+func TestAPIErrorDetector(t *testing.T) {
+	testCases := []struct {
+		name         string
+		errorMessage string
+		expectedType APIErrorType
+		shouldDetect bool
+		shouldSkip   bool
+	}{
+		{
+			name:         "API key validation error with 500 status",
+			errorMessage: "Failed to validate api key token - 500 Internal Server Error",
+			expectedType: APIKeyError,
+			shouldDetect: true,
+			shouldSkip:   true,
+		},
+		{
+			name:         "Project not found error with 404 status",
+			errorMessage: "Project could not be found - 404 Not Found",
+			expectedType: ProjectNotFoundError,
+			shouldDetect: true,
+			shouldSkip:   true,
+		},
+		{
+			name:         "Known intermittent issue",
+			errorMessage: "This is a known intermittent issue with the service",
+			expectedType: IntermittentError,
+			shouldDetect: true,
+			shouldSkip:   true,
+		},
+		{
+			name:         "Unknown error",
+			errorMessage: "Some completely different error occurred",
+			expectedType: UnknownAPIError,
+			shouldDetect: false,
+			shouldSkip:   false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test error classification
+			errorType, detected := ClassifyAPIError(tc.errorMessage)
+			assert.Equal(t, tc.shouldDetect, detected,
+				"Error detection should be %v for: %s", tc.shouldDetect, tc.errorMessage)
+
+			if tc.shouldDetect {
+				assert.Equal(t, tc.expectedType, errorType,
+					"Error should be classified as %s but got %s", tc.expectedType, errorType)
+			}
+
+			// Test skippable determination
+			shouldSkip := IsSkippableAPIError(tc.errorMessage)
+			assert.Equal(t, tc.shouldSkip, shouldSkip,
+				"Error skippable determination should be %v", tc.shouldSkip)
+		})
 	}
 }
