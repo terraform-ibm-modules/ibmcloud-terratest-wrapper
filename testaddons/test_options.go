@@ -411,51 +411,54 @@ func (options *TestAddonOptions) categorizeError(testError error, result *Permut
 	hasDetailedErrors := (result.ValidationResult != nil && !result.ValidationResult.IsValid) ||
 		len(result.TransientErrors) > 0 || len(result.RuntimeErrors) > 0
 
-	// If we don't have detailed errors, try to categorize the main error
-	if !hasDetailedErrors {
-		switch {
-		// VALIDATION ERRORS: Configuration, dependency, and input validation issues
-		case strings.Contains(errorStr, "missing required inputs"):
-			options.addValidationError(result, errorStr, "missing_inputs")
-		case strings.Contains(errorStr, "dependency validation failed"):
-			options.addValidationError(result, errorStr, "dependency_validation")
-		case strings.Contains(errorStr, "unexpected configs"):
-			options.addValidationError(result, errorStr, "unexpected_configs")
-		case strings.Contains(errorStr, "should not be deployed"):
-			options.addValidationError(result, errorStr, "unexpected_deployment")
-		case strings.Contains(errorStr, "configuration validation"):
-			options.addValidationError(result, errorStr, "configuration")
+	// Only categorize if we don't have detailed errors AND it's not a redundant error
+	// This prevents double processing of the same error
+	if !hasDetailedErrors && !strings.Contains(errorStr, "Addon Test had an unexpected error") {
+		options.categorizeMainError(testError, result)
+	}
+	// Removed the else branch that was causing duplicate processing
+}
 
-		// TRANSIENT ERRORS: API failures, timeouts, infrastructure issues
-		case strings.Contains(errorStr, "deployment timeout") || strings.Contains(errorStr, "TriggerDeployAndWait"):
-			result.TransientErrors = append(result.TransientErrors, errorStr)
-		case strings.Contains(errorStr, "TriggerUnDeployAndWait"):
-			result.TransientErrors = append(result.TransientErrors, errorStr)
-		case strings.Contains(errorStr, "5") && strings.Contains(errorStr, " error"): // 5xx errors
-			result.TransientErrors = append(result.TransientErrors, errorStr)
-		case strings.Contains(errorStr, "timeout"):
-			result.TransientErrors = append(result.TransientErrors, errorStr)
-		case strings.Contains(errorStr, "rate limit"):
-			result.TransientErrors = append(result.TransientErrors, errorStr)
-		case strings.Contains(errorStr, "network") || strings.Contains(errorStr, "connection"):
-			result.TransientErrors = append(result.TransientErrors, errorStr)
+// categorizeMainError contains the core error categorization logic
+func (options *TestAddonOptions) categorizeMainError(testError error, result *PermutationTestResult) {
+	errorStr := testError.Error()
 
-		// RUNTIME ERRORS: Go panics, nil pointers, code bugs
-		case strings.Contains(errorStr, "panic:") || strings.Contains(errorStr, "runtime error"):
-			result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
-		case strings.Contains(errorStr, "nil pointer"):
-			result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
+	switch {
+	// VALIDATION ERRORS: Configuration, dependency, and input validation issues
+	case strings.Contains(errorStr, "missing required inputs"):
+		options.addValidationError(result, errorStr, "missing_inputs")
+	case strings.Contains(errorStr, "dependency validation failed"):
+		options.addValidationError(result, errorStr, "dependency_validation")
+	case strings.Contains(errorStr, "unexpected configs"):
+		options.addValidationError(result, errorStr, "unexpected_configs")
+	case strings.Contains(errorStr, "should not be deployed"):
+		options.addValidationError(result, errorStr, "unexpected_deployment")
+	case strings.Contains(errorStr, "configuration validation"):
+		options.addValidationError(result, errorStr, "configuration")
 
-		default:
-			// Default to transient error for unknown issues (likely infrastructure)
-			result.TransientErrors = append(result.TransientErrors, errorStr)
-		}
-	} else {
-		// We have detailed errors, but still add the main error if it's not redundant
-		if !strings.Contains(errorStr, "Addon Test had an unexpected error") {
-			// Categorize the main error even when we have detailed errors
-			options.categorizeError(testError, &PermutationTestResult{}) // Recursive call to get category
-		}
+	// TRANSIENT ERRORS: API failures, timeouts, infrastructure issues
+	case strings.Contains(errorStr, "deployment timeout") || strings.Contains(errorStr, "TriggerDeployAndWait"):
+		result.TransientErrors = append(result.TransientErrors, errorStr)
+	case strings.Contains(errorStr, "TriggerUnDeployAndWait"):
+		result.TransientErrors = append(result.TransientErrors, errorStr)
+	case strings.Contains(errorStr, "5") && strings.Contains(errorStr, " error"): // 5xx errors
+		result.TransientErrors = append(result.TransientErrors, errorStr)
+	case strings.Contains(errorStr, "timeout"):
+		result.TransientErrors = append(result.TransientErrors, errorStr)
+	case strings.Contains(errorStr, "rate limit"):
+		result.TransientErrors = append(result.TransientErrors, errorStr)
+	case strings.Contains(errorStr, "network") || strings.Contains(errorStr, "connection"):
+		result.TransientErrors = append(result.TransientErrors, errorStr)
+
+	// RUNTIME ERRORS: Go panics, nil pointers, code bugs
+	case strings.Contains(errorStr, "panic:") || strings.Contains(errorStr, "runtime error"):
+		result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
+	case strings.Contains(errorStr, "nil pointer"):
+		result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
+
+	default:
+		// Default to transient error for unknown issues (likely infrastructure)
+		result.TransientErrors = append(result.TransientErrors, errorStr)
 	}
 }
 

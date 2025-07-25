@@ -1299,3 +1299,30 @@ func TestMemberDeploymentReferenceHandling(t *testing.T) {
 		strings.Contains(partialMatchMessage, "to be deployed")
 	assert.False(t, isPartialMatch, "Partial matches should not be detected as member deployment references")
 }
+
+// TestCategorizeError_NoDuplicateEntries tests that categorizeError doesn't create duplicate entries
+// This test should FAIL with the current duplicate error logic, then PASS after the fix
+func TestCategorizeError_NoDuplicateEntries(t *testing.T) {
+	options := &TestAddonOptions{}
+	result := &PermutationTestResult{}
+
+	// Test error that triggers "missing required inputs" categorization
+	testError := fmt.Errorf("missing required inputs: deploy-arch-ibm-cloud-logs-test (missing: existing_cos_instance_crn)")
+
+	// First call - this creates ValidationResult with hasDetailedErrors = false
+	options.categorizeError(testError, result)
+
+	// Second call with the SAME error - this should NOT create duplicates after our fix
+	options.categorizeError(testError, result)
+
+	// Verify no duplicates were created
+	assert.NotNil(t, result.ValidationResult, "ValidationResult should be created")
+	assert.Equal(t, 1, len(result.ValidationResult.MissingInputs), "Should have exactly 1 error entry, no duplicates")
+
+	// Verify error content is correct
+	if len(result.ValidationResult.MissingInputs) > 0 {
+		errorStr := result.ValidationResult.MissingInputs[0]
+		assert.Contains(t, errorStr, "deploy-arch-ibm-cloud-logs-test", "Error should contain component name")
+		assert.Contains(t, errorStr, "existing_cos_instance_crn", "Error should contain missing input name")
+	}
+}
