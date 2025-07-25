@@ -1053,7 +1053,9 @@ func (report *PermutationTestReport) generateActionItems(configPatterns []Config
 	for _, pattern := range configPatterns {
 		if pattern.SuspectedRootCause != "" && (pattern.ConfidenceLevel == "HIGH" || pattern.ConfidenceLevel == "MEDIUM") {
 			depName := extractDependencyName(pattern.SuspectedRootCause)
-			action := fmt.Sprintf("Add input mapping logic for %s disabled scenarios (fixes %d tests)", depName, pattern.Count)
+			targetComponent := extractComponentFromPattern(pattern.ConfigPattern)
+			action := fmt.Sprintf("Add input mapping to %s for %s disabled scenarios → Fix missing %s input (fixes %d tests)",
+				targetComponent, depName, pattern.InputName, pattern.Count)
 			actions = append(actions, action)
 		}
 	}
@@ -1255,6 +1257,15 @@ func extractDependencyName(rootCause string) string {
 		return strings.Split(rootCause, " (")[0]
 	}
 	return rootCause
+}
+
+// extractComponentFromPattern extracts the target component name from ConfigPattern
+func extractComponentFromPattern(configPattern string) string {
+	// Extract from format: "deploy-arch-ibm-activity-tracker-*" -> "deploy-arch-ibm-activity-tracker"
+	if strings.HasSuffix(configPattern, "-*") {
+		return strings.TrimSuffix(configPattern, "-*")
+	}
+	return configPattern
 }
 
 // getValidationInsight provides actionable insight about what each validation error type means
