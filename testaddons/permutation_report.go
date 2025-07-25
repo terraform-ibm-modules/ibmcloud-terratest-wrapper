@@ -541,7 +541,7 @@ func (report *PermutationTestReport) extractConfigAndInput(errorMsg string) (con
 			inputs := strings.Split(inputsPart, ",")
 			if len(inputs) > 0 {
 				inputName = strings.TrimSpace(inputs[0])
-				return
+				return configName, inputName
 			}
 		}
 	}
@@ -559,7 +559,7 @@ func (report *PermutationTestReport) extractConfigAndInput(errorMsg string) (con
 				inputs := strings.Split(inputsPart, ",")
 				if len(inputs) > 0 {
 					inputName = strings.TrimSpace(inputs[0])
-					return
+					return configName, inputName
 				}
 			}
 		}
@@ -1101,7 +1101,7 @@ func extractInputPattern(errorMsg string) (inputName, configPattern string) {
 				inputName = strings.TrimSpace(inputs[0]) // Use first input as primary
 			}
 		}
-		return
+		return inputName, configPattern
 	}
 
 	// Handle format: "missing required inputs: config-name (missing: input1, input2)"
@@ -1122,7 +1122,7 @@ func extractInputPattern(errorMsg string) (inputName, configPattern string) {
 				if len(inputs) > 0 {
 					inputName = strings.TrimSpace(inputs[0])
 					configPattern = replaceRandomSuffix(configName)
-					return
+					return inputName, configPattern
 				}
 			}
 		}
@@ -1139,7 +1139,7 @@ func extractInputPattern(errorMsg string) (inputName, configPattern string) {
 				configPattern = "*" // Default pattern when config name is unclear
 			}
 		}
-		return
+		return inputName, configPattern
 	}
 
 	// Handle direct config format: "config-name (missing: input1, input2)"
@@ -1156,7 +1156,7 @@ func extractInputPattern(errorMsg string) (inputName, configPattern string) {
 			if len(inputs) > 0 {
 				inputName = strings.TrimSpace(inputs[0])
 				configPattern = replaceRandomSuffix(configName)
-				return
+				return inputName, configPattern
 			}
 		}
 	}
@@ -1173,7 +1173,7 @@ func extractInputPattern(errorMsg string) (inputName, configPattern string) {
 		}
 	}
 
-	return
+	return inputName, configPattern
 }
 
 // replaceRandomSuffix replaces random suffixes in config names to create patterns
