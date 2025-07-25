@@ -150,7 +150,7 @@ var AddonPhasePatterns = common.PhasePatterns{
     "Getting offering version locator":   "🔄 Resolving version constraints",
     "Starting reference resolution":      "🔄 Resolving project references",
     "Attempting reference resolution":    "🔄 Validating dependencies",
-    "Request completed":                  "✅ Operation completed",
+    "Configuration deployed to project":  "✅ Configuration deployed to project",
     "Creating catalog":                   "🔄 Setting up catalog",
     "Importing offering":                 "🔄 Loading offering configuration",
     "Validating configuration":           "🔄 Validating inputs",
