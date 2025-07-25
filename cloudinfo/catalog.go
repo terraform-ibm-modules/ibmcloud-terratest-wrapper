@@ -595,7 +595,7 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 		startTime := time.Now()
 		resp, err := client.Do(req)
 		requestTime := time.Since(startTime)
-		infoSvc.Logger.ShortInfo(fmt.Sprintf("Request completed in %v", requestTime))
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Configuration deployed to project in %v", requestTime))
 
 		if err != nil {
 			return nil, fmt.Errorf("error executing request: %w", err)
