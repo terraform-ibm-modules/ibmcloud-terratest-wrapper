@@ -80,7 +80,7 @@ func (options *TestAddonOptions) buildDependencyGraphWithDisabled(catalogID stri
 	result.ExpectedDeployedList = append(result.ExpectedDeployedList, addon)
 
 	// Create a key for the graph map (using name:version:flavor as a unique identifier)
-	addonKey := fmt.Sprintf("%s:%s:%s", offeringName, offeringVersion, flavor)
+	addonKey := generateAddonKey(offeringName, offeringVersion, flavor)
 
 	// Process catalog-defined dependencies that are on by default
 	for _, dep := range version.SolutionInfo.Dependencies {
@@ -401,6 +401,8 @@ func (options *TestAddonOptions) validateDependencies(graph map[string][]cloudin
 	}
 
 	// Generate summary messages
+	// Only add success message for truly successful validations - don't add it during failed tests
+	// The success message should only appear when the overall test passes, not just when validation passes
 	if result.IsValid {
 		result.Messages = append(result.Messages, "actually deployed configs are same as expected deployed configs")
 	} else {

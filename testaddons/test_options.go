@@ -2,6 +2,7 @@ package testaddons
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,505 @@ import (
 const defaultRegion = "us-south"
 const defaultRegionYaml = "../common-dev-assets/common-go-assets/cloudinfo-region-vpc-gen2-prefs.yaml"
 const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
+
+// ErrorType defines the category of errors for structured classification
+type ErrorType int
+
+const (
+	ValidationError ErrorType = iota // Configuration, dependency, and input validation issues
+	TransientError                   // API failures, timeouts, infrastructure issues
+	RuntimeError                     // Go panics, nil pointers, code bugs
+)
+
+// String returns the string representation of ErrorType
+func (et ErrorType) String() string {
+	switch et {
+	case ValidationError:
+		return "ValidationError"
+	case TransientError:
+		return "TransientError"
+	case RuntimeError:
+		return "RuntimeError"
+	default:
+		return "UnknownError"
+	}
+}
+
+// ErrorPattern defines a structured pattern for error classification
+// replacing fragile strings.Contains() checks with regex patterns and confidence scores
+type ErrorPattern struct {
+	Pattern    *regexp.Regexp // Regex pattern to match error messages
+	Type       ErrorType      // Category of error (validation, transient, runtime)
+	Subtype    string         // Specific subtype for detailed categorization
+	Confidence float64        // Confidence score (0.0 to 1.0) for classification accuracy
+}
+
+// errorPatterns defines the comprehensive set of error patterns for classification
+// replacing the hardcoded switch statement with structured, maintainable patterns
+var errorPatterns = []ErrorPattern{
+	// VALIDATION ERRORS: Configuration, dependency, and input validation issues
+	{regexp.MustCompile(`missing required inputs`), ValidationError, "missing_inputs", 0.95},
+	{regexp.MustCompile(`dependency validation failed`), ValidationError, "dependency_validation", 0.90},
+	{regexp.MustCompile(`unexpected configs`), ValidationError, "unexpected_configs", 0.90},
+	{regexp.MustCompile(`should not be deployed`), ValidationError, "unexpected_deployment", 0.85},
+	{regexp.MustCompile(`configuration validation`), ValidationError, "configuration", 0.80},
+
+	// TRANSIENT ERRORS: API failures, timeouts, infrastructure issues
+	{regexp.MustCompile(`deployment timeout|TriggerDeployAndWait`), TransientError, "deployment_timeout", 0.95},
+	{regexp.MustCompile(`TriggerUnDeployAndWait`), TransientError, "undeploy_timeout", 0.95},
+	{regexp.MustCompile(`5\d{2}.*error`), TransientError, "server_error", 0.90}, // 5xx errors
+	{regexp.MustCompile(`timeout`), TransientError, "general_timeout", 0.80},
+	{regexp.MustCompile(`rate limit`), TransientError, "rate_limit", 0.90},
+	{regexp.MustCompile(`network|connection`), TransientError, "network_error", 0.85},
+
+	// RUNTIME ERRORS: Go panics, nil pointers, code bugs
+	{regexp.MustCompile(`panic:|runtime error`), RuntimeError, "panic", 0.95},
+	{regexp.MustCompile(`nil pointer`), RuntimeError, "nil_pointer", 0.95},
+}
+
+// classifyError categorizes an error using structured patterns instead of hardcoded string matching
+// Returns the best matching pattern with highest confidence score
+func classifyError(errorStr string) (ErrorPattern, bool) {
+	var bestMatch ErrorPattern
+	var found bool
+	highestConfidence := 0.0
+
+	for _, pattern := range errorPatterns {
+		if pattern.Pattern.MatchString(errorStr) {
+			if pattern.Confidence > highestConfidence {
+				bestMatch = pattern
+				highestConfidence = pattern.Confidence
+				found = true
+			}
+		}
+	}
+
+	return bestMatch, found
+}
+
+// ReferenceErrorDetector provides structured detection of reference-related errors
+// replacing complex multi-condition string matching with reusable pattern detection
+type ReferenceErrorDetector struct {
+	RequiredPhrases []string // All phrases that must be present
+	OptionalPhrases []string // Phrases that may be present (for future extensibility)
+	ExcludePhrases  []string // Phrases that disqualify the match
+}
+
+// IsReferenceError determines if a message represents a member deployment reference error
+// that should be treated as a warning rather than a failure
+func (d *ReferenceErrorDetector) IsReferenceError(message string) bool {
+	// All required phrases must be present
+	for _, phrase := range d.RequiredPhrases {
+		if !strings.Contains(message, phrase) {
+			return false
+		}
+	}
+
+	// No excluded phrases should be present
+	for _, phrase := range d.ExcludePhrases {
+		if strings.Contains(message, phrase) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// memberDeploymentReferenceDetector is the configured detector for member deployment references
+var memberDeploymentReferenceDetector = &ReferenceErrorDetector{
+	RequiredPhrases: []string{
+		"project reference requires",
+		"member configuration",
+		"to be deployed",
+	},
+	OptionalPhrases: []string{
+		"Please deploy the referring configuration",
+	},
+	ExcludePhrases: []string{
+		// Add any phrases that would disqualify this as a member deployment reference
+	},
+}
+
+// IsMemberDeploymentReference uses structured detection instead of hardcoded boolean logic
+// to determine if a reference error is about member deployment requirements
+func IsMemberDeploymentReference(message string) bool {
+	return memberDeploymentReferenceDetector.IsReferenceError(message)
+}
+
+// APIErrorType defines different types of API errors for structured classification
+type APIErrorType int
+
+const (
+	APIKeyError          APIErrorType = iota // API key validation failures
+	ProjectNotFoundError                     // Project not found (404) errors
+	IntermittentError                        // Known transient service issues
+	UnknownAPIError                          // Other API errors
+)
+
+// String returns the string representation of APIErrorType
+func (aet APIErrorType) String() string {
+	switch aet {
+	case APIKeyError:
+		return "APIKeyError"
+	case ProjectNotFoundError:
+		return "ProjectNotFoundError"
+	case IntermittentError:
+		return "IntermittentError"
+	case UnknownAPIError:
+		return "UnknownAPIError"
+	default:
+		return "UnknownAPIError"
+	}
+}
+
+// APIErrorDetector provides structured detection of API-related errors
+// replacing complex multi-condition string matching for error classification
+type APIErrorDetector struct {
+	ErrorType       APIErrorType
+	RequiredPhrases []string
+	StatusCodes     []string // HTTP status codes to match
+}
+
+// IsAPIError determines if an error message matches this detector's pattern
+func (d *APIErrorDetector) IsAPIError(errorMessage string) bool {
+	// All required phrases must be present
+	for _, phrase := range d.RequiredPhrases {
+		if !strings.Contains(errorMessage, phrase) {
+			return false
+		}
+	}
+
+	// At least one status code must be present (if specified)
+	if len(d.StatusCodes) > 0 {
+		statusMatched := false
+		for _, code := range d.StatusCodes {
+			if strings.Contains(errorMessage, code) {
+				statusMatched = true
+				break
+			}
+		}
+		if !statusMatched {
+			return false
+		}
+	}
+
+	return true
+}
+
+// apiErrorDetectors is the configured set of API error detectors
+var apiErrorDetectors = []*APIErrorDetector{
+	{
+		ErrorType:       APIKeyError,
+		RequiredPhrases: []string{"Failed to validate api key token"},
+		StatusCodes:     []string{"500"},
+	},
+	{
+		ErrorType:       ProjectNotFoundError,
+		RequiredPhrases: []string{"could not be found"},
+		StatusCodes:     []string{"404"},
+	},
+	{
+		ErrorType:       IntermittentError,
+		RequiredPhrases: []string{"This is a known intermittent issue"},
+		StatusCodes:     []string{}, // No specific status code required
+	},
+	{
+		ErrorType:       IntermittentError,
+		RequiredPhrases: []string{"known transient issue"},
+		StatusCodes:     []string{}, // No specific status code required
+	},
+	{
+		ErrorType:       IntermittentError,
+		RequiredPhrases: []string{"typically transient"},
+		StatusCodes:     []string{}, // No specific status code required
+	},
+}
+
+// ClassifyAPIError uses structured detection to categorize API errors
+// replacing fragile multi-condition string matching
+func ClassifyAPIError(errorMessage string) (APIErrorType, bool) {
+	for _, detector := range apiErrorDetectors {
+		if detector.IsAPIError(errorMessage) {
+			return detector.ErrorType, true
+		}
+	}
+	return UnknownAPIError, false
+}
+
+// IsSkippableAPIError determines if an API error should be skipped during validation
+// replacing the complex boolean logic with structured error classification
+func IsSkippableAPIError(errorMessage string) bool {
+	errorType, found := ClassifyAPIError(errorMessage)
+	if !found {
+		return false
+	}
+
+	// These error types are considered skippable intermittent issues
+	switch errorType {
+	case APIKeyError, ProjectNotFoundError, IntermittentError:
+		return true
+	default:
+		return false
+	}
+}
+
+// ConfigurationMatchStrategy defines different approaches for matching configuration names
+type ConfigurationMatchStrategy int
+
+const (
+	ExactNameMatch    ConfigurationMatchStrategy = iota // Exact string match
+	ContainsNameMatch                                   // String contains match (current behavior)
+	BaseNameMatch                                       // Match base name without flavor/version
+	PrefixNameMatch                                     // Match by prefix pattern
+)
+
+// String returns the string representation of ConfigurationMatchStrategy
+func (cms ConfigurationMatchStrategy) String() string {
+	switch cms {
+	case ExactNameMatch:
+		return "ExactNameMatch"
+	case ContainsNameMatch:
+		return "ContainsNameMatch"
+	case BaseNameMatch:
+		return "BaseNameMatch"
+	case PrefixNameMatch:
+		return "PrefixNameMatch"
+	default:
+		return "UnknownStrategy"
+	}
+}
+
+// ConfigurationMatchRule defines a single matching rule with strategy and pattern
+type ConfigurationMatchRule struct {
+	Strategy    ConfigurationMatchStrategy
+	Pattern     string // The pattern to match against
+	Priority    int    // Higher priority rules are checked first
+	Description string // Human-readable description of the rule
+}
+
+// IsMatch determines if the given configuration name matches this rule
+func (rule *ConfigurationMatchRule) IsMatch(configName string) bool {
+	switch rule.Strategy {
+	case ExactNameMatch:
+		return configName == rule.Pattern
+	case ContainsNameMatch:
+		return strings.Contains(configName, rule.Pattern)
+	case BaseNameMatch:
+		// Extract base name by removing flavor/version info (split on ":")
+		baseName := strings.Split(rule.Pattern, ":")[0]
+		return strings.Contains(configName, baseName)
+	case PrefixNameMatch:
+		return strings.HasPrefix(configName, rule.Pattern)
+	default:
+		return false
+	}
+}
+
+// ConfigurationMatcher provides structured configuration name matching
+// replacing fragile strings.Contains() checks with configurable matching strategies
+type ConfigurationMatcher struct {
+	Rules []ConfigurationMatchRule // Ordered list of matching rules (higher priority first)
+}
+
+// NewConfigurationMatcherForAddon creates a matcher configured for an addon configuration
+// with appropriate fallback strategies for robust matching
+func NewConfigurationMatcherForAddon(addonConfig cloudinfo.AddonConfig) *ConfigurationMatcher {
+	rules := make([]ConfigurationMatchRule, 0)
+
+	// Priority 1: Exact configuration name match (if specified)
+	if addonConfig.ConfigName != "" {
+		rules = append(rules, ConfigurationMatchRule{
+			Strategy:    ExactNameMatch,
+			Pattern:     addonConfig.ConfigName,
+			Priority:    100,
+			Description: fmt.Sprintf("Exact match for config name: %s", addonConfig.ConfigName),
+		})
+	}
+
+	// Priority 2: Contains configuration name match (if specified)
+	if addonConfig.ConfigName != "" {
+		rules = append(rules, ConfigurationMatchRule{
+			Strategy:    ContainsNameMatch,
+			Pattern:     addonConfig.ConfigName,
+			Priority:    90,
+			Description: fmt.Sprintf("Contains match for config name: %s", addonConfig.ConfigName),
+		})
+	}
+
+	// Priority 3: Exact offering name match
+	if addonConfig.OfferingName != "" {
+		rules = append(rules, ConfigurationMatchRule{
+			Strategy:    ExactNameMatch,
+			Pattern:     addonConfig.OfferingName,
+			Priority:    80,
+			Description: fmt.Sprintf("Exact match for offering name: %s", addonConfig.OfferingName),
+		})
+	}
+
+	// Priority 4: Contains offering name match (current behavior)
+	if addonConfig.OfferingName != "" {
+		rules = append(rules, ConfigurationMatchRule{
+			Strategy:    ContainsNameMatch,
+			Pattern:     addonConfig.OfferingName,
+			Priority:    70,
+			Description: fmt.Sprintf("Contains match for offering name: %s", addonConfig.OfferingName),
+		})
+	}
+
+	// Priority 5: Base offering name match (without flavor)
+	if addonConfig.OfferingName != "" {
+		rules = append(rules, ConfigurationMatchRule{
+			Strategy:    BaseNameMatch,
+			Pattern:     addonConfig.OfferingName,
+			Priority:    60,
+			Description: fmt.Sprintf("Base name match for offering: %s", addonConfig.OfferingName),
+		})
+	}
+
+	return &ConfigurationMatcher{Rules: rules}
+}
+
+// IsMatch determines if a configuration name matches any of the configured rules
+// Returns the matching rule for debugging/logging purposes
+func (matcher *ConfigurationMatcher) IsMatch(configName string) (bool, *ConfigurationMatchRule) {
+	// Check rules in priority order (highest priority first)
+	for i := range matcher.Rules {
+		rule := &matcher.Rules[i]
+		if rule.IsMatch(configName) {
+			return true, rule
+		}
+	}
+	return false, nil
+}
+
+// GetBestMatch returns the highest priority matching rule for a configuration name
+func (matcher *ConfigurationMatcher) GetBestMatch(configName string) *ConfigurationMatchRule {
+	matched, rule := matcher.IsMatch(configName)
+	if matched {
+		return rule
+	}
+	return nil
+}
+
+// SensitiveFieldType defines different categories of sensitive data fields
+type SensitiveFieldType int
+
+const (
+	APIKeyField       SensitiveFieldType = iota // API keys, tokens, credentials
+	PasswordField                               // Passwords, passphrases
+	SecretField                                 // Generic secrets, private keys
+	CertificateField                            // Certificates, certificate data
+	NonSensitiveField                           // Not sensitive data
+)
+
+// String returns the string representation of SensitiveFieldType
+func (sft SensitiveFieldType) String() string {
+	switch sft {
+	case APIKeyField:
+		return "APIKeyField"
+	case PasswordField:
+		return "PasswordField"
+	case SecretField:
+		return "SecretField"
+	case CertificateField:
+		return "CertificateField"
+	case NonSensitiveField:
+		return "NonSensitiveField"
+	default:
+		return "UnknownField"
+	}
+}
+
+// SensitiveDataDetector provides structured detection of sensitive fields
+// replacing fragile strings.Contains() checks with configurable pattern matching
+type SensitiveDataDetector struct {
+	SensitivePatterns map[SensitiveFieldType][]string // Patterns for each sensitivity type
+}
+
+// NewSensitiveDataDetector creates a detector with default sensitive field patterns
+func NewSensitiveDataDetector() *SensitiveDataDetector {
+	return &SensitiveDataDetector{
+		SensitivePatterns: map[SensitiveFieldType][]string{
+			APIKeyField: {
+				"api_key", "apikey", "token", "access_token", "auth_token",
+				"bearer_token", "oauth_token", "jwt_token", "credential",
+				"credentials", "ibmcloud_api_key",
+			},
+			PasswordField: {
+				"password", "passwd", "pwd", "passphrase", "pass",
+				"user_password", "admin_password", "root_password",
+			},
+			SecretField: {
+				"secret", "private_key", "private_key_data", "key_data",
+				"encryption_key", "signing_key", "auth_secret",
+			},
+			CertificateField: {
+				"certificate", "cert", "cert_data", "certificate_data",
+				"tls_cert", "ssl_cert", "ca_cert", "ca_certificate",
+			},
+		},
+	}
+}
+
+// ClassifyField determines the sensitivity type of a field name
+func (detector *SensitiveDataDetector) ClassifyField(fieldName string) SensitiveFieldType {
+	lowerFieldName := strings.ToLower(fieldName)
+
+	// Check each sensitivity type in order of specificity
+	for fieldType, patterns := range detector.SensitivePatterns {
+		for _, pattern := range patterns {
+			if strings.Contains(lowerFieldName, pattern) {
+				return fieldType
+			}
+		}
+	}
+
+	return NonSensitiveField
+}
+
+// IsSensitive determines if a field contains sensitive data
+func (detector *SensitiveDataDetector) IsSensitive(fieldName string) bool {
+	return detector.ClassifyField(fieldName) != NonSensitiveField
+}
+
+// ShouldLogValue determines if a field value should be logged based on sensitivity
+func (detector *SensitiveDataDetector) ShouldLogValue(fieldName string) bool {
+	return !detector.IsSensitive(fieldName)
+}
+
+// GetMaskedValue returns a masked representation of sensitive values for safe logging
+func (detector *SensitiveDataDetector) GetMaskedValue(fieldName string, value interface{}) string {
+	if !detector.IsSensitive(fieldName) {
+		return fmt.Sprintf("%v", value)
+	}
+
+	fieldType := detector.ClassifyField(fieldName)
+	switch fieldType {
+	case APIKeyField:
+		return "[API_KEY_REDACTED]"
+	case PasswordField:
+		return "[PASSWORD_REDACTED]"
+	case SecretField:
+		return "[SECRET_REDACTED]"
+	case CertificateField:
+		return "[CERTIFICATE_REDACTED]"
+	default:
+		return "[SENSITIVE_DATA_REDACTED]"
+	}
+}
+
+// Default detector instance for package-wide use
+var defaultSensitiveDataDetector = NewSensitiveDataDetector()
+
+// IsSensitiveField is a package-level convenience function for sensitivity checking
+func IsSensitiveField(fieldName string) bool {
+	return defaultSensitiveDataDetector.IsSensitive(fieldName)
+}
+
+// GetSafeMaskedValue is a package-level convenience function for safe value masking
+func GetSafeMaskedValue(fieldName string, value interface{}) string {
+	return defaultSensitiveDataDetector.GetMaskedValue(fieldName, value)
+}
 
 type TestAddonOptions struct {
 	// REQUIRED: a pointer to an initialized testing object.
@@ -144,11 +644,9 @@ type TestAddonOptions struct {
 	// CollectResults enables collection of test results for final reporting
 	CollectResults bool
 	// Internal fields for error collection during test execution
-	lastValidationResult    *ValidationResult
-	lastDeploymentErrors    []error
-	lastConfigurationErrors []string
-	lastRuntimeErrors       []string
-	lastMissingInputs       []string
+	lastValidationResult *ValidationResult
+	lastTransientErrors  []string
+	lastRuntimeErrors    []string
 }
 
 // TestAddonsOptionsDefault Default constructor for TestAddonOptions
@@ -383,21 +881,13 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 		result.ValidationResult = options.lastValidationResult
 	}
 
-	// Collect other error categories
-	if options.lastDeploymentErrors != nil {
-		result.DeploymentErrors = append(result.DeploymentErrors, options.lastDeploymentErrors...)
-	}
-
-	if options.lastConfigurationErrors != nil {
-		result.ConfigurationErrors = append(result.ConfigurationErrors, options.lastConfigurationErrors...)
+	// Collect other error categories (simplified)
+	if options.lastTransientErrors != nil {
+		result.TransientErrors = append(result.TransientErrors, options.lastTransientErrors...)
 	}
 
 	if options.lastRuntimeErrors != nil {
 		result.RuntimeErrors = append(result.RuntimeErrors, options.lastRuntimeErrors...)
-	}
-
-	if options.lastMissingInputs != nil {
-		result.MissingInputs = append(result.MissingInputs, options.lastMissingInputs...)
 	}
 
 	// If test failed, parse and categorize the main error
@@ -407,52 +897,191 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 
 	// Reset error collection fields for next test
 	options.lastValidationResult = nil
-	options.lastDeploymentErrors = nil
-	options.lastConfigurationErrors = nil
+	options.lastTransientErrors = nil
 	options.lastRuntimeErrors = nil
-	options.lastMissingInputs = nil
 
 	return result
 }
 
-// categorizeError parses the main test error and categorizes it appropriately
+// categorizeError parses the main test error and categorizes it into one of three simplified categories
 func (options *TestAddonOptions) categorizeError(testError error, result *PermutationTestResult) {
+	// Check if we already have detailed error info
+	hasDetailedErrors := (result.ValidationResult != nil && !result.ValidationResult.IsValid) ||
+		len(result.TransientErrors) > 0 || len(result.RuntimeErrors) > 0
+
+	// Only categorize if we don't have detailed errors AND haven't already categorized this result
+	// This prevents double processing of errors
+	if !hasDetailedErrors && !result.ErrorAlreadyCategorized {
+		result.ErrorAlreadyCategorized = true
+		options.categorizeMainError(testError, result)
+	}
+}
+
+// categorizeMainError contains the core error categorization logic using structured patterns
+// replacing fragile strings.Contains() checks with regex-based classification
+func (options *TestAddonOptions) categorizeMainError(testError error, result *PermutationTestResult) {
 	errorStr := testError.Error()
 
-	// Check if we already have detailed error info
-	hasDetailedErrors := len(result.DeploymentErrors) > 0 || len(result.ConfigurationErrors) > 0 ||
-		len(result.RuntimeErrors) > 0 || (result.ValidationResult != nil && !result.ValidationResult.IsValid)
-
-	// If we don't have detailed errors, try to categorize the main error
-	if !hasDetailedErrors {
-		switch {
-		case strings.Contains(errorStr, "missing required inputs"):
-			// Parse missing inputs from error message
-			result.ConfigurationErrors = append(result.ConfigurationErrors, errorStr)
-		case strings.Contains(errorStr, "dependency validation failed"):
-			// Create a simple ValidationResult for dependency failures
-			result.ValidationResult = &ValidationResult{
-				IsValid:  false,
-				Messages: []string{errorStr},
-			}
-		case strings.Contains(errorStr, "deployment timeout") || strings.Contains(errorStr, "TriggerDeployAndWait"):
-			result.DeploymentErrors = append(result.DeploymentErrors, testError)
-		case strings.Contains(errorStr, "panic:") || strings.Contains(errorStr, "runtime error"):
-			result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
-		case strings.Contains(errorStr, "unexpected configs"):
-			// This is also a validation issue
-			result.ValidationResult = &ValidationResult{
-				IsValid:  false,
-				Messages: []string{errorStr},
-			}
-		default:
-			// General runtime error
+	// Use structured pattern matching instead of hardcoded switch statement
+	if pattern, found := classifyError(errorStr); found {
+		switch pattern.Type {
+		case ValidationError:
+			options.addValidationError(result, errorStr, pattern.Subtype)
+		case TransientError:
+			result.TransientErrors = append(result.TransientErrors, errorStr)
+		case RuntimeError:
 			result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
 		}
 	} else {
-		// We have detailed errors, but still add the main error for completeness if it's not redundant
-		if !strings.Contains(errorStr, "Addon Test had an unexpected error") {
-			result.RuntimeErrors = append(result.RuntimeErrors, errorStr)
+		// Default to transient error for unknown issues (likely infrastructure)
+		result.TransientErrors = append(result.TransientErrors, errorStr)
+	}
+}
+
+// addValidationError helper function to add validation errors to ValidationResult
+func (options *TestAddonOptions) addValidationError(result *PermutationTestResult, errorStr string, errorType string) {
+	if result.ValidationResult == nil {
+		result.ValidationResult = &ValidationResult{
+			IsValid:             false,
+			Messages:            []string{},
+			MissingInputs:       []string{},
+			ConfigurationErrors: []string{},
 		}
 	}
+
+	switch errorType {
+	case "missing_inputs":
+		result.ValidationResult.MissingInputs = append(result.ValidationResult.MissingInputs, errorStr)
+	case "configuration":
+		result.ValidationResult.ConfigurationErrors = append(result.ValidationResult.ConfigurationErrors, errorStr)
+	default:
+		// Parse detailed validation info or add to messages
+		validationResult := options.parseValidationError(errorStr)
+		if validationResult != nil {
+			// Merge parsed validation result
+			options.mergeValidationResults(result.ValidationResult, validationResult)
+		} else {
+			result.ValidationResult.Messages = append(result.ValidationResult.Messages, errorStr)
+		}
+	}
+}
+
+// mergeValidationResults merges two ValidationResult objects
+func (options *TestAddonOptions) mergeValidationResults(target *ValidationResult, source *ValidationResult) {
+	target.DependencyErrors = append(target.DependencyErrors, source.DependencyErrors...)
+	target.UnexpectedConfigs = append(target.UnexpectedConfigs, source.UnexpectedConfigs...)
+	target.MissingConfigs = append(target.MissingConfigs, source.MissingConfigs...)
+	target.MissingInputs = append(target.MissingInputs, source.MissingInputs...)
+	target.ConfigurationErrors = append(target.ConfigurationErrors, source.ConfigurationErrors...)
+	target.Messages = append(target.Messages, source.Messages...)
+	if !source.IsValid {
+		target.IsValid = false
+	}
+}
+
+// parseValidationError parses validation error messages and creates detailed ValidationResult objects
+func (options *TestAddonOptions) parseValidationError(errorStr string) *ValidationResult {
+	validationResult := &ValidationResult{
+		IsValid:           false,
+		DependencyErrors:  []cloudinfo.DependencyError{},
+		UnexpectedConfigs: []cloudinfo.OfferingReferenceDetail{},
+		MissingConfigs:    []cloudinfo.OfferingReferenceDetail{},
+		Messages:          []string{},
+	}
+
+	// Parse "dependency validation failed: X unexpected configs" pattern
+	if strings.Contains(errorStr, "dependency validation failed:") && strings.Contains(errorStr, "unexpected configs") {
+		// Extract the number of unexpected configs
+		parts := strings.Split(errorStr, ":")
+		if len(parts) >= 2 {
+			configInfo := strings.TrimSpace(parts[1])
+			validationResult.Messages = append(validationResult.Messages, configInfo)
+
+			// Try to extract specific unexpected config names if available
+			// This would need more detailed parsing based on actual error format
+			// For now, add the general message
+			return validationResult
+		}
+	}
+
+	// Parse "Input validation failed after dependency validation" pattern
+	// This usually indicates missing required inputs due to disabled dependencies
+	if strings.Contains(errorStr, "Input validation failed after dependency validation") {
+		validationResult.Messages = append(validationResult.Messages, "Input validation failed after dependency validation")
+		return validationResult
+	}
+
+	// Parse specific config names from error messages like:
+	// "deploy-arch-ibm-cloud-logs (v1.5.6, fully-configurable) - should not be deployed"
+	if strings.Contains(errorStr, "should not be deployed") {
+		// Extract config details
+		configName := extractConfigNameFromError(errorStr)
+		version := extractVersionFromError(errorStr)
+		flavor := extractFlavorFromError(errorStr)
+
+		if configName != "" {
+			unexpectedConfig := cloudinfo.OfferingReferenceDetail{
+				Name:    configName,
+				Version: version,
+			}
+
+			// Add flavor information if available
+			if flavor != "" {
+				unexpectedConfig.Flavor = cloudinfo.Flavor{Name: flavor}
+			}
+
+			validationResult.UnexpectedConfigs = append(validationResult.UnexpectedConfigs, unexpectedConfig)
+			return validationResult
+		}
+	}
+
+	// Parse missing dependency patterns
+	if strings.Contains(errorStr, "missing:") && strings.Contains(errorStr, "(missing:") {
+		// This indicates missing required inputs, which is a validation issue
+		validationResult.Messages = append(validationResult.Messages, errorStr)
+		return validationResult
+	}
+
+	// If we couldn't parse specific details, return nil to use fallback
+	return nil
+}
+
+// Helper functions to extract config details from error messages
+func extractConfigNameFromError(errorStr string) string {
+	// Look for patterns like "deploy-arch-ibm-cloud-logs (v1.5.6, fully-configurable)"
+	if idx := strings.Index(errorStr, " (v"); idx != -1 {
+		return strings.TrimSpace(errorStr[:idx])
+	}
+
+	// Look for patterns with just config name before " - should not be deployed"
+	if idx := strings.Index(errorStr, " - should not be deployed"); idx != -1 {
+		return strings.TrimSpace(errorStr[:idx])
+	}
+
+	return ""
+}
+
+func extractVersionFromError(errorStr string) string {
+	// Look for version pattern like "(v1.5.6"
+	if start := strings.Index(errorStr, "(v"); start != -1 {
+		start += 2 // Skip "(v"
+		if end := strings.Index(errorStr[start:], ","); end != -1 {
+			return strings.TrimSpace(errorStr[start : start+end])
+		}
+		if end := strings.Index(errorStr[start:], ")"); end != -1 {
+			return strings.TrimSpace(errorStr[start : start+end])
+		}
+	}
+	return ""
+}
+
+func extractFlavorFromError(errorStr string) string {
+	// Look for flavor pattern like ", fully-configurable)"
+	if start := strings.Index(errorStr, ", "); start != -1 {
+		start += 2 // Skip ", "
+		if end := strings.Index(errorStr[start:], ")"); end != -1 {
+			return strings.TrimSpace(errorStr[start : start+end])
+		}
+	}
+	return ""
 }

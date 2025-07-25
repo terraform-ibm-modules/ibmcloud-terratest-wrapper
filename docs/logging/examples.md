@@ -528,8 +528,8 @@ func TestSmartLogging(t *testing.T) {
     logger.ShortInfo("Validating configuration")
     // Shows: "🔄 Validating inputs"
 
-    logger.ShortInfo("Request completed")
-    // Shows: "✅ Operation completed"
+    logger.ShortInfo("Configuration deployed to project")
+    // Shows: "✅ Configuration deployed to project"
 
     // Regular logging continues to work
     logger.ShortDebug("This is buffered debug info")

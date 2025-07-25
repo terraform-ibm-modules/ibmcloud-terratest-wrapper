@@ -2,7 +2,6 @@ package testaddons
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/IBM/project-go-sdk/projectv1"
@@ -135,9 +134,10 @@ func (options *TestAddonOptions) validateInputsWithRetry(configID string, target
 	if finalConfigDetails.Definition != nil {
 		if resp, ok := finalConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
 			for key, value := range resp.Inputs {
-				// Don't log sensitive values
-				if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
-					options.Logger.ShortWarn(fmt.Sprintf("    %s: [REDACTED]", key))
+				// Use structured sensitive data detection instead of fragile string matching
+				maskedValue := GetSafeMaskedValue(key, value)
+				if IsSensitiveField(key) {
+					options.Logger.ShortWarn(fmt.Sprintf("    %s: %s", key, maskedValue))
 				} else {
 					options.Logger.ShortWarn(fmt.Sprintf("    %s: %v (type: %T)", key, value, value))
 				}

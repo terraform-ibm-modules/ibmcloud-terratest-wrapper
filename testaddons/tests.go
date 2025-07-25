@@ -282,28 +282,31 @@ func (options *TestAddonOptions) RunAddonTest() error {
 					// Check if this is a known intermittent error that should be skipped
 					// This can occur as either a direct HttpError or as an EnhancedHttpError with additional context
 					errStr := err.Error()
-					isApiKeyError := (strings.Contains(errStr, "Failed to validate api key token") && strings.Contains(errStr, "500"))
-					isProjectNotFoundError := strings.Contains(errStr, "could not be found") && strings.Contains(errStr, "404")
-					isKnownIntermittentError := strings.Contains(errStr, "This is a known intermittent issue") ||
-						strings.Contains(errStr, "known transient issue") ||
-						strings.Contains(errStr, "typically transient")
+
+					// Use structured API error classification instead of fragile string matching
+					isSkippableError := IsSkippableAPIError(errStr)
 
 					// Only skip validation for intermittent errors if infrastructure deployment is enabled
 					// When SkipInfrastructureDeployment=true, reference validation is the only chance to catch issues
-					if (isApiKeyError || isProjectNotFoundError || isKnownIntermittentError) && !options.SkipInfrastructureDeployment {
+					if isSkippableError && !options.SkipInfrastructureDeployment {
 						options.Logger.ShortWarn(fmt.Sprintf("Skipping reference validation due to intermittent IBM Cloud service error: %v", err))
-						if isApiKeyError {
+
+						// Use structured error type for specific messaging
+						errorType, _ := ClassifyAPIError(errStr)
+						switch errorType {
+						case APIKeyError:
 							options.Logger.ShortWarn("This is a known transient issue with IBM Cloud's API key validation service.")
-						} else if isProjectNotFoundError {
+						case ProjectNotFoundError:
 							options.Logger.ShortWarn("This is a timing issue where project details are checked too quickly after creation.")
 							options.Logger.ShortWarn("The resolver API needs time to be updated with new project information.")
-						} else {
+						case IntermittentError:
 							options.Logger.ShortWarn("This is a known transient issue with IBM Cloud's reference resolution service.")
 						}
+
 						options.Logger.ShortWarn("The test will continue and will fail later if references actually fail to resolve during deployment.")
 						// Skip reference validation for this config and continue with the test
 						continue
-					} else if (isApiKeyError || isProjectNotFoundError || isKnownIntermittentError) && options.SkipInfrastructureDeployment {
+					} else if isSkippableError && options.SkipInfrastructureDeployment {
 						options.Logger.ShortWarn(fmt.Sprintf("Detected intermittent service error, but cannot skip validation in validation-only mode: %v", err))
 						options.Logger.ShortWarn("Infrastructure deployment is disabled, so reference validation is the only opportunity to catch reference issues.")
 						options.Logger.ShortWarn("Failing the test to ensure reference issues are not missed.")
@@ -320,7 +323,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 					if ref.Code != 200 {
 						// Check if this is a valid reference that cannot be resolved until after member deployment
 						// This is a valid scenario and should be treated as a warning, not an error
-						if strings.Contains(ref.Message, "project reference requires") && strings.Contains(ref.Message, "member configuration") && strings.Contains(ref.Message, "to be deployed") {
+						if IsMemberDeploymentReference(ref.Message) {
 							options.Logger.ShortWarn(fmt.Sprintf("%s   %s - Warning: %s", common.ColorizeString(common.Colors.Yellow, "⚠"), ref.Reference, ref.State))
 							options.Logger.ShortWarn(fmt.Sprintf("      Message: %s", ref.Message))
 							options.Logger.ShortWarn(fmt.Sprintf("      Code: %d", ref.Code))
@@ -376,39 +379,22 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		if !addonFound {
 			configName := *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name
 
-			// Try to match main addon by configuration name pattern
-			if strings.Contains(configName, options.AddonConfig.OfferingName) ||
-				(options.AddonConfig.ConfigName != "" && strings.Contains(configName, options.AddonConfig.ConfigName)) {
+			// Use structured configuration matching instead of fragile string patterns
+			mainAddonMatcher := NewConfigurationMatcherForAddon(options.AddonConfig)
+			if matched, rule := mainAddonMatcher.IsMatch(configName); matched {
 				targetAddon = options.AddonConfig
 				addonFound = true
-				options.Logger.ShortInfo(fmt.Sprintf("Matched addon by name pattern for config: %s", configName))
+				options.Logger.ShortInfo(fmt.Sprintf("Matched addon using %s for config: %s (rule: %s)",
+					rule.Strategy.String(), configName, rule.Description))
 			} else {
-				// Try to match dependencies by name pattern - check both offering name and base name
+				// Try to match dependencies using structured matching
 				for i, dependency := range options.AddonConfig.Dependencies {
-					dependencyMatched := false
-
-					// Match by exact offering name
-					if dependency.OfferingName != "" && strings.Contains(configName, dependency.OfferingName) {
-						dependencyMatched = true
-					}
-
-					// Match by configuration name
-					if !dependencyMatched && dependency.ConfigName != "" && strings.Contains(configName, dependency.ConfigName) {
-						dependencyMatched = true
-					}
-
-					// Match by base offering name patterns (e.g., "deploy-arch-ibm-account-infra-base")
-					if !dependencyMatched && dependency.OfferingName != "" {
-						baseOfferingName := strings.Split(dependency.OfferingName, ":")[0] // Remove flavor part if present
-						if strings.Contains(configName, baseOfferingName) {
-							dependencyMatched = true
-						}
-					}
-
-					if dependencyMatched {
+					dependencyMatcher := NewConfigurationMatcherForAddon(dependency)
+					if matched, rule := dependencyMatcher.IsMatch(configName); matched {
 						targetAddon = options.AddonConfig.Dependencies[i]
 						addonFound = true
-						options.Logger.ShortInfo(fmt.Sprintf("Matched dependency by name pattern for config: %s", configName))
+						options.Logger.ShortInfo(fmt.Sprintf("Matched dependency using %s for config: %s (rule: %s)",
+							rule.Strategy.String(), configName, rule.Description))
 						break
 					}
 				}
@@ -593,24 +579,27 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		// First validate what is actually deployed to get the validation results
 		validationResult := options.validateDependencies(graph, expectedDeployedList, actuallyDeployedResult.ActuallyDeployedList)
 
+		// Store the validation result for error reporting
+		options.lastValidationResult = &validationResult
+
 		options.Logger.ShortInfo("Actually deployed configurations (with status):")
 
 		// Create deployment status maps for the tree view
 		deployedMap := make(map[string]bool)
 		for _, deployed := range actuallyDeployedResult.ActuallyDeployedList {
-			key := fmt.Sprintf("%s:%s:%s", deployed.Name, deployed.Version, deployed.Flavor.Name)
+			key := generateAddonKeyFromDetail(deployed)
 			deployedMap[key] = true
 		}
 
 		errorMap := make(map[string]cloudinfo.DependencyError)
 		for _, depErr := range validationResult.DependencyErrors {
-			key := fmt.Sprintf("%s:%s:%s", depErr.Addon.Name, depErr.Addon.Version, depErr.Addon.Flavor.Name)
+			key := generateAddonKeyFromDependencyError(depErr)
 			errorMap[key] = depErr
 		}
 
 		missingMap := make(map[string]bool)
 		for _, missing := range validationResult.MissingConfigs {
-			key := fmt.Sprintf("%s:%s:%s", missing.Name, missing.Version, missing.Flavor.Name)
+			key := generateAddonKeyFromDetail(missing)
 			missingMap[key] = true
 		}
 
@@ -618,14 +607,14 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		allDependencies := make(map[string]bool)
 		for _, deps := range graph {
 			for _, dep := range deps {
-				key := fmt.Sprintf("%s:%s:%s", dep.Name, dep.Version, dep.Flavor.Name)
+				key := generateAddonKeyFromDetail(dep)
 				allDependencies[key] = true
 			}
 		}
 
 		var rootAddon *cloudinfo.OfferingReferenceDetail
 		for _, addon := range expectedDeployedList {
-			key := fmt.Sprintf("%s:%s:%s", addon.Name, addon.Version, addon.Flavor.Name)
+			key := generateAddonKeyFromDetail(addon)
 			if !allDependencies[key] {
 				rootAddon = &addon
 				break
@@ -648,7 +637,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 				// Look for the configuration that doesn't appear as a dependency of others
 				isRoot := true
 				for _, otherConfig := range allDeployedTree {
-					if deps, exists := graph[fmt.Sprintf("%s:%s:%s", otherConfig.Name, otherConfig.Version, otherConfig.Flavor.Name)]; exists {
+					if deps, exists := graph[generateAddonKeyFromDetail(otherConfig)]; exists {
 						for _, dep := range deps {
 							if dep.Name == config.Name && dep.Version == config.Version && dep.Flavor.Name == config.Flavor.Name {
 								isRoot = false
@@ -734,6 +723,20 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			options.Logger.ShortError(fmt.Sprintf("  %s", issue))
 		}
 
+		// Store input validation issues in ValidationResult for proper categorization
+		if options.lastValidationResult == nil {
+			options.lastValidationResult = &ValidationResult{
+				IsValid:             false,
+				MissingInputs:       []string{},
+				ConfigurationErrors: []string{},
+				Messages:            []string{},
+			}
+		}
+
+		// Add missing inputs to ValidationResult
+		options.lastValidationResult.MissingInputs = append(options.lastValidationResult.MissingInputs, inputValidationIssues...)
+		options.lastValidationResult.IsValid = false
+
 		// Enhanced debugging information when validation fails
 		options.Logger.ShortWarn("=== INPUT VALIDATION FAILURE DEBUG INFO ===")
 		options.Logger.ShortWarn(fmt.Sprintf("FAILURE SUMMARY: %d configurations have missing required inputs - %s", len(inputValidationIssues), strings.Join(inputValidationIssues, "; ")))
@@ -801,8 +804,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 						if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
 							options.Logger.ShortWarn("    Current Inputs:")
 							for key, value := range resp.Inputs {
-								// Don't log sensitive values
-								if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
+								// Use structured sensitive data detection instead of fragile string matching
+								if IsSensitiveField(key) {
 									options.Logger.ShortWarn(fmt.Sprintf("      %s: [REDACTED]", key))
 								} else {
 									options.Logger.ShortWarn(fmt.Sprintf("      %s: %v", key, value))
@@ -850,6 +853,12 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortError("Found configurations waiting on inputs after dependency validation:")
 		for _, config := range waitingInputIssues {
 			options.Logger.ShortError(fmt.Sprintf("  %s", config))
+		}
+
+		// Add waiting input issues to the stored ValidationResult
+		if options.lastValidationResult != nil {
+			options.lastValidationResult.Messages = append(options.lastValidationResult.Messages, waitingInputIssues...)
+			options.lastValidationResult.IsValid = false
 		}
 
 		// Print current configuration input values for debugging - similar to missing inputs debug info
@@ -916,8 +925,8 @@ func (options *TestAddonOptions) RunAddonTest() error {
 						if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
 							options.Logger.ShortError("    Current Inputs:")
 							for key, value := range resp.Inputs {
-								// Don't log sensitive values
-								if strings.Contains(strings.ToLower(key), "key") || strings.Contains(strings.ToLower(key), "password") || strings.Contains(strings.ToLower(key), "secret") {
+								// Use structured sensitive data detection instead of fragile string matching
+								if IsSensitiveField(key) {
 									options.Logger.ShortError(fmt.Sprintf("      %s: [REDACTED]", key))
 								} else {
 									valueStr := fmt.Sprintf("%v", value)

@@ -822,16 +822,16 @@ func (s *SmartLogger) detectPhaseFromMessage(message string) string {
 
 // AddonPhasePatterns contains patterns for addon testing
 var AddonPhasePatterns = PhasePatterns{
-	"Getting offering details":         "🔄 Retrieving catalog information",
-	"Getting offering version locator": "🔄 Resolving version constraints",
-	"Starting reference resolution":    "🔄 Resolving project references",
-	"Attempting reference resolution":  "🔄 Validating dependencies",
-	"Request completed":                "✅ Operation completed",
-	"Creating catalog":                 "🔄 Setting up catalog",
-	"Importing offering":               "🔄 Loading offering configuration",
-	"Validating configuration":         "🔄 Validating inputs",
-	"Processing configuration details": "🔄 Processing configuration",
-	"Building dependency graph":        "🔄 Analyzing dependencies",
+	"Getting offering details":          "🔄 Retrieving catalog information",
+	"Getting offering version locator":  "🔄 Resolving version constraints",
+	"Starting reference resolution":     "🔄 Resolving project references",
+	"Attempting reference resolution":   "🔄 Validating dependencies",
+	"Configuration deployed to project": "✅ Configuration deployed to project",
+	"Creating catalog":                  "🔄 Setting up catalog",
+	"Importing offering":                "🔄 Loading offering configuration",
+	"Validating configuration":          "🔄 Validating inputs",
+	"Processing configuration details":  "🔄 Processing configuration",
+	"Building dependency graph":         "🔄 Analyzing dependencies",
 }
 
 // ProjectPhasePatterns contains patterns for project testing

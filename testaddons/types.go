@@ -58,13 +58,15 @@ type BuildActuallyDeployedResult struct {
 	Errors               []string
 }
 
-// ValidationResult contains the results of dependency validation
+// ValidationResult contains all validation errors (dependency, configuration, and input validation)
 type ValidationResult struct {
-	IsValid           bool
-	DependencyErrors  []cloudinfo.DependencyError
-	UnexpectedConfigs []cloudinfo.OfferingReferenceDetail
-	MissingConfigs    []cloudinfo.OfferingReferenceDetail
-	Messages          []string
+	IsValid             bool
+	DependencyErrors    []cloudinfo.DependencyError
+	UnexpectedConfigs   []cloudinfo.OfferingReferenceDetail
+	MissingConfigs      []cloudinfo.OfferingReferenceDetail
+	MissingInputs       []string // Missing required inputs for configurations
+	ConfigurationErrors []string // General configuration validation errors
+	Messages            []string
 }
 
 // DependencyGraphResult contains the results of building a dependency graph
@@ -100,6 +102,39 @@ type DependencyGraphResult struct {
 //      StaggerDelay: StaggerDelay(10 * time.Second),
 //      StaggerBatchSize: StaggerBatchSize(0), // Disable batching
 //  }
+
+// ConfigurationErrorPattern represents a pattern of configuration errors for aggregated analysis
+type ConfigurationErrorPattern struct {
+	InputName          string // e.g., "existing_cos_instance_crn"
+	ConfigPattern      string // e.g., "deploy-arch-ibm-cloud-logs-*"
+	Count              int
+	CommonDisabledDeps []string // Dependencies disabled in ALL affected tests
+	SuspectedRootCause string   // e.g., "deploy-arch-ibm-cos (disabled in all cases)"
+	ConfidenceLevel    string   // "HIGH", "MEDIUM", "LOW"
+}
+
+// ValidationErrorPattern represents a pattern of validation errors for aggregated analysis
+type ValidationErrorPattern struct {
+	ErrorType string // "Missing dependency", "Unexpected config", etc.
+	Pattern   string // The specific error pattern
+	Count     int
+}
+
+// AggregatedTestInfo contains minimal test information for pattern analysis
+type AggregatedTestInfo struct {
+	Name         string
+	Prefix       string
+	EnabledDeps  []string
+	DisabledDeps []string
+}
+
+// TransientErrorDetails contains detailed information about transient errors
+type TransientErrorDetails struct {
+	RuntimeCount      int
+	RuntimeSamples    []string
+	DeploymentCount   int
+	DeploymentSamples []string
+}
 
 // StaggerDelay creates a stagger delay with the specified duration
 // Use this to customize the delay between parallel test starts to prevent rate limiting
@@ -140,18 +175,15 @@ type PermutationTestResult struct {
 	AddonConfig []cloudinfo.AddonConfig
 	// Passed indicates if the test passed
 	Passed bool
-	// ValidationResult contains dependency validation errors if any
+	// ValidationResult contains all validation errors (missing inputs, dependency issues, config problems)
 	ValidationResult *ValidationResult
-	// DeploymentErrors contains errors from TriggerDeployAndWait
-	DeploymentErrors []error
-	// UndeploymentErrors contains errors from TriggerUnDeployAndWait
-	UndeploymentErrors []error
-	// ConfigurationErrors contains setup and configuration errors
-	ConfigurationErrors []string
-	// RuntimeErrors contains panic and other runtime errors
+	// TransientErrors contains API failures, timeouts, and other infrastructure issues that may resolve on retry
+	TransientErrors []string
+	// RuntimeErrors contains Go panics, nil pointer errors, and other code bugs in the test framework
 	RuntimeErrors []string
-	// MissingInputs contains list of missing required inputs
-	MissingInputs []string
+	// ErrorAlreadyCategorized tracks whether this result has already been processed by categorizeError
+	// to prevent duplicate error categorization
+	ErrorAlreadyCategorized bool
 }
 
 // PermutationTestReport contains the complete report for all permutation tests

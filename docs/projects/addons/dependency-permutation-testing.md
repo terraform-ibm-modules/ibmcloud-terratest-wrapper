@@ -118,7 +118,7 @@ After all tests complete, automatically generates a comprehensive final report t
 - **Failed Tests**: Detailed error information for each failure, including:
   - Test configuration (which addons were enabled/disabled)
   - Complete error messages for debugging
-  - Categorized error types (validation, deployment, configuration, runtime)
+  - Categorized error types (validation, transient, runtime)
 - **Failure Pattern Analysis**: Groups failures by common causes for quick scanning
 - **Resource Prefix Information**: For correlating with logs if needed
 
@@ -133,7 +133,7 @@ After all tests complete, automatically generates a comprehensive final report t
 - **Failed Tests**: Detailed error information for each failure, including:
   - Test configuration (which addons were enabled/disabled)
   - Complete error messages for debugging
-  - Categorized error types (validation, deployment, configuration, runtime)
+  - Categorized error types (validation, transient, runtime)
 - **Failure Pattern Analysis**: Groups failures by common causes for quick scanning
 - **Resource Prefix Information**: For correlating with logs if needed
 
@@ -232,12 +232,12 @@ Running 15 dependency permutation tests for deploy-arch-ibm-event-notifications 
 │            deploy-arch-ibm-account-infra-base, deploy-arch-ibm-observ...   │
 │                                                                             │
 │     🔴 VALIDATION ERRORS:                                                   │
-│     • event-notifications addon requires 'kms' dependency but it's disabled │
+│     • deploy-arch-ibm-kms missing inputs:                                  │
+│       - kms_key_name                                                       │
+│       - resource_group_id                                                  │
+│     • deploy-arch-ibm-cos missing inputs:                                  │
+│       - cos_bucket_name                                                    │
 │     • Missing required addon configurations in project                      │
-│                                                                             │
-│     🔴 CONFIGURATION ERRORS:                                                │
-│     • Missing configs: ['deploy-arch-ibm-kms', 'deploy-arch-ibm-cos']      │
-│     • Project validation failed: 2 errors, 0 warnings                     │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -247,13 +247,40 @@ Running 15 dependency permutation tests for deploy-arch-ibm-event-notifications 
 │            Dependencies: 6 enabled, 1 disabled                             │
 │            ❌ Disabled: deploy-arch-ibm-cloud-monitoring                    │
 │                                                                             │
-│     🔴 DEPLOYMENT ERRORS:                                                   │
+│     🔴 TRANSIENT ERRORS:                                                    │
 │     • TriggerDeployAndWait failed: deployment timeout after 15 minutes     │
 │     • Configuration state stuck in 'ApplyingFailed'                        │
 │                                                                             │
 │     🔴 RUNTIME ERRORS:                                                      │
 │     • TestRunAddonTest failed: deployment validation failed                 │
 └─────────────────────────────────────────────────────────────────────────────┘
+
+📊 AGGREGATED ERROR ANALYSIS
+================================================================================
+
+🔴 VALIDATION ERRORS (Root Cause Analysis):
+
+• deploy-arch-ibm-activity-tracker-* missing required inputs: cloud_logs_instance_name
+  Seen 29 times → ROOT CAUSE: deploy-arch-ibm-cloud-logs (disabled in all cases)
+  💡 SOLUTION: Add input mapping for when deploy-arch-ibm-cloud-logs is disabled
+
+• deploy-arch-ibm-activity-tracker-* missing required inputs: existing_cos_instance_crn
+  Seen 15 times → ROOT CAUSE: deploy-arch-ibm-cos (disabled in all cases)
+  💡 SOLUTION: Add input mapping for when deploy-arch-ibm-cos is disabled
+
+• deploy-arch-ibm-cloud-logs-* missing required inputs: existing_cos_instance_crn
+  Seen 8 times → ROOT CAUSE: deploy-arch-ibm-cos (disabled in all cases)
+  💡 SOLUTION: Add input mapping for when deploy-arch-ibm-cos is disabled
+
+🔴 TRANSIENT ERRORS:
+
+• Unexpected config: deploy-arch-ibm-cloud-logs (v1.5.6, fully-configurable) deployed when disabled
+  Seen in 2 tests → ISSUE: Configuration deployed despite being disabled in test setup
+  💡 SOLUTION: Review dependency resolution logic for disabled components
+
+📋 ACTION ITEMS:
+1. Add input mapping logic for deploy-arch-ibm-cloud-logs disabled scenarios (fixes 29 tests)
+2. Add input mapping logic for deploy-arch-ibm-cos disabled scenarios (fixes 23 tests)
 
 📁 Full test logs available if additional context needed
 ================================================================================

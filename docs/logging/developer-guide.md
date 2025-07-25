@@ -205,7 +205,7 @@ var AddonPhasePatterns = PhasePatterns{
     "Getting offering version locator":   "🔄 Resolving version constraints",
     "Starting reference resolution":      "🔄 Resolving project references",
     "Attempting reference resolution":    "🔄 Validating dependencies",
-    "Request completed":                  "✅ Operation completed",
+    "Configuration deployed to project":  "✅ Configuration deployed to project",
 }
 ```
 
