@@ -114,14 +114,14 @@ func (options *TestAddonOptions) PrintDependencyTree(graph map[string][]cloudinf
 	allDependencies := make(map[string]bool)
 	for _, deps := range graph {
 		for _, dep := range deps {
-			key := fmt.Sprintf("%s:%s:%s", dep.Name, dep.Version, dep.Flavor.Name)
+			key := generateAddonKeyFromDetail(dep)
 			allDependencies[key] = true
 		}
 	}
 
 	var rootAddon *cloudinfo.OfferingReferenceDetail
 	for _, addon := range expectedDeployedList {
-		key := fmt.Sprintf("%s:%s:%s", addon.Name, addon.Version, addon.Flavor.Name)
+		key := generateAddonKeyFromDetail(addon)
 		if !allDependencies[key] {
 			rootAddon = &addon
 			break
@@ -141,7 +141,7 @@ func (options *TestAddonOptions) PrintDependencyTree(graph map[string][]cloudinf
 // printAddonTree recursively prints an addon and its dependencies in tree format
 func (options *TestAddonOptions) printAddonTree(addon cloudinfo.OfferingReferenceDetail, graph map[string][]cloudinfo.OfferingReferenceDetail, indent string, isLast bool, visited map[string]bool) {
 	// Create a unique key for this addon
-	addonKey := fmt.Sprintf("%s:%s:%s", addon.Name, addon.Version, addon.Flavor.Name)
+	addonKey := generateAddonKeyFromDetail(addon)
 
 	// Print the current addon
 	symbol := options.getTreeSymbol(isLast)
@@ -206,19 +206,19 @@ func (options *TestAddonOptions) printDependencyTreeWithValidationStatus(graph m
 	// Create maps for quick lookup of deployed configs and validation issues
 	deployedMap := make(map[string]bool)
 	for _, deployed := range actuallyDeployedList {
-		key := fmt.Sprintf("%s:%s:%s", deployed.Name, deployed.Version, deployed.Flavor.Name)
+		key := generateAddonKeyFromDetail(deployed)
 		deployedMap[key] = true
 	}
 
 	errorMap := make(map[string]cloudinfo.DependencyError)
 	for _, depErr := range validationResult.DependencyErrors {
-		key := fmt.Sprintf("%s:%s:%s", depErr.Addon.Name, depErr.Addon.Version, depErr.Addon.Flavor.Name)
+		key := generateAddonKeyFromDependencyError(depErr)
 		errorMap[key] = depErr
 	}
 
 	missingMap := make(map[string]bool)
 	for _, missing := range validationResult.MissingConfigs {
-		key := fmt.Sprintf("%s:%s:%s", missing.Name, missing.Version, missing.Flavor.Name)
+		key := generateAddonKeyFromDetail(missing)
 		missingMap[key] = true
 	}
 
@@ -226,14 +226,14 @@ func (options *TestAddonOptions) printDependencyTreeWithValidationStatus(graph m
 	allDependencies := make(map[string]bool)
 	for _, deps := range graph {
 		for _, dep := range deps {
-			key := fmt.Sprintf("%s:%s:%s", dep.Name, dep.Version, dep.Flavor.Name)
+			key := generateAddonKeyFromDetail(dep)
 			allDependencies[key] = true
 		}
 	}
 
 	var rootAddon *cloudinfo.OfferingReferenceDetail
 	for _, addon := range expectedDeployedList {
-		key := fmt.Sprintf("%s:%s:%s", addon.Name, addon.Version, addon.Flavor.Name)
+		key := generateAddonKeyFromDetail(addon)
 		if !allDependencies[key] {
 			rootAddon = &addon
 			break
@@ -303,7 +303,7 @@ func (options *TestAddonOptions) printAddonTreeWithStatusAndPath(addon cloudinfo
 	path []string) {
 
 	// Create a unique key for this addon
-	addonKey := fmt.Sprintf("%s:%s:%s", addon.Name, addon.Version, addon.Flavor.Name)
+	addonKey := generateAddonKeyFromDetail(addon)
 
 	// Determine status symbol and log method
 	statusSymbol := ""
@@ -423,7 +423,7 @@ func (options *TestAddonOptions) printComprehensiveTreeWithStatusAndPath(rootCon
 	path []string) {
 
 	// Create a unique key for this config
-	configKey := fmt.Sprintf("%s:%s:%s", rootConfig.Name, rootConfig.Version, rootConfig.Flavor.Name)
+	configKey := generateAddonKeyFromDetail(rootConfig)
 
 	// Check if we've already visited this config to avoid infinite loops
 	if visited[configKey] {
@@ -482,11 +482,11 @@ func (options *TestAddonOptions) printComprehensiveTreeWithStatusAndPath(rootCon
 
 // getConfigStatus determines the status symbol and log method for a configuration
 func (options *TestAddonOptions) getConfigStatus(config cloudinfo.OfferingReferenceDetail, validationResult ValidationResult) (string, func(string)) {
-	configKey := fmt.Sprintf("%s:%s:%s", config.Name, config.Version, config.Flavor.Name)
+	configKey := generateAddonKeyFromDetail(config)
 
 	// Check if it's missing
 	for _, missing := range validationResult.MissingConfigs {
-		missingKey := fmt.Sprintf("%s:%s:%s", missing.Name, missing.Version, missing.Flavor.Name)
+		missingKey := generateAddonKeyFromDetail(missing)
 		if configKey == missingKey {
 			return " ❌ MISSING", options.Logger.ShortError
 		}
@@ -494,7 +494,7 @@ func (options *TestAddonOptions) getConfigStatus(config cloudinfo.OfferingRefere
 
 	// Check if it's unexpected
 	for _, unexpected := range validationResult.UnexpectedConfigs {
-		unexpectedKey := fmt.Sprintf("%s:%s:%s", unexpected.Name, unexpected.Version, unexpected.Flavor.Name)
+		unexpectedKey := generateAddonKeyFromDetail(unexpected)
 		if configKey == unexpectedKey {
 			return " ❌ UNEXPECTED", options.Logger.ShortError
 		}
@@ -502,7 +502,7 @@ func (options *TestAddonOptions) getConfigStatus(config cloudinfo.OfferingRefere
 
 	// Check if it has dependency errors
 	for _, depErr := range validationResult.DependencyErrors {
-		errorKey := fmt.Sprintf("%s:%s:%s", depErr.Addon.Name, depErr.Addon.Version, depErr.Addon.Flavor.Name)
+		errorKey := generateAddonKeyFromDependencyError(depErr)
 		if configKey == errorKey {
 			return " ✅ DEPLOYED (dependency issue)", options.Logger.ShortWarn
 		}
@@ -519,10 +519,10 @@ func (options *TestAddonOptions) findDeployedDependencies(parent cloudinfo.Offer
 
 	// Only add unexpected configs as dependencies if they're not the same as the parent
 	// This prevents fake circular references
-	parentKey := fmt.Sprintf("%s:%s:%s", parent.Name, parent.Version, parent.Flavor.Name)
+	parentKey := generateAddonKeyFromDetail(parent)
 
 	for _, unexpected := range validationResult.UnexpectedConfigs {
-		unexpectedKey := fmt.Sprintf("%s:%s:%s", unexpected.Name, unexpected.Version, unexpected.Flavor.Name)
+		unexpectedKey := generateAddonKeyFromDetail(unexpected)
 
 		// Don't add self as dependency (prevents fake circular references)
 		if unexpectedKey != parentKey {

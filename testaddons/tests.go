@@ -601,19 +601,19 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		// Create deployment status maps for the tree view
 		deployedMap := make(map[string]bool)
 		for _, deployed := range actuallyDeployedResult.ActuallyDeployedList {
-			key := fmt.Sprintf("%s:%s:%s", deployed.Name, deployed.Version, deployed.Flavor.Name)
+			key := generateAddonKeyFromDetail(deployed)
 			deployedMap[key] = true
 		}
 
 		errorMap := make(map[string]cloudinfo.DependencyError)
 		for _, depErr := range validationResult.DependencyErrors {
-			key := fmt.Sprintf("%s:%s:%s", depErr.Addon.Name, depErr.Addon.Version, depErr.Addon.Flavor.Name)
+			key := generateAddonKeyFromDependencyError(depErr)
 			errorMap[key] = depErr
 		}
 
 		missingMap := make(map[string]bool)
 		for _, missing := range validationResult.MissingConfigs {
-			key := fmt.Sprintf("%s:%s:%s", missing.Name, missing.Version, missing.Flavor.Name)
+			key := generateAddonKeyFromDetail(missing)
 			missingMap[key] = true
 		}
 
@@ -621,14 +621,14 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		allDependencies := make(map[string]bool)
 		for _, deps := range graph {
 			for _, dep := range deps {
-				key := fmt.Sprintf("%s:%s:%s", dep.Name, dep.Version, dep.Flavor.Name)
+				key := generateAddonKeyFromDetail(dep)
 				allDependencies[key] = true
 			}
 		}
 
 		var rootAddon *cloudinfo.OfferingReferenceDetail
 		for _, addon := range expectedDeployedList {
-			key := fmt.Sprintf("%s:%s:%s", addon.Name, addon.Version, addon.Flavor.Name)
+			key := generateAddonKeyFromDetail(addon)
 			if !allDependencies[key] {
 				rootAddon = &addon
 				break
@@ -651,7 +651,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 				// Look for the configuration that doesn't appear as a dependency of others
 				isRoot := true
 				for _, otherConfig := range allDeployedTree {
-					if deps, exists := graph[fmt.Sprintf("%s:%s:%s", otherConfig.Name, otherConfig.Version, otherConfig.Flavor.Name)]; exists {
+					if deps, exists := graph[generateAddonKeyFromDetail(otherConfig)]; exists {
 						for _, dep := range deps {
 							if dep.Name == config.Name && dep.Version == config.Version && dep.Flavor.Name == config.Flavor.Name {
 								isRoot = false
