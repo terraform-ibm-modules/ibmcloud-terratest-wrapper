@@ -405,18 +405,16 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 
 // categorizeError parses the main test error and categorizes it into one of three simplified categories
 func (options *TestAddonOptions) categorizeError(testError error, result *PermutationTestResult) {
-	errorStr := testError.Error()
-
 	// Check if we already have detailed error info
 	hasDetailedErrors := (result.ValidationResult != nil && !result.ValidationResult.IsValid) ||
 		len(result.TransientErrors) > 0 || len(result.RuntimeErrors) > 0
 
-	// Only categorize if we don't have detailed errors AND it's not a redundant error
-	// This prevents double processing of the same error
-	if !hasDetailedErrors && !strings.Contains(errorStr, "Addon Test had an unexpected error") {
+	// Only categorize if we don't have detailed errors AND haven't already categorized this result
+	// This prevents double processing of errors
+	if !hasDetailedErrors && !result.ErrorAlreadyCategorized {
+		result.ErrorAlreadyCategorized = true
 		options.categorizeMainError(testError, result)
 	}
-	// Removed the else branch that was causing duplicate processing
 }
 
 // categorizeMainError contains the core error categorization logic

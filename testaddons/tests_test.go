@@ -1301,7 +1301,7 @@ func TestMemberDeploymentReferenceHandling(t *testing.T) {
 }
 
 // TestCategorizeError_NoDuplicateEntries tests that categorizeError doesn't create duplicate entries
-// This test should FAIL with the current duplicate error logic, then PASS after the fix
+// Uses ErrorAlreadyCategorized boolean flag to prevent duplicate processing instead of string matching
 func TestCategorizeError_NoDuplicateEntries(t *testing.T) {
 	options := &TestAddonOptions{}
 	result := &PermutationTestResult{}
@@ -1309,13 +1309,18 @@ func TestCategorizeError_NoDuplicateEntries(t *testing.T) {
 	// Test error that triggers "missing required inputs" categorization
 	testError := fmt.Errorf("missing required inputs: deploy-arch-ibm-cloud-logs-test (missing: existing_cos_instance_crn)")
 
-	// First call - this creates ValidationResult with hasDetailedErrors = false
+	// Verify initial state
+	assert.False(t, result.ErrorAlreadyCategorized, "Initially ErrorAlreadyCategorized should be false")
+
+	// First call - this should set ErrorAlreadyCategorized = true and create ValidationResult
+	options.categorizeError(testError, result)
+	assert.True(t, result.ErrorAlreadyCategorized, "After first call, ErrorAlreadyCategorized should be true")
+
+	// Second call with the SAME error - should NOT create duplicates due to boolean flag
 	options.categorizeError(testError, result)
 
-	// Second call with the SAME error - this should NOT create duplicates after our fix
-	options.categorizeError(testError, result)
-
-	// Verify no duplicates were created
+	// Verify boolean flag prevents duplicate processing
+	assert.True(t, result.ErrorAlreadyCategorized, "ErrorAlreadyCategorized should remain true")
 	assert.NotNil(t, result.ValidationResult, "ValidationResult should be created")
 	assert.Equal(t, 1, len(result.ValidationResult.MissingInputs), "Should have exactly 1 error entry, no duplicates")
 

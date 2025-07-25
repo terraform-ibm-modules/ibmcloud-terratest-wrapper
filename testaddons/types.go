@@ -181,6 +181,9 @@ type PermutationTestResult struct {
 	TransientErrors []string
 	// RuntimeErrors contains Go panics, nil pointer errors, and other code bugs in the test framework
 	RuntimeErrors []string
+	// ErrorAlreadyCategorized tracks whether this result has already been processed by categorizeError
+	// to prevent duplicate error categorization
+	ErrorAlreadyCategorized bool
 }
 
 // PermutationTestReport contains the complete report for all permutation tests
