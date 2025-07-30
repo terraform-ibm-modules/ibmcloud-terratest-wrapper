@@ -757,8 +757,19 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		// First validate what is actually deployed to get the validation results
 		validationResult := options.validateDependencies(graph, expectedDeployedList, actuallyDeployedResult.ActuallyDeployedList)
 
+		// Preserve any existing warnings (like circular dependencies) before overwriting
+		var existingWarnings []string
+		if options.lastValidationResult != nil {
+			existingWarnings = options.lastValidationResult.Warnings
+		}
+
 		// Store the validation result for error reporting
 		options.lastValidationResult = &validationResult
+
+		// Merge preserved warnings with new validation warnings
+		if len(existingWarnings) > 0 {
+			options.lastValidationResult.Warnings = append(existingWarnings, options.lastValidationResult.Warnings...)
+		}
 
 		options.Logger.ShortInfo("Actually deployed configurations (with status):")
 
