@@ -653,9 +653,13 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 				for _, cycle := range circularDeps {
 					options.Logger.ShortWarn(fmt.Sprintf("  %s", cycle))
 					// Add to ValidationResult warnings instead of waitingInputIssues
-					if options.lastValidationResult != nil {
-						options.lastValidationResult.Warnings = append(options.lastValidationResult.Warnings, fmt.Sprintf("Circular dependency: %s", cycle))
+					if options.lastValidationResult == nil {
+						options.lastValidationResult = &ValidationResult{
+							IsValid:  true, // Still valid in non-strict mode
+							Warnings: []string{},
+						}
 					}
+					options.lastValidationResult.Warnings = append(options.lastValidationResult.Warnings, fmt.Sprintf("Circular dependency: %s", cycle))
 				}
 				options.Logger.ShortInfo("Note: Circular dependencies may cause deployment issues but test will proceed")
 			}
@@ -1367,6 +1371,11 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	// Enhanced reporting: show success message for direct test execution
 	if enhancedReporting {
 		options.Logger.ProgressSuccess("✅ All tests passed - no actions required")
+
+		// Display strict mode warnings if running in permissive mode and warnings exist
+		if options.StrictMode != nil && !*options.StrictMode && options.lastValidationResult != nil && len(options.lastValidationResult.Warnings) > 0 {
+			options.displaySingleTestStrictModeWarnings()
+		}
 	}
 
 	return nil
@@ -2933,4 +2942,51 @@ func (options *TestAddonOptions) extendAbbreviation(originalName, currentAbbrev 
 
 	// If we can't extend any part, just append a character from the original
 	return currentAbbrev + "x"
+}
+
+// displaySingleTestStrictModeWarnings displays a simple warning summary for single tests
+// when StrictMode=false and warnings occurred during test execution
+func (options *TestAddonOptions) displaySingleTestStrictModeWarnings() {
+	if options.lastValidationResult == nil || len(options.lastValidationResult.Warnings) == 0 {
+		return
+	}
+
+	// Count different types of warnings
+	circularDependencyCount := 0
+	forceEnabledDependencyCount := 0
+	var circularWarnings []string
+	var forceEnabledWarnings []string
+
+	for _, warning := range options.lastValidationResult.Warnings {
+		if strings.Contains(warning, "Circular dependency") {
+			circularDependencyCount++
+			// Extract clean circular dependency info
+			cleanWarning := strings.TrimPrefix(warning, "Circular dependency: ")
+			circularWarnings = append(circularWarnings, cleanWarning)
+		} else if strings.Contains(warning, "force-enabled despite being disabled") {
+			forceEnabledDependencyCount++
+			forceEnabledWarnings = append(forceEnabledWarnings, warning)
+		}
+	}
+
+	// Only display if we have warnings to show
+	if circularDependencyCount > 0 || forceEnabledDependencyCount > 0 {
+		options.Logger.ProgressInfo("\n⚠️ STRICT MODE DISABLED - The following would have failed in strict mode:")
+
+		// Display circular dependency warnings
+		if circularDependencyCount > 0 {
+			for _, warning := range circularWarnings {
+				options.Logger.ProgressInfo(fmt.Sprintf("• Circular dependency detected: %s", warning))
+			}
+		}
+
+		// Display force-enabled dependency warnings
+		if forceEnabledDependencyCount > 0 {
+			for _, warning := range forceEnabledWarnings {
+				options.Logger.ProgressInfo(fmt.Sprintf("• %s", warning))
+			}
+		}
+
+		options.Logger.ProgressInfo("")
+	}
 }

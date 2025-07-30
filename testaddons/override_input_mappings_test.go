@@ -13,8 +13,9 @@ func TestOverrideInputMappingsFlag(t *testing.T) {
 	t.Run("DefaultBehaviorPreservesReferences", func(t *testing.T) {
 		// Test default behavior (OverrideInputMappings = false)
 		options := TestAddonsOptionsDefault(&TestAddonOptions{
-			Testing: t,
-			Prefix:  "test-preserve",
+			Testing:                 t,
+			Prefix:                  "test-preserve",
+			RequiredEnvironmentVars: map[string]string{}, // Bypass environment variable checks for unit test
 			AddonConfig: cloudinfo.AddonConfig{
 				ConfigID: "test-config-id",
 			},
@@ -74,9 +75,10 @@ func TestOverrideInputMappingsFlag(t *testing.T) {
 	t.Run("ExplicitOverrideBehavior", func(t *testing.T) {
 		// Test explicit override behavior (OverrideInputMappings = true)
 		options := TestAddonsOptionsDefault(&TestAddonOptions{
-			Testing:               t,
-			Prefix:                "test-override",
-			OverrideInputMappings: core.BoolPtr(true), // Explicitly enable overriding
+			Testing:                 t,
+			Prefix:                  "test-override",
+			RequiredEnvironmentVars: map[string]string{}, // Bypass environment variable checks for unit test
+			OverrideInputMappings:   core.BoolPtr(true),  // Explicitly enable overriding
 			AddonConfig: cloudinfo.AddonConfig{
 				ConfigID: "test-config-id",
 			},
