@@ -185,6 +185,12 @@ type PermutationTestResult struct {
 	// ErrorAlreadyCategorized tracks whether this result has already been processed by categorizeError
 	// to prevent duplicate error categorization
 	ErrorAlreadyCategorized bool
+	// StrictMode indicates whether the test was run in strict mode (true) or permissive mode (false)
+	// This is used for reporting what would have failed in strict mode when running in permissive mode
+	StrictMode *bool
+	// StrictModeWarnings contains warnings that would have caused failure in strict mode
+	// but were allowed to continue in permissive mode (StrictMode=false)
+	StrictModeWarnings []string
 }
 
 // PermutationTestReport contains the complete report for all permutation tests

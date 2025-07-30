@@ -580,18 +580,34 @@ options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
 **In non-strict mode:**
 
 - **Circular Dependencies**: Logged as warnings only, test continues
-- **Required Dependencies**: Shows informational messages instead of warnings
-- **Validation Integration**: Warnings added to `ValidationResult.Warnings` for final summary
+- **Required Dependencies**: Shows informational messages and captures warnings for final report
+- **Final Report Integration**: Warnings displayed in final permutation test report showing what would have failed in strict mode
 
 **Example non-strict mode output:**
 ```
 WARN: Circular dependency detected (StrictMode=false - test will continue):
   🔍 CIRCULAR DEPENDENCY DETECTED: deploy-arch-ibm-event-notifications → deploy-arch-ibm-cloud-logs → deploy-arch-ibm-activity-tracker → deploy-arch-ibm-cloud-logs
-INFO: Required dependency deploy-arch-ibm-kms was force-enabled (business logic)
-INFO:   Required by: deploy-arch-ibm-event-notifications
+INFO: Required dependency deploy-arch-ibm-kms was force-enabled (required by deploy-arch-ibm-event-notifications)
+```
 
-⚠️ WARNINGS:
-  1. Circular dependency: deploy-arch-ibm-event-notifications → deploy-arch-ibm-cloud-logs → deploy-arch-ibm-activity-tracker → deploy-arch-ibm-cloud-logs
+**Final report includes strict mode warnings:**
+
+```text
+================================================================================
+🧪 PERMUTATION TEST REPORT - Complete
+================================================================================
+📊 Summary: 63 total tests | ✅ 63 passed (100.0%) | ❌ 0 failed (0.0%)
+
+✅ PASSED: 63 tests completed successfully
+
+⚠️ STRICT MODE DISABLED - The following would have failed in strict mode:
+• Circular Dependencies Detected (2 tests):
+  - Test "pp0kwd-dai-e-n-35": Circular dependency: deploy-arch-ibm-activity-tracker → deploy-arch-ibm-cloud-logs → deploy-arch-ibm-activity-tracker
+• Required Dependencies Force-Enabled (5 tests):
+  - Test "xyz-123": Required dependency deploy-arch-ibm-kms was force-enabled despite being disabled (required by deploy-arch-ibm-event-notifications)
+
+📁 Full test logs available if additional context needed
+================================================================================
 ```
 
 ### When to Use Each Mode

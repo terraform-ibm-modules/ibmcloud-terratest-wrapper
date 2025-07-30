@@ -2147,8 +2147,18 @@ func (options *TestAddonOptions) processRequiredDependenciesRecursively(config *
 					options.Logger.ShortWarn(fmt.Sprintf("  Required by: %s", parentName))
 					options.Logger.ShortWarn("  Use StrictMode=false to suppress this warning")
 				} else {
-					// Non-strict mode: informational message
+					// Non-strict mode: informational message and capture warning for final report
 					options.Logger.ShortInfo(fmt.Sprintf("Required dependency %s was force-enabled (required by %s)", dep.OfferingName, parentName))
+
+					// Add to validation warnings for final report display
+					if options.lastValidationResult == nil {
+						options.lastValidationResult = &ValidationResult{
+							IsValid:  true, // Still valid in non-strict mode
+							Warnings: []string{},
+						}
+					}
+					warningMsg := fmt.Sprintf("Required dependency %s was force-enabled despite being disabled (required by %s)", dep.OfferingName, parentName)
+					options.lastValidationResult.Warnings = append(options.lastValidationResult.Warnings, warningMsg)
 				}
 			}
 		} else {

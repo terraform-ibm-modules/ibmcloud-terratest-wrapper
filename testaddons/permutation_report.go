@@ -149,6 +149,13 @@ func (report *PermutationTestReport) PrintPermutationReport(logger *common.Smart
 		reportBuilder.WriteString(fmt.Sprintf("✅ PASSED: %d tests completed successfully\n\n", report.PassedTests))
 	}
 
+	// Strict mode warnings section
+	strictModeWarnings := report.generateStrictModeWarningsSection()
+	if strictModeWarnings != "" {
+		reportBuilder.WriteString(strictModeWarnings)
+		reportBuilder.WriteString("\n")
+	}
+
 	// Failed tests section (detailed)
 	if report.FailedTests > 0 {
 		reportBuilder.WriteString(fmt.Sprintf("❌ FAILED TESTS (%d) - Complete Error Details\n", report.FailedTests))
@@ -1378,4 +1385,67 @@ func (report *PermutationTestReport) getValidationSolution(errorType string) str
 	default:
 		return ""
 	}
+}
+
+// generateStrictModeWarningsSection creates a section showing warnings that would have failed in strict mode
+func (report *PermutationTestReport) generateStrictModeWarningsSection() string {
+	// Collect all tests with strict mode warnings
+	var warningTests []PermutationTestResult
+	for _, result := range report.Results {
+		// Only include passed tests that have strict mode warnings
+		if result.Passed && result.StrictMode != nil && !*result.StrictMode && len(result.StrictModeWarnings) > 0 {
+			warningTests = append(warningTests, result)
+		}
+	}
+
+	if len(warningTests) == 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.WriteString("⚠️ STRICT MODE DISABLED - The following would have failed in strict mode:\n")
+
+	// Categorize warnings
+	circularDependencyCount := 0
+	forceEnabledDependencyCount := 0
+	var circularTests []string
+	var forceEnabledTests []string
+
+	for _, result := range warningTests {
+		for _, warning := range result.StrictModeWarnings {
+			if strings.Contains(warning, "Circular dependency") {
+				circularDependencyCount++
+				circularTests = append(circularTests, fmt.Sprintf("  - Test \"%s\": %s", result.Name, warning))
+			} else if strings.Contains(warning, "force-enabled despite being disabled") {
+				forceEnabledDependencyCount++
+				forceEnabledTests = append(forceEnabledTests, fmt.Sprintf("  - Test \"%s\": %s", result.Name, warning))
+			}
+		}
+	}
+
+	// Display circular dependency warnings
+	if circularDependencyCount > 0 {
+		testWord := "test"
+		if circularDependencyCount > 1 {
+			testWord = "tests"
+		}
+		builder.WriteString(fmt.Sprintf("• Circular Dependencies Detected (%d %s):\n", circularDependencyCount, testWord))
+		for _, test := range circularTests {
+			builder.WriteString(test + "\n")
+		}
+	}
+
+	// Display force-enabled dependency warnings
+	if forceEnabledDependencyCount > 0 {
+		testWord := "test"
+		if forceEnabledDependencyCount > 1 {
+			testWord = "tests"
+		}
+		builder.WriteString(fmt.Sprintf("• Required Dependencies Force-Enabled (%d %s):\n", forceEnabledDependencyCount, testWord))
+		for _, test := range forceEnabledTests {
+			builder.WriteString(test + "\n")
+		}
+	}
+
+	return builder.String()
 }

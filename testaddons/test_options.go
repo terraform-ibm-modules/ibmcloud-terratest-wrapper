@@ -618,9 +618,21 @@ type TestAddonOptions struct {
 	// Only effective when QuietMode is true. Default is true.
 	VerboseOnFailure bool
 
-	// StrictMode If set to true (default), fails validation when required dependencies are deployed despite being disabled.
-	// When false, treats force-enabled required dependencies as expected and adds them to the dependency tree.
-	// This allows testing dependency permutations while maintaining business logic for required components.
+	// StrictMode controls validation behavior for circular dependencies and required dependency force-enabling.
+	//
+	// When true (default):
+	//   - Circular dependencies cause test failure
+	//   - Force-enabled required dependencies generate warnings but test continues
+	//
+	// When false (permissive mode):
+	//   - Circular dependencies are logged as warnings, test continues
+	//   - Required dependencies are force-enabled silently with informational messages
+	//   - Warnings are captured and displayed in final permutation test report
+	//   - Final report shows "STRICT MODE DISABLED" section with warnings that would have failed in strict mode
+	//
+	// Use StrictMode=false for dependency permutation testing where you need to test
+	// all combinations while understanding what would fail in production (strict mode).
+	// The final report will clearly show which scenarios would be problematic in strict mode.
 	StrictMode *bool
 
 	// OverrideInputMappings If set to false (default), preserves existing reference values (starting with "ref:") when merging inputs.
@@ -944,11 +956,17 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 		Prefix:      testPrefix,
 		AddonConfig: completeAddonConfig,
 		Passed:      testError == nil,
+		StrictMode:  options.StrictMode,
 	}
 
 	// Collect validation errors if available
 	if options.lastValidationResult != nil {
 		result.ValidationResult = options.lastValidationResult
+
+		// Extract strict mode warnings when running in permissive mode
+		if options.StrictMode != nil && !*options.StrictMode && options.lastValidationResult.Warnings != nil {
+			result.StrictModeWarnings = append(result.StrictModeWarnings, options.lastValidationResult.Warnings...)
+		}
 	}
 
 	// Collect other error categories (simplified)
