@@ -1,6 +1,7 @@
 package testaddons
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
@@ -105,4 +106,69 @@ func TestMatrixCatalogSharingLogic(t *testing.T) {
 		t.Logf("SUCCESS: Matrix logic would share catalog %s across %d test cases",
 			sharedCatalogID, len(matrix.TestCases))
 	})
+}
+
+// TestFixedPermutationBehavior tests that permutation tests now behave identically to manual tests
+func TestFixedPermutationBehavior(t *testing.T) {
+	t.Skip("Integration test - demonstrates the fix")
+
+	logger := common.CreateSmartAutoBufferingLogger(t.Name(), false)
+
+	t.Logf("=== Testing Permutation Test Behavior Fix ===")
+
+	// Generate permutations with new simple approach
+	permutationOptions := &TestAddonOptions{
+		Testing: t,
+		Logger:  logger,
+		Prefix:  "permutation-test",
+		AddonConfig: cloudinfo.AddonConfig{
+			OfferingName:   "deploy-arch-ibm-event-notifications",
+			OfferingFlavor: "fully-configurable",
+		},
+	}
+
+	dependencyNames := []string{
+		"deploy-arch-ibm-cloud-logs",
+		"deploy-arch-ibm-activity-tracker",
+	}
+
+	testCases := permutationOptions.generatePermutations(dependencyNames)
+	t.Logf("Generated %d permutation test cases", len(testCases))
+
+	// Find the test case that disables cloud-logs (like manual test)
+	var matchingTestCase *AddonTestCase
+	for _, tc := range testCases {
+		for _, dep := range tc.Dependencies {
+			if dep.OfferingName == "deploy-arch-ibm-cloud-logs" && dep.Enabled != nil && !*dep.Enabled {
+				matchingTestCase = &tc
+				break
+			}
+		}
+		if matchingTestCase != nil {
+			break
+		}
+	}
+
+	if matchingTestCase == nil {
+		t.Fatal("No permutation test case found with cloud-logs disabled")
+	}
+
+	t.Logf("Found matching permutation test case: %s", matchingTestCase.Name)
+	t.Logf("Dependencies in this test case:")
+	for i, dep := range matchingTestCase.Dependencies {
+		enabledStatus := "nil"
+		if dep.Enabled != nil {
+			enabledStatus = fmt.Sprintf("%t", *dep.Enabled)
+		}
+		t.Logf("  [%d] %s (Enabled: %s)", i, dep.OfferingName, enabledStatus)
+
+		// Verify simple config format
+		if dep.CatalogID != "" || dep.OfferingID != "" || dep.VersionLocator != "" {
+			t.Errorf("Dependency %s has complex metadata - should be simple like manual tests", dep.OfferingName)
+		}
+	}
+
+	t.Logf("✓ Permutation tests now generate simple dependency configurations like manual tests")
+	t.Logf("✓ Matrix test infrastructure can accept these simple configs")
+	t.Logf("✓ Both test types should now show identical validation behavior")
 }

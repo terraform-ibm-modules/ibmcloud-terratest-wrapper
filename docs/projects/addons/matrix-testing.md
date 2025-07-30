@@ -17,7 +17,7 @@ Matrix testing solves the problem of creating multiple similar tests by providin
 - **Shared Catalog Management**: Creates one catalog for all test cases instead of N catalogs
 - **Configurable Test Cases**: Each test case can have unique inputs, prefixes, and settings
 - **Batched Staggered Execution**: Advanced batching system with 87% faster execution for large test suites
-- **Quiet Mode Support**: Clean progress indicators and reduced log noise
+- **Quiet Mode Default**: Automatically defaults to enabled for cleaner output (can be overridden)
 - **Automatic Resource Cleanup**: Guaranteed cleanup of shared resources
 
 ## Basic Usage
@@ -63,7 +63,7 @@ func TestAddonMatrix(t *testing.T) {
     }
 
     // Base options that apply to all test cases
-    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "matrix-test",
         ResourceGroup: "my-resource-group",
@@ -129,7 +129,7 @@ func TestAdvancedAddonMatrix(t *testing.T) {
         },
     }
 
-    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "advanced-matrix",
         ResourceGroup: "my-resource-group",
@@ -246,7 +246,7 @@ matrix := testaddons.AddonTestMatrix{
 
 ### Matrix-Specific Progress Indicators
 
-When quiet mode is enabled, matrix tests show clean progress for each test case:
+With quiet mode enabled by default, matrix tests show clean progress for each test case:
 
 ```
 🔄 Starting test: BasicConfiguration
@@ -325,7 +325,7 @@ testCases := []testaddons.AddonTestCase{
 ### 2. Enable Quiet Mode for Matrix Tests
 
 ```golang
-baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:   t,
     Prefix:    "matrix-test",
     QuietMode: true, // Recommended for matrix tests
@@ -420,7 +420,7 @@ func TestComprehensiveAddonTesting(t *testing.T) {
     // Run basic deployment test first
     t.Run("BasicDeployment", func(t *testing.T) {
         t.Parallel()
-        options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
             Testing: t,
             Prefix:  "basic-deploy",
         })
@@ -437,7 +437,7 @@ func TestComprehensiveAddonTesting(t *testing.T) {
     // Run permutation tests for dependency validation
     t.Run("DependencyPermutations", func(t *testing.T) {
         t.Parallel()
-        options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
             Testing: t,
             Prefix:  "dep-perm",
             AddonConfig: cloudinfo.AddonConfig{
@@ -458,7 +458,7 @@ Matrix testing provides an efficient way to test multiple addon configurations i
 - **Efficient Resource Usage**: Single catalog shared across all test cases
 - **Parallel Execution**: All tests run simultaneously for speed
 - **Flexible Configuration**: Each test case can be customized as needed
-- **Clean Output**: Quiet mode provides clear progress indicators
+- **Clean Output**: Quiet mode (enabled by default) provides clear progress indicators
 - **Automatic Cleanup**: No manual resource management required
 
 Use matrix testing when you need to test multiple specific scenarios for the same addon, and combine it with permutation testing for comprehensive dependency validation.

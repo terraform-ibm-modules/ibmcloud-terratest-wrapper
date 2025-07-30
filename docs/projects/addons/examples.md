@@ -19,7 +19,7 @@ import (
 )
 
 func setupAddonOptions(t *testing.T, prefix string) *testaddons.TestAddonOptions {
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        prefix,
         ResourceGroup: "my-project-rg",
@@ -91,7 +91,7 @@ import (
 )
 
 func TestMultipleAddonsWithSharedCatalog(t *testing.T) {
-    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "shared-test",
         ResourceGroup: "my-resource-group",
@@ -317,7 +317,7 @@ func TestRunAddonTestsWithFramework(t *testing.T) {
                 },
             },
         },
-        BaseOptions: testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        BaseOptions: testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
             Testing:       t,
             Prefix:        "matrix-example", // Test cases will override with their own prefixes
             ResourceGroup: "my-resource-group",
@@ -533,6 +533,109 @@ func TestAddonWithCustomLogging(t *testing.T) {
     assert.NoError(t, err)
 }
 
+### Input Override Behavior Examples
+
+These examples demonstrate how `OverrideInputMappings` controls whether user-provided inputs are used or ignored for reference fields:
+
+```golang
+// Example 1: Default Behavior - Reference Values Preserved (RECOMMENDED)
+func TestAddonWithPreservedReferences(t *testing.T) {
+    t.Parallel()
+
+    options := setupAddonOptions(t, "preserved-refs")
+
+    // Default behavior: OverrideInputMappings = false (preserves references)
+    // User inputs for reference fields will be IGNORED
+    options.AddonConfig = cloudinfo.NewAddonConfigTerraform(
+        options.Prefix,
+        "my-addon",
+        "standard",
+        map[string]interface{}{
+            "prefix": options.Prefix,
+            "region": "us-south",
+            // ⚠️ If "existing_kms_crn" has a reference value like "ref:../kms-config.instance_crn"
+            // this user-provided value will be IGNORED and the reference preserved
+            "existing_kms_crn": "user-provided-crn-value", // THIS WILL BE IGNORED
+            "service_plan": "standard", // ✅ This will be used (no existing reference)
+        },
+    )
+
+    // The framework will:
+    // - Keep existing_kms_crn as "ref:../kms-config.instance_crn" (reference preserved)
+    // - Use service_plan as "standard" (no existing reference)
+    // - Use prefix and region as provided
+
+    err := options.RunAddonTest()
+    assert.NoError(t, err)
+}
+
+// Example 2: Override Mode - All Values Replaced (DEVELOPMENT/TESTING ONLY)
+func TestAddonWithOverriddenReferences(t *testing.T) {
+    t.Parallel()
+
+    options := setupAddonOptions(t, "overridden-refs")
+
+    // Override mode: Replace ALL input values including references
+    options.OverrideInputMappings = core.BoolPtr(true) // ⚠️ Use with caution
+
+    options.AddonConfig = cloudinfo.NewAddonConfigTerraform(
+        options.Prefix,
+        "my-addon",
+        "standard",
+        map[string]interface{}{
+            "prefix": options.Prefix,
+            "region": "us-south",
+            // ✅ This will override any existing reference value
+            "existing_kms_crn": "user-provided-crn-value", // THIS WILL BE USED
+            "service_plan": "standard",
+        },
+    )
+
+    // ⚠️ WARNING: This may break dependency relationships
+    // Only use for special testing scenarios where you need to override references
+
+    err := options.RunAddonTest()
+    assert.NoError(t, err)
+}
+
+// Example 3: Production Pattern - Explicit Default Setting
+func TestProductionAddonPattern(t *testing.T) {
+    t.Parallel()
+
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+        Testing:       t,
+        Prefix:        "prod-pattern",
+        ResourceGroup: "my-project-rg",
+        // Explicitly document the behavior (though this is the default)
+        OverrideInputMappings: core.BoolPtr(false), // Preserve reference mappings
+    })
+
+    options.AddonConfig = cloudinfo.NewAddonConfigTerraform(
+        options.Prefix,
+        "production-addon",
+        "enterprise",
+        map[string]interface{}{
+            "prefix": options.Prefix,
+            "region": "us-south",
+            "environment": "production",
+            // Reference fields will be preserved if they exist
+            // Non-reference fields will use these values
+        },
+    )
+
+    err := options.RunAddonTest()
+    assert.NoError(t, err, "Production addon test should preserve proper references")
+}
+```
+
+**Key Takeaways from Input Override Examples:**
+
+- **Default (`OverrideInputMappings: false`)**: User inputs for reference fields are **IGNORED** - this is the intended behavior
+- **Override (`OverrideInputMappings: true`)**: All user inputs replace existing values, including breaking references
+- **Reference fields** start with `"ref:"` and connect configurations together
+- **Breaking references** can cause deployment failures or incorrect resource connections
+- **Use default behavior** for standard testing to maintain proper dependency relationships
+
 // Example comparing different scenarios with clear naming
 func TestMultipleScenarios(t *testing.T) {
     scenarios := []struct {
@@ -640,7 +743,7 @@ func TestAddonValidationOnly(t *testing.T) {
 func TestAddonWithCustomProject(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:                  t,
         Prefix:                   "custom-project",
         ResourceGroup:            "my-project-rg",
@@ -719,7 +822,7 @@ import (
 func TestSecretsManagerPermutations(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "sm-perm",
         AddonConfig: cloudinfo.AddonConfig{
@@ -748,7 +851,7 @@ func TestMultipleAddonPermutations(t *testing.T) {
     t.Run("SecretsManager", func(t *testing.T) {
         t.Parallel()
 
-        options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
             Testing: t,
             Prefix:  "sm-perm",
             AddonConfig: cloudinfo.AddonConfig{
@@ -771,7 +874,7 @@ func TestMultipleAddonPermutations(t *testing.T) {
     t.Run("KMS", func(t *testing.T) {
         t.Parallel()
 
-        options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
             Testing: t,
             Prefix:  "kms-perm",
             AddonConfig: cloudinfo.AddonConfig{
@@ -830,7 +933,7 @@ func TestAddonFullDeployment(t *testing.T) {
 func TestAddonDependencyPermutations(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "addon-perm",
         AddonConfig: cloudinfo.AddonConfig{

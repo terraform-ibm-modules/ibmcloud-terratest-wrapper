@@ -77,6 +77,7 @@ func (options *TestAddonOptions) buildDependencyGraphWithDisabled(catalogID stri
 		Version: offeringVersion,
 		Flavor:  cloudinfo.Flavor{Name: flavor},
 	}
+
 	result.ExpectedDeployedList = append(result.ExpectedDeployedList, addon)
 
 	// Create a key for the graph map (using name:version:flavor as a unique identifier)
@@ -88,7 +89,9 @@ func (options *TestAddonOptions) buildDependencyGraphWithDisabled(catalogID stri
 			// Check if this dependency has been disabled at the offering level
 			// This applies globally across the entire dependency tree
 			if disabledOfferings[*dep.Name] {
-				options.Logger.ShortInfo(fmt.Sprintf("Skipping catalog dependency %s - disabled at offering level in dependency tree\n", *dep.Name))
+				if options.Logger != nil {
+					options.Logger.ShortInfo(fmt.Sprintf("Skipping catalog dependency %s - disabled at offering level in dependency tree\n", *dep.Name))
+				}
 				continue
 			}
 
@@ -312,6 +315,7 @@ func (options *TestAddonOptions) buildActuallyDeployedListFromResponse(deployedC
 // validateDependencies compares expected dependency graph and actually deployed configurations
 // Returns a ValidationResult containing all validation issues found instead of failing on first error
 func (options *TestAddonOptions) validateDependencies(graph map[string][]cloudinfo.OfferingReferenceDetail, expectedDeployedList []cloudinfo.OfferingReferenceDetail, actuallyDeployedList []cloudinfo.OfferingReferenceDetail) ValidationResult {
+
 	result := ValidationResult{
 		IsValid:           true,
 		DependencyErrors:  make([]cloudinfo.DependencyError, 0),

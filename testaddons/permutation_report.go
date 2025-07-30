@@ -14,12 +14,13 @@ import (
 type MessageType int
 
 const (
-	MessageTypeUnexpectedConfig MessageType = iota // unexpected configs deployed when disabled
-	MessageTypeMissingConfig                       // missing configs that should be deployed
-	MessageTypeDependencyError                     // dependency validation errors
-	MessageTypeInputValidation                     // missing or invalid input validation
-	MessageTypeSuccessMessage                      // success messages that should be filtered
-	MessageTypeGeneral                             // other validation messages
+	MessageTypeUnexpectedConfig   MessageType = iota // unexpected configs deployed when disabled
+	MessageTypeMissingConfig                         // missing configs that should be deployed
+	MessageTypeDependencyError                       // dependency validation errors
+	MessageTypeInputValidation                       // missing or invalid input validation
+	MessageTypeCircularDependency                    // circular dependency errors
+	MessageTypeSuccessMessage                        // success messages that should be filtered
+	MessageTypeGeneral                               // other validation messages
 )
 
 // String returns the string representation of MessageType
@@ -33,6 +34,8 @@ func (mt MessageType) String() string {
 		return "DependencyError"
 	case MessageTypeInputValidation:
 		return "InputValidation"
+	case MessageTypeCircularDependency:
+		return "CircularDependency"
 	case MessageTypeSuccessMessage:
 		return "SuccessMessage"
 	case MessageTypeGeneral:
@@ -56,6 +59,11 @@ func classifyMessage(msg string) MessageType {
 	}
 	if strings.Contains(msg, "missing configs") {
 		return MessageTypeMissingConfig
+	}
+
+	// Circular dependency errors (check before general dependency errors)
+	if strings.Contains(msg, "🔍 CIRCULAR DEPENDENCY DETECTED") {
+		return MessageTypeCircularDependency
 	}
 
 	// Dependency validation errors
@@ -139,6 +147,13 @@ func (report *PermutationTestReport) PrintPermutationReport(logger *common.Smart
 	// Passing tests section (summary only)
 	if report.PassedTests > 0 {
 		reportBuilder.WriteString(fmt.Sprintf("✅ PASSED: %d tests completed successfully\n\n", report.PassedTests))
+	}
+
+	// Strict mode warnings section
+	strictModeWarnings := report.generateStrictModeWarningsSection()
+	if strictModeWarnings != "" {
+		reportBuilder.WriteString(strictModeWarnings)
+		reportBuilder.WriteString("\n")
 	}
 
 	// Failed tests section (detailed)
@@ -698,7 +713,15 @@ func (report *PermutationTestReport) generateAggregatedSummary() string {
 			summary.WriteString(fmt.Sprintf("• %s missing required inputs: %s\n", pattern.ConfigPattern, pattern.InputName))
 			if pattern.SuspectedRootCause != "" {
 				summary.WriteString(fmt.Sprintf("  Seen %d times → ROOT CAUSE: %s\n", pattern.Count, pattern.SuspectedRootCause))
-				summary.WriteString(fmt.Sprintf("  💡 SOLUTION: Add input mapping for when %s is disabled\n\n", extractDependencyName(pattern.SuspectedRootCause)))
+
+				// Check if this is a root offering error by examining if the config pattern appears in any disabled dependencies
+				isRootOffering := report.isRootOfferingError(pattern.ConfigPattern)
+
+				if isRootOffering {
+					summary.WriteString(fmt.Sprintf("  💡 SOLUTION: Add input mapping within the root offering for when %s is disabled, or provide %s input to the test case configuration\n\n", extractDependencyName(pattern.SuspectedRootCause), pattern.InputName))
+				} else {
+					summary.WriteString(fmt.Sprintf("  💡 SOLUTION: Add input mapping for when %s is disabled\n\n", extractDependencyName(pattern.SuspectedRootCause)))
+				}
 			} else {
 				summary.WriteString(fmt.Sprintf("  Seen %d times (requires further analysis)\n\n", pattern.Count))
 			}
@@ -779,7 +802,7 @@ func (report *PermutationTestReport) generateAggregatedSummary() string {
 	}
 
 	// Generate action items
-	actionItems := report.generateActionItems(configPatterns)
+	actionItems := report.generateActionItems(configPatterns, validationPatterns)
 	if len(actionItems) > 0 {
 		summary.WriteString("📋 ACTION ITEMS:\n")
 		for i, item := range actionItems {
@@ -870,6 +893,12 @@ func (report *PermutationTestReport) analyzeConfigurationErrors() []Configuratio
 				DisabledDeps: extractDisabledDependencies(result.AddonConfig),
 			}
 
+			// Create a mapping from config names to offering names for this test result
+			configToOffering := make(map[string]string)
+			for _, addon := range result.AddonConfig {
+				configToOffering[addon.ConfigName] = addon.OfferingName
+			}
+
 			// Check missing inputs and configuration errors in ValidationResult
 			if result.ValidationResult != nil {
 				// Check missing inputs - handle both formats
@@ -877,16 +906,16 @@ func (report *PermutationTestReport) analyzeConfigurationErrors() []Configuratio
 					// Handle full error format: "missing required inputs: config (missing: input)"
 					if strings.Contains(missingInput, "missing required inputs:") {
 						cleanedError := parseConfigurationError(missingInput)
-						inputName, configPattern := extractInputPattern(cleanedError)
-						if inputName != "" && configPattern != "" {
-							key := fmt.Sprintf("%s|%s", configPattern, inputName)
+						inputName, offeringName := ExtractInputPatternWithOffering(cleanedError, configToOffering)
+						if inputName != "" && offeringName != "" {
+							key := fmt.Sprintf("%s|%s", offeringName, inputName)
 							inputPatterns[key] = append(inputPatterns[key], testInfo)
 						}
 					} else {
 						// Handle individual format: "config (missing: input)" or any other format
-						inputName, configPattern := extractInputPattern(missingInput)
-						if inputName != "" && configPattern != "" {
-							key := fmt.Sprintf("%s|%s", configPattern, inputName)
+						inputName, offeringName := ExtractInputPatternWithOffering(missingInput, configToOffering)
+						if inputName != "" && offeringName != "" {
+							key := fmt.Sprintf("%s|%s", offeringName, inputName)
 							inputPatterns[key] = append(inputPatterns[key], testInfo)
 						}
 					}
@@ -896,9 +925,9 @@ func (report *PermutationTestReport) analyzeConfigurationErrors() []Configuratio
 				for _, configError := range result.ValidationResult.ConfigurationErrors {
 					if strings.Contains(configError, "missing required inputs:") {
 						cleanedError := parseConfigurationError(configError)
-						inputName, configPattern := extractInputPattern(cleanedError)
-						if inputName != "" && configPattern != "" {
-							key := fmt.Sprintf("%s|%s", configPattern, inputName)
+						inputName, offeringName := ExtractInputPatternWithOffering(cleanedError, configToOffering)
+						if inputName != "" && offeringName != "" {
+							key := fmt.Sprintf("%s|%s", offeringName, inputName)
 							inputPatterns[key] = append(inputPatterns[key], testInfo)
 						}
 					}
@@ -949,6 +978,21 @@ func (report *PermutationTestReport) analyzeConfigurationErrors() []Configuratio
 	return patterns
 }
 
+// isRootOfferingError determines if a configuration error is for the root offering
+// Root offerings are those that don't appear in any disabled dependencies list
+func (report *PermutationTestReport) isRootOfferingError(configPattern string) bool {
+	// Check all test results to see if this offering name ever appears as a disabled dependency
+	for _, result := range report.Results {
+		disabledDeps := extractDisabledDependencies(result.AddonConfig)
+		for _, disabled := range disabledDeps {
+			if disabled == configPattern {
+				return false // Found in disabled deps, so it's not a root offering
+			}
+		}
+	}
+	return true // Never found in disabled deps, so it's likely the root offering
+}
+
 // analyzeValidationErrors groups validation errors by type
 func (report *PermutationTestReport) analyzeValidationErrors() []ValidationErrorPattern {
 	patternCounts := make(map[string]int)
@@ -977,9 +1021,18 @@ func (report *PermutationTestReport) analyzeValidationErrors() []ValidationError
 			for _, msg := range result.ValidationResult.Messages {
 				messageType := classifyMessage(msg)
 
-				// Only process general messages that aren't covered by specific arrays
-				// and aren't success messages that should be filtered
-				if messageType == MessageTypeGeneral {
+				switch messageType {
+				case MessageTypeCircularDependency:
+					// Extract the circular dependency chain from the message
+					// Format: "🔍 CIRCULAR DEPENDENCY DETECTED: configA → configB → configA"
+					if strings.Contains(msg, "🔍 CIRCULAR DEPENDENCY DETECTED:") {
+						// Extract just the chain part after the prefix
+						chainPart := strings.TrimPrefix(msg, "🔍 CIRCULAR DEPENDENCY DETECTED: ")
+						patternCounts["Circular dependency|"+chainPart]++
+					}
+				case MessageTypeGeneral:
+					// Only process general messages that aren't covered by specific arrays
+					// and aren't success messages that should be filtered
 					patternCounts["Generic validation|"+msg]++
 				}
 			}
@@ -1047,9 +1100,10 @@ func (report *PermutationTestReport) analyzeTransientErrors() TransientErrorDeta
 }
 
 // generateActionItems creates actionable recommendations based on error patterns
-func (report *PermutationTestReport) generateActionItems(configPatterns []ConfigurationErrorPattern) []string {
+func (report *PermutationTestReport) generateActionItems(configPatterns []ConfigurationErrorPattern, validationPatterns []ValidationErrorPattern) []string {
 	var actions []string
 
+	// Handle configuration error patterns
 	for _, pattern := range configPatterns {
 		if pattern.SuspectedRootCause != "" && (pattern.ConfidenceLevel == "HIGH" || pattern.ConfidenceLevel == "MEDIUM") {
 			depName := extractDependencyName(pattern.SuspectedRootCause)
@@ -1060,10 +1114,50 @@ func (report *PermutationTestReport) generateActionItems(configPatterns []Config
 		}
 	}
 
+	// Handle validation error patterns including circular dependencies
+	for _, pattern := range validationPatterns {
+		if pattern.ErrorType == "Circular dependency" {
+			// Extract the config names from the circular dependency chain
+			configNames := extractConfigNamesFromCircularChain(pattern.Pattern)
+			if len(configNames) >= 2 {
+				action := fmt.Sprintf("Resolve circular dependency: %s ↔ %s → Use existing resources or restructure deployment (affects %d tests)",
+					configNames[0], configNames[1], pattern.Count)
+				actions = append(actions, action)
+			}
+		}
+	}
+
 	return actions
 }
 
 // Helper functions
+
+// extractConfigNamesFromCircularChain extracts config names from a circular dependency chain
+// Input format: "configA → configB → configC → configA" or similar
+func extractConfigNamesFromCircularChain(chain string) []string {
+	// Split by arrow separator and clean up names
+	parts := strings.Split(chain, " → ")
+	var configNames []string
+
+	// Use a map to deduplicate config names (since circular chains repeat the first config at the end)
+	seen := make(map[string]bool)
+
+	for _, part := range parts {
+		// Extract just the config name part (before any parentheses with details)
+		configName := strings.TrimSpace(part)
+		if parenIndex := strings.Index(configName, " ("); parenIndex != -1 {
+			configName = configName[:parenIndex]
+		}
+
+		// Add to results if not already seen
+		if configName != "" && !seen[configName] {
+			configNames = append(configNames, configName)
+			seen[configName] = true
+		}
+	}
+
+	return configNames
+}
 
 // extractEnabledDependencies extracts enabled dependency names from addon config
 func extractEnabledDependencies(configs []cloudinfo.AddonConfig) []string {
@@ -1087,8 +1181,9 @@ func extractDisabledDependencies(configs []cloudinfo.AddonConfig) []string {
 	return disabled
 }
 
-// extractInputPattern extracts input name and config pattern from parsed error message
-func extractInputPattern(errorMsg string) (inputName, configPattern string) {
+// ExtractInputPatternWithOffering extracts input name and offering name from error messages
+// using the config-to-offering mapping instead of parsing config names
+func ExtractInputPatternWithOffering(errorMsg string, configToOffering map[string]string) (inputName, offeringName string) {
 	// Parse format: "config-name missing required inputs: input1, input2"
 	if strings.Contains(errorMsg, " missing required inputs: ") {
 		parts := strings.Split(errorMsg, " missing required inputs: ")
@@ -1096,12 +1191,17 @@ func extractInputPattern(errorMsg string) (inputName, configPattern string) {
 			configName := strings.TrimSpace(parts[0])
 			inputs := strings.Split(strings.TrimSpace(parts[1]), ", ")
 			if len(inputs) > 0 {
-				// Replace random suffixes with * to create pattern
-				configPattern = replaceRandomSuffix(configName)
-				inputName = strings.TrimSpace(inputs[0]) // Use first input as primary
+				inputName = strings.TrimSpace(inputs[0])
+				// Look up offering name from config name
+				if offering, exists := configToOffering[configName]; exists {
+					offeringName = offering
+				} else {
+					// Fallback: use config name as offering name if not found in mapping
+					offeringName = configName
+				}
 			}
 		}
-		return inputName, configPattern
+		return inputName, offeringName
 	}
 
 	// Handle format: "missing required inputs: config-name (missing: input1, input2)"
@@ -1121,25 +1221,17 @@ func extractInputPattern(errorMsg string) (inputName, configPattern string) {
 				inputs := strings.Split(inputsPart, ",")
 				if len(inputs) > 0 {
 					inputName = strings.TrimSpace(inputs[0])
-					configPattern = replaceRandomSuffix(configName)
-					return inputName, configPattern
+					// Look up offering name from config name
+					if offering, exists := configToOffering[configName]; exists {
+						offeringName = offering
+					} else {
+						// Fallback: use config name as offering name if not found in mapping
+						offeringName = configName
+					}
+					return inputName, offeringName
 				}
 			}
 		}
-	}
-
-	// Handle alternative format: "missing required inputs: input_name"
-	if strings.Contains(errorMsg, "missing required inputs: ") && !strings.Contains(errorMsg, " missing required inputs: ") && !strings.Contains(errorMsg, " (missing: ") {
-		parts := strings.Split(errorMsg, "missing required inputs: ")
-		if len(parts) == 2 {
-			inputs := strings.Split(strings.TrimSpace(parts[1]), ", ")
-			if len(inputs) > 0 {
-				inputName = strings.TrimSpace(inputs[0])
-				// Try to extract config name from context or use generic pattern
-				configPattern = "*" // Default pattern when config name is unclear
-			}
-		}
-		return inputName, configPattern
 	}
 
 	// Handle direct config format: "config-name (missing: input1, input2)"
@@ -1155,8 +1247,14 @@ func extractInputPattern(errorMsg string) (inputName, configPattern string) {
 			inputs := strings.Split(inputsPart, ",")
 			if len(inputs) > 0 {
 				inputName = strings.TrimSpace(inputs[0])
-				configPattern = replaceRandomSuffix(configName)
-				return inputName, configPattern
+				// Look up offering name from config name
+				if offering, exists := configToOffering[configName]; exists {
+					offeringName = offering
+				} else {
+					// Fallback: use config name as offering name if not found in mapping
+					offeringName = configName
+				}
+				return inputName, offeringName
 			}
 		}
 	}
@@ -1168,27 +1266,12 @@ func extractInputPattern(errorMsg string) (inputName, configPattern string) {
 			inputs := strings.Split(strings.TrimSpace(parts[1]), ", ")
 			if len(inputs) > 0 {
 				inputName = strings.TrimSpace(inputs[0])
-				configPattern = "*" // Generic pattern
+				offeringName = "Unknown" // Generic pattern when config name is unclear
 			}
 		}
 	}
 
-	return inputName, configPattern
-}
-
-// replaceRandomSuffix replaces random suffixes in config names to create patterns
-func replaceRandomSuffix(configName string) string {
-	// Look for pattern like "deploy-arch-ibm-cloud-logs-abc123"
-	parts := strings.Split(configName, "-")
-	if len(parts) > 0 {
-		lastPart := parts[len(parts)-1]
-		// If last part looks like a random suffix (alphanumeric, 5+ chars)
-		if len(lastPart) >= 5 && isAlphanumeric(lastPart) {
-			parts[len(parts)-1] = "*"
-			return strings.Join(parts, "-")
-		}
-	}
-	return configName
+	return inputName, offeringName
 }
 
 // findCommonDisabledDependencies finds dependencies disabled in ALL tests
@@ -1277,6 +1360,8 @@ func (report *PermutationTestReport) getValidationInsight(errorType string) stri
 		return "ISSUE: Required dependency not deployed when expected"
 	case "Missing dependency":
 		return "ISSUE: Addon requires dependency that is disabled"
+	case "Circular dependency":
+		return "ISSUE: Circular dependency between configurations"
 	case "Generic validation":
 		return "ISSUE: Dependency validation failed"
 	default:
@@ -1293,9 +1378,74 @@ func (report *PermutationTestReport) getValidationSolution(errorType string) str
 		return "Check dependency requirements and deployment logic"
 	case "Missing dependency":
 		return "Enable required dependency or remove dependent addon"
+	case "Circular dependency":
+		return "Use existing resources or restructure deployment order"
 	case "Generic validation":
 		return "Review dependency validation rules and configuration"
 	default:
 		return ""
 	}
+}
+
+// generateStrictModeWarningsSection creates a section showing warnings that would have failed in strict mode
+func (report *PermutationTestReport) generateStrictModeWarningsSection() string {
+	// Collect all tests with strict mode warnings
+	var warningTests []PermutationTestResult
+	for _, result := range report.Results {
+		// Only include passed tests that have strict mode warnings
+		if result.Passed && result.StrictMode != nil && !*result.StrictMode && len(result.StrictModeWarnings) > 0 {
+			warningTests = append(warningTests, result)
+		}
+	}
+
+	if len(warningTests) == 0 {
+		return ""
+	}
+
+	var builder strings.Builder
+	builder.WriteString("⚠️ STRICT MODE DISABLED - The following would have failed in strict mode:\n")
+
+	// Categorize warnings
+	circularDependencyCount := 0
+	forceEnabledDependencyCount := 0
+	var circularTests []string
+	var forceEnabledTests []string
+
+	for _, result := range warningTests {
+		for _, warning := range result.StrictModeWarnings {
+			if strings.Contains(warning, "Circular dependency") {
+				circularDependencyCount++
+				circularTests = append(circularTests, fmt.Sprintf("  - Test \"%s\": %s", result.Name, warning))
+			} else if strings.Contains(warning, "force-enabled despite being disabled") {
+				forceEnabledDependencyCount++
+				forceEnabledTests = append(forceEnabledTests, fmt.Sprintf("  - Test \"%s\": %s", result.Name, warning))
+			}
+		}
+	}
+
+	// Display circular dependency warnings
+	if circularDependencyCount > 0 {
+		testWord := "test"
+		if circularDependencyCount > 1 {
+			testWord = "tests"
+		}
+		builder.WriteString(fmt.Sprintf("• Circular Dependencies Detected (%d %s):\n", circularDependencyCount, testWord))
+		for _, test := range circularTests {
+			builder.WriteString(test + "\n")
+		}
+	}
+
+	// Display force-enabled dependency warnings
+	if forceEnabledDependencyCount > 0 {
+		testWord := "test"
+		if forceEnabledDependencyCount > 1 {
+			testWord = "tests"
+		}
+		builder.WriteString(fmt.Sprintf("• Required Dependencies Force-Enabled (%d %s):\n", forceEnabledDependencyCount, testWord))
+		for _, test := range forceEnabledTests {
+			builder.WriteString(test + "\n")
+		}
+	}
+
+	return builder.String()
 }

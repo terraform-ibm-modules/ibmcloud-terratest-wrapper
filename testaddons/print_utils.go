@@ -18,9 +18,15 @@ func (options *TestAddonOptions) printConsolidatedValidationSummary(validationRe
 	dependencyCount := len(validationResult.DependencyErrors)
 	unexpectedCount := len(validationResult.UnexpectedConfigs)
 	missingCount := len(validationResult.MissingConfigs)
+	warningsCount := len(validationResult.Warnings)
 
-	options.Logger.ShortError(fmt.Sprintf("Summary: %d dependency errors, %d unexpected configs, %d missing configs",
-		dependencyCount, unexpectedCount, missingCount))
+	if warningsCount > 0 {
+		options.Logger.ShortError(fmt.Sprintf("Summary: %d dependency errors, %d unexpected configs, %d missing configs, %d warnings",
+			dependencyCount, unexpectedCount, missingCount, warningsCount))
+	} else {
+		options.Logger.ShortError(fmt.Sprintf("Summary: %d dependency errors, %d unexpected configs, %d missing configs",
+			dependencyCount, unexpectedCount, missingCount))
+	}
 	options.Logger.ShortError("")
 
 	// Dependency Errors Section
@@ -68,8 +74,21 @@ func (options *TestAddonOptions) printConsolidatedValidationSummary(validationRe
 		options.Logger.ShortError("")
 	}
 
+	// Warnings Section
+	if warningsCount > 0 {
+		options.Logger.ShortWarn("⚠️ WARNINGS:")
+		for i, warning := range validationResult.Warnings {
+			options.Logger.ShortWarn(fmt.Sprintf("  %d. %s", i+1, warning))
+		}
+		options.Logger.ShortError("")
+	}
+
 	options.Logger.ShortError("═══════════════════════════════════════════════════════════════")
-	options.Logger.ShortError("Fix the above issues and retry the deployment.")
+	if warningsCount > 0 && dependencyCount == 0 && unexpectedCount == 0 && missingCount == 0 {
+		options.Logger.ShortWarn("Review the warnings above but test will continue.")
+	} else {
+		options.Logger.ShortError("Fix the above issues and retry the deployment.")
+	}
 	options.Logger.ShortError("═══════════════════════════════════════════════════════════════")
 }
 

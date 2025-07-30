@@ -92,6 +92,10 @@ type AddonConfig struct {
 	CatalogID           string
 	ResolvedVersion     string
 	Dependencies        []AddonConfig
+	// IsRequired indicates if this dependency is marked as required in the catalog
+	IsRequired *bool
+	// RequiredBy lists the names of dependencies that require this one (for tracing force-enabled dependencies)
+	RequiredBy []string
 }
 
 // InstallKind represents the type of install

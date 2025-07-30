@@ -282,7 +282,7 @@ Resource name 'test-vpc-123' already exists
 // Ensure unique prefixes
 func setupAddonOptions(t *testing.T, prefix string) *testaddons.TestAddonOptions {
     // Framework automatically adds random suffix to prefix
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        prefix, // Will become prefix-random
         ResourceGroup: resourceGroup,
@@ -347,7 +347,7 @@ testCases := []testaddons.AddonTestCase{
 
 // Use different resource groups
 func setupAddonOptions(t *testing.T, prefix string) *testaddons.TestAddonOptions {
-    return testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    return testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        prefix,
         ResourceGroup: fmt.Sprintf("test-rg-%s", prefix),
@@ -507,7 +507,7 @@ Create a minimal test that reproduces the issue:
 
 ```golang
 func TestMinimalReproduction(t *testing.T) {
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "minimal",
         ResourceGroup: "test-rg",

@@ -48,23 +48,10 @@ func TestPermutationGenerationLogic(t *testing.T) {
 		},
 	}
 
-	// Test with 2 dependencies
-	dependencies := []cloudinfo.AddonConfig{
-		{
-			OfferingName:   "dep1",
-			OfferingFlavor: "flavor1",
-			OnByDefault:    core.BoolPtr(true),
-			Enabled:        core.BoolPtr(true),
-		},
-		{
-			OfferingName:   "dep2",
-			OfferingFlavor: "flavor2",
-			OnByDefault:    core.BoolPtr(true),
-			Enabled:        core.BoolPtr(true),
-		},
-	}
+	// Test with 2 dependency names (simplified approach)
+	dependencyNames := []string{"dep1", "dep2"}
 
-	testCases := options.generatePermutations(dependencies)
+	testCases := options.generatePermutations(dependencyNames)
 
 	// With 2 dependencies, we should have 2^2 - 1 = 3 permutations
 	// (excluding the "on by default" case)
@@ -296,13 +283,13 @@ func TestRunAddonPermutationTestWithMock(t *testing.T) {
 		}
 
 		// This should not panic and should not call the matrix test since we're not testing the full flow
-		// Instead, let's just test the dependency discovery part
-		dependencies, err := options.discoverDependencies()
+		// Instead, let's just test the dependency name discovery part
+		dependencyNames, err := options.getDirectDependencyNames()
 		assert.NoError(t, err)
-		assert.Len(t, dependencies, 2)
+		assert.Len(t, dependencyNames, 2)
 
 		// Test permutation generation
-		testCases := options.generatePermutations(dependencies)
+		testCases := options.generatePermutations(dependencyNames)
 		assert.Len(t, testCases, 3) // 2^2 - 1 = 3 permutations
 
 		// Verify all test cases skip infrastructure deployment
@@ -378,10 +365,10 @@ func TestRunAddonPermutationTestNoDependencies(t *testing.T) {
 		},
 	}
 
-	// Test dependency discovery
-	dependencies, err := options.discoverDependencies()
+	// Test dependency name discovery
+	dependencyNames, err := options.getDirectDependencyNames()
 	assert.NoError(t, err)
-	assert.Len(t, dependencies, 0)
+	assert.Len(t, dependencyNames, 0)
 
 	// Verify mock expectations were met
 	mockService.AssertExpectations(t)

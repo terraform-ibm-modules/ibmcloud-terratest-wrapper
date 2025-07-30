@@ -24,7 +24,7 @@ func TestWebAppAddonCI(t *testing.T) {
     // Detect GitHub Actions environment
     isCI := os.Getenv("GITHUB_ACTIONS") == "true"
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:           t,
         Prefix:            "gh-webapp",
         ResourceGroup:     "webapp-test-rg",
@@ -81,7 +81,7 @@ func TestDatabaseAddonLocal(t *testing.T) {
     // No t.Parallel() for sequential execution during development
 
     quietMode := false
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:           t,
         Prefix:            "local-db",
         ResourceGroup:     "dev-test-rg",
@@ -174,7 +174,7 @@ func TestMicroservicesIntegrationSuite(t *testing.T) {
                 t.Parallel()
 
                 quietMode := true
-                options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+                options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
                     Testing:           t,
                     Prefix:            fmt.Sprintf("suite-%s", svc.name),
                     ResourceGroup:     "microservices-rg",
