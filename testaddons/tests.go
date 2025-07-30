@@ -2637,30 +2637,6 @@ func (options *TestAddonOptions) parseConfigIDFromReference(reference string) st
 	return ""
 }
 
-// parseInputOutputFromReference extracts input name and output name from a reference string
-// Note: This now uses dynamic parsing to handle both inputs and outputs
-func (options *TestAddonOptions) parseInputOutputFromReference(reference string) (inputName string, outputName string) {
-	details := options.parseReferenceDetails(reference)
-	if !details.IsValid {
-		return "unknown_input", "unknown_output"
-	}
-
-	// The field name is what we're referencing
-	if details.ReferenceType == "outputs" {
-		outputName = details.FieldName
-		inputName = "unknown_input" // We still don't know the input field without additional context
-	} else if details.ReferenceType == "inputs" {
-		inputName = details.FieldName
-		outputName = "unknown_output" // We're referencing an input, not an output
-	} else {
-		// Handle any future reference types generically
-		outputName = details.FieldName
-		inputName = "unknown_input"
-	}
-
-	return inputName, outputName
-}
-
 // findInputFieldNameFromReference finds the input field name that contains the given reference
 func (options *TestAddonOptions) findInputFieldNameFromReference(config ConfigDependencyInfo, reference string) string {
 	// Look through the field mappings to find which field has this reference
@@ -2816,28 +2792,6 @@ func (options *TestAddonOptions) buildCycleDescription(path []string, cycleStart
 		"• Consider using data sources or external references"
 
 	return fmt.Sprintf("🔍 CIRCULAR DEPENDENCY DETECTED: %s%s", cycleChain, resolutionGuidance)
-}
-
-// extractInputNameFromReference attempts to extract a meaningful input name from the reference
-// This is a heuristic approach since the reference format doesn't include input field names
-func (options *TestAddonOptions) extractInputNameFromReference(reference string) string {
-	// Try to infer input name from the output name being referenced
-	_, outputName := options.parseInputOutputFromReference(reference)
-
-	// Common mapping patterns for IBM Cloud offerings
-	switch outputName {
-	case "cloud_logs_crn":
-		return "existing_cloud_logs_instance_crn"
-	case "cloud_logs_name":
-		return "cloud_logs_instance_name"
-	case "kms_key_crn":
-		return "existing_kms_key_crn"
-	case "cos_instance_crn":
-		return "existing_cos_instance_crn"
-	default:
-		// Fallback: use the output name with "existing_" prefix
-		return fmt.Sprintf("existing_%s", outputName)
-	}
 }
 
 // findUnresolvedReferences identifies input references that point to non-existent configs or outputs
