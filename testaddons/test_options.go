@@ -618,10 +618,21 @@ type TestAddonOptions struct {
 	// Only effective when QuietMode is true. Default is true.
 	VerboseOnFailure bool
 
+	// StrictMode If set to true (default), fails validation when required dependencies are deployed despite being disabled.
+	// When false, treats force-enabled required dependencies as expected and adds them to the dependency tree.
+	// This allows testing dependency permutations while maintaining business logic for required components.
+	StrictMode *bool
+
+	// OverrideInputMappings If set to false (default), preserves existing reference values (starting with "ref:") when merging inputs.
+	// When true, uses current behavior and overrides all input values regardless of whether they are references.
+	// This allows controlled preservation of input mappings that reference other configuration outputs.
+	OverrideInputMappings *bool
+
 	// internal use
-	currentProject       *project.Project
-	currentProjectConfig *cloudinfo.ProjectsConfig
-	deployedConfigs      *cloudinfo.DeployedAddonsDetails // Store deployed configs for validation
+	configInputReferences map[string]map[string]string // ConfigID -> FieldName -> ReferenceValue cache
+	currentProject        *project.Project
+	currentProjectConfig  *cloudinfo.ProjectsConfig
+	deployedConfigs       *cloudinfo.DeployedAddonsDetails // Store deployed configs for validation
 
 	currentBranch    *string
 	currentBranchUrl *string
@@ -736,6 +747,16 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 		newOptions.VerboseOnFailure = true
 	}
 
+	// Set default StrictMode to true (fail on required dependency validation issues)
+	if newOptions.StrictMode == nil {
+		newOptions.StrictMode = core.BoolPtr(true)
+	}
+
+	// Set default OverrideInputMappings to false (preserve reference values)
+	if newOptions.OverrideInputMappings == nil {
+		newOptions.OverrideInputMappings = core.BoolPtr(false)
+	}
+
 	// Initialize logger if not already set to prevent nil pointer panics
 	if newOptions.Logger == nil {
 		testName := "addon-test"
@@ -778,6 +799,52 @@ func copyBoolPointer(original *bool) *bool {
 	return &copied
 }
 
+// copyAddonConfig creates a deep copy of AddonConfig to avoid reference sharing
+// This is critical for matrix tests where each test case needs independent dependency configurations
+func copyAddonConfig(original cloudinfo.AddonConfig) cloudinfo.AddonConfig {
+	copied := original // Start with shallow copy of all fields
+
+	// Deep copy the Dependencies slice to avoid sharing references between test cases
+	if original.Dependencies != nil {
+		copied.Dependencies = make([]cloudinfo.AddonConfig, len(original.Dependencies))
+		for i, dep := range original.Dependencies {
+			copied.Dependencies[i] = copyAddonConfig(dep) // Recursive deep copy
+		}
+	}
+
+	// Deep copy the Inputs map to avoid sharing references
+	if original.Inputs != nil {
+		copied.Inputs = make(map[string]interface{})
+		for k, v := range original.Inputs {
+			copied.Inputs[k] = v
+		}
+	}
+
+	// Deep copy pointer fields to avoid sharing
+	if original.Enabled != nil {
+		enabled := *original.Enabled
+		copied.Enabled = &enabled
+	}
+
+	if original.OnByDefault != nil {
+		onByDefault := *original.OnByDefault
+		copied.OnByDefault = &onByDefault
+	}
+
+	if original.IsRequired != nil {
+		isRequired := *original.IsRequired
+		copied.IsRequired = &isRequired
+	}
+
+	// Deep copy RequiredBy slice
+	if original.RequiredBy != nil {
+		copied.RequiredBy = make([]string, len(original.RequiredBy))
+		copy(copied.RequiredBy, original.RequiredBy)
+	}
+
+	return copied
+}
+
 func (options *TestAddonOptions) copy() *TestAddonOptions {
 	if options == nil {
 		return nil
@@ -799,7 +866,7 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		CatalogUseExisting:           options.CatalogUseExisting,
 		CatalogName:                  options.CatalogName,
 		SharedCatalog:                copyBoolPointer(options.SharedCatalog),
-		AddonConfig:                  options.AddonConfig, // Note: shallow copy, will be overridden
+		AddonConfig:                  copyAddonConfig(options.AddonConfig), // Deep copy to avoid reference sharing
 		DeployTimeoutMinutes:         options.DeployTimeoutMinutes,
 		SkipTestTearDown:             options.SkipTestTearDown,
 		SkipUndeploy:                 options.SkipUndeploy,
@@ -820,15 +887,18 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		PostUndeployHook:             options.PostUndeployHook,
 		Logger:                       options.Logger,
 		QuietMode:                    options.QuietMode,
+		StrictMode:                   copyBoolPointer(options.StrictMode),
+		OverrideInputMappings:        copyBoolPointer(options.OverrideInputMappings),
 
 		// These fields are not copied as they are managed per test instance
-		catalog:              nil,
-		offering:             nil,
-		currentProject:       nil,
-		currentProjectConfig: nil,
-		deployedConfigs:      nil,
-		currentBranch:        nil,
-		currentBranchUrl:     nil,
+		configInputReferences: nil,
+		catalog:               nil,
+		offering:              nil,
+		currentProject:        nil,
+		currentProjectConfig:  nil,
+		deployedConfigs:       nil,
+		currentBranch:         nil,
+		currentBranchUrl:      nil,
 	}
 
 	return copied
@@ -974,6 +1044,7 @@ func (options *TestAddonOptions) mergeValidationResults(target *ValidationResult
 	target.MissingInputs = append(target.MissingInputs, source.MissingInputs...)
 	target.ConfigurationErrors = append(target.ConfigurationErrors, source.ConfigurationErrors...)
 	target.Messages = append(target.Messages, source.Messages...)
+	target.Warnings = append(target.Warnings, source.Warnings...)
 	if !source.IsValid {
 		target.IsValid = false
 	}

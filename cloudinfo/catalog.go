@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
@@ -490,28 +489,28 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 
 // DeployAddonToProject deploys an addon and its dependencies to a project
 // POST /api/v1-beta/deploy/projects/:projectID/container
-//
+
 // This function handles dependency tree hierarchy by ensuring:
 // 1. Each offering (version_locator) appears only once in the deployment list
 // 2. The topmost instance in the dependency hierarchy takes precedence
 // 3. The main addon is always deployed first, followed by dependencies in hierarchy order
 // 4. Only enabled dependencies are included in the deployment
-//
+
 // Example request body:
 // [
-//
-//	{
-//	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.cb157ad2-0bf7-488c-bdd4-5c568d611423"
-//	},
-//	{
-//	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.3a38fa8e-12ba-472b-be07-832fcb1ae914"
-//	},
-//	{
-//	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.12fa081a-47f1-473c-9acc-70812f66c26b",
-//	    "config_id": "",    // set this if reusing an existing config
-//	    "name": "sm da"
-//	}
-//
+
+// 	{
+// 	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.cb157ad2-0bf7-488c-bdd4-5c568d611423"
+// 	},
+// 	{
+// 	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.3a38fa8e-12ba-472b-be07-832fcb1ae914"
+// 	},
+// 	{
+// 	    "version_locator": "9212a6da-ac9b-4f3c-94d8-83a866e1a250.12fa081a-47f1-473c-9acc-70812f66c26b",
+// 	    "config_id": "",    // set this if reusing an existing config
+// 	    "name": "sm da"
+// 	}
+
 // ]
 
 func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, projectConfig *ProjectsConfig) (*DeployedAddonsDetails, error) {
@@ -592,11 +591,7 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 
 		// Execute the request
 		client := &http.Client{}
-		startTime := time.Now()
 		resp, err := client.Do(req)
-		requestTime := time.Since(startTime)
-		infoSvc.Logger.ShortInfo(fmt.Sprintf("Configuration deployed to project in %v", requestTime))
-
 		if err != nil {
 			return nil, fmt.Errorf("error executing request: %w", err)
 		}
@@ -622,8 +617,14 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 
 		// Check other error status codes
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			// Debug logging for failed requests - log API URL and request body
+			infoSvc.Logger.ShortError(fmt.Sprintf("API request failed - URL: %s", url))
+			infoSvc.Logger.ShortError(fmt.Sprintf("Request body: %s", string(jsonBody)))
 			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
+
+		// Only log success message after confirming the request succeeded
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Configuration deployed to project %s: %s", projectConfig.ProjectName, projectConfig.ProjectID))
 
 		return body, nil
 	})
@@ -739,6 +740,10 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	deploymentList := make([]AddonConfig, 0)
 	processedOfferings := make(map[string]bool) // Track by offering identity instead of version locator
 
+	// Build global disabled dependencies set - scan entire tree first
+	globallyDisabled := make(map[string]bool)
+	buildGlobalDisabledSet(mainAddon, globallyDisabled)
+
 	// Create offering identity key for deduplication based on catalog+offering+flavor
 	// This ensures we don't deploy the same offering multiple times even if it appears
 	// in different parts of the dependency tree
@@ -760,6 +765,13 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	processDependencies = func(addon *AddonConfig) {
 		for _, dep := range addon.Dependencies {
 			offeringKey := getOfferingKey(&dep)
+
+			// Debug every dependency we encounter
+
+			// Check if this dependency is globally disabled first
+			if globallyDisabled[dep.OfferingName] {
+				continue
+			}
 
 			// Only process enabled dependencies that haven't been seen before (by offering identity)
 			if dep.Enabled != nil && *dep.Enabled && !processedOfferings[offeringKey] {
@@ -1067,4 +1079,20 @@ func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID
 	versionLocator := versionLocatorMap[bestVersion]
 	return bestVersion, versionLocator, nil
 
+}
+
+// buildGlobalDisabledSet recursively scans the dependency tree and identifies all dependencies
+// that are explicitly disabled. These should remain disabled even if they appear as enabled
+// transitive dependencies elsewhere in the tree.
+func buildGlobalDisabledSet(addon *AddonConfig, globallyDisabled map[string]bool) {
+	// Check all direct dependencies of this addon
+	for _, dep := range addon.Dependencies {
+		// If a dependency is explicitly disabled, mark it as globally disabled
+		if dep.Enabled != nil && !*dep.Enabled {
+			globallyDisabled[dep.OfferingName] = true
+		}
+
+		// Recursively check sub-dependencies
+		buildGlobalDisabledSet(&dep, globallyDisabled)
+	}
 }

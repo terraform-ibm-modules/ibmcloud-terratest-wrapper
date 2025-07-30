@@ -7,7 +7,7 @@ This guide covers all configuration options available in the addon testing frame
 ### Required Options
 
 ```golang
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,                // Required: testing.T object
     Prefix:        "my-test",        // Required: unique prefix for resources
     ResourceGroup: "my-project-rg",  // Required: resource group for project
@@ -17,7 +17,7 @@ options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
 ### Optional Basic Settings
 
 ```golang
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "my-test",
     ResourceGroup: "my-project-rg",
@@ -43,7 +43,7 @@ It's recommended to create a setup function for consistency across tests:
 
 ```golang
 func setupAddonOptions(t *testing.T, prefix string) *testaddons.TestAddonOptions {
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        prefix,
         ResourceGroup: resourceGroup, // Use a package-level variable
@@ -105,7 +105,7 @@ options.CatalogName = "existing-catalog-name"  // Required when using existing
 The `SharedCatalog` option controls catalog and offering sharing behavior:
 
 ```golang
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "test",
     ResourceGroup: "my-rg",
@@ -122,7 +122,7 @@ options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
 
 ```golang
 // SharedCatalog = false (default) - isolated tests with automatic cleanup
-isolatedOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+isolatedOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "isolated-test",
     ResourceGroup: "my-rg",
@@ -134,7 +134,7 @@ err1 := isolatedOptions.RunAddonTest()  // Creates & deletes catalog A
 err2 := isolatedOptions.RunAddonTest()  // Creates & deletes catalog B
 
 // SharedCatalog = true - efficient sharing (requires manual cleanup)
-baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "shared-test",
     ResourceGroup: "my-rg",
@@ -152,7 +152,7 @@ When using matrix testing with `RunAddonTestMatrix()`, catalogs and offerings ar
 
 ```golang
 // Matrix tests automatically share catalogs - no additional configuration needed
-baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "matrix-test",
     ResourceGroup: "my-resource-group",
@@ -218,7 +218,7 @@ When using `SharedCatalog=true` with individual tests, you can manually clean up
 
 ```golang
 func TestMultipleAddonsWithSharedCatalog(t *testing.T) {
-    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "shared-test",
         ResourceGroup: "my-resource-group",
@@ -431,24 +431,71 @@ Verbose mode shows:
 - Full dependency validation details
 - Complete reference resolution logs
 
-### Automatic Quiet Mode (Permutation Testing)
+### Verbose Error Output Control
 
-Some test types automatically enable quiet mode for better user experience:
+Control whether detailed error information is shown when tests fail, particularly useful with QuietMode:
+
+```golang
+options.QuietMode = true          // Enable quiet mode (default: false)
+options.VerboseOnFailure = true   // Show detailed logs on failure (default: true)
+```
+
+**VerboseOnFailure Behavior:**
+
+When `VerboseOnFailure` is `true` (default):
+- **Success**: Only essential progress indicators shown (when QuietMode=true)
+- **Failure**: Detailed logs and error information displayed for debugging
+- **Always**: Final test results and critical error messages shown
+
+When `VerboseOnFailure` is `false`:
+- **Success**: Only essential progress indicators shown (when QuietMode=true)
+- **Failure**: Only basic error messages shown, detailed logs suppressed
+- **Minimal**: Very minimal output even on failures
+
+**Common Usage Patterns:**
+
+```golang
+// Recommended: Quiet during execution, verbose on failure (default)
+options.QuietMode = true          // Clean progress indicators
+options.VerboseOnFailure = true   // Full debug info on failure
+
+// Development testing: Always show everything
+options.QuietMode = false         // Show all logs always
+
+// CI/Pipeline: Minimal output even on failures
+options.QuietMode = true          // Clean progress indicators
+options.VerboseOnFailure = false  // Minimal output on failure
+```
+
+### Automatic Quiet Mode (Permutation and Matrix Testing)
+
+Some test types automatically default to quiet mode for better user experience:
 
 ```golang
 func TestAddonPermutations(t *testing.T) {
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "addon-perm",
         AddonConfig: cloudinfo.AddonConfig{
             OfferingName: "my-addon",
-            // QuietMode automatically set to true for permutation tests
+            // QuietMode automatically defaults to true for permutation tests
         },
     })
 
-    // Permutation tests use quiet mode by default to reduce log noise
+    // Permutation tests default to quiet mode to reduce log noise
     err := options.RunAddonPermutationTest()
     assert.NoError(t, err)
+}
+
+func TestAddonMatrix(t *testing.T) {
+    // Matrix tests also default to quiet mode
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+        Testing: t,
+        Prefix:  "matrix-test",
+        // QuietMode automatically defaults to true for matrix tests
+    })
+
+    baseOptions.RunAddonTestMatrix(matrix)
 }
 ```
 
@@ -457,6 +504,10 @@ func TestAddonPermutations(t *testing.T) {
 // Force verbose mode even for permutation tests
 options.QuietMode = false
 err := options.RunAddonPermutationTest()
+
+// Force verbose mode for matrix tests
+baseOptions.QuietMode = false
+baseOptions.RunAddonTestMatrix(matrix)
 ```
 
 ### Matrix Test Quiet Mode
@@ -464,7 +515,7 @@ err := options.RunAddonPermutationTest()
 Matrix tests inherit quiet mode settings from `BaseOptions`:
 
 ```golang
-baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:   t,
     Prefix:    "matrix-test",
     QuietMode: true, // Applies to all test cases in the matrix
@@ -483,6 +534,104 @@ baseOptions.RunAddonTestMatrix(matrix)
 - Stagger delay messages only shown in verbose mode
 - Clean test results: `✓ Passed: test-case-name`
 - Shared catalog creation progress indicators
+
+## StrictMode Configuration
+
+StrictMode controls how the framework handles validation errors and dependency conflicts during testing.
+
+### Default Behavior (StrictMode=true)
+
+```golang
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix:  "test",
+    // StrictMode defaults to true
+})
+
+// Or explicitly set
+options.StrictMode = core.BoolPtr(true)
+```
+
+**In strict mode (default):**
+
+- **Circular Dependencies**: Logged as errors and cause test failure
+- **Required Dependencies**: Warns when disabled required dependencies are force-enabled
+- **Validation Failures**: All validation issues cause test failure
+
+**Example strict mode output:**
+```
+ERROR: Circular dependency detected - configs are waiting on each other:
+  🔍 CIRCULAR DEPENDENCY DETECTED: deploy-arch-ibm-event-notifications → deploy-arch-ibm-cloud-logs → deploy-arch-ibm-activity-tracker → deploy-arch-ibm-cloud-logs
+WARN: Required dependency deploy-arch-ibm-kms was force-enabled despite being disabled
+WARN:   Required by: deploy-arch-ibm-event-notifications
+WARN:   Use StrictMode=false to suppress this warning
+```
+
+### Non-Strict Mode (StrictMode=false)
+
+```golang
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:    t,
+    Prefix:     "test",
+    StrictMode: core.BoolPtr(false), // Disable strict mode
+})
+```
+
+**In non-strict mode:**
+
+- **Circular Dependencies**: Logged as warnings only, test continues
+- **Required Dependencies**: Shows informational messages instead of warnings
+- **Validation Integration**: Warnings added to `ValidationResult.Warnings` for final summary
+
+**Example non-strict mode output:**
+```
+WARN: Circular dependency detected (StrictMode=false - test will continue):
+  🔍 CIRCULAR DEPENDENCY DETECTED: deploy-arch-ibm-event-notifications → deploy-arch-ibm-cloud-logs → deploy-arch-ibm-activity-tracker → deploy-arch-ibm-cloud-logs
+INFO: Required dependency deploy-arch-ibm-kms was force-enabled (business logic)
+INFO:   Required by: deploy-arch-ibm-event-notifications
+
+⚠️ WARNINGS:
+  1. Circular dependency: deploy-arch-ibm-event-notifications → deploy-arch-ibm-cloud-logs → deploy-arch-ibm-activity-tracker → deploy-arch-ibm-cloud-logs
+```
+
+### When to Use Each Mode
+
+**Use StrictMode=true (default) when:**
+- Running production validation tests
+- Need to catch all potential issues
+- Want strict validation for CI/CD pipelines
+- Testing critical dependency configurations
+
+**Use StrictMode=false when:**
+- Running permutation tests with known circular dependencies
+- Testing legacy configurations with complex dependency trees
+- Need tests to continue despite validation warnings
+- Developing and debugging dependency configurations
+
+### StrictMode with Different Test Types
+
+```golang
+// Individual tests - explicit control
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:    t,
+    Prefix:     "individual",
+    StrictMode: core.BoolPtr(false), // Override default
+})
+
+// Matrix tests - applied to all test cases
+baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:    t,
+    Prefix:     "matrix",
+    StrictMode: core.BoolPtr(false), // All test cases use non-strict mode
+})
+
+// Permutation tests - often use non-strict mode for comprehensive testing
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:    t,
+    Prefix:     "permutation",
+    StrictMode: core.BoolPtr(false), // Allow tests to continue with warnings
+})
+```
 
 ## Skip Options
 
@@ -706,6 +855,99 @@ options.AddonConfig.Inputs = map[string]interface{}{
 }
 ```
 
+### Input Override Behavior (OverrideInputMappings)
+
+**⚠️ IMPORTANT**: By default, user-provided inputs will be **IGNORED** for fields that contain reference values. This is the intended behavior to preserve proper configuration mappings.
+
+```golang
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix:  "test",
+    // OverrideInputMappings defaults to false - preserves reference values
+})
+
+// Default behavior (OverrideInputMappings: false) - RECOMMENDED
+options.OverrideInputMappings = core.BoolPtr(false) // Can be omitted as it's the default
+```
+
+**Default Behavior (OverrideInputMappings=false - RECOMMENDED):**
+
+When `OverrideInputMappings` is `false` (default), the framework preserves existing reference values (those starting with "ref:") and **ignores user-provided replacement values** for those fields.
+
+```golang
+// Example: Configuration has existing reference mapping
+// Existing config input: "existing_kms_instance_crn": "ref:../kms-config.instance_crn"
+
+options.AddonConfig.Inputs = map[string]interface{}{
+    "prefix": "my-test",
+    "existing_kms_instance_crn": "user-provided-value", // ⚠️ THIS WILL BE IGNORED
+    "region": "us-south", // ✅ This will be used (no existing reference)
+}
+
+// Result after merging:
+// - existing_kms_instance_crn: "ref:../kms-config.instance_crn" (preserved)
+// - region: "us-south" (user value used)
+// - prefix: "my-test" (user value used)
+```
+
+**Why User Inputs Are Ignored for Reference Fields:**
+
+- **Input mappings** (references starting with "ref:") connect configuration outputs between different components
+- **End users** are not expected to modify these reference mappings
+- **Preserving references** maintains proper dependency relationships between configurations
+- **Breaking references** can cause deployment failures or incorrect resource connections
+
+**Override Behavior (OverrideInputMappings=true - DEVELOPMENT/TESTING ONLY):**
+
+```golang
+// Override mode - replaces ALL input values including references
+options.OverrideInputMappings = core.BoolPtr(true) // Use with caution
+
+options.AddonConfig.Inputs = map[string]interface{}{
+    "prefix": "my-test",
+    "existing_kms_instance_crn": "user-provided-value", // ✅ This will override the reference
+}
+
+// Result: ALL user-provided values replace existing values
+// - existing_kms_instance_crn: "user-provided-value" (reference overridden)
+// - prefix: "my-test" (user value used)
+```
+
+**When to Use Each Setting:**
+
+**Use `OverrideInputMappings: false` (default) when:**
+- Running production or standard tests (RECOMMENDED)
+- Want to preserve proper configuration mappings
+- Testing with real dependency relationships
+- Following standard addon testing patterns
+
+**Use `OverrideInputMappings: true` when:**
+- Development and debugging scenarios
+- Need to override reference mappings for testing
+- Testing edge cases or configuration variations
+- **⚠️ WARNING**: May break dependency relationships
+
+**Identifying Reference Values:**
+
+Reference values that will be preserved (when `OverrideInputMappings: false`) are those that:
+- Start with `"ref:"` (e.g., `"ref:../other-config.output_name"`)
+- Connect to outputs from other configurations in the same project
+- Are automatically generated by the IBM Cloud Projects system
+
+**Best Practices:**
+
+```golang
+// ✅ RECOMMENDED: Use default behavior
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix:  "test",
+    // OverrideInputMappings defaults to false - no need to specify
+})
+
+// ❌ AVOID: Only use override mode when absolutely necessary
+options.OverrideInputMappings = core.BoolPtr(true) // Only for special testing scenarios
+```
+
 ### Resource Group Configuration
 
 ```golang
@@ -740,7 +982,7 @@ The framework validates configuration before starting tests:
 
 ```golang
 func TestMinimalAddon(t *testing.T) {
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "minimal",
         ResourceGroup: "test-rg",
@@ -764,7 +1006,7 @@ func TestMinimalAddon(t *testing.T) {
 
 ```golang
 func TestComprehensiveAddon(t *testing.T) {
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:                     t,
         Prefix:                      "comprehensive",
         ResourceGroup:               "test-rg",
@@ -821,7 +1063,7 @@ func TestComprehensiveAddon(t *testing.T) {
 The framework always creates temporary projects for each test to ensure complete isolation. Each test gets its own dedicated project for maximum safety and ease of debugging:
 
 ```golang
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "test",
     ResourceGroup: "my-rg",
@@ -838,7 +1080,7 @@ Each test automatically:
 4. Cleans up the project and all resources
 
 ```golang
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "isolated-test",
     ResourceGroup: "my-rg",
@@ -880,7 +1122,7 @@ The primary method for running a single addon test with full lifecycle managemen
 func TestBasicAddon(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "basic-addon",
         AddonConfig: cloudinfo.NewAddonConfigTerraform(
@@ -946,7 +1188,7 @@ For automatically testing all possible dependency combinations:
 func TestAddonDependencyPermutations(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "addon-perm",
         AddonConfig: cloudinfo.AddonConfig{
@@ -977,7 +1219,7 @@ The `RunAddonPermutationTest()` method automatically configures several settings
 #### Required Configuration for Permutation Testing
 
 ```golang
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing: t,                        // Required: testing.T object
     Prefix:  "addon-perm",             // Required: unique prefix for resources
     AddonConfig: cloudinfo.AddonConfig{

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	"github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,16 +18,30 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
 )
 
-// RunAddonTest : Run the test for addons
-// Creates a new catalog
-// Imports an offering
-// Creates a new project
-// Adds a configuration
-// Deploys the configuration
-// Deletes the project
-// Deletes the catalog
-// Returns an error if any of the steps fail
-func (options *TestAddonOptions) RunAddonTest() error {
+// ConfigDependencyInfo holds information about a config's dependencies for circular dependency analysis
+type ConfigDependencyInfo struct {
+	ID                   string            // Config ID
+	Name                 string            // Config Name
+	InputReferences      []string          // List of input references (ref:/configs/{id}/outputs/{name})
+	InputFieldReferences map[string]string // Map of input field names to their reference strings
+}
+
+// DetailedDependencyInfo contains enhanced dependency information for better error reporting
+type DetailedDependencyInfo struct {
+	ConfigID             string
+	ConfigName           string
+	InputName            string // The input field name that creates the dependency
+	ReferencedConfigID   string // The config ID being referenced
+	ReferencedConfigName string // The config name being referenced
+	ReferencedOutput     string // The output/input field name being referenced
+	ReferencedType       string // The type of reference: "outputs", "inputs", etc.
+	FullReference        string // The complete reference string
+}
+
+// runAddonTest contains the core test execution logic with configurable error reporting
+// This private method is used by both RunAddonTest() and matrix tests
+// enhancedReporting: if true, shows detailed actionable advice; if false, shows simple error messages
+func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	if !options.SkipTestTearDown {
 		// ensure we always run the test tear down, even if a panic occurs
 		defer func() {
@@ -69,6 +84,18 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("test setup has failed:%w", setupErr)
+	}
+
+	// Apply required dependency business logic before deployment
+	// This ensures required dependencies are force-enabled before actual deployment
+	if options.QuietMode {
+		options.Logger.ProgressStage("Validating required dependencies")
+	}
+	err := options.validateAndProcessRequiredDependencies()
+	if err != nil {
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
+		return fmt.Errorf("required dependency validation failed: %w", err)
 	}
 
 	// Deploy Addon to Project
@@ -144,6 +171,76 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			Name:     core.StringPtr(config.Name),
 		})
 
+		// Collect input references for OverrideInputMappings logic (reuse existing GetConfig call)
+		if options.configInputReferences == nil {
+			options.configInputReferences = make(map[string]map[string]string)
+		}
+		if resp, ok := prjCfg.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
+			references := make(map[string]string)
+			for inputKey, inputValue := range resp.Inputs {
+				if strValue, ok := inputValue.(string); ok && strings.HasPrefix(strValue, "ref:") {
+					references[inputKey] = strValue
+				}
+			}
+			if len(references) > 0 {
+				options.configInputReferences[config.ConfigID] = references
+			}
+		}
+	}
+
+	// Process AddonConfig.Inputs with OverrideInputMappings logic for regular (non-matrix) tests
+	// This ensures input override logging and reference preservation works for both matrix and regular tests
+	if options.AddonConfig.Inputs != nil && len(options.AddonConfig.Inputs) > 0 {
+		// Apply the same reference-aware input processing logic as matrix tests
+		if options.OverrideInputMappings != nil && !*options.OverrideInputMappings {
+			// Reference preservation mode (default)
+			configReferences := options.configInputReferences[addonID]
+			preservedCount := 0
+			overriddenCount := 0
+
+			for inputKey, inputValue := range options.AddonConfig.Inputs {
+				if referenceValue, isReference := configReferences[inputKey]; isReference {
+					// Preserve reference value
+					if !options.QuietMode {
+						options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': preserving reference value '%s' (ignoring test override)", inputKey, referenceValue))
+					}
+					configDetails.Inputs[inputKey] = referenceValue
+					preservedCount++
+				} else {
+					// Override with new value
+					if !options.QuietMode {
+						existingValue := configDetails.Inputs[inputKey]
+						options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
+					}
+					configDetails.Inputs[inputKey] = inputValue
+					overriddenCount++
+				}
+			}
+
+			// Summary logging
+			if !options.QuietMode && (preservedCount > 0 || overriddenCount > 0) {
+				options.Logger.ShortInfo(fmt.Sprintf("Input merging complete: %d reference(s) preserved, %d input(s) overridden (OverrideInputMappings=false)", preservedCount, overriddenCount))
+			}
+		} else {
+			// Override all mode (legacy behavior)
+			overriddenCount := 0
+			if !options.QuietMode {
+				options.Logger.ShortInfo("Overriding ALL inputs (OverrideInputMappings=true)")
+			}
+
+			for inputKey, inputValue := range options.AddonConfig.Inputs {
+				if !options.QuietMode {
+					existingValue := configDetails.Inputs[inputKey]
+					options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
+				}
+				configDetails.Inputs[inputKey] = inputValue
+				overriddenCount++
+			}
+
+			if !options.QuietMode && overriddenCount > 0 {
+				options.Logger.ShortInfo(fmt.Sprintf("Input override complete: %d input(s) overridden (OverrideInputMappings=true)", overriddenCount))
+			}
+		}
 	}
 
 	confPatch := projectv1.ProjectConfigDefinitionPatch{
@@ -204,6 +301,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	missingRequiredInputs := make([]string, 0)
 	totalReferencesProcessed := 0
 
+	// Collect configs in awaiting_prerequisite state for circular dependency analysis
+	awaitingPrerequisiteConfigs := make([]ConfigDependencyInfo, 0)
+
 	// These variables will store the collected validation issues
 	// They are declared here but will only be evaluated after dependency validation
 
@@ -245,6 +345,27 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			return fmt.Errorf("error getting the configuration: %w", err)
 		}
 
+		// Initialize reference cache if needed
+		if options.configInputReferences == nil {
+			options.configInputReferences = make(map[string]map[string]string)
+		}
+
+		// Collect input references for ALL configs (extends existing pattern from AwaitingPrerequisite logic)
+		if currentConfigDetails.Definition != nil {
+			if resp, ok := currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
+				fieldReferences := make(map[string]string)
+				for fieldName, input := range resp.Inputs {
+					if inputStr, ok := input.(string); ok && strings.HasPrefix(inputStr, "ref:/") {
+						fieldReferences[fieldName] = inputStr
+					}
+				}
+				// Only store if there are references to avoid empty maps
+				if len(fieldReferences) > 0 {
+					options.configInputReferences[*config.ID] = fieldReferences
+				}
+			}
+		}
+
 		// Check state for input validation
 		if currentConfigDetails.StateCode != nil && *currentConfigDetails.StateCode == projectv1.ProjectConfig_StateCode_AwaitingValidation {
 			options.Logger.ShortInfo(fmt.Sprintf("Found a configuration ready to validate: %s - ID: %s", *config.Definition.Name, *config.ID))
@@ -254,6 +375,28 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			configName := *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name
 			options.Logger.ShortWarn(fmt.Sprintf("Configuration '%s' is in AwaitingInput state - adding to waitingOnInputs list", configName))
 			waitingOnInputs = append(waitingOnInputs, configName)
+		}
+
+		// Collect configs in AwaitingPrerequisite state for circular dependency analysis
+		if currentConfigDetails.StateCode != nil && *currentConfigDetails.StateCode == projectv1.ProjectConfig_StateCode_AwaitingPrerequisite {
+			configName := *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name
+			configInfo := ConfigDependencyInfo{
+				ID:                   *config.ID,
+				Name:                 configName,
+				InputReferences:      make([]string, 0),
+				InputFieldReferences: make(map[string]string),
+			}
+
+			// Collect input references for this config
+			for fieldName, input := range currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs {
+				if inputStr, ok := input.(string); ok && strings.HasPrefix(inputStr, "ref:/") {
+					configInfo.InputReferences = append(configInfo.InputReferences, inputStr)
+					configInfo.InputFieldReferences[fieldName] = inputStr
+				}
+			}
+
+			awaitingPrerequisiteConfigs = append(awaitingPrerequisiteConfigs, configInfo)
+			options.Logger.ShortWarn(fmt.Sprintf("Configuration '%s' is in AwaitingPrerequisite state", configName))
 		}
 
 		// Skip reference validation if the flag is set
@@ -411,13 +554,6 @@ func (options *TestAddonOptions) RunAddonTest() error {
 					options.Logger.ShortWarn(fmt.Sprintf("  - %s (version: %s)", dep.OfferingName, dep.VersionID))
 				}
 			}
-			options.Logger.ShortWarn("=== CONFIGURATION MATCHING DEBUG ===")
-			options.Logger.ShortWarn(fmt.Sprintf("Config Name: %s", *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name))
-			options.Logger.ShortWarn(fmt.Sprintf("Config LocatorID: %s", *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).LocatorID))
-			options.Logger.ShortWarn(fmt.Sprintf("Extracted Version: %s", version))
-			options.Logger.ShortWarn(fmt.Sprintf("Expected Main Addon: %s (config: %s)", options.AddonConfig.OfferingName, options.AddonConfig.ConfigName))
-			options.Logger.ShortWarn(fmt.Sprintf("Expected Version ID: %s", options.AddonConfig.VersionID))
-			options.Logger.ShortWarn("=== END MATCHING DEBUG ===")
 			options.Logger.ShortWarn("Skipping input validation for this configuration")
 			continue
 		}
@@ -500,9 +636,46 @@ func (options *TestAddonOptions) RunAddonTest() error {
 	if readyToValidate {
 		options.Logger.ShortInfo("Found a configuration ready to validate")
 	} else {
-		options.Logger.ShortWarn("No configuration found in ready_to_validate state (will check dependencies first)")
-		// Store this issue for later evaluation after dependency validation
-		waitingInputIssues = append(waitingInputIssues, "No configuration is in ready_to_validate state")
+		// Analyze configs in awaiting_prerequisite state for circular dependencies
+		circularDeps := options.detectCircularDependencies(awaitingPrerequisiteConfigs)
+		if len(circularDeps) > 0 {
+			// Handle circular dependencies based on StrictMode
+			if options.StrictMode == nil || *options.StrictMode {
+				// Strict mode (default): Log as errors and fail the test
+				options.Logger.ShortError("Circular dependency detected - configs are waiting on each other:")
+				for _, cycle := range circularDeps {
+					options.Logger.ShortError(fmt.Sprintf("  %s", cycle))
+					waitingInputIssues = append(waitingInputIssues, fmt.Sprintf("Circular dependency: %s", cycle))
+				}
+			} else {
+				// Non-strict mode: Log as warnings and add to ValidationResult.Warnings
+				options.Logger.ShortWarn("Circular dependency detected (StrictMode=false - test will continue):")
+				for _, cycle := range circularDeps {
+					options.Logger.ShortWarn(fmt.Sprintf("  %s", cycle))
+					// Add to ValidationResult warnings instead of waitingInputIssues
+					if options.lastValidationResult != nil {
+						options.lastValidationResult.Warnings = append(options.lastValidationResult.Warnings, fmt.Sprintf("Circular dependency: %s", cycle))
+					}
+				}
+				options.Logger.ShortInfo("Note: Circular dependencies may cause deployment issues but test will proceed")
+			}
+		} else if len(awaitingPrerequisiteConfigs) > 0 {
+			// Check for unresolved references
+			unresolvedRefs := options.findUnresolvedReferences(awaitingPrerequisiteConfigs, allConfigs)
+			if len(unresolvedRefs) > 0 {
+				options.Logger.ShortError("Found unresolved input references:")
+				for _, ref := range unresolvedRefs {
+					options.Logger.ShortError(fmt.Sprintf("  %s", ref))
+					waitingInputIssues = append(waitingInputIssues, fmt.Sprintf("Unresolved reference: %s", ref))
+				}
+			} else {
+				options.Logger.ShortWarn(fmt.Sprintf("Found %d configurations in awaiting_prerequisite state (will check dependencies first)", len(awaitingPrerequisiteConfigs)))
+				waitingInputIssues = append(waitingInputIssues, fmt.Sprintf("%d configurations in awaiting_prerequisite state", len(awaitingPrerequisiteConfigs)))
+			}
+		} else {
+			options.Logger.ShortWarn("No configuration found in ready_to_validate state (will check dependencies first)")
+			waitingInputIssues = append(waitingInputIssues, "No configuration is in ready_to_validate state")
+		}
 	}
 
 	// Check if the configuration is in a valid state
@@ -533,6 +706,7 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo(fmt.Sprintf("Dependency validation starting with: catalogID='%s', offeringID='%s', versionLocator='%s', flavor='%s'", rootCatalogID, rootOfferingID, rootVersionLocator, options.AddonConfig.OfferingFlavor))
 
 		// Build dependency graph using the cleaner return-values approach
+		// Note: Required dependency validation has already been applied before deployment
 		visited := make(map[string]bool)
 		graphResult, err := options.buildDependencyGraph(rootCatalogID, rootOfferingID, rootVersionLocator, options.AddonConfig.OfferingFlavor, &options.AddonConfig, visited)
 		if err != nil {
@@ -678,6 +852,14 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			}
 		}
 
+		// Print warnings if any exist
+		if len(validationResult.Warnings) > 0 {
+			options.Logger.ShortWarn("Validation warnings:")
+			for _, warning := range validationResult.Warnings {
+				options.Logger.ShortWarn(fmt.Sprintf("  %s", warning))
+			}
+		}
+
 		// Print validation errors - either consolidated summary or detailed individual messages
 		if !validationResult.IsValid {
 			if options.EnhancedTreeValidationOutput {
@@ -711,6 +893,10 @@ func (options *TestAddonOptions) RunAddonTest() error {
 			} else {
 				errorMsg = "dependency validation failed - check validation output above for details"
 			}
+
+			// Mark as failed and flush buffered logs to show complete diagnostic information
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
 
 			return fmt.Errorf("%s", errorMsg)
 		}
@@ -838,12 +1024,21 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		}
 		options.Logger.ShortCustom("=== END DEBUG INFO ===", common.Colors.Cyan)
 
-		// Use the new CriticalError helper method for consistent error handling
+		// Use enhanced or simple error reporting based on context
 		errorMessage := fmt.Sprintf("Missing required inputs - %s", strings.Join(inputValidationIssues, "; "))
-		options.Logger.CriticalError(errorMessage)
-		options.Logger.ShortCustom("Cannot proceed with deployment - required inputs must be provided", common.Colors.Red)
-		options.Logger.ShortCustom("Note: Missing inputs may be caused by missing dependencies shown above", common.Colors.Red)
+		if enhancedReporting {
+			// Enhanced error reporting for direct test execution
+			options.Logger.CriticalError(errorMessage)
+			options.Logger.ShortCustom("Cannot proceed with deployment - required inputs must be provided", common.Colors.Red)
+			options.Logger.ShortCustom("Note: Missing inputs may be caused by missing dependencies shown above", common.Colors.Red)
+		} else {
+			// Simple error reporting for matrix/nested test execution
+			options.Logger.ShortError(errorMessage)
+		}
 
+		// Mark as failed and flush buffered logs to show complete diagnostic information
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("missing required inputs: %s", strings.Join(inputValidationIssues, "; "))
 	}
@@ -961,20 +1156,111 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		}
 		options.Logger.ShortCustom("=== END DEBUG INFO ===", common.Colors.Cyan)
 
-		// Create a specific, actionable error message
+		// Create a specific, actionable error message with enhanced analysis
 		var errorMsg string
-		if len(missingInputsDetails) > 0 {
+		var actionableAdvice []string
+
+		// Analyze configuration states for more specific guidance
+		stateAnalysis := make(map[string][]string)
+		referenceIssues := make([]string, 0)
+
+		// Re-examine configurations to extract state-specific information
+		if debugErr == nil {
+			for _, config := range allConfigs {
+				configDetails, _, getErr := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+					ProjectID: options.currentProjectConfig.ProjectID,
+					ConfigID:  *config.ID,
+				})
+				if getErr == nil && configDetails != nil {
+					configName := *config.Definition.Name
+					if configDetails.StateCode != nil {
+						stateCode := *configDetails.StateCode
+						stateAnalysis[stateCode] = append(stateAnalysis[stateCode], configName)
+
+						// Check for reference issues in inputs
+						if configDetails.Definition != nil {
+							if resp, ok := configDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
+								for key, value := range resp.Inputs {
+									if valueStr := fmt.Sprintf("%v", value); strings.HasPrefix(valueStr, "ref:/configs/") {
+										referenceIssues = append(referenceIssues, fmt.Sprintf("%s.%s->%s", configName, key, valueStr))
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Check if we have circular dependency details from the waiting input issues
+		var circularDependencyDetails []string
+		for _, issue := range waitingInputIssues {
+			if strings.HasPrefix(issue, "Circular dependency: ") {
+				circularDependencyDetails = append(circularDependencyDetails, strings.TrimPrefix(issue, "Circular dependency: "))
+			}
+		}
+
+		// Build specific error message based on state analysis
+		if len(circularDependencyDetails) > 0 {
+			// If we have circular dependency details, use them in the final error message
+			errorMsg = fmt.Sprintf("circular dependency deadlock detected - %s", strings.Join(circularDependencyDetails, "; "))
+			actionableAdvice = append(actionableAdvice, "• Use existing resources instead of creating new ones")
+			actionableAdvice = append(actionableAdvice, "• Restructure deployment order by splitting dependencies")
+			actionableAdvice = append(actionableAdvice, "• Consider using data sources or external references")
+		} else if len(stateAnalysis) > 0 {
+			var stateDetails []string
+			for state, configs := range stateAnalysis {
+				switch state {
+				case "awaiting_prerequisite":
+					stateDetails = append(stateDetails, fmt.Sprintf("%d config(s) waiting for prerequisites: %s", len(configs), strings.Join(configs, ", ")))
+					actionableAdvice = append(actionableAdvice, "• Check if required dependency configurations are enabled and properly configured")
+				case "awaiting_member_deployment":
+					stateDetails = append(stateDetails, fmt.Sprintf("%d config(s) waiting for member deployment: %s", len(configs), strings.Join(configs, ", ")))
+					actionableAdvice = append(actionableAdvice, "• Verify stack member configurations are properly defined and not in error state")
+				case "awaiting_input":
+					stateDetails = append(stateDetails, fmt.Sprintf("%d config(s) waiting for inputs: %s", len(configs), strings.Join(configs, ", ")))
+					actionableAdvice = append(actionableAdvice, "• Provide missing input values or add input mappings for disabled dependencies")
+				case "awaiting_validation":
+					stateDetails = append(stateDetails, fmt.Sprintf("%d config(s) ready for validation: %s", len(configs), strings.Join(configs, ", ")))
+				default:
+					stateDetails = append(stateDetails, fmt.Sprintf("%d config(s) in %s state: %s", len(configs), state, strings.Join(configs, ", ")))
+				}
+			}
+			errorMsg = fmt.Sprintf("configuration state deadlock detected - %s", strings.Join(stateDetails, "; "))
+		} else if len(missingInputsDetails) > 0 {
 			errorMsg = fmt.Sprintf("configurations waiting on missing inputs: %s", strings.Join(missingInputsDetails, ", "))
+			actionableAdvice = append(actionableAdvice, "• Provide the missing input values in your test configuration")
 		} else if len(configsWithIssues) > 0 {
-			errorMsg = fmt.Sprintf("configurations in awaiting_input state: %s", strings.Join(configsWithIssues, ", "))
+			errorMsg = fmt.Sprintf("configurations in problematic state: %s", strings.Join(configsWithIssues, ", "))
 		} else {
 			errorMsg = "configurations waiting on inputs - check debug output above for details"
 		}
 
-		// Use the new CriticalError helper method for consistent error handling
-		options.Logger.CriticalError(fmt.Sprintf("Found %s", errorMsg))
-		options.Logger.ShortCustom("Note: Missing inputs may be caused by missing dependencies shown above", common.Colors.Red)
+		// Add reference-specific advice if detected
+		if len(referenceIssues) > 0 && len(referenceIssues) <= 3 {
+			actionableAdvice = append(actionableAdvice, fmt.Sprintf("• Key reference dependencies: %s", strings.Join(referenceIssues, ", ")))
+		}
 
+		// Use enhanced or simple error reporting based on context
+		if enhancedReporting {
+			// Enhanced error reporting for direct test execution
+			options.Logger.CriticalError(fmt.Sprintf("Found %s", errorMsg))
+			if len(actionableAdvice) > 0 {
+				options.Logger.ShortCustom("RECOMMENDED ACTIONS:", common.Colors.Yellow)
+				for _, advice := range actionableAdvice {
+					options.Logger.ShortCustom(advice, common.Colors.Red)
+				}
+			} else {
+				options.Logger.ShortCustom("Note: Missing inputs may be caused by missing dependencies shown above", common.Colors.Red)
+			}
+		} else {
+			// Simple error reporting for matrix/nested test execution
+			options.Logger.ShortError(fmt.Sprintf("Found %s", errorMsg))
+		}
+
+		// Mark as failed and flush buffered logs to show complete diagnostic information
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
 		return fmt.Errorf("found %s", errorMsg)
 	}
@@ -1078,16 +1364,33 @@ func (options *TestAddonOptions) RunAddonTest() error {
 		options.Logger.ShortInfo("Finished PostUndeployHook")
 	}
 
+	// Enhanced reporting: show success message for direct test execution
+	if enhancedReporting {
+		options.Logger.ProgressSuccess("✅ All tests passed - no actions required")
+	}
+
 	return nil
 }
 
-// RunAddonTestMatrix runs multiple addon test cases in parallel using a matrix approach
-// This method handles the boilerplate of running parallel tests and automatically shares
-// catalogs and offerings across test cases for efficiency.
-//
-// BaseOptions must be provided with common options that apply to all test cases.
-// BaseSetupFunc can optionally customize the options for each specific test case.
-func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
+// RunAddonTest : Run the test for addons with enhanced error reporting
+// Creates a new catalog
+// Imports an offering
+// Creates a new project
+// Adds a configuration
+// Deploys the configuration
+// Deletes the project
+// Deletes the catalog
+// Returns an error if any of the steps fail
+// This public method provides enhanced error reporting for direct test execution
+func (options *TestAddonOptions) RunAddonTest() error {
+	// Use enhanced reporting for direct test execution
+	err := options.runAddonTest(true)
+	return err
+}
+
+// runAddonTestMatrix contains the core matrix execution logic without matrix-level error reporting
+// This private method is used by both RunAddonTestMatrix() and permutation tests
+func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 	options.Testing.Parallel()
 
 	// Validate that BaseOptions is provided
@@ -1258,8 +1561,8 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				time.Sleep(staggerWait)
 			}
 
-			// Show test start progress in quiet mode
-			if matrix.BaseOptions.QuietMode {
+			// Show test start progress for permutation tests or when in quiet mode
+			if matrix.BaseOptions.QuietMode || matrix.BaseOptions.PermutationTestReport != nil {
 				matrix.BaseOptions.Logger.ProgressStage(fmt.Sprintf("Starting test: %s", tc.Name))
 			}
 
@@ -1376,8 +1679,50 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 				if testOptions.AddonConfig.Inputs == nil {
 					testOptions.AddonConfig.Inputs = make(map[string]interface{})
 				}
-				for key, value := range tc.Inputs {
-					testOptions.AddonConfig.Inputs[key] = value
+
+				// Check OverrideInputMappings flag behavior
+				if testOptions.OverrideInputMappings != nil && !*testOptions.OverrideInputMappings {
+					// Use cached reference information (zero additional API calls)
+					configReferences := testOptions.configInputReferences[testOptions.AddonConfig.ConfigID]
+
+					for key, newValue := range tc.Inputs {
+						if referenceValue, isReference := configReferences[key]; isReference {
+							if !testOptions.QuietMode {
+								testOptions.Logger.ShortInfo(fmt.Sprintf("Preserving reference value for input '%s': %s", key, referenceValue))
+							}
+							// Keep the existing reference value
+							testOptions.AddonConfig.Inputs[key] = referenceValue
+						} else {
+							// Safe to override - not a reference
+							if !testOptions.QuietMode {
+								existingValue := testOptions.AddonConfig.Inputs[key]
+								testOptions.Logger.ShortInfo(fmt.Sprintf("Overriding input '%s': %v → %v", key, existingValue, newValue))
+							}
+							testOptions.AddonConfig.Inputs[key] = newValue
+						}
+					}
+				} else {
+					// Current behavior - override all inputs
+					if !testOptions.QuietMode {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("OverrideInputMappings=true: overriding %d input(s)", len(tc.Inputs)))
+					}
+					for key, value := range tc.Inputs {
+						if !testOptions.QuietMode {
+							existingValue := testOptions.AddonConfig.Inputs[key]
+							testOptions.Logger.ShortInfo(fmt.Sprintf("Overriding input '%s': %v → %v", key, existingValue, value))
+						}
+						testOptions.AddonConfig.Inputs[key] = value
+					}
+				}
+
+				// Log summary of input merging behavior (non-quiet mode only)
+				if !testOptions.QuietMode && tc.Inputs != nil && len(tc.Inputs) > 0 {
+					preserveRefs := testOptions.OverrideInputMappings != nil && !*testOptions.OverrideInputMappings
+					if preserveRefs {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Input merging: preserve-references mode, processed %d input(s)", len(tc.Inputs)))
+					} else {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Input merging: override-all mode, processed %d input(s)", len(tc.Inputs)))
+					}
 				}
 			}
 
@@ -1475,7 +1820,8 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 			}
 
 			// Run the test - each test creates its own project
-			err := testOptions.RunAddonTest()
+			// Use runAddonTest() with simple error messages for matrix execution
+			err := testOptions.runAddonTest(false)
 
 			// If a panic occurred, use the panic error instead
 			if panicOccurred {
@@ -1527,6 +1873,30 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 	}()
 }
 
+// RunAddonTestMatrix runs multiple addon test cases in parallel using a matrix approach
+// This method handles the boilerplate of running parallel tests and automatically shares
+// catalogs and offerings across test cases for efficiency.
+//
+// BaseOptions must be provided with common options that apply to all test cases.
+// BaseSetupFunc can optionally customize the options for each specific test case.
+// This public method provides matrix-level error reporting for direct matrix execution
+func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
+	// Enable quiet mode by default for matrix tests to reduce log noise
+	// Allow user to override by explicitly setting QuietMode = false
+	// If Logger is already set and has QuietMode false, preserve user's choice
+	if options.Logger != nil && !options.Logger.IsQuietMode() {
+		// Logger exists and is not in quiet mode - user likely set this explicitly
+		options.QuietMode = false
+	} else if !options.QuietMode {
+		// Default to quiet mode for matrix tests
+		options.QuietMode = true
+	}
+
+	options.runAddonTestMatrix(matrix)
+	// Matrix-level error reporting could be added here in the future
+	// For now, individual test case errors are handled within the matrix execution
+}
+
 // RunAddonPermutationTest executes all permutations of direct dependencies for the addon
 // without manual configuration. It automatically discovers dependencies and generates
 // all enabled/disabled combinations, excluding the default "on by default" case.
@@ -1542,24 +1912,23 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 		options.AddonConfig.OfferingInstallKind = cloudinfo.InstallKindTerraform
 	}
 
-	// Enable quiet mode by default for permutation tests to reduce log noise
-	if !options.QuietMode {
-		options.QuietMode = true
-	}
+	// For permutation tests, we apply quiet mode per-test (not globally)
+	// This allows STAGGER messages and test phases to be visible
+	// while suppressing verbose details within each individual test
 
-	// Step 1: Discover dependencies from catalog
-	dependencies, err := options.discoverDependencies()
+	// Step 1: Discover dependency names from catalog
+	dependencyNames, err := options.getDirectDependencyNames()
 	if err != nil {
 		return fmt.Errorf("failed to discover dependencies: %w", err)
 	}
 
-	if len(dependencies) == 0 {
+	if len(dependencyNames) == 0 {
 		options.Testing.Skip("No dependencies found to test permutations")
 		return nil
 	}
 
 	// Step 2: Generate all permutations of dependencies
-	testCases := options.generatePermutations(dependencies)
+	testCases := options.generatePermutations(dependencyNames)
 
 	if len(testCases) == 0 {
 		options.Testing.Skip("No permutations generated (all would be default configuration)")
@@ -1571,11 +1940,9 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 		options.Logger = common.CreateSmartAutoBufferingLogger("TestDependencyPermutations", false)
 	}
 
-	if options.QuietMode {
-		options.Logger.SetQuietMode(true)
-	} else {
-		options.Logger.SetQuietMode(false)
-	}
+	// For permutation tests, keep the global logger in verbose mode to show STAGGER messages and test phases
+	// Individual test quiet mode will be applied in BaseSetupFunc to suppress verbose details within each test
+	options.Logger.SetQuietMode(false)
 
 	// Initialize result collection for final report
 	options.CollectResults = true
@@ -1588,7 +1955,7 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 	}
 
 	// Show permutation test start progress
-	options.Logger.ProgressStage(fmt.Sprintf("Running %d dependency permutation tests for %s (quiet mode - minimal output)...", len(testCases), options.AddonConfig.OfferingName))
+	options.Logger.ProgressStage(fmt.Sprintf("Running %d dependency permutation tests for %s (per-test quiet mode)...", len(testCases), options.AddonConfig.OfferingName))
 
 	// Step 4: Execute all permutations in parallel using matrix test infrastructure
 	matrix := AddonTestMatrix{
@@ -1600,9 +1967,16 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 			testOptions.Prefix = testCase.Prefix
 			testOptions.TestCaseName = testCase.Name
 			testOptions.SkipInfrastructureDeployment = testCase.SkipInfrastructureDeployment
-			// Inherit quiet mode from base options
-			testOptions.QuietMode = baseOptions.QuietMode
+			// Apply per-test quiet mode to suppress verbose details within each test
+			// while preserving STAGGER messages and test phases visibility
+			testOptions.QuietMode = true
 			testOptions.VerboseOnFailure = baseOptions.VerboseOnFailure
+
+			// Synchronize logger quiet mode with the boolean flag
+			if testOptions.Logger != nil {
+				testOptions.Logger.SetQuietMode(testOptions.QuietMode)
+			}
+
 			return testOptions
 		},
 		AddonConfigFunc: func(testOptions *TestAddonOptions, testCase AddonTestCase) cloudinfo.AddonConfig {
@@ -1627,13 +2001,15 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 	}
 
 	// Execute the matrix test - the final report will be generated by the matrix cleanup
-	options.RunAddonTestMatrix(matrix)
+	// Use runAddonTestMatrix() to avoid matrix-level reporting in permutation tests
+	options.runAddonTestMatrix(matrix)
 
 	return nil
 }
 
-// discoverDependencies automatically discovers direct dependencies from the catalog
-func (options *TestAddonOptions) discoverDependencies() ([]cloudinfo.AddonConfig, error) {
+// getDirectDependencyNames discovers just the names of direct dependencies from the catalog
+// This replaces the complex discoverDependencies approach with a lightweight name-only discovery
+func (options *TestAddonOptions) getDirectDependencyNames() ([]string, error) {
 	// Use existing CloudInfoService if available, otherwise create a new one
 	var cloudInfoService cloudinfo.CloudInfoServiceI
 	if options.CloudInfoService != nil {
@@ -1686,63 +2062,252 @@ func (options *TestAddonOptions) discoverDependencies() ([]cloudinfo.AddonConfig
 		return nil, fmt.Errorf("failed to get component references: %w", err)
 	}
 
-	// Convert component references to AddonConfig list
-	var dependencies []cloudinfo.AddonConfig
+	// Extract just the dependency names - let RunAddonTest handle all the complex metadata
+	var dependencyNames []string
 
-	// Process required dependencies first
+	// Process required dependencies first - just get the names
 	for _, component := range componentsReferences.Required.OfferingReferences {
 		if component.OfferingReference.DefaultFlavor == "" ||
 			component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name {
-			dep := cloudinfo.AddonConfig{
-				OfferingName:        component.OfferingReference.Name,
-				OfferingFlavor:      component.OfferingReference.Flavor.Name,
-				OfferingLabel:       component.OfferingReference.Label,
-				CatalogID:           component.OfferingReference.CatalogID,
-				OfferingID:          component.OfferingReference.ID,
-				VersionLocator:      component.OfferingReference.VersionLocator,
-				ResolvedVersion:     component.OfferingReference.Version,
-				Enabled:             core.BoolPtr(true), // Required dependencies are always enabled
-				Prefix:              options.Prefix,
-				Inputs:              make(map[string]interface{}),
-				OfferingInstallKind: cloudinfo.InstallKindTerraform,
-				Dependencies:        []cloudinfo.AddonConfig{},
-			}
-			dependencies = append(dependencies, dep)
+			dependencyNames = append(dependencyNames, component.OfferingReference.Name)
 		}
 	}
 
-	// Process optional dependencies
+	// Process optional dependencies - just get the names
 	for _, component := range componentsReferences.Optional.OfferingReferences {
 		if component.OfferingReference.DefaultFlavor == "" ||
 			component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name {
-			dep := cloudinfo.AddonConfig{
-				OfferingName:        component.OfferingReference.Name,
-				OfferingFlavor:      component.OfferingReference.Flavor.Name,
-				OfferingLabel:       component.OfferingReference.Label,
-				CatalogID:           component.OfferingReference.CatalogID,
-				OfferingID:          component.OfferingReference.ID,
-				VersionLocator:      component.OfferingReference.VersionLocator,
-				ResolvedVersion:     component.OfferingReference.Version,
-				Enabled:             core.BoolPtr(component.OfferingReference.OnByDefault),
-				OnByDefault:         core.BoolPtr(component.OfferingReference.OnByDefault),
-				Prefix:              options.Prefix,
-				Inputs:              make(map[string]interface{}),
-				OfferingInstallKind: cloudinfo.InstallKindTerraform,
-				Dependencies:        []cloudinfo.AddonConfig{},
-			}
-			dependencies = append(dependencies, dep)
+			dependencyNames = append(dependencyNames, component.OfferingReference.Name)
 		}
 	}
 
-	return dependencies, nil
+	return dependencyNames, nil
+}
+
+// validateAndProcessRequiredDependencies applies the required dependency business logic to manually configured dependencies
+// This ensures consistent behavior with the catalog processing that happens for discovered dependencies
+func (options *TestAddonOptions) validateAndProcessRequiredDependencies() error {
+	// Log CloudInfoService availability - respect quiet mode for this informational message
+	if options.CloudInfoService == nil {
+		if !options.Logger.IsQuietMode() {
+			options.Logger.ShortInfo("CloudInfoService not available - processing dependencies with existing metadata only")
+		}
+	} else {
+		if !options.Logger.IsQuietMode() {
+			options.Logger.ShortInfo("CloudInfoService is available - will query catalog metadata")
+		}
+	}
+
+	// Process the root addon and all its dependencies recursively
+	err := options.processRequiredDependenciesRecursively(&options.AddonConfig, options.AddonConfig.OfferingName)
+	if err != nil {
+		return fmt.Errorf("failed to process required dependencies: %w", err)
+	}
+
+	return nil
+}
+
+// processRequiredDependenciesRecursively walks through dependencies and applies business rules for required dependencies
+func (options *TestAddonOptions) processRequiredDependenciesRecursively(config *cloudinfo.AddonConfig, parentName string) error {
+	var forceEnabledDeps []string
+	var requiredDeps []string
+	var optionalDeps []string
+
+	// Log the processing header if we have dependencies - respect quiet mode for verbose information
+	if len(config.Dependencies) > 0 && !options.Logger.IsQuietMode() {
+		msg := fmt.Sprintf("Processing dependencies for %s:", parentName)
+		options.Logger.ShortInfo(msg)
+	}
+
+	for i := range config.Dependencies {
+		dep := &config.Dependencies[i]
+
+		// Determine if this dependency is required
+		isRequired := false
+		if dep.Enabled != nil && !*dep.Enabled {
+			// Check if this dependency is required by getting its catalog metadata
+			var err error
+			isRequired, err = options.checkIfDependencyIsRequired(dep, parentName)
+			if err != nil {
+				options.Logger.ShortWarn(fmt.Sprintf("Could not check if dependency %s is required: %v", dep.OfferingName, err))
+				continue
+			}
+
+			if isRequired {
+				// Apply business rule: force-enable required dependencies
+				dep.Enabled = core.BoolPtr(true)
+				dep.IsRequired = core.BoolPtr(true)
+				dep.RequiredBy = []string{parentName}
+				forceEnabledDeps = append(forceEnabledDeps, dep.OfferingName)
+
+				// Handle StrictMode logging
+				if options.StrictMode == nil || *options.StrictMode {
+					// Strict mode: warn but continue
+					options.Logger.ShortWarn(fmt.Sprintf("Required dependency %s was force-enabled despite being disabled", dep.OfferingName))
+					options.Logger.ShortWarn(fmt.Sprintf("  Required by: %s", parentName))
+					options.Logger.ShortWarn("  Use StrictMode=false to suppress this warning")
+				} else {
+					// Non-strict mode: informational message
+					options.Logger.ShortInfo(fmt.Sprintf("Required dependency %s was force-enabled (required by %s)", dep.OfferingName, parentName))
+				}
+			}
+		} else {
+			// Check if already marked as required from previous processing
+			if dep.IsRequired != nil && *dep.IsRequired {
+				isRequired = true
+			}
+		}
+
+		// Log individual dependency status with tree structure
+		var status string
+		if isRequired {
+			requiredDeps = append(requiredDeps, dep.OfferingName)
+			status = fmt.Sprintf("├── %s (REQUIRED by %s)", dep.OfferingName, parentName)
+		} else {
+			optionalDeps = append(optionalDeps, dep.OfferingName)
+			status = fmt.Sprintf("└── %s (OPTIONAL)", dep.OfferingName)
+		}
+		// Only show individual dependency status in verbose mode
+		if !options.Logger.IsQuietMode() {
+			options.Logger.ShortInfo(status)
+		}
+
+		// Recursively process nested dependencies
+		err := options.processRequiredDependenciesRecursively(dep, dep.OfferingName)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Log comprehensive summary - respect quiet mode for verbose information
+	if len(config.Dependencies) > 0 && !options.Logger.IsQuietMode() {
+		totalDeps := len(config.Dependencies)
+		requiredCount := len(requiredDeps)
+		optionalCount := len(optionalDeps)
+		forceEnabledCount := len(forceEnabledDeps)
+
+		summaryMsg := fmt.Sprintf("Summary: %d dependencies processed, %d required (%d force-enabled), %d optional",
+			totalDeps, requiredCount, forceEnabledCount, optionalCount)
+
+		options.Logger.ShortInfo(summaryMsg)
+	}
+
+	return nil
+}
+
+// checkIfDependencyIsRequired checks if a dependency is marked as required in the catalog metadata
+func (options *TestAddonOptions) checkIfDependencyIsRequired(dep *cloudinfo.AddonConfig, parentName string) (bool, error) {
+	// If we already have the IsRequired metadata, use it
+	if dep.IsRequired != nil {
+		return *dep.IsRequired, nil
+	}
+
+	// If CloudInfoService is not available, we can't check catalog metadata
+	if options.CloudInfoService == nil {
+		// Default to not required when we can't check catalog
+		return false, nil
+	}
+
+	// Query the parent offering's catalog information to check if this dependency is required
+	// We need to find the parent AddonConfig to get its catalog information
+	parentConfig := options.findParentAddonConfig(parentName)
+	if parentConfig == nil {
+		// Parent config not found - default to not required (this is fine for simple dependency configs)
+		return false, nil
+	}
+
+	// Check if we have the necessary catalog metadata for the lookup
+	if parentConfig.CatalogID == "" || parentConfig.OfferingID == "" {
+		// No catalog metadata available - this is expected for simple dependency configurations
+		// Default to not required without warning (test setup already logs catalog details)
+		return false, nil
+	}
+
+	// Get the parent offering details from catalog
+	offering, _, err := options.CloudInfoService.GetOffering(parentConfig.CatalogID, parentConfig.OfferingID)
+	if err != nil {
+		// Catalog lookup failed - default to not required without warning
+		// (test setup already shows catalog creation details)
+		return false, nil
+	}
+
+	// Find the version that matches the parent config
+	var version *catalogmanagementv1.Version
+	for _, kind := range offering.Kinds {
+		if *kind.InstallKind == "terraform" {
+			for _, v := range kind.Versions {
+				if *v.VersionLocator == parentConfig.VersionLocator {
+					version = &v
+					break
+				}
+			}
+		}
+		if version != nil {
+			break
+		}
+	}
+
+	if version == nil {
+		// Version not found - default to not required
+		return false, nil
+	}
+
+	// Check the catalog dependencies to see if this dependency is marked as required
+	for _, catalogDep := range version.SolutionInfo.Dependencies {
+		if *catalogDep.Name == dep.OfferingName {
+			// Found the dependency in catalog metadata
+			// A dependency is required if it's NOT optional (required = !optional)
+			if catalogDep.Optional != nil {
+				return !*catalogDep.Optional, nil
+			}
+			// If Optional field is not set, check OnByDefault as fallback
+			// Dependencies that are on by default but optional can be disabled
+			if catalogDep.OnByDefault != nil {
+				// If it's on by default but no explicit optional field, assume it's optional
+				return false, nil
+			}
+		}
+	}
+
+	// If dependency not found in catalog metadata, default to not required
+	return false, nil
+}
+
+// findParentAddonConfig finds the AddonConfig for a given offering name
+// This helps locate the catalog information needed to check dependency requirements
+func (options *TestAddonOptions) findParentAddonConfig(offeringName string) *cloudinfo.AddonConfig {
+	// Check if this is the root addon
+	if options.AddonConfig.OfferingName == offeringName {
+		return &options.AddonConfig
+	}
+
+	// Recursively search through dependencies
+	return options.findAddonConfigRecursively(&options.AddonConfig, offeringName)
+}
+
+// findAddonConfigRecursively searches for an AddonConfig by offering name in the dependency tree
+func (options *TestAddonOptions) findAddonConfigRecursively(config *cloudinfo.AddonConfig, offeringName string) *cloudinfo.AddonConfig {
+	if config.OfferingName == offeringName {
+		return config
+	}
+
+	// Search in dependencies
+	for i := range config.Dependencies {
+		if result := options.findAddonConfigRecursively(&config.Dependencies[i], offeringName); result != nil {
+			return result
+		}
+	}
+
+	return nil
 }
 
 // generatePermutations creates all enabled/disabled combinations of dependencies
-func (options *TestAddonOptions) generatePermutations(dependencies []cloudinfo.AddonConfig) []AddonTestCase {
+func (options *TestAddonOptions) generatePermutations(dependencyNames []string) []AddonTestCase {
+
 	var testCases []AddonTestCase
 
 	// Generate all 2^n permutations of dependencies (root addon is always present)
-	numDeps := len(dependencies)
+	numDeps := len(dependencyNames)
 	totalPermutations := 1 << numDeps // 2^n where n = number of dependencies
 
 	// Generate a random prefix once per test run for UI grouping
@@ -1753,28 +2318,29 @@ func (options *TestAddonOptions) generatePermutations(dependencies []cloudinfo.A
 	basePrefix := options.shortenPrefix(options.Prefix)
 
 	for i := 0; i < totalPermutations; i++ {
-		// Create a copy of dependencies for this permutation
-		permutationDeps := make([]cloudinfo.AddonConfig, len(dependencies))
-		copy(permutationDeps, dependencies)
-
-		// Generate permutation name based on disabled dependencies
+		// Create simple dependency configs for this permutation (like manual tests)
+		var permutationDeps []cloudinfo.AddonConfig
 		var disabledNames []string
 
-		// Set enabled/disabled based on bit pattern
-		for j := 0; j < numDeps; j++ {
-			if (i & (1 << j)) == 0 {
-				// Bit is 0, disable this dependency
-				permutationDeps[j].Enabled = core.BoolPtr(false)
-				disabledNames = append(disabledNames, permutationDeps[j].OfferingName)
-			} else {
-				// Bit is 1, enable this dependency
-				permutationDeps[j].Enabled = core.BoolPtr(true)
+		// Set enabled/disabled based on bit pattern - create simple configs like manual tests
+		for j, depName := range dependencyNames {
+			enabled := (i & (1 << j)) != 0
+
+			// Create simple dependency config (same format as manual tests)
+			dep := cloudinfo.AddonConfig{
+				OfferingName: depName,
+				Enabled:      core.BoolPtr(enabled),
+			}
+			permutationDeps = append(permutationDeps, dep)
+
+			if !enabled {
+				disabledNames = append(disabledNames, depName)
 			}
 		}
 
-		// Skip the "on by default" case (default configuration)
-		// This excludes the combination where all dependencies match their OnByDefault values
-		if options.isDefaultConfiguration(permutationDeps, dependencies) {
+		// Skip the "all enabled" case (default configuration)
+		// This excludes the combination where all dependencies are enabled
+		if len(disabledNames) == 0 {
 			continue
 		}
 
@@ -1787,6 +2353,7 @@ func (options *TestAddonOptions) generatePermutations(dependencies []cloudinfo.A
 			abbreviatedDisabledNames := options.abbreviateWithCollisionResolution(disabledNames)
 			testCaseName = fmt.Sprintf("%s-%s-%d-disable-%s", randomPrefix, mainOfferingAbbrev, permIndex,
 				strings.Join(abbreviatedDisabledNames, "-"))
+
 		}
 
 		// Generate unique prefix using random prefix and sequential counter
@@ -1941,6 +2508,336 @@ func (options *TestAddonOptions) isNumericOrKeyword(part string) bool {
 	}
 
 	return false
+}
+
+// detectCircularDependencies analyzes configs in awaiting_prerequisite state to find circular dependency chains
+func (options *TestAddonOptions) detectCircularDependencies(awaitingConfigs []ConfigDependencyInfo) []string {
+	if len(awaitingConfigs) == 0 {
+		return nil
+	}
+
+	// Build a map of config ID to config info for quick lookup
+	configMap := make(map[string]ConfigDependencyInfo)
+	for _, config := range awaitingConfigs {
+		configMap[config.ID] = config
+	}
+
+	// Build detailed dependency information for enhanced error reporting
+	detailedDependencies := make([]DetailedDependencyInfo, 0)
+
+	// Build dependency graph: config ID -> list of config IDs it depends on
+	dependencyGraph := make(map[string][]string)
+	for _, config := range awaitingConfigs {
+		dependencies := make([]string, 0)
+		for _, ref := range config.InputReferences {
+			// Parse reference format: ref:/configs/{config_id}/outputs/{output_name}
+			if referencedConfigID := options.parseConfigIDFromReference(ref); referencedConfigID != "" {
+				// Only consider dependencies on other awaiting configs (potential circular deps)
+				if referencedConfig, exists := configMap[referencedConfigID]; exists {
+					dependencies = append(dependencies, referencedConfigID)
+
+					// Extract detailed dependency information with actual field names
+					inputName := options.findInputFieldNameFromReference(config, ref)
+
+					// Parse the reference to understand what we're pointing to
+					refDetails := options.parseReferenceDetails(ref)
+					var referencedField string
+					var referencedType string
+
+					if refDetails.IsValid {
+						// Use the dynamically parsed details
+						referencedField = refDetails.FieldName
+						referencedType = refDetails.ReferenceType
+					} else {
+						// Fallback for backward compatibility
+						referencedField = options.parseOutputNameFromReference(ref)
+						referencedType = "outputs" // assume outputs for backward compatibility
+					}
+
+					detailedDep := DetailedDependencyInfo{
+						ConfigID:             config.ID,
+						ConfigName:           config.Name,
+						InputName:            inputName,
+						ReferencedConfigID:   referencedConfigID,
+						ReferencedConfigName: referencedConfig.Name,
+						ReferencedOutput:     referencedField,
+						ReferencedType:       referencedType,
+						FullReference:        ref,
+					}
+					detailedDependencies = append(detailedDependencies, detailedDep)
+				}
+			}
+		}
+		dependencyGraph[config.ID] = dependencies
+	}
+
+	// Detect cycles using DFS (Depth First Search)
+	var cycles []string
+	visited := make(map[string]bool)
+	recursionStack := make(map[string]bool)
+
+	for configID := range dependencyGraph {
+		if !visited[configID] {
+			if cycle := options.findCycleDFS(configID, dependencyGraph, configMap, detailedDependencies, visited, recursionStack, []string{}); cycle != "" {
+				cycles = append(cycles, cycle)
+			}
+		}
+	}
+
+	return cycles
+}
+
+// parseConfigIDFromReference extracts the config ID from a reference string
+// Format: ref:/configs/{config_id}/outputs/{output_name}
+func (options *TestAddonOptions) parseConfigIDFromReference(reference string) string {
+	// Expected format: ref:/configs/{config_id}/outputs/{output_name}
+	if !strings.HasPrefix(reference, "ref:/configs/") {
+		return ""
+	}
+
+	// Remove "ref:/configs/" prefix
+	remaining := strings.TrimPrefix(reference, "ref:/configs/")
+
+	// Find the next "/" to separate config ID from the rest
+	parts := strings.Split(remaining, "/")
+	if len(parts) >= 1 {
+		return parts[0]
+	}
+
+	return ""
+}
+
+// parseInputOutputFromReference extracts input name and output name from a reference string
+// Note: This now uses dynamic parsing to handle both inputs and outputs
+func (options *TestAddonOptions) parseInputOutputFromReference(reference string) (inputName string, outputName string) {
+	details := options.parseReferenceDetails(reference)
+	if !details.IsValid {
+		return "unknown_input", "unknown_output"
+	}
+
+	// The field name is what we're referencing
+	if details.ReferenceType == "outputs" {
+		outputName = details.FieldName
+		inputName = "unknown_input" // We still don't know the input field without additional context
+	} else if details.ReferenceType == "inputs" {
+		inputName = details.FieldName
+		outputName = "unknown_output" // We're referencing an input, not an output
+	} else {
+		// Handle any future reference types generically
+		outputName = details.FieldName
+		inputName = "unknown_input"
+	}
+
+	return inputName, outputName
+}
+
+// findInputFieldNameFromReference finds the input field name that contains the given reference
+func (options *TestAddonOptions) findInputFieldNameFromReference(config ConfigDependencyInfo, reference string) string {
+	// Look through the field mappings to find which field has this reference
+	for fieldName, fieldRef := range config.InputFieldReferences {
+		if fieldRef == reference {
+			return fieldName
+		}
+	}
+
+	// If we can't find the field name, fall back to unknown with reference info for debugging
+	return "unknown_input"
+}
+
+// ReferenceDetails contains the parsed components of a reference string
+type ReferenceDetails struct {
+	ConfigID      string // The config ID being referenced
+	ReferenceType string // "inputs", "outputs", or other type
+	FieldName     string // The field name being referenced
+	IsValid       bool   // Whether the reference was successfully parsed
+}
+
+// parseReferenceDetails dynamically parses any reference format
+func (options *TestAddonOptions) parseReferenceDetails(reference string) ReferenceDetails {
+	// Expected format: ref:/configs/{config_id}/{type}/{field_name}
+	// Where type can be "inputs", "outputs", or any future type
+	result := ReferenceDetails{IsValid: false}
+
+	if !strings.HasPrefix(reference, "ref:/configs/") {
+		return result
+	}
+
+	// Extract components from the reference
+	parts := strings.Split(reference, "/")
+	if len(parts) >= 5 && parts[0] == "ref:" && parts[1] == "configs" {
+		result.ConfigID = parts[2]
+		result.ReferenceType = parts[3]
+		result.FieldName = parts[4]
+		result.IsValid = true
+	}
+
+	return result
+}
+
+// parseOutputNameFromReference extracts just the output name from a reference string (legacy compatibility)
+func (options *TestAddonOptions) parseOutputNameFromReference(reference string) string {
+	details := options.parseReferenceDetails(reference)
+	if !details.IsValid {
+		return "unknown_output"
+	}
+
+	// For backward compatibility, return the field name regardless of whether it's input or output
+	return details.FieldName
+}
+
+// findCycleDFS performs depth-first search to detect cycles in the dependency graph
+func (options *TestAddonOptions) findCycleDFS(configID string, graph map[string][]string, configMap map[string]ConfigDependencyInfo, detailedDeps []DetailedDependencyInfo, visited map[string]bool, recursionStack map[string]bool, currentPath []string) string {
+	visited[configID] = true
+	recursionStack[configID] = true
+	currentPath = append(currentPath, configID)
+
+	// Check all dependencies of the current config
+	for _, dependencyID := range graph[configID] {
+		if !visited[dependencyID] {
+			if cycle := options.findCycleDFS(dependencyID, graph, configMap, detailedDeps, visited, recursionStack, currentPath); cycle != "" {
+				return cycle
+			}
+		} else if recursionStack[dependencyID] {
+			// Found a cycle! Build the cycle description
+			return options.buildCycleDescription(currentPath, dependencyID, configMap, detailedDeps)
+		}
+	}
+
+	recursionStack[configID] = false
+	return ""
+}
+
+// buildCycleDescription creates a human-readable description of the circular dependency with detailed input/output information
+func (options *TestAddonOptions) buildCycleDescription(path []string, cycleStart string, configMap map[string]ConfigDependencyInfo, detailedDeps []DetailedDependencyInfo) string {
+	// Find where the cycle starts in the path
+	cycleStartIndex := -1
+	for i, id := range path {
+		if id == cycleStart {
+			cycleStartIndex = i
+			break
+		}
+	}
+
+	if cycleStartIndex == -1 {
+		return fmt.Sprintf("Circular dependency detected involving config %s", cycleStart)
+	}
+
+	// Build a map of dependencies for quick lookup
+	depMap := make(map[string]map[string]DetailedDependencyInfo)
+	for _, dep := range detailedDeps {
+		if depMap[dep.ConfigID] == nil {
+			depMap[dep.ConfigID] = make(map[string]DetailedDependencyInfo)
+		}
+		depMap[dep.ConfigID][dep.ReferencedConfigID] = dep
+	}
+
+	// Build enhanced cycle description with input/output details
+	var cycleDetails []string
+	cycleConfigs := path[cycleStartIndex:]
+	cycleConfigs = append(cycleConfigs, cycleStart) // Add the starting config to complete the cycle
+
+	for i := 0; i < len(cycleConfigs)-1; i++ {
+		currentConfigID := cycleConfigs[i]
+		nextConfigID := cycleConfigs[i+1]
+
+		currentConfig, exists := configMap[currentConfigID]
+		if !exists {
+			continue
+		}
+
+		// Find the specific dependency causing this link in the cycle
+		if depInfo, found := depMap[currentConfigID][nextConfigID]; found {
+			// Use actual field names if available, otherwise provide fallback message
+			if depInfo.InputName != "unknown_input" && depInfo.ReferencedOutput != "unknown_output" {
+				// Build dynamic description based on what type of reference this is
+				var referenceDescription string
+				if depInfo.ReferencedType == "outputs" {
+					referenceDescription = fmt.Sprintf("%s.output: %s", depInfo.ReferencedConfigName, depInfo.ReferencedOutput)
+				} else if depInfo.ReferencedType == "inputs" {
+					referenceDescription = fmt.Sprintf("%s.input: %s", depInfo.ReferencedConfigName, depInfo.ReferencedOutput)
+				} else if depInfo.ReferencedType == "" {
+					// Backward compatibility: assume output if type is not set
+					referenceDescription = fmt.Sprintf("%s.output: %s", depInfo.ReferencedConfigName, depInfo.ReferencedOutput)
+				} else {
+					// Handle any future reference types generically
+					referenceDescription = fmt.Sprintf("%s.%s: %s", depInfo.ReferencedConfigName, depInfo.ReferencedType, depInfo.ReferencedOutput)
+				}
+
+				cycleDetails = append(cycleDetails, fmt.Sprintf("%s (input: %s needs %s)",
+					currentConfig.Name,
+					depInfo.InputName,
+					referenceDescription))
+			} else {
+				// Fallback when field parsing fails but circular dependency is detected
+				cycleDetails = append(cycleDetails, fmt.Sprintf("%s (circular dependency detected but field details unavailable - check configuration references)",
+					currentConfig.Name))
+			}
+		} else {
+			cycleDetails = append(cycleDetails, currentConfig.Name)
+		}
+	}
+
+	// Create the enhanced error message with resolution guidance
+	cycleChain := strings.Join(cycleDetails, " → ")
+
+	resolutionGuidance := "\n\n💡 RESOLUTION OPTIONS:\n" +
+		"• Use existing resources instead of creating new ones\n" +
+		"• Restructure deployment order by splitting dependencies\n" +
+		"• Consider using data sources or external references"
+
+	return fmt.Sprintf("🔍 CIRCULAR DEPENDENCY DETECTED: %s%s", cycleChain, resolutionGuidance)
+}
+
+// extractInputNameFromReference attempts to extract a meaningful input name from the reference
+// This is a heuristic approach since the reference format doesn't include input field names
+func (options *TestAddonOptions) extractInputNameFromReference(reference string) string {
+	// Try to infer input name from the output name being referenced
+	_, outputName := options.parseInputOutputFromReference(reference)
+
+	// Common mapping patterns for IBM Cloud offerings
+	switch outputName {
+	case "cloud_logs_crn":
+		return "existing_cloud_logs_instance_crn"
+	case "cloud_logs_name":
+		return "cloud_logs_instance_name"
+	case "kms_key_crn":
+		return "existing_kms_key_crn"
+	case "cos_instance_crn":
+		return "existing_cos_instance_crn"
+	default:
+		// Fallback: use the output name with "existing_" prefix
+		return fmt.Sprintf("existing_%s", outputName)
+	}
+}
+
+// findUnresolvedReferences identifies input references that point to non-existent configs or outputs
+func (options *TestAddonOptions) findUnresolvedReferences(awaitingConfigs []ConfigDependencyInfo, allConfigs []projectv1.ProjectConfigSummary) []string {
+	// Build a map of existing config IDs for quick lookup
+	existingConfigIDs := make(map[string]bool)
+	for _, config := range allConfigs {
+		if config.ID != nil {
+			existingConfigIDs[*config.ID] = true
+		}
+	}
+
+	var unresolvedRefs []string
+
+	for _, config := range awaitingConfigs {
+		for _, ref := range config.InputReferences {
+			referencedConfigID := options.parseConfigIDFromReference(ref)
+			if referencedConfigID != "" {
+				// Check if the referenced config exists
+				if !existingConfigIDs[referencedConfigID] {
+					unresolvedRefs = append(unresolvedRefs, fmt.Sprintf("%s → references non-existent config %s", config.Name, referencedConfigID))
+				}
+				// Note: We could also check if the referenced output actually exists on the target config,
+				// but that would require querying the catalog for each config's outputs, which might be expensive.
+				// For now, we just verify the config exists.
+			}
+		}
+	}
+
+	return unresolvedRefs
 }
 
 // resolveCollisions progressively adds characters to resolve naming conflicts

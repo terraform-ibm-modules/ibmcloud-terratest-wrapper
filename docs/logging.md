@@ -21,7 +21,7 @@ func TestMyAddon(t *testing.T) {
 
     // Configure logging behavior through test options
     quietMode := true
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:           t,
         Prefix:            "my-test",
         ResourceGroup:     "test-rg",
@@ -51,7 +51,7 @@ func TestMyAddon(t *testing.T) {
 #### Parallel Tests (Recommended)
 ```golang
 quietMode := true
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     QuietMode:         &quietMode,  // Clean output during parallel execution
     VerboseOnFailure:  true,        // See details on failure
     // ... other options
@@ -61,7 +61,7 @@ options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
 #### Local Development/Debugging
 ```golang
 quietMode := false
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     QuietMode:         &quietMode,  // See all output immediately
     VerboseOnFailure:  true,        // Additional context on failure
     // ... other options
@@ -74,7 +74,7 @@ options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
 isCI := os.Getenv("CI") == "true" || os.Getenv("GITHUB_ACTIONS") == "true"
 quietMode := isCI
 
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     QuietMode:         &quietMode,  // Quiet in CI, verbose locally
     VerboseOnFailure:  true,        // Always show failure details
     // ... other options
@@ -97,7 +97,7 @@ options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
 ### testaddons Package
 
 ```golang
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:           t,
     QuietMode:         &[]bool{true}[0],     // Recommended for addon tests
     VerboseOnFailure:  true,
@@ -158,7 +158,7 @@ When you configure logging options correctly:
 ```golang
 func TestStandardPattern(t *testing.T) {
     t.Parallel()
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:           t,
         QuietMode:         &[]bool{true}[0],
         VerboseOnFailure:  true,
@@ -171,7 +171,7 @@ func TestStandardPattern(t *testing.T) {
 ```golang
 func TestWithDebugging(t *testing.T) {
     // Omit t.Parallel() for debugging
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:           t,
         QuietMode:         &[]bool{false}[0], // See all output immediately
         VerboseOnFailure:  true,

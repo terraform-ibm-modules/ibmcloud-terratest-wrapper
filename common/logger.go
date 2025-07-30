@@ -928,6 +928,12 @@ func (s *SmartLogger) ShortInfo(message string) {
 
 // Delegate all other Logger interface methods to the wrapped logger
 func (s *SmartLogger) Info(message string) {
+	// In quiet mode, suppress regular Info messages unless they're essential
+	if s.logger.IsQuietMode() {
+		// Only allow essential/progress messages through in quiet mode
+		// For now, suppress all Info() calls in quiet mode since they're typically debug/verbose output
+		return
+	}
 	s.logger.Info(message)
 }
 

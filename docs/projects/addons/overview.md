@@ -19,7 +19,7 @@ import (
 func TestBasicAddon(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "test-addon",
         ResourceGroup: "my-project-rg",

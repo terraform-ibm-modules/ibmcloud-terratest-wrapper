@@ -43,7 +43,7 @@ func TestRunAddonTests(t *testing.T) {
             {Name: "Test8", Prefix: "test8"},
             {Name: "Test9", Prefix: "test9"},
         },
-        BaseOptions: testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        BaseOptions: testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
             Testing: t,
             Prefix:  "matrix-test",
         }),
@@ -330,7 +330,7 @@ func TestDefaultBatchedStaggering(t *testing.T) {
         }
     }
 
-    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "batched-test",
         ResourceGroup: "my-resource-group",
@@ -374,7 +374,7 @@ func TestHighVolumeCustomBatching(t *testing.T) {
         }
     }
 
-    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "high-volume-test",
         ResourceGroup: "my-resource-group",

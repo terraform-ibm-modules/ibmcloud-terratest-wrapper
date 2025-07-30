@@ -10,7 +10,7 @@ All test wrapper packages (`testaddons`, `testhelper`, `testprojects`, `testsche
 
 ```golang
 // You configure this
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     QuietMode:         &quietMode,
     VerboseOnFailure:  true,
 })
@@ -63,7 +63,7 @@ func TestStandardAddon(t *testing.T) {
     t.Parallel()
 
     quietMode := true
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:           t,
         Prefix:            "test-addon",
         ResourceGroup:     "test-rg",
@@ -93,7 +93,7 @@ func TestWithDebugging(t *testing.T) {
     // Omit t.Parallel() for sequential execution
 
     quietMode := false
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:           t,
         Prefix:            "debug-test",
         ResourceGroup:     "test-rg",
@@ -126,7 +126,7 @@ func TestCIAdaptive(t *testing.T) {
             os.Getenv("GITHUB_ACTIONS") == "true" ||
             os.Getenv("JENKINS_URL") != ""
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:           t,
         Prefix:            "ci-test",
         ResourceGroup:     "test-rg",
@@ -148,7 +148,7 @@ For IBM Cloud Projects addon testing:
 import "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testaddons"
 
 quietMode := true
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:           t,
     Prefix:            "addon-test",
     ResourceGroup:     "project-rg",
@@ -271,7 +271,7 @@ The framework provides enhanced error handling methods that automatically manage
 func TestWithCriticalError(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:           t,
         QuietMode:         &[]bool{true}[0],
         VerboseOnFailure:  true,
@@ -296,7 +296,7 @@ func TestWithCriticalError(t *testing.T) {
 func TestWithExpectedError(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:           t,
         QuietMode:         &[]bool{true}[0],
         VerboseOnFailure:  true,
@@ -317,7 +317,7 @@ func TestWithExpectedError(t *testing.T) {
 func TestWithFatalError(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:           t,
         QuietMode:         &[]bool{true}[0],
         VerboseOnFailure:  true,

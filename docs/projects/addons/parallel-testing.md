@@ -62,7 +62,7 @@ func TestRunAddonTests(t *testing.T) {
         },
     }
 
-    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "matrix-test", // Individual test cases will override with their own prefixes
         ResourceGroup: "my-resource-group",
@@ -130,7 +130,7 @@ func TestMultipleAddons(t *testing.T) {
     }
 
     // Define common options that apply to all test cases
-    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "matrix-test", // Individual test cases will override with their own prefixes
         ResourceGroup: "my-resource-group",
@@ -189,7 +189,7 @@ func TestMultipleAddonsAlternative(t *testing.T) {
         // BaseOptions: nil, // Don't provide BaseOptions for this pattern
         BaseSetupFunc: func(baseOptions *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) *testaddons.TestAddonOptions {
             // Note: baseOptions will be nil when BaseOptions is not provided
-            return testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+            return testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
                 Testing:       t,
                 Prefix:        testCase.Prefix,
                 ResourceGroup: "my-resource-group",
@@ -209,7 +209,7 @@ func TestMultipleAddonsAlternative(t *testing.T) {
     }
 
     // Create a base options object to run the matrix (only used for the test runner, not test cases)
-    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "matrix-runner",
     })
@@ -291,7 +291,7 @@ func TestMyAddonMatrix(t *testing.T) {
     }
 
     // Define common options that apply to all test cases
-    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:                     t,
         Prefix:                      "addon-matrix",
         ResourceGroup:               "default",
@@ -359,7 +359,7 @@ The framework provides a `SharedCatalog` option to control sharing behavior:
 
 ```go
 // Default: SharedCatalog = true (efficient sharing)
-baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "test",
     ResourceGroup: "my-rg",
@@ -368,7 +368,7 @@ baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
 })
 
 // For complete isolation: SharedCatalog = false
-isolatedOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+isolatedOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "isolated",
     ResourceGroup: "my-rg",
@@ -412,7 +412,7 @@ Addon tests use descriptive names in log messages for easy identification:
 
 ```golang
 func TestCustomAddon(t *testing.T) {
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:      t,
         Prefix:       "custom-test",
         TestCaseName: "CustomScenarioValidation", // Custom log identifier
@@ -538,7 +538,7 @@ func TestComprehensiveAddonMatrix(t *testing.T) {
 
     matrix := testaddons.AddonTestMatrix{
         TestCases: testCases,
-        BaseOptions: testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        BaseOptions: testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
             Testing:       t,
             Prefix:        "comprehensive-test",
             ResourceGroup: "my-resource-group",
@@ -609,7 +609,7 @@ func TestCostEffectiveAddonMatrix(t *testing.T) {
 
     matrix := testaddons.AddonTestMatrix{
         TestCases: testCases,
-        BaseOptions: testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        BaseOptions: testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
             Testing:       t,
             Prefix:        "cost-effective-test",
             ResourceGroup: "test-resource-group",
@@ -656,7 +656,7 @@ func TestFlavorMatrix(t *testing.T) {
 
     matrix := testaddons.AddonTestMatrix{
         TestCases: testCases,
-        BaseOptions: testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+        BaseOptions: testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
             Testing:       t,
             Prefix:        "multi-flavor-test",
             ResourceGroup: "flavor-test-rg",
@@ -691,14 +691,14 @@ The framework provides intelligent project management optimized for different te
 ```go
 // Matrix tests: Each test case gets its own project for complete isolation
 // The framework automatically creates separate projects for each test case
-baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "test",
     ResourceGroup: "my-rg",
 })
 
 // Individual tests: Each test gets its own project for isolation
-individualOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+individualOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing:       t,
     Prefix:        "individual",
     ResourceGroup: "my-rg",
@@ -748,7 +748,7 @@ func TestEfficientAddonMatrix(t *testing.T) {
         {Name: "ProductionConfiguration", Prefix: "prod"},
     }
 
-    baseOptions := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    baseOptions := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "efficient-test",
         ResourceGroup: "my-resource-group",
@@ -874,7 +874,7 @@ import (
 func TestAddonDependencyPermutations(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "addon-perm",
         AddonConfig: cloudinfo.AddonConfig{
@@ -998,7 +998,7 @@ func TestAddonCustomScenarios(t *testing.T) {
 func TestAddonDependencyPermutations(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "addon-perm",
         AddonConfig: cloudinfo.AddonConfig{

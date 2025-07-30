@@ -260,7 +260,7 @@ import (
 )
 
 func setupAddonOptions(t *testing.T) *testaddons.TestAddonOptions {
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing:       t,
         Prefix:        "logging-test",
         ResourceGroup: "test-rg",

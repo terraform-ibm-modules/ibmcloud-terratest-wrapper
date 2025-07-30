@@ -67,6 +67,7 @@ type ValidationResult struct {
 	MissingInputs       []string // Missing required inputs for configurations
 	ConfigurationErrors []string // General configuration validation errors
 	Messages            []string
+	Warnings            []string // Non-critical issues that don't cause test failure
 }
 
 // DependencyGraphResult contains the results of building a dependency graph

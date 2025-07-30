@@ -47,7 +47,7 @@ import (
 
 func TestSecretsManagerDependencyPermutations(t *testing.T) {
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "sm-perm",
         AddonConfig: cloudinfo.AddonConfig{
@@ -82,7 +82,7 @@ func TestSecretsManagerDependencyPermutations(t *testing.T) {
 
 The framework automatically configures the following settings for permutation tests:
 
-- **Quiet Mode**: Automatically enabled (`QuietMode: true`) to reduce log noise and show clean progress indicators
+- **Quiet Mode**: Automatically defaults to enabled (`QuietMode: true`) to reduce log noise and show clean progress indicators (can be overridden)
 - **Infrastructure Deployment**: Set to `SkipInfrastructureDeployment: true` for all permutations
 - **Parallel Execution**: Uses matrix testing infrastructure for efficient parallel execution with reliable final reporting
 - **Validation Focus**: All permutations perform validation-only testing
@@ -190,7 +190,7 @@ Test names use abbreviated forms to stay within project name limits and include 
 
 ### Quiet Mode with Final Report (Default)
 
-With quiet mode enabled automatically, you'll see clean progress indicators during execution followed by a comprehensive final report:
+With quiet mode enabled by default, you'll see clean progress indicators during execution followed by a comprehensive final report:
 
 ```
 [CloudInfoService] Importing offering: fully-configurable from branch URL...
@@ -290,10 +290,10 @@ PASS
 
 ### Verbose Mode
 
-For detailed debugging, override the automatic quiet mode:
+For detailed debugging, override the default quiet mode:
 
 ```golang
-options.QuietMode = false  // Enable verbose output
+options.QuietMode = false  // Enable verbose output before calling the test
 err := options.RunAddonPermutationTest()
 ```
 
@@ -321,7 +321,7 @@ When permutations fail validation, you'll see detailed error information:
 ```golang
 // Single method call tests all permutations
 func TestAddonPermutations(t *testing.T) {
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "addon-perm",
         AddonConfig: cloudinfo.AddonConfig{
@@ -392,7 +392,7 @@ func TestAddonMatrix(t *testing.T) {
 Use clear, short prefixes that identify your addon:
 
 ```golang
-options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
     Testing: t,
     Prefix:  "sm-perm",  // Clear abbreviation for secrets-manager-permutation
     // ...
@@ -459,7 +459,7 @@ import (
 func TestAddonFullDeployment(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "addon-deploy",
         AddonConfig: cloudinfo.NewAddonConfigTerraform(
@@ -481,7 +481,7 @@ func TestAddonFullDeployment(t *testing.T) {
 func TestAddonDependencyPermutations(t *testing.T) {
     t.Parallel()
 
-    options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+    options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "addon-perm",
         AddonConfig: cloudinfo.AddonConfig{
