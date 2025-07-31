@@ -618,3 +618,29 @@ func CheckRemoteBranchExists(repoURL, branchName string) (bool, error) {
 	result := strings.TrimSpace(string(output))
 	return result != "", nil
 }
+
+// GetFileDiff returns the git diff output for a specific file
+// repoDir: the directory containing the git repository
+// fileName: the name of the file to get the diff for
+// Returns the diff output as a string and any error encountered
+func GetFileDiff(repoDir string, fileName string) (string, error) {
+	return getFileDiff(repoDir, fileName, &realGitOps{})
+}
+
+func getFileDiff(repoDir string, fileName string, git gitOps) (string, error) {
+	// Get the diff for the specific file
+	diffOutput, err := git.executeCommand(repoDir, "git", "diff", fileName)
+	if err != nil {
+		return "", fmt.Errorf("failed to get diff for file %s: %w", fileName, err)
+	}
+
+	// If there's no staged diff, try to get unstaged diff
+	if len(diffOutput) == 0 {
+		diffOutput, err = git.executeCommand(repoDir, "git", "diff", "--cached", fileName)
+		if err != nil {
+			return "", fmt.Errorf("failed to get cached diff for file %s: %w", fileName, err)
+		}
+	}
+
+	return string(diffOutput), nil
+}
