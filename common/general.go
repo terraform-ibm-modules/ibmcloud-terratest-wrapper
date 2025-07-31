@@ -393,3 +393,13 @@ func StringContainsIgnoreCase(s, substr string) bool {
 	substr = strings.ToLower(substr)
 	return strings.Contains(s, substr)
 }
+
+// IsRunningInCI returns true if running in a CI environment (detached HEAD mode)
+// This is determined by checking if the current branch is "HEAD", which indicates
+// the repository is in detached mode, typically used in CI/CD pipelines like GitHub Actions
+func IsRunningInCI() bool {
+	// Use git ops to get current branch - leveraging existing infrastructure
+	git := &realGitOps{}
+	branch, err := git.getCurrentBranch()
+	return err == nil && branch == "HEAD"
+}
