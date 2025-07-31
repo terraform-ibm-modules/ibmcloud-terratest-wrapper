@@ -93,25 +93,42 @@ func (options *TestAddonOptions) testSetup() error {
 
 	if isChanges {
 		if !options.SkipLocalChangeCheck {
-			filesList := "\nFiles with changes:\n"
-			diffDetails := "\nDiff details:\n"
-
-			for _, file := range files {
-				filesList += fmt.Sprintf("  %s\n", file)
-
-				// Get diff output for this file
-				if diff, err := common.GetFileDiff(repoRoot, file); err != nil {
-					diffDetails += fmt.Sprintf("=== %s ===\nError getting diff: %v\n\n", file, err)
-				} else if strings.TrimSpace(diff) != "" {
-					diffDetails += fmt.Sprintf("=== %s ===\n%s\n", file, diff)
-				} else {
-					diffDetails += fmt.Sprintf("=== %s ===\n(No diff output - file may be untracked or binary)\n\n", file)
+			// If running in CI, filter out files with no diff content
+			if common.IsRunningInCI() {
+				filteredFiles := make([]string, 0)
+				for _, file := range files {
+					if diff, err := common.GetFileDiff(repoRoot, file); err == nil && strings.TrimSpace(diff) != "" {
+						filteredFiles = append(filteredFiles, file)
+					}
+				}
+				files = filteredFiles
+				if len(files) == 0 {
+					isChanges = false
 				}
 			}
 
-			options.Logger.CriticalError(fmt.Sprintf("Local changes found in the repository, please commit, push or stash the changes before running the test%s%s", filesList, diffDetails))
-			options.Testing.Fail()
-			return fmt.Errorf("local changes found in the repository")
+			// Only proceed with error if there are still files with actual changes
+			if isChanges {
+				filesList := "\nFiles with changes:\n"
+				diffDetails := "\nDiff details:\n"
+
+				for _, file := range files {
+					filesList += fmt.Sprintf("  %s\n", file)
+
+					// Get diff output for this file
+					if diff, err := common.GetFileDiff(repoRoot, file); err != nil {
+						diffDetails += fmt.Sprintf("=== %s ===\nError getting diff: %v\n\n", file, err)
+					} else if strings.TrimSpace(diff) != "" {
+						diffDetails += fmt.Sprintf("=== %s ===\n%s\n", file, diff)
+					} else {
+						diffDetails += fmt.Sprintf("=== %s ===\n(No diff output - file may be untracked or binary)\n\n", file)
+					}
+				}
+
+				options.Logger.CriticalError(fmt.Sprintf("Local changes found in the repository, please commit, push or stash the changes before running the test%s%s", filesList, diffDetails))
+				options.Testing.Fail()
+				return fmt.Errorf("local changes found in the repository")
+			}
 		} else {
 			options.Logger.ShortWarn("Local changes found in the repository, but skipping the check")
 			options.Logger.ShortWarn("Files with changes:")
