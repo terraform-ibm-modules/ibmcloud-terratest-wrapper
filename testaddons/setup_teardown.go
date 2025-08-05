@@ -93,18 +93,16 @@ func (options *TestAddonOptions) testSetup() error {
 
 	if isChanges {
 		if !options.SkipLocalChangeCheck {
-			// If running in CI, filter out files with no diff content
-			if common.IsRunningInCI() {
-				filteredFiles := make([]string, 0)
-				for _, file := range files {
-					if diff, err := common.GetFileDiff(repoRoot, file); err == nil && strings.TrimSpace(diff) != "" {
-						filteredFiles = append(filteredFiles, file)
-					}
+			// Filter out files with no diff content (applies to all environments)
+			filteredFiles := make([]string, 0)
+			for _, file := range files {
+				if diff, err := common.GetFileDiff(repoRoot, file); err == nil && strings.TrimSpace(diff) != "" {
+					filteredFiles = append(filteredFiles, file)
 				}
-				files = filteredFiles
-				if len(files) == 0 {
-					isChanges = false
-				}
+			}
+			files = filteredFiles
+			if len(files) == 0 {
+				isChanges = false
 			}
 
 			// Only proceed with error if there are still files with actual changes
