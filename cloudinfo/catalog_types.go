@@ -69,6 +69,14 @@ type CatalogJson struct {
 				Key         string `json:"key"`
 				Description string `json:"description"`
 			} `json:"outputs"`
+			Dependencies []struct {
+				CatalogID   string   `json:"catalog_id,omitempty"`
+				ID          string   `json:"id,omitempty"`
+				Name        string   `json:"name"`
+				Version     string   `json:"version,omitempty"`
+				Flavors     []string `json:"flavors,omitempty"`
+				InstallType string   `json:"install_type,omitempty"`
+			} `json:"dependencies,omitempty"`
 			InstallType string `json:"install_type"`
 		} `json:"flavors"`
 	} `json:"products"`
