@@ -2,13 +2,13 @@ package testaddons
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/IBM/go-sdk-core/v5/core"
-	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
@@ -199,91 +199,52 @@ func TestJoinNamesFunc(t *testing.T) {
 	assert.Equal(t, "name1_name2", result)
 }
 
-// TestRunAddonPermutationTestWithMock tests the complete permutation flow with mocked dependencies
+// TestRunAddonPermutationTestWithMock tests the complete permutation flow with mocked JSON catalog
 func TestRunAddonPermutationTestWithMock(t *testing.T) {
 	t.Run("WithTwoDependencies", func(t *testing.T) {
-		// Create a mock CloudInfoService
-		mockService := &cloudinfo.MockCloudInfoServiceForPermutation{}
+		// Create a temporary ibm_catalog.json file for testing
+		mockCatalogJSON := `{
+			"products": [{
+				"name": "test-addon",
+				"label": "Test Addon",
+				"flavors": [{
+					"name": "test-flavor",
+					"label": "Test Flavor",
+					"dependencies": [
+						{"name": "dep1"},
+						{"name": "dep2"}
+					]
+				}]
+			}]
+		}`
 
-		// Set up mock expectations
-		mockCatalog := &catalogmanagementv1.Catalog{
-			ID:    core.StringPtr("test-catalog-id"),
-			Label: core.StringPtr("test-catalog"),
-		}
+		// Find git root to place the mock catalog file
+		gitRoot, err := common.GitRootPath(".")
+		assert.NoError(t, err)
 
-		mockOffering := &catalogmanagementv1.Offering{
-			Name: core.StringPtr("test-addon"),
-			Kinds: []catalogmanagementv1.Kind{
-				{
-					InstallKind: core.StringPtr("terraform"),
-					Versions: []catalogmanagementv1.Version{
-						{
-							VersionLocator: core.StringPtr("test-catalog.test-version"),
-							Version:        core.StringPtr("1.0.0"),
-						},
-					},
-				},
-			},
-		}
+		catalogPath := filepath.Join(gitRoot, "ibm_catalog.json")
 
-		mockComponentReferences := &cloudinfo.OfferingReferenceResponse{
-			Required: cloudinfo.RequiredReferences{
-				OfferingReferences: []cloudinfo.OfferingReferenceItem{},
-			},
-			Optional: cloudinfo.OptionalReferences{
-				OfferingReferences: []cloudinfo.OfferingReferenceItem{
-					{
-						Name: "dep1",
-						OfferingReference: cloudinfo.OfferingReferenceDetail{
-							Name:          "dep1",
-							Flavor:        cloudinfo.Flavor{Name: "flavor1"},
-							OnByDefault:   true,
-							DefaultFlavor: "flavor1",
-						},
-					},
-					{
-						Name: "dep2",
-						OfferingReference: cloudinfo.OfferingReferenceDetail{
-							Name:          "dep2",
-							Flavor:        cloudinfo.Flavor{Name: "flavor2"},
-							OnByDefault:   true,
-							DefaultFlavor: "flavor2",
-						},
-					},
-				},
-			},
-		}
+		// Write the mock catalog to the correct location
+		err = os.WriteFile(catalogPath, []byte(mockCatalogJSON), 0644)
+		assert.NoError(t, err)
 
-		// Set up mock method expectations
-		mockService.On("CreateCatalog", mock.MatchedBy(func(name string) bool {
-			return len(name) > 0
-		})).Return(mockCatalog, nil)
+		// Clean up the file after test
+		defer func() {
+			_ = os.Remove(catalogPath)
+		}()
 
-		mockService.On("ImportOfferingWithValidation",
-			"test-catalog-id",
-			"test-addon",
-			"test-flavor",
-			"1.0.0",
-			cloudinfo.InstallKindTerraform).Return(mockOffering, nil)
-
-		mockService.On("GetComponentReferences", "test-catalog.test-version").Return(mockComponentReferences, nil)
-
-		mockService.On("DeleteCatalog", "test-catalog-id").Return(nil)
-
-		// Create test options with the mock service
+		// Create test options
 		options := &TestAddonOptions{
-			Testing:          t,
-			Prefix:           "test-prefix",
-			CloudInfoService: mockService,
-			Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+			Testing: t,
+			Prefix:  "test-prefix",
+			Logger:  common.CreateSmartAutoBufferingLogger(t.Name(), false),
 			AddonConfig: cloudinfo.AddonConfig{
 				OfferingName:   "test-addon",
 				OfferingFlavor: "test-flavor",
 			},
 		}
 
-		// This should not panic and should not call the matrix test since we're not testing the full flow
-		// Instead, let's just test the dependency name discovery part
+		// Test the dependency name discovery part
 		dependencyNames, err := options.getDirectDependencyNames()
 		assert.NoError(t, err)
 		assert.Len(t, dependencyNames, 2)
@@ -296,69 +257,43 @@ func TestRunAddonPermutationTestWithMock(t *testing.T) {
 		for _, tc := range testCases {
 			assert.True(t, tc.SkipInfrastructureDeployment)
 		}
-
-		// Verify mock expectations were met
-		mockService.AssertExpectations(t)
 	})
 }
 
 // TestRunAddonPermutationTestNoDependencies tests the case where no dependencies are found
 func TestRunAddonPermutationTestNoDependencies(t *testing.T) {
-	// Create a mock CloudInfoService
-	mockService := &cloudinfo.MockCloudInfoServiceForPermutation{}
+	// Create a mock catalog with no dependencies
+	mockCatalogJSON := `{
+		"products": [{
+			"name": "test-addon",
+			"label": "Test Addon",
+			"flavors": [{
+				"name": "test-flavor",
+				"label": "Test Flavor"
+			}]
+		}]
+	}`
 
-	// Set up mock expectations for no dependencies
-	mockCatalog := &catalogmanagementv1.Catalog{
-		ID:    core.StringPtr("test-catalog-id"),
-		Label: core.StringPtr("test-catalog"),
-	}
+	// Find git root to place the mock catalog file
+	gitRoot, err := common.GitRootPath(".")
+	assert.NoError(t, err)
 
-	mockOffering := &catalogmanagementv1.Offering{
-		Name: core.StringPtr("test-addon"),
-		Kinds: []catalogmanagementv1.Kind{
-			{
-				InstallKind: core.StringPtr("terraform"),
-				Versions: []catalogmanagementv1.Version{
-					{
-						VersionLocator: core.StringPtr("test-catalog.test-version"),
-						Version:        core.StringPtr("1.0.0"),
-					},
-				},
-			},
-		},
-	}
+	catalogPath := filepath.Join(gitRoot, "ibm_catalog.json")
 
-	mockComponentReferences := &cloudinfo.OfferingReferenceResponse{
-		Required: cloudinfo.RequiredReferences{
-			OfferingReferences: []cloudinfo.OfferingReferenceItem{},
-		},
-		Optional: cloudinfo.OptionalReferences{
-			OfferingReferences: []cloudinfo.OfferingReferenceItem{},
-		},
-	}
+	// Write the mock catalog to the correct location
+	err = os.WriteFile(catalogPath, []byte(mockCatalogJSON), 0644)
+	assert.NoError(t, err)
 
-	// Set up mock method expectations
-	mockService.On("CreateCatalog", mock.MatchedBy(func(name string) bool {
-		return len(name) > 0
-	})).Return(mockCatalog, nil)
+	// Clean up the file after test
+	defer func() {
+		_ = os.Remove(catalogPath)
+	}()
 
-	mockService.On("ImportOfferingWithValidation",
-		"test-catalog-id",
-		"test-addon",
-		"test-flavor",
-		"1.0.0",
-		cloudinfo.InstallKindTerraform).Return(mockOffering, nil)
-
-	mockService.On("GetComponentReferences", "test-catalog.test-version").Return(mockComponentReferences, nil)
-
-	mockService.On("DeleteCatalog", "test-catalog-id").Return(nil)
-
-	// Create test options with the mock service
+	// Create test options
 	options := &TestAddonOptions{
-		Testing:          t,
-		Prefix:           "test-prefix",
-		CloudInfoService: mockService,
-		Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+		Testing: t,
+		Prefix:  "test-prefix",
+		Logger:  common.CreateSmartAutoBufferingLogger(t.Name(), false),
 		AddonConfig: cloudinfo.AddonConfig{
 			OfferingName:   "test-addon",
 			OfferingFlavor: "test-flavor",
@@ -369,9 +304,6 @@ func TestRunAddonPermutationTestNoDependencies(t *testing.T) {
 	dependencyNames, err := options.getDirectDependencyNames()
 	assert.NoError(t, err)
 	assert.Len(t, dependencyNames, 0)
-
-	// Verify mock expectations were met
-	mockService.AssertExpectations(t)
 }
 
 // TestCreateInitialAbbreviation tests the basic abbreviation functionality

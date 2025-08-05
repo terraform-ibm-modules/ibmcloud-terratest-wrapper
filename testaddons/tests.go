@@ -1,7 +1,10 @@
 package testaddons
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -2027,77 +2030,64 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 	return nil
 }
 
-// getDirectDependencyNames discovers just the names of direct dependencies from the catalog
-// This replaces the complex discoverDependencies approach with a lightweight name-only discovery
+// getDirectDependencyNames discovers just the names of direct dependencies from the local ibm_catalog.json file
+// This replaces the expensive catalog import operations with lightweight local file parsing
 func (options *TestAddonOptions) getDirectDependencyNames() ([]string, error) {
-	// Use existing CloudInfoService if available, otherwise create a new one
-	var cloudInfoService cloudinfo.CloudInfoServiceI
-	if options.CloudInfoService != nil {
-		cloudInfoService = options.CloudInfoService
-	} else {
-		// Create a temporary CloudInfoService for catalog operations
-		service, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
-			Logger: options.Logger,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to create CloudInfoService: %w", err)
+	// Find the git root directory to locate ibm_catalog.json
+	gitRoot, err := common.GitRootPath(".")
+	if err != nil {
+		return nil, fmt.Errorf("failed to find git root: %w", err)
+	}
+
+	// Construct the path to ibm_catalog.json
+	catalogPath := filepath.Join(gitRoot, "ibm_catalog.json")
+
+	// Read the local ibm_catalog.json file
+	jsonFile, err := os.ReadFile(catalogPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ibm_catalog.json from %s: %w", catalogPath, err)
+	}
+
+	// Parse the JSON into CatalogJson struct
+	var catalogConfig cloudinfo.CatalogJson
+	err = json.Unmarshal(jsonFile, &catalogConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ibm_catalog.json: %w", err)
+	}
+
+	// Find the matching product by OfferingName
+	var targetProductIndex = -1
+	for i := range catalogConfig.Products {
+		if catalogConfig.Products[i].Name == options.AddonConfig.OfferingName {
+			targetProductIndex = i
+			break
 		}
-		cloudInfoService = service
 	}
 
-	// Create a temporary catalog for dependency discovery
-	catalogName := fmt.Sprintf("temp-catalog-%s", common.UniqueId())
-	catalog, err := cloudInfoService.CreateCatalog(catalogName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temporary catalog: %w", err)
+	if targetProductIndex == -1 {
+		return nil, fmt.Errorf("product '%s' not found in ibm_catalog.json", options.AddonConfig.OfferingName)
 	}
 
-	// Cleanup catalog after discovery
-	defer func() {
-		if catalog != nil && catalog.ID != nil {
-			_ = cloudInfoService.DeleteCatalog(*catalog.ID)
+	// Find the matching flavor by OfferingFlavor
+	var targetFlavorIndex = -1
+	for i := range catalogConfig.Products[targetProductIndex].Flavors {
+		if catalogConfig.Products[targetProductIndex].Flavors[i].Name == options.AddonConfig.OfferingFlavor {
+			targetFlavorIndex = i
+			break
 		}
-	}()
-
-	// Import the addon offering to get its dependencies
-	offering, err := cloudInfoService.ImportOfferingWithValidation(
-		*catalog.ID,
-		options.AddonConfig.OfferingName,
-		options.AddonConfig.OfferingFlavor,
-		"1.0.0", // Use a default version for discovery
-		cloudinfo.InstallKindTerraform,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to import offering for dependency discovery: %w", err)
 	}
 
-	// Get component references to discover dependencies
-	if len(offering.Kinds) == 0 || len(offering.Kinds[0].Versions) == 0 {
-		return nil, fmt.Errorf("no versions found in imported offering")
+	if targetFlavorIndex == -1 {
+		return nil, fmt.Errorf("flavor '%s' not found in product '%s' in ibm_catalog.json",
+			options.AddonConfig.OfferingFlavor, options.AddonConfig.OfferingName)
 	}
 
-	versionLocator := *offering.Kinds[0].Versions[0].VersionLocator
-	componentsReferences, err := cloudInfoService.GetComponentReferences(versionLocator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get component references: %w", err)
-	}
-
-	// Extract just the dependency names - let RunAddonTest handle all the complex metadata
+	// Extract dependency names from the dependencies array
 	var dependencyNames []string
-
-	// Process required dependencies first - just get the names
-	for _, component := range componentsReferences.Required.OfferingReferences {
-		if component.OfferingReference.DefaultFlavor == "" ||
-			component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name {
-			dependencyNames = append(dependencyNames, component.OfferingReference.Name)
-		}
-	}
-
-	// Process optional dependencies - just get the names
-	for _, component := range componentsReferences.Optional.OfferingReferences {
-		if component.OfferingReference.DefaultFlavor == "" ||
-			component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name {
-			dependencyNames = append(dependencyNames, component.OfferingReference.Name)
+	targetFlavor := catalogConfig.Products[targetProductIndex].Flavors[targetFlavorIndex]
+	for _, dependency := range targetFlavor.Dependencies {
+		if dependency.Name != "" {
+			dependencyNames = append(dependencyNames, dependency.Name)
 		}
 	}
 
