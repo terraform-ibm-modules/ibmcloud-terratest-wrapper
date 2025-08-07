@@ -61,8 +61,8 @@ type CatalogJson struct {
 					OriginalGrouping string `json:"original_grouping"`
 				} `json:"custom_config,omitempty"`
 				Options []struct {
-					DisplayName string `json:"displayname"`
-					Value       string `json:"value"`
+					DisplayName string      `json:"displayname,omitempty"`
+					Value       interface{} `json:"value"`
 				} `json:"options,omitempty"`
 			} `json:"configuration"`
 			Outputs []struct {
@@ -89,6 +89,10 @@ type CatalogInput struct {
 	DefaultValue interface{} `json:"default_value"`
 	Required     bool        `json:"required"`
 	Description  string      `json:"description"`
+	Options      []struct {
+		DisplayName string      `json:"displayname,omitempty"`
+		Value       interface{} `json:"value"`
+	} `json:"options,omitempty"`
 }
 
 // OfferingReferenceResponse represents the entire response object for offering references
