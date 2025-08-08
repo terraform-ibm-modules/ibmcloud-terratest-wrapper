@@ -4,8 +4,7 @@
   "packageRules": [
     {
       "matchManagers": ["gomod"],
-      "semanticCommitType": "fix",
-      "groupName": "gomod"
+      "semanticCommitType": "fix"
     },
     {
       "matchPackageNames": ["github.com/IBM-Cloud/bluemix-go"],
