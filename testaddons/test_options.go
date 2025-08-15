@@ -769,6 +769,11 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 		newOptions.OverrideInputMappings = core.BoolPtr(false)
 	}
 
+	// Set default EnhancedTreeValidationOutput to true (show dependency trees for better debugging)
+	if !newOptions.EnhancedTreeValidationOutput {
+		newOptions.EnhancedTreeValidationOutput = true
+	}
+
 	// Initialize logger if not already set to prevent nil pointer panics
 	if newOptions.Logger == nil {
 		testName := "addon-test"
@@ -897,10 +902,14 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		PostDeployHook:               options.PostDeployHook,
 		PreUndeployHook:              options.PreUndeployHook,
 		PostUndeployHook:             options.PostUndeployHook,
-		Logger:                       options.Logger,
+		Logger:                       nil, // Force creation of unique logger per test to avoid cross-contamination in parallel tests
 		QuietMode:                    options.QuietMode,
 		StrictMode:                   copyBoolPointer(options.StrictMode),
 		OverrideInputMappings:        copyBoolPointer(options.OverrideInputMappings),
+
+		// Result collection fields need to be shared across all test instances
+		CollectResults:        options.CollectResults,
+		PermutationTestReport: options.PermutationTestReport,
 
 		// These fields are not copied as they are managed per test instance
 		configInputReferences: nil,
