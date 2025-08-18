@@ -545,6 +545,7 @@ func TestApprappDependencyPermutationsFix(t *testing.T) {
 		},
 	}
 	mockService.On("ImportOfferingWithValidation", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockOffering, nil)
+	mockService.On("ImportOffering", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockOffering, nil)
 	mockService.On("DeleteCatalog", mock.Anything).Return(nil)
 
 	// Mock comprehensive CloudInfoService operations for realistic test execution
