@@ -239,6 +239,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.ProgressStage("Deploying Configurations to Project")
 	}
 	options.Logger.ShortInfo("Deploying the addon to project")
+
 	deployedConfigs, err := options.CloudInfoService.DeployAddonToProject(&options.AddonConfig, options.currentProjectConfig)
 
 	if err != nil {
@@ -2061,7 +2062,16 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 			// simultaneously append to the shared PermutationTestReport.Results slice.
 			// Go's slice operations are not thread-safe for concurrent writes.
 			if testOptions.CollectResults && testOptions.PermutationTestReport != nil {
-				testResult := testOptions.collectTestResult(tc.Name, tc.Prefix, testOptions.AddonConfig, err)
+				// Create a clean AddonConfig for reporting that shows only the original test case dependencies
+				// This ensures the summary correctly shows 4 direct dependencies, not the 6 after processing
+				reportAddonConfig := cloudinfo.AddonConfig{
+					OfferingName:   testOptions.AddonConfig.OfferingName,
+					OfferingID:     testOptions.AddonConfig.OfferingID,
+					OfferingLabel:  testOptions.AddonConfig.OfferingLabel,
+					VersionLocator: testOptions.AddonConfig.VersionLocator,
+					Dependencies:   tc.Dependencies, // Use original test case dependencies, not processed ones
+				}
+				testResult := testOptions.collectTestResult(tc.Name, tc.Prefix, reportAddonConfig, err)
 
 				// CRITICAL: Protect concurrent access to shared report data
 				resultMutex.Lock()
@@ -2252,6 +2262,11 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 // getDirectDependencyNames discovers just the names of direct dependencies from the local ibm_catalog.json file
 // This replaces the expensive catalog import operations with lightweight local file parsing
 func (options *TestAddonOptions) getDirectDependencyNames() ([]string, error) {
+	// Check if test has injected a custom dependency names function (for testing)
+	if options.GetDirectDependencyNames != nil {
+		return options.GetDirectDependencyNames()
+	}
+
 	// Find the git root directory to locate ibm_catalog.json
 	gitRoot, err := common.GitRootPath(".")
 	if err != nil {

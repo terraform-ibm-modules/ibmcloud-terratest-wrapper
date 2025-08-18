@@ -353,9 +353,9 @@ func (report *PermutationTestReport) formatAddonConfiguration(configs []cloudinf
 	// Show main addon
 	summary.WriteString(fmt.Sprintf("Main: %s (enabled)", mainAddon.OfferingName))
 
-	// Process dependencies if any
-	if len(configs) > 1 {
-		dependencies := configs[1:] // Skip the main addon
+	// Process dependencies if any (from the main addon's Dependencies field)
+	if len(configs) > 0 && len(configs[0].Dependencies) > 0 {
+		dependencies := configs[0].Dependencies // Access direct dependencies from tree structure
 		enabled := []string{}
 		disabled := []string{}
 

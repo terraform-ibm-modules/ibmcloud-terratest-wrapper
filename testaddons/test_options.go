@@ -670,6 +670,11 @@ type TestAddonOptions struct {
 	lastValidationResult *ValidationResult
 	lastTransientErrors  []string
 	lastRuntimeErrors    []string
+
+	// GetDirectDependencyNames allows test injection of dependency names for permutation testing
+	// When set, this function will be called instead of reading from ibm_catalog.json
+	// Used primarily for mocking dependencies in comprehensive regression tests
+	GetDirectDependencyNames func() ([]string, error)
 }
 
 // TestAddonsOptionsDefault Default constructor for TestAddonOptions
@@ -956,14 +961,13 @@ func (options *TestAddonOptions) CleanupSharedResources() {
 
 // collectTestResult creates a PermutationTestResult from test execution
 func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, addonConfig cloudinfo.AddonConfig, testError error) PermutationTestResult {
-	// Create base result with complete addon configuration including all dependencies
-	// First entry is the main addon (always enabled), followed by all dependencies
-	completeAddonConfig := append([]cloudinfo.AddonConfig{addonConfig}, addonConfig.Dependencies...)
+	// Create base result preserving the hierarchical addon configuration structure
+	// Main addon contains its dependencies in the Dependencies field (tree structure)
 
 	result := PermutationTestResult{
 		Name:        testName,
 		Prefix:      testPrefix,
-		AddonConfig: completeAddonConfig,
+		AddonConfig: []cloudinfo.AddonConfig{addonConfig}, // Preserve tree structure with nested dependencies
 		Passed:      testError == nil,
 		StrictMode:  options.StrictMode,
 	}

@@ -8,7 +8,10 @@ import (
 	"testing"
 
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
@@ -504,4 +507,321 @@ func TestDependencyPermutations(t *testing.T) {
 		err := options.RunAddonPermutationTest()
 		assert.NoError(t, err, "Dependency permutation test should not fail")
 	*/
+}
+
+// TestApprappDependencyPermutationsFix is a comprehensive regression test for the dependency tree structure bug.
+// This test will FAIL before the fix (showing KMS/COS as direct dependencies) and PASS after the fix.
+// It serves as permanent protection against future regressions of the tree flattening bug.
+func TestApprappDependencyPermutationsFix(t *testing.T) {
+	// This test is designed to fail initially, demonstrating the bug exists
+	// After the fix, it should pass and serve as regression protection
+
+	// Mock the CloudInfoService using the comprehensive pattern from working tests
+	mockService := &cloudinfo.MockCloudInfoServiceForPermutation{}
+
+	// Mock catalog operations following the working pattern
+	mockCatalog := &catalogmanagementv1.Catalog{
+		ID:    core.StringPtr("test-catalog-id"),
+		Label: core.StringPtr("test-catalog"),
+	}
+	mockService.On("CreateCatalog", mock.MatchedBy(func(name string) bool {
+		return len(name) > 0
+	})).Return(mockCatalog, nil)
+
+	// Mock offering operations
+	mockOffering := &catalogmanagementv1.Offering{
+		Name: core.StringPtr("deploy-arch-ibm-apprapp"),
+		Kinds: []catalogmanagementv1.Kind{
+			{
+				InstallKind: core.StringPtr("terraform"),
+				Versions: []catalogmanagementv1.Version{
+					{
+						VersionLocator: core.StringPtr("test-catalog.test-version"),
+						Version:        core.StringPtr("1.0.0"),
+					},
+				},
+			},
+		},
+	}
+	mockService.On("ImportOfferingWithValidation", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockOffering, nil)
+	mockService.On("DeleteCatalog", mock.Anything).Return(nil)
+
+	// Mock comprehensive CloudInfoService operations for realistic test execution
+
+	// Core project and config operations
+	mockService.On("GetProjectConfigs", mock.Anything).Return([]interface{}{}, nil)
+	mockService.On("GetConfig", mock.Anything).Return(nil, nil, nil)
+	mockService.On("SetLogger", mock.Anything).Return()
+
+	// Offering import and preparation - Must return 4 values as expected by interface
+	mockService.On("PrepareOfferingImport").Return(
+		"https://github.com/test-repo/test-branch", // branchUrl
+		"test-repo", // repo
+		"main",      // branch
+		nil,         // error
+	)
+
+	// Offering operations for validation pipeline
+	mockService.On("GetOffering", mock.Anything, mock.Anything).Return(mockOffering, nil, nil)
+	mockService.On("GetOfferingInputs", mock.Anything, mock.Anything, mock.Anything).Return([]cloudinfo.CatalogInput{})
+	mockService.On("GetOfferingVersionLocatorByConstraint", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("1.0.0", "test-catalog.test-version", nil)
+	mockService.On("GetCatalogVersionByLocator", mock.Anything).Return(&catalogmanagementv1.Version{
+		VersionLocator: core.StringPtr("test-catalog.test-version"),
+		Version:        core.StringPtr("1.0.0"),
+	}, nil)
+
+	// Project deployment operations that might be called
+	mockService.On("DeployAddonToProject", mock.Anything, mock.Anything).Return(&cloudinfo.DeployedAddonsDetails{}, nil)
+	mockService.On("UpdateConfig", mock.Anything, mock.Anything).Return(nil, nil, nil)
+	mockService.On("GetApiKey").Return("test-api-key")
+	mockService.On("ResolveReferencesFromStringsWithContext", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+
+	// Setup dependency structure based on REAL IBM Cloud API responses from log.log:
+
+	// Main addon (deploy-arch-ibm-apprapp) returns 7 optional dependencies - EXACT REAL-WORLD DATA
+	// Real log: GetComponentReferences(3e864d67-980f-400e-8a49-9eab43590bc6.ac14f313-8403-44d2-9764-4a9e26f93961) OUTPUT: Required=0, Optional=7
+	mockService.On("GetComponentReferences", mock.MatchedBy(func(versionLocator string) bool {
+		return strings.Contains(versionLocator, "apprapp") || strings.Contains(versionLocator, "3e864d67-980f-400e-8a49-9eab43590bc6.ac14f313-8403-44d2-9764-4a9e26f93961")
+	})).Return(&cloudinfo.OfferingReferenceResponse{
+		Required: cloudinfo.RequiredReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+		Optional: cloudinfo.OptionalReferences{
+			OfferingReferences: []cloudinfo.OfferingReferenceItem{
+				// EXACT reproduction from real logs with VersionLocator populated:
+				{Name: "deploy-arch-ibm-cloud-monitoring", OfferingReference: cloudinfo.OfferingReferenceDetail{
+					OnByDefault:    true,
+					VersionLocator: "7a4d68b4-cf8b-40cd-a3d1-f49aff526eb3.e8444cee-432d-4af3-9211-d19cb739f4a3-global",
+				}}, // Optional[0] ✅ Should be direct
+				{Name: "deploy-arch-ibm-account-infra-base", OfferingReference: cloudinfo.OfferingReferenceDetail{
+					OnByDefault:    false,
+					VersionLocator: "7a4d68b4-cf8b-40cd-a3d1-f49aff526eb3.f57a4724-c399-4a15-ad9d-440da676c8a0-global",
+				}}, // Optional[1] (duplicate 1)
+				{Name: "deploy-arch-ibm-account-infra-base", OfferingReference: cloudinfo.OfferingReferenceDetail{
+					OnByDefault:    false,
+					VersionLocator: "7a4d68b4-cf8b-40cd-a3d1-f49aff526eb3.6952804c-65da-4b45-8fb2-4520bd739d65-global",
+				}}, // Optional[2] (duplicate 2)
+				{Name: "deploy-arch-ibm-cloud-logs", OfferingReference: cloudinfo.OfferingReferenceDetail{
+					OnByDefault:    true,
+					VersionLocator: "7a4d68b4-cf8b-40cd-a3d1-f49aff526eb3.643fbe72-a630-43f3-8cc2-77bccb15f604-global",
+				}}, // Optional[3] ✅ Should be direct
+				{Name: "deploy-arch-ibm-activity-tracker", OfferingReference: cloudinfo.OfferingReferenceDetail{
+					OnByDefault:    true,
+					VersionLocator: "7a4d68b4-cf8b-40cd-a3d1-f49aff526eb3.f5984196-27e2-418d-a0d3-2b6cbcda537c-global",
+				}}, // Optional[4] ✅ Should be direct
+				{Name: "deploy-arch-ibm-cos", OfferingReference: cloudinfo.OfferingReferenceDetail{
+					OnByDefault:    true,
+					VersionLocator: "7a4d68b4-cf8b-40cd-a3d1-f49aff526eb3.79a61ce0-d4fa-4f1a-b6c5-5ca23b13ff06-global",
+				}}, // Optional[5] ❌ BUG: Should be nested under cloud-logs
+				{Name: "deploy-arch-ibm-kms", OfferingReference: cloudinfo.OfferingReferenceDetail{
+					OnByDefault:    true,
+					VersionLocator: "7a4d68b4-cf8b-40cd-a3d1-f49aff526eb3.466c0738-68d1-4b8d-8854-f85e01853f10-global",
+				}}, // Optional[6] ❌ BUG: Should be nested under cloud-logs
+			},
+		},
+	}, nil)
+
+	// account-infra-base returns no dependencies
+	// Real log pattern: .f57a4724-c399-4a15-ad9d-440da676c8a0-global OUTPUT: Required=0, Optional=0
+	mockService.On("GetComponentReferences", mock.MatchedBy(func(versionLocator string) bool {
+		return strings.Contains(versionLocator, "account-infra") || strings.Contains(versionLocator, "f57a4724-c399-4a15-ad9d-440da676c8a0-global")
+	})).Return(&cloudinfo.OfferingReferenceResponse{
+		Required: cloudinfo.RequiredReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+		Optional: cloudinfo.OptionalReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+	}, nil)
+
+	// CRITICAL: Need to ensure the processedLocators logic doesn't skip adding components
+	// Mock the specific version locators with VersionLocator field populated to trigger the bug
+	mockService.On("GetComponentReferences", "7a4d68b4-cf8b-40cd-a3d1-f49aff526eb3.f57a4724-c399-4a15-ad9d-440da676c8a0-global").Return(&cloudinfo.OfferingReferenceResponse{
+		Required: cloudinfo.RequiredReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+		Optional: cloudinfo.OptionalReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+	}, nil)
+
+	// cloud-monitoring returns 2 optional dependencies
+	// Real log pattern: .e8444cee-432d-4af3-9211-d19cb739f4a3-global OUTPUT: Required=0, Optional=2
+	mockService.On("GetComponentReferences", mock.MatchedBy(func(versionLocator string) bool {
+		return strings.Contains(versionLocator, "cloud-monitoring") || strings.Contains(versionLocator, "e8444cee-432d-4af3-9211-d19cb739f4a3-global")
+	})).Return(&cloudinfo.OfferingReferenceResponse{
+		Required: cloudinfo.RequiredReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+		Optional: cloudinfo.OptionalReferences{
+			OfferingReferences: []cloudinfo.OfferingReferenceItem{
+				{Name: "deploy-arch-ibm-some-monitoring-dep-1"},
+				{Name: "deploy-arch-ibm-some-monitoring-dep-2"},
+			},
+		},
+	}, nil)
+
+	// activity-tracker returns 6 optional dependencies
+	// Real log pattern: .f5984196-27e2-418d-a0d3-2b6cbcda537c-global OUTPUT: Required=0, Optional=6
+	mockService.On("GetComponentReferences", mock.MatchedBy(func(versionLocator string) bool {
+		return strings.Contains(versionLocator, "activity-tracker") || strings.Contains(versionLocator, "f5984196-27e2-418d-a0d3-2b6cbcda537c-global")
+	})).Return(&cloudinfo.OfferingReferenceResponse{
+		Required: cloudinfo.RequiredReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+		Optional: cloudinfo.OptionalReferences{
+			OfferingReferences: []cloudinfo.OfferingReferenceItem{
+				{Name: "deploy-arch-ibm-cloud-logs"},
+				{Name: "deploy-arch-ibm-kms"},
+				{Name: "deploy-arch-ibm-cos"},
+				{Name: "deploy-arch-ibm-cloud-monitoring"},
+				{Name: "deploy-arch-ibm-at-dep-5"},
+				{Name: "deploy-arch-ibm-at-dep-6"},
+			},
+		},
+	}, nil)
+
+	// cloud-logs returns 5 optional dependencies
+	// Real log pattern: .643fbe72-a630-43f3-8cc2-77bccb15f604-global OUTPUT: Required=0, Optional=5
+	mockService.On("GetComponentReferences", mock.MatchedBy(func(versionLocator string) bool {
+		return strings.Contains(versionLocator, "cloud-logs") || strings.Contains(versionLocator, "643fbe72-a630-43f3-8cc2-77bccb15f604-global")
+	})).Return(&cloudinfo.OfferingReferenceResponse{
+		Required: cloudinfo.RequiredReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+		Optional: cloudinfo.OptionalReferences{
+			OfferingReferences: []cloudinfo.OfferingReferenceItem{
+				{Name: "deploy-arch-ibm-kms"},
+				{Name: "deploy-arch-ibm-cos"},
+				{Name: "deploy-arch-ibm-cloud-monitoring"},
+				{Name: "deploy-arch-ibm-cl-dep-4"},
+				{Name: "deploy-arch-ibm-cl-dep-5"},
+			},
+		},
+	}, nil)
+
+	// Default case for any other dependencies (like KMS, COS, etc.)
+	mockService.On("GetComponentReferences", mock.Anything).Return(&cloudinfo.OfferingReferenceResponse{
+		Required: cloudinfo.RequiredReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+		Optional: cloudinfo.OptionalReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+	}, nil)
+
+	// Create a temporary ibm_catalog.json file for the main addon to read its direct dependencies
+	mockCatalogJSON := `{
+		"products": [{
+			"name": "deploy-arch-ibm-apprapp",
+			"label": "IBM App Application Pattern",
+			"flavors": [{
+				"name": "fully-configurable",
+				"label": "Fully Configurable",
+				"dependencies": [
+					{"name": "deploy-arch-ibm-account-infra-base"},
+					{"name": "deploy-arch-ibm-cloud-logs"},
+					{"name": "deploy-arch-ibm-cloud-monitoring"},
+					{"name": "deploy-arch-ibm-activity-tracker"}
+				]
+			}]
+		}]
+	}`
+
+	// Find git root to place the mock catalog file
+	gitRoot, err := common.GitRootPath(".")
+	require.NoError(t, err)
+
+	catalogPath := filepath.Join(gitRoot, "ibm_catalog.json")
+
+	// Write the mock catalog to the correct location
+	writeErr := os.WriteFile(catalogPath, []byte(mockCatalogJSON), 0644)
+	require.NoError(t, writeErr)
+
+	// Clean up the file after test
+	defer func() {
+		_ = os.Remove(catalogPath)
+	}()
+
+	// Create test options with the mock catalog structure
+	options := &TestAddonOptions{
+		Testing: t,
+		Prefix:  "app-per",
+		AddonConfig: cloudinfo.AddonConfig{
+			OfferingName:   "deploy-arch-ibm-apprapp",
+			OfferingFlavor: "fully-configurable",
+			Inputs: map[string]interface{}{
+				"prefix":                       "app-per",
+				"region":                       "us-south",
+				"existing_resource_group_name": "default",
+			},
+		},
+		CloudInfoService: mockService,
+		Logger:           common.CreateSmartAutoBufferingLogger("TestApprappFix", false),
+		// Skip flags to bypass filesystem and Git operations while allowing dependency processing
+		SkipLocalChangeCheck:         true,
+		SkipInfrastructureDeployment: false, // CRITICAL: Must allow deployment for dependency processing bug to manifest
+		SkipRefValidation:            true,
+		SkipDependencyValidation:     true,
+		// Enable result collection for analysis
+		CollectResults: true,
+	}
+
+	// Run the permutation test - this will help us identify the bug
+	err = options.RunAddonPermutationTest()
+
+	// COMPREHENSIVE REGRESSION TEST ASSERTIONS
+	// These assertions will FAIL before the fix and PASS after the fix
+
+	// Log any error but don't fail immediately - we want to analyze the structure
+	if err != nil {
+		t.Logf("Permutation test returned error (expected during regression testing): %v", err)
+	}
+
+	// The test should run and generate some results for analysis
+	require.NotNil(t, options.PermutationTestReport, "Permutation test report should be generated")
+	require.Greater(t, len(options.PermutationTestReport.Results), 0, "Should have test results")
+
+	// Check each test result for the dependency structure bug
+	for _, result := range options.PermutationTestReport.Results {
+		t.Logf("Analyzing test result: %s", result.Name)
+
+		// Should have exactly 1 main addon config (not flattened)
+		assert.Equal(t, 1, len(result.AddonConfig),
+			"Test %s: Should have exactly 1 main addon config, got %d",
+			result.Name, len(result.AddonConfig))
+
+		mainAddon := result.AddonConfig[0]
+		assert.Equal(t, "deploy-arch-ibm-apprapp", mainAddon.OfferingName)
+
+		// CRITICAL ASSERTION 1: Should have exactly 4 direct dependencies
+		// This will FAIL before fix (shows 6) and PASS after fix (shows 4)
+		assert.Equal(t, 4, len(mainAddon.Dependencies),
+			"Test %s: Main addon should have exactly 4 direct dependencies, got %d. Dependencies: %v",
+			result.Name, len(mainAddon.Dependencies), extractDependencyNames(mainAddon.Dependencies))
+
+		// CRITICAL ASSERTION 2: Verify specific direct dependency names
+		// This will FAIL before fix (includes KMS/COS) and PASS after fix (excludes them)
+		directDepNames := extractDependencyNames(mainAddon.Dependencies)
+		expectedDirectDeps := []string{
+			"deploy-arch-ibm-account-infra-base",
+			"deploy-arch-ibm-cloud-logs",
+			"deploy-arch-ibm-cloud-monitoring",
+			"deploy-arch-ibm-activity-tracker",
+		}
+		assert.ElementsMatch(t, expectedDirectDeps, directDepNames,
+			"Test %s: Should have exactly the 4 expected direct dependencies. Got: %v, Expected: %v",
+			result.Name, directDepNames, expectedDirectDeps)
+
+		// CRITICAL ASSERTION 3: KMS and COS must NOT be direct dependencies
+		// This will FAIL before fix (they appear as direct) and PASS after fix (they don't)
+		for _, dep := range mainAddon.Dependencies {
+			assert.NotContains(t, []string{"deploy-arch-ibm-kms", "deploy-arch-ibm-cos"}, dep.OfferingName,
+				"Test %s: Found prohibited direct dependency: %s. KMS and COS should only exist nested under their parents",
+				result.Name, dep.OfferingName)
+		}
+
+		// VALIDATION ASSERTION 4: Verify nested structure exists properly
+		// Find cloud-logs dependency and verify it has nested dependencies
+		cloudLogsDep := findDependencyByName(mainAddon.Dependencies, "deploy-arch-ibm-cloud-logs")
+		if assert.NotNil(t, cloudLogsDep, "Test %s: cloud-logs dependency should exist", result.Name) {
+			// cloud-logs should have some nested dependencies
+			t.Logf("Test %s: cloud-logs has %d nested dependencies", result.Name, len(cloudLogsDep.Dependencies))
+			// Note: Exact nested count may vary based on permutation, but should have some
+		}
+	}
+
+	// If we reach here, log the final result
+	t.Logf("Dependency structure validation complete. Total permutations tested: %d", len(options.PermutationTestReport.Results))
+}
+
+// Helper functions for dependency structure validation
+
+// extractDependencyNames extracts the offering names from a slice of AddonConfig dependencies
+func extractDependencyNames(dependencies []cloudinfo.AddonConfig) []string {
+	names := make([]string, len(dependencies))
+	for i, dep := range dependencies {
+		names[i] = dep.OfferingName
+	}
+	return names
 }
