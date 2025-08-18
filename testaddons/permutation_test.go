@@ -9,6 +9,7 @@ import (
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
+	projects "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -549,7 +550,7 @@ func TestApprappDependencyPermutationsFix(t *testing.T) {
 	// Mock comprehensive CloudInfoService operations for realistic test execution
 
 	// Core project and config operations
-	mockService.On("GetProjectConfigs", mock.Anything).Return([]interface{}{}, nil)
+	mockService.On("GetProjectConfigs", mock.Anything).Return([]projects.ProjectConfigSummary{}, nil)
 	mockService.On("GetConfig", mock.Anything).Return(nil, nil, nil)
 	mockService.On("SetLogger", mock.Anything).Return()
 
@@ -570,11 +571,27 @@ func TestApprappDependencyPermutationsFix(t *testing.T) {
 		Version:        core.StringPtr("1.0.0"),
 	}, nil)
 
+	// Mock responses for project operations
+	mockResponse := &core.DetailedResponse{StatusCode: 201}
+
 	// Project deployment operations that might be called
 	mockService.On("DeployAddonToProject", mock.Anything, mock.Anything).Return(&cloudinfo.DeployedAddonsDetails{}, nil)
-	mockService.On("UpdateConfig", mock.Anything, mock.Anything).Return(nil, nil, nil)
+	mockProjectConfig := &projects.ProjectConfig{
+		ID: core.StringPtr("test-config-id"),
+	}
+	mockService.On("UpdateConfig", mock.Anything, mock.Anything).Return(mockProjectConfig, mockResponse, nil)
 	mockService.On("GetApiKey").Return("test-api-key")
 	mockService.On("ResolveReferencesFromStringsWithContext", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+
+	// Mock project creation
+	mockProject := &projects.Project{
+		ID: core.StringPtr("test-project-id"),
+	}
+	mockService.On("CreateProjectFromConfig", mock.Anything).Return(mockProject, mockResponse, nil)
+
+	// Mock project deletion
+	mockDeleteResponse := &projects.ProjectDeleteResponse{}
+	mockService.On("DeleteProject", mock.Anything).Return(mockDeleteResponse, mockResponse, nil)
 
 	// Setup dependency structure based on REAL IBM Cloud API responses from log.log:
 
