@@ -505,5 +505,3 @@ func TestDependencyPermutations(t *testing.T) {
 		assert.NoError(t, err, "Dependency permutation test should not fail")
 	*/
 }
-
-// Helper functions for dependency structure validation

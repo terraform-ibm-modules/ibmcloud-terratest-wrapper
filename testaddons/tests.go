@@ -45,122 +45,6 @@ type DetailedDependencyInfo struct {
 // This private method is used by both RunAddonTest() and matrix tests
 // enhancedReporting: if true, shows detailed actionable advice; if false, shows simple error messages
 func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
-	// Log test execution start with clear markers to ensure every test is tracked
-	testName := "Unknown"
-	if options.Testing != nil {
-		testName = options.Testing.Name()
-	}
-	// Force log test start regardless of quiet mode to ensure every test is tracked
-	if options.Logger != nil {
-		if smartLogger, ok := options.Logger.(*common.SmartLogger); ok {
-			// SmartLogger - use info for non-error messages
-			smartLogger.ImmediateShortInfo(fmt.Sprintf("TEST EXECUTION START: %s", testName))
-			smartLogger.ImmediateShortInfo(fmt.Sprintf("Test Configuration: Prefix='%s', OfferingName='%s', QuietMode=%v", options.Prefix, options.AddonConfig.OfferingName, options.QuietMode))
-		} else if bufferedLogger, ok := options.Logger.(*common.BufferedTestLogger); ok {
-			// BufferedTestLogger - use info for non-error messages
-			bufferedLogger.ImmediateShortInfo(fmt.Sprintf("TEST EXECUTION START: %s", testName))
-			bufferedLogger.ImmediateShortInfo(fmt.Sprintf("Test Configuration: Prefix='%s', OfferingName='%s', QuietMode=%v", options.Prefix, options.AddonConfig.OfferingName, options.QuietMode))
-		} else {
-			fmt.Printf("TEST EXECUTION START: %s\n", testName)
-			fmt.Printf("Test Configuration: Prefix='%s', OfferingName='%s', QuietMode=%v\n", options.Prefix, options.AddonConfig.OfferingName, options.QuietMode)
-		}
-	}
-
-	// Always log test completion, even on early exit or panic
-	var testResult string = "UNKNOWN"
-	var testError error = nil
-
-	// Helper function to set test result before returning
-	setFailureResult := func(err error, stage string) error {
-		testResult = fmt.Sprintf("FAILED_AT_%s", stage)
-		testError = err
-		return err
-	}
-
-	defer func() {
-		if r := recover(); r != nil {
-			testResult = "PANICKED"
-			testError = fmt.Errorf("panic: %v", r)
-		}
-
-		// If we reached here without setting a result, assume success
-		if testResult == "UNKNOWN" {
-			testResult = "PASSED"
-		}
-
-		// Force log test completion regardless of quiet mode or buffering
-		completionMsg := ""
-		if testError != nil {
-			completionMsg = fmt.Sprintf("TEST EXECUTION END: %s - RESULT: %s (error: %v)", testName, testResult, testError)
-		} else {
-			completionMsg = fmt.Sprintf("TEST EXECUTION END: %s - RESULT: %s", testName, testResult)
-		}
-
-		// Always force output of test completion, bypassing quiet mode
-		if options.Logger != nil {
-			if smartLogger, ok := options.Logger.(*common.SmartLogger); ok {
-				// Use appropriate log level: error for failures, info for success
-				if testError != nil {
-					smartLogger.ImmediateShortError(completionMsg)
-				} else {
-					smartLogger.ImmediateShortInfo(completionMsg)
-				}
-			} else if bufferedLogger, ok := options.Logger.(*common.BufferedTestLogger); ok {
-				if testError != nil {
-					bufferedLogger.ImmediateShortError(completionMsg)
-				} else {
-					// Use immediate info for success to ensure it's visible but not red
-					bufferedLogger.ImmediateShortInfo(completionMsg)
-				}
-			} else {
-				if testError != nil {
-					options.Logger.ShortError(completionMsg)
-				} else {
-					options.Logger.ShortInfo(completionMsg)
-				}
-			}
-		}
-
-		// Ensure logs are flushed for failed tests
-		if testResult != "PASSED" {
-			// Debug logger type and state before flushing
-			loggerType := "unknown"
-			bufferSize := "unknown"
-			if options.Logger != nil {
-				loggerType = fmt.Sprintf("%T", options.Logger)
-				if _, ok := options.Logger.(*common.BufferedTestLogger); ok {
-					// Try to get buffer info if available
-					bufferSize = "BufferedTestLogger"
-				} else if _, ok := options.Logger.(*common.SmartLogger); ok {
-					bufferSize = "SmartLogger"
-				}
-			}
-
-			// Force immediate output of debug info - use immediate output to bypass buffering
-			if bufferedLogger, ok := options.Logger.(*common.BufferedTestLogger); ok {
-				bufferedLogger.ImmediateShortError(fmt.Sprintf("Buffer flush for failed test. Logger type: %s, Buffer: %s, QuietMode: %v", loggerType, bufferSize, options.QuietMode))
-			}
-
-			if options.Logger != nil {
-				options.Logger.MarkFailed()
-				options.Logger.FlushOnFailure()
-
-				// Verify flush occurred - use immediate output
-				if bufferedLogger, ok := options.Logger.(*common.BufferedTestLogger); ok {
-					bufferedLogger.ImmediateShortError("Buffer flush completed for failed test")
-				}
-			} else {
-				// Create temporary immediate logger when logger is nil
-				if options.Testing != nil {
-					tempLogger := common.CreateSmartAutoBufferingLogger(testName, false)
-					if bufferedLogger, ok := tempLogger.(*common.BufferedTestLogger); ok {
-						bufferedLogger.ImmediateShortError("Cannot flush - logger is nil")
-					}
-				}
-			}
-		}
-	}()
-
 	if !options.SkipTestTearDown {
 		// ensure we always run the test tear down, even if a panic occurs
 		defer func() {
@@ -182,11 +66,8 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 					options.Logger.MarkFailed()
 					options.Logger.FlushOnFailure()
 				} else {
-					// Create temporary immediate logger when logger is not available
-					tempLogger := common.CreateSmartAutoBufferingLogger(testName, false)
-					if bufferedLogger, ok := tempLogger.(*common.BufferedTestLogger); ok {
-						bufferedLogger.ImmediateShortError(fmt.Sprintf("ERROR: %s", panicMsg))
-					}
+					// Fallback to testing.T if logger is not available
+					options.Testing.Logf("ERROR: %s", panicMsg)
 				}
 
 				options.Testing.Fail()
@@ -205,77 +86,39 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.MarkFailed()
 		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
-		return setFailureResult(fmt.Errorf("test setup has failed:%w", setupErr), "SETUP")
+		return fmt.Errorf("test setup has failed:%w", setupErr)
 	}
 
 	// Apply required dependency business logic before deployment
 	// This ensures required dependencies are force-enabled before actual deployment
-	options.Logger.ShortInfo("VALIDATION STEP: Starting required dependency validation")
-
-	// Debug: Force immediate output to verify validation steps are being logged
-	if bufferedLogger, ok := options.Logger.(*common.BufferedTestLogger); ok {
-		bufferedLogger.ImmediateShortError(fmt.Sprintf("Validation step logged (QuietMode: %v, Logger: %T)", options.QuietMode, options.Logger))
-	}
 	if options.QuietMode {
 		options.Logger.ProgressStage("Validating required dependencies")
 	}
 	err := options.validateAndProcessRequiredDependencies()
 	if err != nil {
-		if bufferedLogger, ok := options.Logger.(*common.BufferedTestLogger); ok {
-			bufferedLogger.ImmediateShortError(fmt.Sprintf("REQUIRED_DEPENDENCY_FAILURE: About to mark failed and flush buffer (bufferSize: %d)", bufferedLogger.GetBufferSize()))
-		}
 		options.Logger.MarkFailed()
 		options.Logger.FlushOnFailure()
-		if bufferedLogger, ok := options.Logger.(*common.BufferedTestLogger); ok {
-			bufferedLogger.ImmediateShortError("REQUIRED_DEPENDENCY_FAILURE: Buffer flush completed")
-		}
-		return setFailureResult(fmt.Errorf("required dependency validation failed: %w", err), "REQUIRED_DEPENDENCY_VALIDATION")
+		return fmt.Errorf("required dependency validation failed: %w", err)
 	}
 
 	// Deploy Addon to Project
-	options.Logger.ShortInfo("VALIDATION STEP: Required dependency validation completed successfully")
-	options.Logger.ShortInfo("DEPLOYMENT STEP: Starting addon deployment to project")
 	if options.QuietMode {
 		options.Logger.ProgressStage("Deploying Configurations to Project")
 	}
 	options.Logger.ShortInfo("Deploying the addon to project")
-
 	deployedConfigs, err := options.CloudInfoService.DeployAddonToProject(&options.AddonConfig, options.currentProjectConfig)
 
 	if err != nil {
 		options.Logger.ShortError(fmt.Sprintf("Error deploying the addon to project: %v", err))
-
-		// When deployment fails, attempt to build and log the expected dependency tree for debugging
-		// This helps identify what should have been deployed when analyzing failures
-		if options.AddonConfig.CatalogID != "" && options.AddonConfig.OfferingID != "" && options.AddonConfig.VersionLocator != "" {
-			options.Logger.ShortInfo("Building expected dependency tree for debugging deployment failure...")
-			visited := make(map[string]bool)
-			graphResult, graphErr := options.buildDependencyGraph(
-				options.AddonConfig.CatalogID,
-				options.AddonConfig.OfferingID,
-				options.AddonConfig.VersionLocator,
-				options.AddonConfig.OfferingFlavor,
-				&options.AddonConfig,
-				visited,
-			)
-			if graphErr == nil {
-				options.Logger.ShortInfo("Expected dependency tree (for debugging):")
-				options.PrintDependencyTree(graphResult.Graph, graphResult.ExpectedDeployedList)
-			} else {
-				options.Logger.ShortError(fmt.Sprintf("Could not build dependency tree for debugging: %v", graphErr))
-			}
-		}
-
 		options.Logger.MarkFailed()
 		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
-		return setFailureResult(fmt.Errorf("error deploying the addon to project: %w", err), "DEPLOYMENT")
+		return fmt.Errorf("error deploying the addon to project: %w", err)
 	}
 
 	// Store deployed configs for later use in dependency validation
 	options.deployedConfigs = deployedConfigs
 
-	options.Logger.ShortInfo("DEPLOYMENT STEP: Deployment completed successfully")
 	options.Logger.ShortInfo(fmt.Sprintf("Deployed Configurations to Project ID: %s", options.currentProjectConfig.ProjectID))
 	for _, config := range deployedConfigs.Configs {
 		options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", config.Name, config.ConfigID))
@@ -315,14 +158,14 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return setFailureResult(fmt.Errorf("error retrieving config %s: %w", config.Name, err), "CONFIG_RETRIEVAL")
+			return fmt.Errorf("error retrieving config %s: %w", config.Name, err)
 		}
 		if prjCfg == nil {
 			options.Logger.ShortError(fmt.Sprintf("Retrieved config %s is nil", config.Name))
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return setFailureResult(fmt.Errorf("retrieved config %s is nil", config.Name), "CONFIG_NIL")
+			return fmt.Errorf("retrieved config %s is nil", config.Name)
 		}
 		configDetails.Members = append(configDetails.Members, *prjCfg)
 
@@ -847,7 +690,6 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 
 	// Now run dependency validation before evaluating the collected validation issues
 	if !options.SkipDependencyValidation {
-		options.Logger.ShortInfo("VALIDATION STEP: Starting post-deployment dependency validation")
 		if options.QuietMode {
 			options.Logger.ProgressStage("Building dependency graph")
 		}
@@ -859,13 +701,13 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 
 		// Add validation to catch the race condition/uninitialized catalog issue
 		if rootCatalogID == "" {
-			return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.CatalogID is empty - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s'", rootVersionLocator, options.AddonConfig.OfferingName), "POST_DEPLOYMENT_VALIDATION_CATALOGID")
+			return fmt.Errorf("dependency validation failed: AddonConfig.CatalogID is empty - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s'", rootVersionLocator, options.AddonConfig.OfferingName)
 		}
 		if rootOfferingID == "" {
-			return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.OfferingID is empty - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s', CatalogID='%s'", rootVersionLocator, options.AddonConfig.OfferingName, rootCatalogID), "POST_DEPLOYMENT_VALIDATION_OFFERINGID")
+			return fmt.Errorf("dependency validation failed: AddonConfig.OfferingID is empty - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s', CatalogID='%s'", rootVersionLocator, options.AddonConfig.OfferingName, rootCatalogID)
 		}
 		if rootVersionLocator == "" {
-			return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.VersionLocator is empty - this may indicate incomplete offering setup. OfferingName='%s', CatalogID='%s', OfferingID='%s'", options.AddonConfig.OfferingName, rootCatalogID, rootOfferingID), "POST_DEPLOYMENT_VALIDATION_VERSIONLOCATOR")
+			return fmt.Errorf("dependency validation failed: AddonConfig.VersionLocator is empty - this may indicate incomplete offering setup. OfferingName='%s', CatalogID='%s', OfferingID='%s'", options.AddonConfig.OfferingName, rootCatalogID, rootOfferingID)
 		}
 
 		options.Logger.ShortInfo(fmt.Sprintf("Dependency validation starting with: catalogID='%s', offeringID='%s', versionLocator='%s', flavor='%s'", rootCatalogID, rootOfferingID, rootVersionLocator, options.AddonConfig.OfferingFlavor))
@@ -875,17 +717,13 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		visited := make(map[string]bool)
 		graphResult, err := options.buildDependencyGraph(rootCatalogID, rootOfferingID, rootVersionLocator, options.AddonConfig.OfferingFlavor, &options.AddonConfig, visited)
 		if err != nil {
-			// Use CriticalError to bypass quiet mode for this critical failure
-			options.Logger.CriticalError(fmt.Sprintf("Failed to build dependency graph: %v - This may indicate issues with catalog access, offering metadata, or dependency resolution", err))
-			return setFailureResult(err, "DEPENDENCY_GRAPH_BUILD")
+			return err
 		}
 
 		// Extract results from the returned struct
 		graph := graphResult.Graph
 		expectedDeployedList := graphResult.ExpectedDeployedList
 
-		// Always log the expected dependency tree early to ensure it's available for debugging
-		// even if subsequent validation steps fail
 		options.Logger.ShortInfo("Expected dependency tree:")
 		options.PrintDependencyTree(graph, expectedDeployedList)
 
@@ -895,9 +733,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.ShortInfo("Building the actually deployed configs")
 
 		if options.deployedConfigs == nil {
-			// Use CriticalError to bypass quiet mode for this critical failure
-			options.Logger.CriticalError("Deployed configs not available for dependency validation - this indicates a serious issue with the deployment process or test setup")
-			return setFailureResult(fmt.Errorf("deployed configs not available - cannot validate dependencies"), "MISSING_DEPLOYED_CONFIGS")
+			return fmt.Errorf("deployed configs not available - cannot validate dependencies")
 		}
 
 		actuallyDeployedResult := options.buildActuallyDeployedListFromResponse(options.deployedConfigs)
@@ -906,7 +742,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			for _, errMsg := range actuallyDeployedResult.Errors {
 				options.Logger.ShortError(fmt.Sprintf("  - %s", errMsg))
 			}
-			return setFailureResult(fmt.Errorf("failed to build actually deployed list: %s", strings.Join(actuallyDeployedResult.Errors, "; ")), "BUILD_DEPLOYED_LIST")
+			return fmt.Errorf("failed to build actually deployed list: %s", strings.Join(actuallyDeployedResult.Errors, "; "))
 		}
 
 		if len(actuallyDeployedResult.Warnings) > 0 {
@@ -1042,20 +878,8 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			}
 		}
 
-		// Handle validation failures
+		// Print validation errors - either consolidated summary or detailed individual messages
 		if !validationResult.IsValid {
-			// Mark as failed and flush buffered logs BEFORE showing validation output
-			// This ensures ShortInfo messages from dependency tree output are visible
-			if bufferedLogger, ok := options.Logger.(*common.BufferedTestLogger); ok {
-				bufferedLogger.ImmediateShortError(fmt.Sprintf("DEPENDENCY_VALIDATION_FAILURE: About to mark failed and flush buffer (bufferSize: %d)", bufferedLogger.GetBufferSize()))
-			}
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			if bufferedLogger, ok := options.Logger.(*common.BufferedTestLogger); ok {
-				bufferedLogger.ImmediateShortError("DEPENDENCY_VALIDATION_FAILURE: Buffer flush completed")
-			}
-
-			// Print validation errors - either consolidated summary or detailed individual messages
 			if options.EnhancedTreeValidationOutput {
 				options.printDependencyTreeWithValidationStatus(graph, expectedDeployedList, actuallyDeployedResult.ActuallyDeployedList, validationResult)
 			} else if options.VerboseValidationErrors {
@@ -1088,7 +912,11 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 				errorMsg = "dependency validation failed - check validation output above for details"
 			}
 
-			return setFailureResult(fmt.Errorf("%s", errorMsg), "DEPENDENCY_VALIDATION")
+			// Mark as failed and flush buffered logs to show complete diagnostic information
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
+
+			return fmt.Errorf("%s", errorMsg)
 		}
 	}
 
@@ -1452,10 +1280,10 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.MarkFailed()
 		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
-		return setFailureResult(fmt.Errorf("found %s", errorMsg), "INPUT_VALIDATION")
+		return fmt.Errorf("found %s", errorMsg)
 	}
 
-	options.Logger.ShortInfo("VALIDATION STEP: Post-deployment dependency validation completed successfully")
+	options.Logger.ShortInfo("Dependency validation completed successfully")
 
 	if options.PreDeployHook != nil {
 		options.Logger.ShortInfo("Running PreDeployHook")
@@ -1704,13 +1532,6 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 		options.Testing.Run(tc.Name, func(t *testing.T) {
 			t.Parallel()
 
-			defer func() {
-				if r := recover(); r != nil {
-					// Don't re-panic, just log it and let test fail gracefully
-					t.Errorf("Matrix test %s failed due to unhandled panic: %v", tc.Name, r)
-				}
-			}()
-
 			// Variable to capture any panic as an error for result collection
 			var testErr error
 			var panicOccurred bool
@@ -1797,17 +1618,17 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 			}
 			testOptions.AddonConfig.Prefix = testOptions.Prefix
 
-			// Ensure logger is initialized before using it - create unique logger per test case
+			// Ensure logger is initialized before using it
 			if testOptions.Logger == nil {
-				// Use specific test case name for better identification in logs
-				testCaseName := fmt.Sprintf("%s/%s", parentTestName, tc.Name)
-				testOptions.Logger = common.CreateSmartAutoBufferingLogger(testCaseName, testOptions.QuietMode)
-			} else {
-				// Preserve existing logger (it may have buffered content) but ensure QuietMode is correct
-				testOptions.Logger.SetQuietMode(testOptions.QuietMode)
+				testOptions.Logger = common.CreateSmartAutoBufferingLogger(parentTestName, false)
 			}
 
-			if !testOptions.QuietMode {
+			// Set quiet mode on the logger
+			if testOptions.QuietMode {
+				testOptions.Logger.SetQuietMode(true)
+				// In quiet mode, don't show individual test start messages
+			} else {
+				testOptions.Logger.SetQuietMode(false)
 				// Show individual test start messages in verbose mode
 				testOptions.Logger.ShortInfo(fmt.Sprintf("Running test: %s", tc.Name))
 			}
@@ -2030,67 +1851,22 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 				err = testErr
 			}
 
-			// Force log completion to main test logger to ensure it appears in logs
-			completionStatus := "PASSED"
-			if err != nil {
-				completionStatus = fmt.Sprintf("FAILED (error: %v)", err)
-			}
-			if matrix.BaseOptions.Logger != nil {
-				if smartLogger, ok := matrix.BaseOptions.Logger.(*common.SmartLogger); ok {
-					if err != nil {
-						smartLogger.ImmediateShortError(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					} else {
-						smartLogger.ImmediateShortInfo(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					}
-				} else if bufferedLogger, ok := matrix.BaseOptions.Logger.(*common.BufferedTestLogger); ok {
-					if err != nil {
-						bufferedLogger.ImmediateShortError(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					} else {
-						bufferedLogger.ImmediateShortInfo(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					}
-				} else {
-					if err != nil {
-						matrix.BaseOptions.Logger.ShortError(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					} else {
-						matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					}
-				}
-			}
-
 			// Thread-safe result collection for parallel subtests
 			// Mutex protection is required because multiple parallel subtests may
 			// simultaneously append to the shared PermutationTestReport.Results slice.
 			// Go's slice operations are not thread-safe for concurrent writes.
-			if testOptions.CollectResults && testOptions.PermutationTestReport != nil {
-				// Create a clean AddonConfig for reporting that shows only the original test case dependencies
-				// This ensures the summary correctly shows 4 direct dependencies, not the 6 after processing
-				reportAddonConfig := cloudinfo.AddonConfig{
-					OfferingName:   testOptions.AddonConfig.OfferingName,
-					OfferingID:     testOptions.AddonConfig.OfferingID,
-					OfferingLabel:  testOptions.AddonConfig.OfferingLabel,
-					VersionLocator: testOptions.AddonConfig.VersionLocator,
-					Dependencies:   tc.Dependencies, // Use original test case dependencies, not processed ones
-				}
-				testResult := testOptions.collectTestResult(tc.Name, tc.Prefix, reportAddonConfig, err)
+			if matrix.BaseOptions.CollectResults && matrix.BaseOptions.PermutationTestReport != nil {
+				testResult := testOptions.collectTestResult(tc.Name, tc.Prefix, testOptions.AddonConfig, err)
 
 				// CRITICAL: Protect concurrent access to shared report data
 				resultMutex.Lock()
-				testOptions.PermutationTestReport.Results = append(testOptions.PermutationTestReport.Results, testResult)
+				matrix.BaseOptions.PermutationTestReport.Results = append(matrix.BaseOptions.PermutationTestReport.Results, testResult)
 				if testResult.Passed {
-					testOptions.PermutationTestReport.PassedTests++
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Collected PASSED result for: %s (total results: %d)", tc.Name, len(testOptions.PermutationTestReport.Results)))
+					matrix.BaseOptions.PermutationTestReport.PassedTests++
 				} else {
-					testOptions.PermutationTestReport.FailedTests++
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Collected FAILED result for: %s (total results: %d, error: %v)", tc.Name, len(testOptions.PermutationTestReport.Results), err))
+					matrix.BaseOptions.PermutationTestReport.FailedTests++
 				}
 				resultMutex.Unlock()
-			} else {
-				// Log when result collection is skipped to help debug missing results
-				if !testOptions.CollectResults {
-					testOptions.Logger.ShortWarn(fmt.Sprintf("Skipping result collection for %s: CollectResults=false", tc.Name))
-				} else if testOptions.PermutationTestReport == nil {
-					testOptions.Logger.ShortWarn(fmt.Sprintf("Skipping result collection for %s: PermutationTestReport=nil", tc.Name))
-				}
 			}
 
 			// Handle result display in quiet mode
@@ -2131,17 +1907,12 @@ func (options *TestAddonOptions) RunAddonTestMatrix(matrix AddonTestMatrix) {
 	// Enable quiet mode by default for matrix tests to reduce log noise
 	// Allow user to override by explicitly setting QuietMode = false
 	// If Logger is already set and has QuietMode false, preserve user's choice
-	// Preserve user's QuietMode setting - do not override it
-	// If user hasn't explicitly set QuietMode and no logger exists, default to true for matrix tests
-	if options.Logger == nil && !options.QuietMode {
-		// Only default to quiet mode if neither QuietMode nor Logger were explicitly set
-		options.QuietMode = true
-	}
-
-	// If logger exists, respect its QuietMode setting
 	if options.Logger != nil && !options.Logger.IsQuietMode() {
-		// Logger exists and is not in quiet mode - respect this setting
+		// Logger exists and is not in quiet mode - user likely set this explicitly
 		options.QuietMode = false
+	} else if !options.QuietMode {
+		// Default to quiet mode for matrix tests
+		options.QuietMode = true
 	}
 
 	options.runAddonTestMatrix(matrix)
@@ -2262,11 +2033,6 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 // getDirectDependencyNames discovers just the names of direct dependencies from the local ibm_catalog.json file
 // This replaces the expensive catalog import operations with lightweight local file parsing
 func (options *TestAddonOptions) getDirectDependencyNames() ([]string, error) {
-	// Check if test has injected a custom dependency names function (for testing)
-	if options.GetDirectDependencyNames != nil {
-		return options.GetDirectDependencyNames()
-	}
-
 	// Find the git root directory to locate ibm_catalog.json
 	gitRoot, err := common.GitRootPath(".")
 	if err != nil {

@@ -113,31 +113,22 @@ func TestMatrixReportGeneration(t *testing.T) {
 			}
 		}()
 
-		// Simulate test results matching the real-world tree structure
-		// Single entry = main addon with nested dependencies in Dependencies field
+		// Simulate test results matching the real-world structure
+		// First entry = main addon (always enabled), followed by dependencies
 		mockResults := []PermutationTestResult{
 			{
 				Name:   "test-case-realistic",
 				Prefix: "t8vb5i-en-per44",
 				AddonConfig: []cloudinfo.AddonConfig{
-					// Main addon (always enabled) with nested dependencies
-					{
-						OfferingName: "deploy-arch-ibm-event-notifications",
-						Enabled:      &[]bool{true}[0],
-						Dependencies: []cloudinfo.AddonConfig{
-							// Direct dependencies only (indirect dependencies are nested under their parents)
-							{OfferingName: "deploy-arch-ibm-cloud-monitoring-advanced", Enabled: &[]bool{true}[0]},
-							{OfferingName: "deploy-arch-ibm-activity-tracker-jwqnfs", Enabled: &[]bool{false}[0]},
-							{OfferingName: "deploy-arch-ibm-cloud-logs", Enabled: &[]bool{false}[0],
-								// Indirect dependencies nested under cloud-logs
-								Dependencies: []cloudinfo.AddonConfig{
-									{OfferingName: "deploy-arch-ibm-kms", Enabled: &[]bool{true}[0]},
-									{OfferingName: "deploy-arch-ibm-cos-advanced", Enabled: &[]bool{true}[0]},
-								},
-							},
-							{OfferingName: "deploy-arch-ibm-security-compliance", Enabled: &[]bool{false}[0]},
-						},
-					},
+					// Main addon (always enabled) - first entry
+					{OfferingName: "deploy-arch-ibm-event-notifications", Enabled: &[]bool{true}[0]},
+					// Dependencies with realistic names
+					{OfferingName: "deploy-arch-ibm-cloud-monitoring-advanced", Enabled: &[]bool{true}[0]},
+					{OfferingName: "deploy-arch-ibm-kms", Enabled: &[]bool{true}[0]},
+					{OfferingName: "deploy-arch-ibm-activity-tracker-jwqnfs", Enabled: &[]bool{false}[0]},
+					{OfferingName: "deploy-arch-ibm-cloud-logs", Enabled: &[]bool{false}[0]},
+					{OfferingName: "deploy-arch-ibm-cos-advanced", Enabled: &[]bool{false}[0]},
+					{OfferingName: "deploy-arch-ibm-security-compliance", Enabled: &[]bool{false}[0]},
 				},
 				Passed: false,
 				ValidationResult: &ValidationResult{
@@ -153,17 +144,14 @@ func TestMatrixReportGeneration(t *testing.T) {
 				Name:   "test-case-all-disabled",
 				Prefix: "tc-all-disabled",
 				AddonConfig: []cloudinfo.AddonConfig{
-					// Main addon (always enabled) with all dependencies disabled
-					{
-						OfferingName: "deploy-arch-ibm-event-notifications",
-						Enabled:      &[]bool{true}[0],
-						Dependencies: []cloudinfo.AddonConfig{
-							// All direct dependencies disabled
-							{OfferingName: "deploy-arch-ibm-cloud-monitoring-advanced", Enabled: &[]bool{false}[0]},
-							{OfferingName: "deploy-arch-ibm-activity-tracker-jwqnfs", Enabled: &[]bool{false}[0]},
-							{OfferingName: "deploy-arch-ibm-cloud-logs", Enabled: &[]bool{false}[0]},
-						},
-					},
+					// Main addon (always enabled)
+					{OfferingName: "deploy-arch-ibm-event-notifications", Enabled: &[]bool{true}[0]},
+					// All dependencies disabled
+					{OfferingName: "deploy-arch-ibm-cloud-monitoring-advanced", Enabled: &[]bool{false}[0]},
+					{OfferingName: "deploy-arch-ibm-kms", Enabled: &[]bool{false}[0]},
+					{OfferingName: "deploy-arch-ibm-activity-tracker-jwqnfs", Enabled: &[]bool{false}[0]},
+					{OfferingName: "deploy-arch-ibm-cloud-logs", Enabled: &[]bool{false}[0]},
+					{OfferingName: "deploy-arch-ibm-cos-advanced", Enabled: &[]bool{false}[0]},
 				},
 				Passed:          false,
 				RuntimeErrors:   []string{"panic occurred: runtime error: invalid memory address"},
@@ -173,16 +161,12 @@ func TestMatrixReportGeneration(t *testing.T) {
 				Name:   "test-case-config-errors",
 				Prefix: "tc-config-err",
 				AddonConfig: []cloudinfo.AddonConfig{
-					// Main addon (always enabled) with dependencies that cause config errors
-					{
-						OfferingName: "deploy-arch-ibm-event-notifications",
-						Enabled:      &[]bool{true}[0],
-						Dependencies: []cloudinfo.AddonConfig{
-							// Dependencies disabled, which should cause config errors
-							{OfferingName: "deploy-arch-ibm-cos", Enabled: &[]bool{false}[0]},
-							{OfferingName: "deploy-arch-ibm-cloud-logs", Enabled: &[]bool{false}[0]},
-						},
-					},
+					// Main addon (always enabled)
+					{OfferingName: "deploy-arch-ibm-event-notifications", Enabled: &[]bool{true}[0]},
+					// Several dependencies disabled, which should cause config errors
+					{OfferingName: "deploy-arch-ibm-cos", Enabled: &[]bool{false}[0]},
+					{OfferingName: "deploy-arch-ibm-event-notifications", Enabled: &[]bool{false}[0]},
+					{OfferingName: "deploy-arch-ibm-cloud-logs", Enabled: &[]bool{false}[0]},
 				},
 				Passed: false,
 				ValidationResult: &ValidationResult{

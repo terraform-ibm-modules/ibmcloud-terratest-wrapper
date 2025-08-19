@@ -43,14 +43,14 @@ func TestRequiredDependencyValidation(t *testing.T) {
 		assert.NoError(t, err, "Validation should not fail in strict mode")
 
 		// Check that cloud-logs dependency remains disabled (since it's optional without catalog info)
-		cloudLogsDep := FindDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
+		cloudLogsDep := findDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
 		assert.NotNil(t, cloudLogsDep, "Cloud logs dependency should exist")
 		if cloudLogsDep.Enabled != nil {
 			assert.False(t, *cloudLogsDep.Enabled, "Optional dependency should remain disabled")
 		}
 
 		// Check that the optional dependency remains disabled
-		cosDep := FindDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cos")
+		cosDep := findDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cos")
 		assert.NotNil(t, cosDep, "COS dependency should exist")
 		if cosDep.Enabled != nil {
 			assert.False(t, *cosDep.Enabled, "Optional dependency should remain disabled")
@@ -87,7 +87,7 @@ func TestRequiredDependencyValidation(t *testing.T) {
 		assert.NoError(t, err, "Validation should not fail in strict mode")
 
 		// Check that the required dependency was force-enabled
-		requiredDep := FindDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-some-required-service")
+		requiredDep := findDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-some-required-service")
 		assert.NotNil(t, requiredDep, "Required dependency should exist")
 		if requiredDep.Enabled != nil {
 			assert.True(t, *requiredDep.Enabled, "Required dependency should be force-enabled")
@@ -97,7 +97,7 @@ func TestRequiredDependencyValidation(t *testing.T) {
 		}
 
 		// Check that the optional dependency remains disabled
-		cosDep := FindDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cos")
+		cosDep := findDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cos")
 		assert.NotNil(t, cosDep, "COS dependency should exist")
 		if cosDep.Enabled != nil {
 			assert.False(t, *cosDep.Enabled, "Optional dependency should remain disabled")
@@ -129,7 +129,7 @@ func TestRequiredDependencyValidation(t *testing.T) {
 		assert.NoError(t, err, "Validation should not fail in non-strict mode")
 
 		// Check that the required dependency was force-enabled
-		cloudLogsDep := FindDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
+		cloudLogsDep := findDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
 		assert.NotNil(t, cloudLogsDep, "Cloud logs dependency should exist")
 		if cloudLogsDep.Enabled != nil {
 			assert.True(t, *cloudLogsDep.Enabled, "Required dependency should be force-enabled")
@@ -184,12 +184,22 @@ func TestRequiredDependencyValidation(t *testing.T) {
 		assert.NoError(t, err, "Validation should not fail")
 
 		// Check that the dependency remains enabled and unchanged
-		cloudLogsDep := FindDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
+		cloudLogsDep := findDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
 		assert.NotNil(t, cloudLogsDep, "Cloud logs dependency should exist")
 		if cloudLogsDep.Enabled != nil {
 			assert.True(t, *cloudLogsDep.Enabled, "Dependency should remain enabled")
 		}
 	})
+}
+
+// Helper function to find a dependency by name
+func findDependencyByName(dependencies []cloudinfo.AddonConfig, name string) *cloudinfo.AddonConfig {
+	for i, dep := range dependencies {
+		if dep.OfferingName == name {
+			return &dependencies[i]
+		}
+	}
+	return nil
 }
 
 // TestPermutationAndManualConsistency demonstrates that both test types now behave consistently
@@ -250,8 +260,8 @@ func TestPermutationAndManualConsistency(t *testing.T) {
 	assert.NoError(t, err2, "Permutation config processing should succeed")
 
 	// Both should have the dependency force-enabled
-	manualDep := FindDependencyByName(manualOptions.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
-	permutationDep := FindDependencyByName(permutationOptions.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
+	manualDep := findDependencyByName(manualOptions.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
+	permutationDep := findDependencyByName(permutationOptions.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
 
 	assert.NotNil(t, manualDep, "Manual dependency should exist")
 	assert.NotNil(t, permutationDep, "Permutation dependency should exist")
@@ -319,7 +329,7 @@ func TestCloudLogsOptionalBehavior(t *testing.T) {
 	assert.NoError(t, err, "Validation should not fail")
 
 	// Verify that deploy-arch-ibm-cloud-logs remains disabled (not force-enabled)
-	cloudLogsDep := FindDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
+	cloudLogsDep := findDependencyByName(options.AddonConfig.Dependencies, "deploy-arch-ibm-cloud-logs")
 	assert.NotNil(t, cloudLogsDep, "Cloud logs dependency should exist")
 	assert.False(t, *cloudLogsDep.Enabled, "Cloud logs should remain disabled (not force-enabled as required)")
 

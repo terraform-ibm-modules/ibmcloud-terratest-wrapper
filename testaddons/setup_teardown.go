@@ -247,8 +247,7 @@ func (options *TestAddonOptions) setupOffering() error {
 		return fmt.Errorf("AddonConfig.OfferingName is not set")
 	}
 	// Import the offering - check sharing settings
-	if options.SharedCatalog != nil && *options.SharedCatalog && options.offering != nil &&
-		options.offering.Label != nil && options.offering.ID != nil && options.offering.Name != nil {
+	if options.SharedCatalog != nil && *options.SharedCatalog && options.offering != nil {
 		options.Logger.ShortInfo(fmt.Sprintf("Using existing shared offering: %s with ID %s", *options.offering.Label, *options.offering.ID))
 
 		// Set offering details for addon config from existing offering
@@ -270,9 +269,6 @@ func (options *TestAddonOptions) setupOffering() error {
 		}
 
 		options.Logger.ShortInfo(fmt.Sprintf("Using shared offering Version Locator: %s", options.AddonConfig.VersionLocator))
-	} else if options.SharedCatalog != nil && *options.SharedCatalog && options.offering != nil {
-		// Shared offering is incomplete - log warning and fall back to creating new offering
-		options.Logger.ShortWarn("Shared offering is nil or incomplete - offering import may have failed")
 	} else {
 		// Create new offering if sharing is disabled or no existing offering
 		version := fmt.Sprintf("v0.0.1-dev-%s", options.Prefix)
