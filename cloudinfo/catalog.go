@@ -462,20 +462,9 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 		}
 		// Handle OnByDefault components that aren't already in dependencies
 		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) && (component.OfferingReference.OnByDefault) {
-			// Determine if current addon is the actual parent for this component
-			isActualParent := false
-
-			// KMS and COS are nested dependencies of activity-tracker and cloud-logs
-			if component.Name == "deploy-arch-ibm-kms" || component.Name == "deploy-arch-ibm-cos" {
-				isActualParent = (addonConfig.OfferingName == "deploy-arch-ibm-activity-tracker" || addonConfig.OfferingName == "deploy-arch-ibm-cloud-logs")
-			}
-
-			if isActualParent {
-				// Add to the actual parent's dependencies
-				componentsToAdd = append(componentsToAdd, component)
-			} else {
-				// Skip adding to non-parent addons
-			}
+			// Add all OnByDefault components as returned by the API
+			// The hierarchical deployment list will handle proper deduplication
+			componentsToAdd = append(componentsToAdd, component)
 		}
 	}
 	// Add new dependencies that weren't found in the existing dependencies
@@ -497,14 +486,18 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 			Dependencies:    []AddonConfig{}, // Initialize empty dependencies slice
 		}
 
-		// Process dependencies of this new dependency recursively
-		// Create a copy of processedLocators for this branch to allow the same component in different branches
-		branchProcessedLocators := make(map[string]bool)
-		for k, v := range processedLocators {
-			branchProcessedLocators[k] = v
-		}
-		if err := infoSvc.processComponentReferencesWithGetter(&newDependency, branchProcessedLocators, getter); err != nil {
-			return err
+		// Only process sub-dependencies if this dependency is enabled
+		// This prevents disabled branches from spawning their own dependencies
+		if enabled {
+			// Process dependencies of this new dependency recursively
+			// Create a copy of processedLocators for this branch to allow the same component in different branches
+			branchProcessedLocators := make(map[string]bool)
+			for k, v := range processedLocators {
+				branchProcessedLocators[k] = v
+			}
+			if err := infoSvc.processComponentReferencesWithGetter(&newDependency, branchProcessedLocators, getter); err != nil {
+				return err
+			}
 		}
 		addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
 	}
