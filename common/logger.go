@@ -1028,6 +1028,33 @@ func (s *SmartLogger) CriticalError(message string) {
 	s.logger.CriticalError(message)
 }
 
+// ImmediateShortError bypasses buffering and quiet mode
+func (s *SmartLogger) ImmediateShortError(message string) {
+	if buffered, ok := s.logger.(*BufferedTestLogger); ok {
+		buffered.ImmediateShortError(message)
+	} else {
+		s.logger.ShortError(message)
+	}
+}
+
+// ImmediateShortInfo bypasses buffering and quiet mode
+func (s *SmartLogger) ImmediateShortInfo(message string) {
+	if buffered, ok := s.logger.(*BufferedTestLogger); ok {
+		buffered.ImmediateShortInfo(message)
+	} else {
+		s.logger.ShortInfo(message)
+	}
+}
+
+// ImmediateShortWarn bypasses buffering and quiet mode
+func (s *SmartLogger) ImmediateShortWarn(message string) {
+	if buffered, ok := s.logger.(*BufferedTestLogger); ok {
+		buffered.ImmediateShortWarn(message)
+	} else {
+		s.logger.ShortWarn(message)
+	}
+}
+
 func (s *SmartLogger) FatalError(message string) {
 	s.logger.FatalError(message)
 }

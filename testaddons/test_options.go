@@ -670,6 +670,11 @@ type TestAddonOptions struct {
 	lastValidationResult *ValidationResult
 	lastTransientErrors  []string
 	lastRuntimeErrors    []string
+
+	// GetDirectDependencyNames allows test injection of dependency names for permutation testing
+	// When set, this function will be called instead of reading from ibm_catalog.json
+	// Used primarily for mocking dependencies in comprehensive regression tests
+	GetDirectDependencyNames func() ([]string, error)
 }
 
 // TestAddonsOptionsDefault Default constructor for TestAddonOptions
@@ -767,6 +772,11 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	// Set default OverrideInputMappings to false (preserve reference values)
 	if newOptions.OverrideInputMappings == nil {
 		newOptions.OverrideInputMappings = core.BoolPtr(false)
+	}
+
+	// Set default EnhancedTreeValidationOutput to true (show dependency trees for better debugging)
+	if !newOptions.EnhancedTreeValidationOutput {
+		newOptions.EnhancedTreeValidationOutput = true
 	}
 
 	// Initialize logger if not already set to prevent nil pointer panics
@@ -897,10 +907,14 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		PostDeployHook:               options.PostDeployHook,
 		PreUndeployHook:              options.PreUndeployHook,
 		PostUndeployHook:             options.PostUndeployHook,
-		Logger:                       options.Logger,
+		Logger:                       nil, // Force creation of unique logger per test to avoid cross-contamination in parallel tests
 		QuietMode:                    options.QuietMode,
 		StrictMode:                   copyBoolPointer(options.StrictMode),
 		OverrideInputMappings:        copyBoolPointer(options.OverrideInputMappings),
+
+		// Result collection fields need to be shared across all test instances
+		CollectResults:        options.CollectResults,
+		PermutationTestReport: options.PermutationTestReport,
 
 		// These fields are not copied as they are managed per test instance
 		configInputReferences: nil,
@@ -947,14 +961,13 @@ func (options *TestAddonOptions) CleanupSharedResources() {
 
 // collectTestResult creates a PermutationTestResult from test execution
 func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, addonConfig cloudinfo.AddonConfig, testError error) PermutationTestResult {
-	// Create base result with complete addon configuration including all dependencies
-	// First entry is the main addon (always enabled), followed by all dependencies
-	completeAddonConfig := append([]cloudinfo.AddonConfig{addonConfig}, addonConfig.Dependencies...)
+	// Create base result preserving the hierarchical addon configuration structure
+	// Main addon contains its dependencies in the Dependencies field (tree structure)
 
 	result := PermutationTestResult{
 		Name:        testName,
 		Prefix:      testPrefix,
-		AddonConfig: completeAddonConfig,
+		AddonConfig: []cloudinfo.AddonConfig{addonConfig}, // Preserve tree structure with nested dependencies
 		Passed:      testError == nil,
 		StrictMode:  options.StrictMode,
 	}

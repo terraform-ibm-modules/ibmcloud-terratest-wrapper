@@ -16,7 +16,7 @@ This guide covers common issues, solutions, and debugging techniques for the log
 --- PASS: TestParallelOperation (10.25s)
 ```
 
-**Cause**: Using `TestLogger` in quiet mode or not using enhanced error methods with `BufferedTestLogger`.
+**Cause**: Using `TestLogger` in quiet mode, not using enhanced error methods with `BufferedTestLogger`, or logger instance sharing between parallel tests.
 
 **Solution**:
 ```golang
@@ -24,12 +24,26 @@ This guide covers common issues, solutions, and debugging techniques for the log
 logger := common.NewTestLogger(t.Name())
 logger.SetQuietMode(true)
 
+// ❌ Wrong - Sharing logger instances between parallel tests
+var sharedLogger common.Logger
+func TestParallel1(t *testing.T) {
+    t.Parallel()
+    sharedLogger.ShortInfo("Test 1") // Cross-contamination risk
+}
+
 // ✅ Correct - BufferedTestLogger with enhanced error methods
 logger := common.NewBufferedTestLogger(t.Name(), true)
 // ... test logic ...
 if err != nil {
     logger.CriticalError(fmt.Sprintf("Test failed: %v", err)) // Automatically triggers buffer flush
     t.Fatalf("Test failed: %v", err)
+}
+
+// ✅ Correct - Unique logger per parallel test
+func TestParallel1(t *testing.T) {
+    t.Parallel()
+    logger := common.NewBufferedTestLogger(t.Name(), true) // Unique instance
+    logger.ShortInfo("Test 1") // No cross-contamination
 }
 ```
 
@@ -43,7 +57,7 @@ if err != nil {
     test.go:45: Test failed: operation timeout
 ```
 
-**Cause**: Not using enhanced error methods that automatically handle buffer flushing and context display.
+**Cause**: Not using enhanced error methods that automatically handle buffer flushing and context display, or buffer flushing order issues.
 
 **Solution**:
 ```golang
@@ -63,9 +77,38 @@ if err != nil {
     logger.ErrorWithContext(fmt.Sprintf("Test failed: %v", err))
     return
 }
+
 ```
 
-### 3. Repetitive Progress Messages
+### 3. Missing Dependency Tree Information
+
+**Problem**: Dependency validation failures don't show expected vs actual dependency trees.
+
+**Symptoms**:
+```
+--- FAIL: TestDependencyValidation (5.25s)
+    test.go:45: dependency validation failed: 2 dependency errors
+```
+
+**Solution**: Enhanced tree validation output is enabled by default and provides detailed dependency comparison:
+```golang
+// This behavior is automatic - no configuration needed
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing:     t,
+    Prefix:      "test",
+    AddonConfig: addonConfig,
+    // EnhancedTreeValidationOutput defaults to true
+})
+
+// On dependency validation failure, you'll see:
+// Expected dependency tree:
+//   deploy-arch-ibm-cos (v10.2.1, instance)
+//   deploy-arch-ibm-kms (v5.1.19, fully-configurable)
+// Actual dependency tree:
+//   [empty or different structure]
+```
+
+### 4. Repetitive Progress Messages
 
 **Problem**: Too many repetitive progress messages during batch operations.
 
@@ -95,7 +138,7 @@ for _, item := range items {
 }
 ```
 
-### 4. Phase Detection Not Working
+### 5. Phase Detection Not Working
 
 **Problem**: Smart logger doesn't detect phases from log messages.
 
@@ -128,7 +171,7 @@ config := common.SmartLoggerConfig{
 logger := common.NewSmartLogger(baseLogger, config)
 ```
 
-### 5. Logger Nil Pointer Panics
+### 6. Logger Nil Pointer Panics
 
 **Problem**: Runtime panic due to nil logger.
 
@@ -162,7 +205,7 @@ func useLogger(logger common.Logger) {
 }
 ```
 
-### 6. Memory Issues with Long-Running Tests
+### 7. Memory Issues with Long-Running Tests
 
 **Problem**: Memory usage grows continuously during long tests.
 
@@ -188,7 +231,7 @@ for i := 0; i < 10000; i++ {
 }
 ```
 
-### 7. Colors Not Displaying Properly
+### 8. Colors Not Displaying Properly
 
 **Problem**: ANSI color codes appear as text instead of colors.
 

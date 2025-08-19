@@ -351,6 +351,7 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 	processedLocators[addonConfig.VersionLocator] = true
 
 	// Get component references for this addon
+
 	componentsReferences, err := getter.GetComponentReferences(addonConfig.VersionLocator)
 	if err != nil {
 		return fmt.Errorf("error getting component references for %s: %w", addonConfig.VersionLocator, err)
@@ -389,7 +390,12 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 				// Only process dependencies recursively if this version locator hasn't been processed before
 				// This prevents infinite recursion while still ensuring metadata is populated
 				if !processedLocators[component.OfferingReference.VersionLocator] {
-					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
+					// Create a copy of processedLocators for this branch to allow the same component in different branches
+					branchProcessedLocators := make(map[string]bool)
+					for k, v := range processedLocators {
+						branchProcessedLocators[k] = v
+					}
+					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], branchProcessedLocators, getter); err != nil {
 						return err
 					}
 				}
@@ -442,19 +448,33 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 				// Only process dependencies recursively if this version locator hasn't been processed before
 				// This prevents infinite recursion while still ensuring metadata is populated
 				if !processedLocators[component.OfferingReference.VersionLocator] {
-					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
+					// Create a copy of processedLocators for this branch to allow the same component in different branches
+					branchProcessedLocators := make(map[string]bool)
+					for k, v := range processedLocators {
+						branchProcessedLocators[k] = v
+					}
+					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], branchProcessedLocators, getter); err != nil {
 						return err
 					}
 				}
 				break
 			}
 		}
+		// Handle OnByDefault components that aren't already in dependencies
 		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) && (component.OfferingReference.OnByDefault) {
-			// Only add new components if their version locator hasn't been processed
-			if !processedLocators[component.OfferingReference.VersionLocator] {
-				// set required to on by default true
-				component.OfferingReference.OnByDefault = true
+			// Determine if current addon is the actual parent for this component
+			isActualParent := false
+
+			// KMS and COS are nested dependencies of activity-tracker and cloud-logs
+			if component.Name == "deploy-arch-ibm-kms" || component.Name == "deploy-arch-ibm-cos" {
+				isActualParent = (addonConfig.OfferingName == "deploy-arch-ibm-activity-tracker" || addonConfig.OfferingName == "deploy-arch-ibm-cloud-logs")
+			}
+
+			if isActualParent {
+				// Add to the actual parent's dependencies
 				componentsToAdd = append(componentsToAdd, component)
+			} else {
+				// Skip adding to non-parent addons
 			}
 		}
 	}
@@ -478,7 +498,12 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 		}
 
 		// Process dependencies of this new dependency recursively
-		if err := infoSvc.processComponentReferencesWithGetter(&newDependency, processedLocators, getter); err != nil {
+		// Create a copy of processedLocators for this branch to allow the same component in different branches
+		branchProcessedLocators := make(map[string]bool)
+		for k, v := range processedLocators {
+			branchProcessedLocators[k] = v
+		}
+		if err := infoSvc.processComponentReferencesWithGetter(&newDependency, branchProcessedLocators, getter); err != nil {
 			return err
 		}
 		addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
@@ -744,6 +769,27 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	globallyDisabled := make(map[string]bool)
 	buildGlobalDisabledSet(mainAddon, globallyDisabled)
 
+	// Track which dependencies have at least one enabled parent branch
+	// This handles the multi-branch scenario where a dependency appears under multiple parents
+	dependencyEnabledParents := make(map[string]bool)
+
+	// First pass: identify all dependencies that have at least one enabled parent path
+	var scanEnabledPaths func(addon *AddonConfig, parentEnabled bool)
+	scanEnabledPaths = func(addon *AddonConfig, parentEnabled bool) {
+		for _, dep := range addon.Dependencies {
+			// If current addon is enabled, mark its dependencies as having enabled parents
+			if parentEnabled {
+				dependencyEnabledParents[dep.OfferingName] = true
+			}
+			// Recursively scan this dependency's children
+			// CRITICAL FIX: Only pass enabled status if the dependency itself is actually enabled
+			depEnabled := dep.Enabled != nil && *dep.Enabled
+			scanEnabledPaths(&dep, depEnabled)
+		}
+	}
+	// Start the scan from main addon (always considered enabled for its direct children)
+	scanEnabledPaths(mainAddon, true)
+
 	// Create offering identity key for deduplication based on catalog+offering+flavor
 	// This ensures we don't deploy the same offering multiple times even if it appears
 	// in different parts of the dependency tree
@@ -766,15 +812,20 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 		for _, dep := range addon.Dependencies {
 			offeringKey := getOfferingKey(&dep)
 
-			// Debug every dependency we encounter
-
 			// Check if this dependency is globally disabled first
 			if globallyDisabled[dep.OfferingName] {
 				continue
 			}
 
-			// Only process enabled dependencies that haven't been seen before (by offering identity)
-			if dep.Enabled != nil && *dep.Enabled && !processedOfferings[offeringKey] {
+			// Determine if this dependency should be included:
+			// 1. Explicitly enabled dependencies (Enabled=true)
+			// 2. OnByDefault dependencies that have at least one enabled parent branch
+			isExplicitlyEnabled := dep.Enabled != nil && *dep.Enabled
+			isOnByDefaultWithEnabledParent := (dep.OnByDefault != nil && *dep.OnByDefault) && dependencyEnabledParents[dep.OfferingName]
+
+			shouldInclude := (isExplicitlyEnabled || isOnByDefaultWithEnabledParent) && !processedOfferings[offeringKey]
+
+			if shouldInclude {
 				// Generate a unique config name for this dependency if not already set
 				if dep.ConfigName == "" {
 					randomPostfix := strings.ToLower(random.UniqueId())

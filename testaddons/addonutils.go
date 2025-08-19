@@ -171,3 +171,23 @@ func normalizeConfigName(configName string) string {
 
 	return configName
 }
+
+// Dependency Helper Utils
+// FindDependencyByName finds a dependency by name in a slice of AddonConfig dependencies
+func FindDependencyByName(dependencies []cloudinfo.AddonConfig, name string) *cloudinfo.AddonConfig {
+	for i, dep := range dependencies {
+		if dep.OfferingName == name {
+			return &dependencies[i]
+		}
+	}
+	return nil
+}
+
+// ExtractDependencyNames extracts the offering names from a slice of AddonConfig dependencies
+func ExtractDependencyNames(dependencies []cloudinfo.AddonConfig) []string {
+	names := make([]string, len(dependencies))
+	for i, dep := range dependencies {
+		names[i] = dep.OfferingName
+	}
+	return names
+}

@@ -53,6 +53,11 @@ type Logger interface {
     FatalError(message string)        // Immediate error display, bypasses buffering
     ErrorWithContext(message string)  // Shows buffer context with moderate error formatting
 
+    // Immediate methods (bypass buffering and quiet mode)
+    ImmediateShortError(message string)  // Force error output immediately
+    ImmediateShortInfo(message string)   // Force info output immediately
+    ImmediateShortWarn(message string)   // Force warning output immediately
+
     // Compatibility methods
     GetUnderlyingLogger() *TestLogger
 }
@@ -259,7 +264,7 @@ func (s *SmartLogger) ShortInfo(message string) {
 
 ### Enhanced Error Handling Methods
 
-The logger interface now includes specialized error methods:
+The logger interface includes specialized error methods and immediate output methods:
 
 ```golang
 // CriticalError: Shows buffer context first, then prominent bordered error
@@ -287,6 +292,21 @@ func (b *BufferedTestLogger) ErrorWithContext(message string) {
     b.testLogger.logWithoutCallerForceOutput("", separator, Colors.Yellow)
     b.testLogger.logWithoutCallerForceOutput("", fmt.Sprintf("ERROR: %s", message), Colors.Red)
     b.testLogger.logWithoutCallerForceOutput("", separator, Colors.Yellow)
+}
+
+// ImmediateShortError: Force error output bypassing buffering and quiet mode
+func (b *BufferedTestLogger) ImmediateShortError(message string) {
+    b.testLogger.logWithCallerForceOutput("", message, Colors.Red)
+}
+
+// ImmediateShortInfo: Force info output bypassing buffering and quiet mode
+func (b *BufferedTestLogger) ImmediateShortInfo(message string) {
+    b.testLogger.logWithCallerForceOutput("", message, Colors.Green)
+}
+
+// ImmediateShortWarn: Force warning output bypassing buffering and quiet mode
+func (b *BufferedTestLogger) ImmediateShortWarn(message string) {
+    b.testLogger.logWithCallerForceOutput("", message, Colors.Yellow)
 }
 ```
 
