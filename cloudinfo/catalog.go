@@ -390,12 +390,7 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 				// Only process dependencies recursively if this version locator hasn't been processed before
 				// This prevents infinite recursion while still ensuring metadata is populated
 				if !processedLocators[component.OfferingReference.VersionLocator] {
-					// Create a copy of processedLocators for this branch to allow the same component in different branches
-					branchProcessedLocators := make(map[string]bool)
-					for k, v := range processedLocators {
-						branchProcessedLocators[k] = v
-					}
-					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], branchProcessedLocators, getter); err != nil {
+					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
 						return err
 					}
 				}
@@ -448,12 +443,7 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 				// Only process dependencies recursively if this version locator hasn't been processed before
 				// This prevents infinite recursion while still ensuring metadata is populated
 				if !processedLocators[component.OfferingReference.VersionLocator] {
-					// Create a copy of processedLocators for this branch to allow the same component in different branches
-					branchProcessedLocators := make(map[string]bool)
-					for k, v := range processedLocators {
-						branchProcessedLocators[k] = v
-					}
-					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], branchProcessedLocators, getter); err != nil {
+					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], processedLocators, getter); err != nil {
 						return err
 					}
 				}
@@ -462,9 +452,12 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 		}
 		// Handle OnByDefault components that aren't already in dependencies
 		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) && (component.OfferingReference.OnByDefault) {
-			// Add all OnByDefault components as returned by the API
-			// The hierarchical deployment list will handle proper deduplication
-			componentsToAdd = append(componentsToAdd, component)
+			// Only add new components if their version locator hasn't been processed
+			if !processedLocators[component.OfferingReference.VersionLocator] {
+				// set required to on by default true
+				component.OfferingReference.OnByDefault = true
+				componentsToAdd = append(componentsToAdd, component)
+			}
 		}
 	}
 	// Add new dependencies that weren't found in the existing dependencies
@@ -490,12 +483,7 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 		// This prevents disabled branches from spawning their own dependencies
 		if enabled {
 			// Process dependencies of this new dependency recursively
-			// Create a copy of processedLocators for this branch to allow the same component in different branches
-			branchProcessedLocators := make(map[string]bool)
-			for k, v := range processedLocators {
-				branchProcessedLocators[k] = v
-			}
-			if err := infoSvc.processComponentReferencesWithGetter(&newDependency, branchProcessedLocators, getter); err != nil {
+			if err := infoSvc.processComponentReferencesWithGetter(&newDependency, processedLocators, getter); err != nil {
 				return err
 			}
 		}
@@ -762,27 +750,6 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	globallyDisabled := make(map[string]bool)
 	buildGlobalDisabledSet(mainAddon, globallyDisabled)
 
-	// Track which dependencies have at least one enabled parent branch
-	// This handles the multi-branch scenario where a dependency appears under multiple parents
-	dependencyEnabledParents := make(map[string]bool)
-
-	// First pass: identify all dependencies that have at least one enabled parent path
-	var scanEnabledPaths func(addon *AddonConfig, parentEnabled bool)
-	scanEnabledPaths = func(addon *AddonConfig, parentEnabled bool) {
-		for _, dep := range addon.Dependencies {
-			// If current addon is enabled, mark its dependencies as having enabled parents
-			if parentEnabled {
-				dependencyEnabledParents[dep.OfferingName] = true
-			}
-			// Recursively scan this dependency's children
-			// CRITICAL FIX: Only pass enabled status if the dependency itself is actually enabled
-			depEnabled := dep.Enabled != nil && *dep.Enabled
-			scanEnabledPaths(&dep, depEnabled)
-		}
-	}
-	// Start the scan from main addon (always considered enabled for its direct children)
-	scanEnabledPaths(mainAddon, true)
-
 	// Create offering identity key for deduplication based on catalog+offering+flavor
 	// This ensures we don't deploy the same offering multiple times even if it appears
 	// in different parts of the dependency tree
@@ -805,20 +772,8 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 		for _, dep := range addon.Dependencies {
 			offeringKey := getOfferingKey(&dep)
 
-			// Check if this dependency is globally disabled first
-			if globallyDisabled[dep.OfferingName] {
-				continue
-			}
-
-			// Determine if this dependency should be included:
-			// 1. Explicitly enabled dependencies (Enabled=true)
-			// 2. OnByDefault dependencies that have at least one enabled parent branch
-			isExplicitlyEnabled := dep.Enabled != nil && *dep.Enabled
-			isOnByDefaultWithEnabledParent := (dep.OnByDefault != nil && *dep.OnByDefault) && dependencyEnabledParents[dep.OfferingName]
-
-			shouldInclude := (isExplicitlyEnabled || isOnByDefaultWithEnabledParent) && !processedOfferings[offeringKey]
-
-			if shouldInclude {
+			// Only process enabled dependencies that haven't been seen before (by offering identity)
+			if dep.Enabled != nil && *dep.Enabled && !processedOfferings[offeringKey] {
 				// Generate a unique config name for this dependency if not already set
 				if dep.ConfigName == "" {
 					randomPostfix := strings.ToLower(random.UniqueId())

@@ -147,49 +147,8 @@ func (options *TestAddonOptions) buildDependencyGraphWithDisabled(catalogID stri
 		}
 	}
 
-	// Process manually enabled dependencies that might not be on by default
-	for _, manualDep := range addonConfig.Dependencies {
-		if manualDep.Enabled != nil && *manualDep.Enabled {
-			// Check if this dependency has been disabled at the offering level
-			if disabledOfferings[manualDep.OfferingName] {
-				options.Logger.ShortInfo(fmt.Sprintf("Skipping manually enabled dependency %s - disabled at offering level in dependency tree\n", manualDep.OfferingName))
-				continue
-			}
-			// Check if this dependency was already processed from catalog
-			alreadyProcessed := false
-			for _, catDep := range version.SolutionInfo.Dependencies {
-				if *catDep.OnByDefault && *catDep.Name == manualDep.OfferingName {
-					depFlavor := catDep.Flavors[0]
-					if catDep.DefaultFlavor != nil && *catDep.DefaultFlavor != "" {
-						depFlavor = *catDep.DefaultFlavor
-					}
-					if depFlavor == manualDep.OfferingFlavor {
-						alreadyProcessed = true
-						break
-					}
-				}
-			}
-
-			if !alreadyProcessed && !result.Visited[manualDep.VersionLocator] {
-				options.Logger.ShortInfo(fmt.Sprintf("Processing manually enabled dependency %s for addon %s\n", manualDep.OfferingName, offeringName))
-
-				child := cloudinfo.OfferingReferenceDetail{
-					Name:    manualDep.OfferingName,
-					Version: manualDep.ResolvedVersion,
-					Flavor:  cloudinfo.Flavor{Name: manualDep.OfferingFlavor},
-				}
-
-				result.Graph[addonKey] = append(result.Graph[addonKey], child)
-
-				childResult, err := options.buildDependencyGraphWithDisabled(manualDep.CatalogID, manualDep.OfferingID, manualDep.VersionLocator, manualDep.OfferingFlavor, &manualDep, result.Visited, disabledOfferings)
-				if err != nil {
-					return nil, err
-				}
-
-				result.mergeResults(childResult)
-			}
-		}
-	}
+	// Only process catalog-defined OnByDefault dependencies
+	// Manually enabled dependencies should not be in the expected list unless they're actually deployed
 
 	return result, nil
 }
