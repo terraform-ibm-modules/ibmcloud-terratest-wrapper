@@ -61,8 +61,6 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			bufferedLogger.ImmediateShortInfo(fmt.Sprintf("TEST EXECUTION START: %s", testName))
 			bufferedLogger.ImmediateShortInfo(fmt.Sprintf("Test Configuration: Prefix='%s', OfferingName='%s', QuietMode=%v", options.Prefix, options.AddonConfig.OfferingName, options.QuietMode))
 		} else {
-			fmt.Printf("TEST EXECUTION START: %s\n", testName)
-			fmt.Printf("Test Configuration: Prefix='%s', OfferingName='%s', QuietMode=%v\n", options.Prefix, options.AddonConfig.OfferingName, options.QuietMode)
 		}
 	}
 
@@ -2700,9 +2698,8 @@ func (options *TestAddonOptions) generatePermutations(dependencyNames []string) 
 	return testCases
 }
 
-// generatePermutationsWithFlavors creates all enabled/disabled combinations of dependencies with flavor variations
-// For now, this is a simplified version that uses the first flavor for each dependency
-// TODO: In future iterations, this can be enhanced to generate all flavor combinations
+// generatePermutationsWithFlavors creates enabled/disabled permutations and, for enabled deps,
+// expands into all valid flavor combinations discovered from the catalog (programmatic, no hardcoding).
 func (options *TestAddonOptions) generatePermutationsWithFlavors(dependenciesWithFlavors []DependencyWithFlavors) []AddonTestCase {
 	var testCases []AddonTestCase
 
@@ -2710,86 +2707,177 @@ func (options *TestAddonOptions) generatePermutationsWithFlavors(dependenciesWit
 	numDeps := len(dependenciesWithFlavors)
 	totalPermutations := 1 << numDeps // 2^n where n = number of dependencies
 
-	// Generate a random prefix once per test run for UI grouping
+	// Group UI results per run
 	randomPrefix := common.UniqueId(6)
-
-	// Sequential counter for unique prefix generation
 	permIndex := 0
 	basePrefix := options.shortenPrefix(options.Prefix)
 
-	for i := 0; i < totalPermutations; i++ {
-		// Create dependency configs for this permutation (like manual tests, but with flavors)
-		var permutationDeps []cloudinfo.AddonConfig
+	// Helper: ensure we always have at least one flavor to pick
+	pickDefaultFlavor := func(dep DependencyWithFlavors) string {
+		if len(dep.Flavors) > 0 {
+			return dep.Flavors[0]
+		}
+		return "fully-configurable"
+	}
+
+	for mask := 0; mask < totalPermutations; mask++ {
+		// Build enabled/disabled lists for this permutation
+		var enabledDeps []DependencyWithFlavors
+		var disabledDeps []DependencyWithFlavors
 		var disabledNames []string
 
-		// Set enabled/disabled based on bit pattern - create configs with proper flavors
 		for j, dep := range dependenciesWithFlavors {
-			enabled := (i & (1 << j)) != 0
+			enabled := (mask & (1 << j)) != 0
+			if enabled {
+				enabledDeps = append(enabledDeps, dep)
+			} else {
+				disabledDeps = append(disabledDeps, dep)
+				disabledNames = append(disabledNames, dep.Name)
+			}
+		}
 
-			// Choose appropriate flavor for this dependency
-			flavor := "fully-configurable" // default
-			if len(dep.Flavors) > 0 {
-				// Use the first flavor, or apply manual test flavor mappings
-				flavor = dep.Flavors[0]
+		// Skip the all-enabled case (default configuration)
+		if len(disabledNames) == 0 {
+			continue
+		}
 
-				// Apply manual test flavor preferences to match existing tests
-				if dep.Name == "deploy-arch-ibm-account-infra-base" {
-					// Use resource-group-only like TestSingle and other manual tests
-					for _, f := range dep.Flavors {
-						if f == "resource-group-only" {
-							flavor = f
+		// Compute total flavor combinations for enabled deps (Cartesian product)
+		totalComb := 1
+		for _, dep := range enabledDeps {
+			n := len(dep.Flavors)
+			if n == 0 {
+				n = 1 // treat as one implicit default flavor
+			}
+			totalComb *= n
+		}
+
+		// Enumerate all combinations of flavors for enabled deps
+		for comb := 0; comb < totalComb; comb++ {
+			var depsForCase []cloudinfo.AddonConfig
+
+			// Mixed-radix expansion over enabled deps
+			tmp := comb
+			for _, dep := range enabledDeps {
+				var flavor string
+				if len(dep.Flavors) > 0 {
+					idx := tmp % len(dep.Flavors)
+					tmp /= len(dep.Flavors)
+					flavor = dep.Flavors[idx]
+				} else {
+					flavor = pickDefaultFlavor(dep)
+				}
+				depsForCase = append(depsForCase, cloudinfo.AddonConfig{
+					OfferingName:   dep.Name,
+					OfferingFlavor: flavor,
+					Enabled:        core.BoolPtr(true),
+				})
+			}
+
+			// Add disabled deps with a deterministic flavor (first/default) so configs are complete
+			for _, dep := range disabledDeps {
+				depsForCase = append(depsForCase, cloudinfo.AddonConfig{
+					OfferingName:   dep.Name,
+					OfferingFlavor: pickDefaultFlavor(dep),
+					Enabled:        core.BoolPtr(false),
+				})
+			}
+
+			// Name: include disabled abbreviations; append concise flavor tags for enabled deps
+			mainAbbrev := options.createInitialAbbreviation(options.AddonConfig.OfferingName)
+			name := fmt.Sprintf("%s-%s-%d", randomPrefix, mainAbbrev, permIndex)
+			if len(disabledNames) > 0 {
+				disabledAbbrevs := options.abbreviateWithCollisionResolution(disabledNames)
+				name = fmt.Sprintf("%s-%s-%d-disable-%s", randomPrefix, mainAbbrev, permIndex, strings.Join(disabledAbbrevs, "-"))
+			}
+
+			// Append flavor suffix only when at least one enabled dep has >1 flavors
+			var flavorParts []string
+			for _, dep := range enabledDeps {
+				if len(dep.Flavors) > 1 { // only annotate multi-flavor deps
+					// find chosen flavor in depsForCase
+					for _, cfg := range depsForCase {
+						if cfg.OfferingName == dep.Name && cfg.Enabled != nil && *cfg.Enabled {
+							flavorParts = append(flavorParts, fmt.Sprintf("%s-%s",
+								options.createInitialAbbreviation(dep.Name), options.abbreviateFlavor(cfg.OfferingFlavor)))
 							break
 						}
 					}
 				}
 			}
-
-			// Create dependency config with proper flavor specified
-			depConfig := cloudinfo.AddonConfig{
-				OfferingName:   dep.Name,
-				OfferingFlavor: flavor,
-				Enabled:        core.BoolPtr(enabled),
+			if len(flavorParts) > 0 {
+				name = fmt.Sprintf("%s[%s]", name, strings.Join(flavorParts, ","))
 			}
-			permutationDeps = append(permutationDeps, depConfig)
 
-			if !enabled {
-				disabledNames = append(disabledNames, dep.Name)
+			uniquePrefix := fmt.Sprintf("%s-%s%d", randomPrefix, basePrefix, permIndex)
+			// Build enabled deps view for skip matching (name+flavor)
+			var enabledForMatch []cloudinfo.AddonConfig
+			for _, cfg := range depsForCase {
+				if cfg.Enabled != nil && *cfg.Enabled {
+					enabledForMatch = append(enabledForMatch, cloudinfo.AddonConfig{
+						OfferingName:   cfg.OfferingName,
+						OfferingFlavor: cfg.OfferingFlavor,
+					})
+				}
 			}
+
+			// Skip if this enabled set matches a configured skip permutation
+			if options != nil && options.shouldSkipPermutation(enabledForMatch) {
+				if options.Logger != nil {
+					options.Logger.ShortInfo(fmt.Sprintf("Skipping permutation: %s", name))
+				}
+				continue
+			}
+
+			testCases = append(testCases, AddonTestCase{
+				Name:                         name,
+				Prefix:                       uniquePrefix,
+				Dependencies:                 depsForCase,
+				SkipInfrastructureDeployment: true,
+			})
+			permIndex++
 		}
-
-		// Skip the "all enabled" case (default configuration)
-		// This excludes the combination where all dependencies are enabled
-		if len(disabledNames) == 0 {
-			continue
-		}
-
-		// Create test case name using abbreviations with collision resolution
-		mainOfferingAbbrev := options.createInitialAbbreviation(options.AddonConfig.OfferingName)
-
-		testCaseName := fmt.Sprintf("%s-%s-%d", randomPrefix, mainOfferingAbbrev, permIndex)
-		if len(disabledNames) > 0 {
-			// Use abbreviation with collision resolution for disabled dependency names
-			abbreviatedDisabledNames := options.abbreviateWithCollisionResolution(disabledNames)
-			testCaseName = fmt.Sprintf("%s-%s-%d-disable-%s", randomPrefix, mainOfferingAbbrev, permIndex,
-				strings.Join(abbreviatedDisabledNames, "-"))
-
-		}
-
-		// Generate unique prefix using random prefix and sequential counter
-		uniquePrefix := fmt.Sprintf("%s-%s%d", randomPrefix, basePrefix, permIndex)
-
-		testCase := AddonTestCase{
-			Name:                         testCaseName,
-			Prefix:                       uniquePrefix,
-			Dependencies:                 permutationDeps,
-			SkipInfrastructureDeployment: true, // Always skip infrastructure deployment
-		}
-
-		testCases = append(testCases, testCase)
-		permIndex++ // Only increment for generated test cases
 	}
 
 	return testCases
+}
+
+// shouldSkipPermutation returns true if the given set of enabled dependencies matches any skip entry.
+// Matching rules:
+// - Exact set of enabled OfferingName must match (order independent)
+// - For each item in the skip entry, OfferingFlavor must match exactly when provided (non-empty). Empty flavor is wildcard
+func (options *TestAddonOptions) shouldSkipPermutation(enabled []cloudinfo.AddonConfig) bool {
+	if options == nil || len(options.SkipPermutations) == 0 {
+		return false
+	}
+
+	// Build map of enabled name -> flavor
+	enabledMap := make(map[string]string, len(enabled))
+	for _, e := range enabled {
+		enabledMap[e.OfferingName] = e.OfferingFlavor
+	}
+
+	for _, skipSet := range options.SkipPermutations {
+		if len(skipSet) != len(enabled) {
+			continue // size must match for exact set
+		}
+
+		match := true
+		for _, s := range skipSet {
+			chosenFlavor, ok := enabledMap[s.OfferingName]
+			if !ok {
+				match = false
+				break
+			}
+			if s.OfferingFlavor != "" && s.OfferingFlavor != chosenFlavor {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }
 
 // abbreviateFlavor creates a short abbreviation for flavor names
