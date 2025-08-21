@@ -2631,7 +2631,12 @@ func (options *TestAddonOptions) generatePermutations(dependencyNames []string) 
 
 	var testCases []AddonTestCase
 
-	// Generate all 2^n permutations of dependencies (root addon is always present)
+	// Generate 2^n - 1 permutations of dependencies (skips the all-enabled case)
+	// Example: For 2 dependencies [dep1, dep2], generates 3 permutations:
+	// - dep1 disabled, dep2 disabled
+	// - dep1 enabled, dep2 disabled
+	// - dep1 disabled, dep2 enabled
+	// (skips: dep1 enabled, dep2 enabled)
 	numDeps := len(dependencyNames)
 	totalPermutations := 1 << numDeps // 2^n where n = number of dependencies
 
@@ -2703,7 +2708,15 @@ func (options *TestAddonOptions) generatePermutations(dependencyNames []string) 
 func (options *TestAddonOptions) generatePermutationsWithFlavors(dependenciesWithFlavors []DependencyWithFlavors) []AddonTestCase {
 	var testCases []AddonTestCase
 
-	// Generate all 2^n permutations of dependencies (enabled/disabled)
+	// Generate permutations of enabled/disabled dependencies with flavor variations
+	// For each of the 2^n - 1 enabled/disabled combinations (skips all-enabled),
+	// expand into all flavor combinations for enabled dependencies.
+	// Example: For 2 deps where dep1 has flavors [a,b] and dep2 has flavor [x]:
+	// - Both disabled: 1 test case
+	// - dep1[a] enabled, dep2 disabled: 1 test case
+	// - dep1[b] enabled, dep2 disabled: 1 test case
+	// - dep1 disabled, dep2[x] enabled: 1 test case
+	// Total: 4 test cases (not 2^2=4 by coincidence, but from flavor expansion)
 	numDeps := len(dependenciesWithFlavors)
 	totalPermutations := 1 << numDeps // 2^n where n = number of dependencies
 

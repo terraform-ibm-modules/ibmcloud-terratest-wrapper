@@ -384,9 +384,6 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 	for _, component := range componentsReferences.Required.OfferingReferences {
 		for _, dep := range addonConfig.Dependencies {
 			if dep.OfferingName == component.Name && dep.Enabled != nil && !*dep.Enabled {
-				// TODO: Remove debug logging after investigation
-				fmt.Fprintf(os.Stderr, "ERROR: Required dependency %s cannot be disabled (required by %s)\n",
-					component.Name, addonConfig.OfferingName)
 				return fmt.Errorf("required dependency %s cannot be disabled - it is required by %s",
 					component.Name, addonConfig.OfferingName)
 			}
@@ -397,9 +394,6 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 	for i := range addonConfig.Dependencies {
 		dep := &addonConfig.Dependencies[i]
 		depName := dep.OfferingName
-
-		// TODO: Remove debug logging after investigation
-		fmt.Printf("Processing direct dependency: %s\n", depName)
 
 		// Find matching API result(s) for this dependency name
 		apiResults, exists := apiDependencies[depName]
