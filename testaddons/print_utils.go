@@ -275,9 +275,40 @@ func (options *TestAddonOptions) printDependencyTreeWithValidationStatus(graph m
 	}
 	options.Logger.ShortInfo("")
 
-	// Show actual deployment status tree
+	// Show actual deployment status tree (comprehensive: expected + unexpected)
 	options.Logger.ShortError("Actual deployment status:")
-	if rootAddon != nil {
+	// Build a comprehensive tree that includes unexpected configurations to show where they fit
+	allDeployedTree := options.buildComprehensiveDeploymentTree(actuallyDeployedList, graph, validationResult)
+	if len(allDeployedTree) > 0 {
+		// Find a suitable root among all deployed configs (one that isn't a dependency of another)
+		var rootConfig *cloudinfo.OfferingReferenceDetail
+		for _, cfg := range allDeployedTree {
+			isRoot := true
+			for _, other := range allDeployedTree {
+				if deps, exists := graph[generateAddonKeyFromDetail(other)]; exists {
+					for _, dep := range deps {
+						if dep.Name == cfg.Name && dep.Version == cfg.Version && dep.Flavor.Name == cfg.Flavor.Name {
+							isRoot = false
+							break
+						}
+					}
+				}
+				if !isRoot {
+					break
+				}
+			}
+			if isRoot {
+				rootConfig = &cfg
+				break
+			}
+		}
+		if rootConfig == nil {
+			// Fallback: use first config if we couldn't determine a clear root
+			rootConfig = &allDeployedTree[0]
+		}
+		options.printComprehensiveTreeWithStatus(*rootConfig, allDeployedTree, graph, "", true, make(map[string]bool), validationResult)
+	} else if rootAddon != nil {
+		// Fallback to expected-only tree if no comprehensive data available
 		options.printAddonTreeWithStatus(*rootAddon, graph, "", true, make(map[string]bool), deployedMap, errorMap, missingMap)
 	}
 	options.Logger.ShortError("")
@@ -296,6 +327,10 @@ func (options *TestAddonOptions) printDependencyTreeWithValidationStatus(graph m
 	}
 	if unexpectedCount > 0 {
 		options.Logger.ShortError(fmt.Sprintf("  ⚠️  %d unexpected components deployed", unexpectedCount))
+		// List unexpected components explicitly for clarity
+		for _, u := range validationResult.UnexpectedConfigs {
+			options.Logger.ShortError(fmt.Sprintf("    • Unexpected: %s (%s, %s)", u.Name, u.Version, u.Flavor.Name))
+		}
 	}
 
 	options.Logger.ShortError("═══════════════════════════════════════════════════════════════")
