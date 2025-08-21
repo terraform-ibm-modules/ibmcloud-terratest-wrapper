@@ -8,7 +8,10 @@ import (
 	"testing"
 
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
+	projects "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
@@ -477,33 +480,225 @@ func TestRandomPrefixGeneration(t *testing.T) {
 	assert.Len(t, prefixes, 100, "Should have generated 100 unique prefixes")
 }
 
+// TestSkipPermutations_NamesOnly verifies that generatePermutations filters by enabled dependency names
+func TestSkipPermutations_NamesOnly(t *testing.T) {
+	options := &TestAddonOptions{
+		Testing: t,
+		Prefix:  "test-prefix",
+		AddonConfig: cloudinfo.AddonConfig{
+			OfferingName:   "test-addon",
+			OfferingFlavor: "test-flavor",
+		},
+		// Skip the permutation where only dep1 is enabled (dep2 disabled)
+		SkipPermutations: [][]cloudinfo.AddonConfig{
+			{
+				{OfferingName: "dep1"},
+			},
+		},
+	}
+
+	dependencyNames := []string{"dep1", "dep2"}
+	testCases := options.generatePermutations(dependencyNames)
+
+	// Originally 3 permutations; after skipping one, expect 2
+	assert.Len(t, testCases, 2)
+
+	// Ensure no case has only dep1 enabled
+	for _, tc := range testCases {
+		enabled := map[string]bool{}
+		for _, dep := range tc.Dependencies {
+			if dep.Enabled != nil && *dep.Enabled {
+				enabled[dep.OfferingName] = true
+			}
+		}
+		if len(enabled) == 1 && enabled["dep1"] {
+			t.Fatalf("found skipped permutation present: only dep1 enabled in case %q", tc.Name)
+		}
+	}
+}
+
+// TestSkipPermutations_WithFlavors verifies that generatePermutationsWithFlavors filters by enabled name+flavor sets
+func TestSkipPermutations_WithFlavors(t *testing.T) {
+	// Two deps: dep1 has flavors a,b; dep2 has one flavor x
+	deps := []DependencyWithFlavors{
+		{Name: "dep1", Flavors: []string{"a", "b"}},
+		{Name: "dep2", Flavors: []string{"x"}},
+	}
+
+	t.Run("Skip specific flavor", func(t *testing.T) {
+		options := &TestAddonOptions{
+			Testing: t,
+			Prefix:  "test-prefix",
+			AddonConfig: cloudinfo.AddonConfig{
+				OfferingName:   "test-addon",
+				OfferingFlavor: "test-flavor",
+			},
+			// Skip the permutation where only dep1 is enabled with flavor b
+			SkipPermutations: [][]cloudinfo.AddonConfig{
+				{
+					{OfferingName: "dep1", OfferingFlavor: "b"},
+				},
+			},
+		}
+
+		testCases := options.generatePermutationsWithFlavors(deps)
+
+		// Without skipping: 4 permutations (both disabled, dep1[a], dep1[b], dep2[x])
+		// After skipping dep1[b], expect 3
+		assert.Len(t, testCases, 3)
+
+		for _, tc := range testCases {
+			enabled := make(map[string]string)
+			for _, dep := range tc.Dependencies {
+				if dep.Enabled != nil && *dep.Enabled {
+					enabled[dep.OfferingName] = dep.OfferingFlavor
+				}
+			}
+			if len(enabled) == 1 {
+				if fl, ok := enabled["dep1"]; ok && fl == "b" {
+					t.Fatalf("found skipped permutation present: only dep1[b] enabled in case %q", tc.Name)
+				}
+			}
+		}
+	})
+
+	t.Run("Skip with wildcard flavor", func(t *testing.T) {
+		options := &TestAddonOptions{
+			Testing: t,
+			Prefix:  "test-prefix",
+			AddonConfig: cloudinfo.AddonConfig{
+				OfferingName:   "test-addon",
+				OfferingFlavor: "test-flavor",
+			},
+			// Skip the permutation where only dep2 is enabled, any flavor (wildcard)
+			SkipPermutations: [][]cloudinfo.AddonConfig{
+				{
+					{OfferingName: "dep2", OfferingFlavor: ""},
+				},
+			},
+		}
+
+		testCases := options.generatePermutationsWithFlavors(deps)
+
+		// Skip dep2-only case; expect 3 remaining
+		assert.Len(t, testCases, 3)
+
+		for _, tc := range testCases {
+			enabled := make(map[string]string)
+			for _, dep := range tc.Dependencies {
+				if dep.Enabled != nil && *dep.Enabled {
+					enabled[dep.OfferingName] = dep.OfferingFlavor
+				}
+			}
+			if len(enabled) == 1 {
+				if _, ok := enabled["dep2"]; ok {
+					t.Fatalf("found skipped permutation present: dep2-only enabled in case %q", tc.Name)
+				}
+			}
+		}
+	})
+}
+
 // TestDependencyPermutations tests the full dependency permutation functionality
 // This is the real test that should generate permutation reports when it fails
 func TestDependencyPermutations(t *testing.T) {
-	// Skip test - this is a demonstration of how the real test should be structured
-	// In a real environment, ensure the branch exists and API keys are configured
-	t.Skip("This test requires proper branch setup and API keys - see example below for proper structure")
+	// Use mocking pattern to avoid external dependencies while exercising the public API
 
-	// Example of how a real TestDependencyPermutations test should look:
-	/*
-		options := TestAddonsOptionsDefault(&TestAddonOptions{
-			Testing: t,
-			Prefix:  "test-perm",
-			AddonConfig: cloudinfo.AddonConfig{
-				OfferingName:        "test-offering-name",
-				OfferingFlavor:      "test-flavor",
-				OfferingInstallKind: cloudinfo.InstallKindTerraform, // This is the key fix - must be set!
-				Inputs: map[string]interface{}{
-					"prefix":                       "test-perm",
-					"region":                       "us-south",
-					"existing_resource_group_name": "test-resource-group",
-				},
+	// Create a minimal mock catalog with one dependency having two flavors
+	mockCatalogJSON := `{
+        "products": [{
+            "name": "mock-addon",
+            "label": "Mock Addon",
+            "flavors": [{
+                "name": "test-flavor",
+                "label": "Test Flavor",
+                "dependencies": [
+                    {"name": "dep1", "flavors": ["a", "b"]}
+                ]
+            }]
+        }]
+    }`
+
+	gitRoot, err := common.GitRootPath(".")
+	assert.NoError(t, err)
+	catalogPath := filepath.Join(gitRoot, "ibm_catalog.json")
+	err = os.WriteFile(catalogPath, []byte(mockCatalogJSON), 0644)
+	assert.NoError(t, err)
+	defer func() { _ = os.Remove(catalogPath) }()
+
+	// Set up the mock CloudInfoService with minimal no-op behaviors
+	mockService := &cloudinfo.MockCloudInfoServiceForPermutation{}
+
+	// PrepareOfferingImport is called during setup
+	mockService.On("PrepareOfferingImport").Return(
+		"https://github.com/test-repo/test-branch", // branchUrl
+		"test-repo", // repo
+		"main",      // branch
+		nil,
+	)
+
+	// CreateCatalog and ImportOfferingWithValidation for shared matrix setup
+	mockCatalog := &catalogmanagementv1.Catalog{ID: core.StringPtr("mock-catalog-id"), Label: core.StringPtr("mock-catalog")}
+	mockService.On("CreateCatalog", mock.Anything).Return(mockCatalog, nil)
+
+	mockOffering := &catalogmanagementv1.Offering{
+		ID:   core.StringPtr("mock-offering-id"),
+		Name: core.StringPtr("mock-addon"),
+		Kinds: []catalogmanagementv1.Kind{{
+			InstallKind: core.StringPtr("terraform"),
+			Versions: []catalogmanagementv1.Version{{
+				VersionLocator: core.StringPtr("mock-catalog.mock-version"),
+				Version:        core.StringPtr("1.0.0"),
+			}},
+		}},
+	}
+	mockService.On("ImportOfferingWithValidation", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(mockOffering, nil)
+
+	// Offering/version lookups used by validation and dependency logic
+	mockService.On("GetOffering", mock.Anything, mock.Anything).Return(mockOffering, nil, nil)
+	mockService.On("GetOfferingInputs", mock.Anything, mock.Anything, mock.Anything).Return([]cloudinfo.CatalogInput{})
+	mockService.On("GetOfferingVersionLocatorByConstraint", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("1.0.0", "mock-catalog.mock-version", nil)
+	mockService.On("GetCatalogVersionByLocator", mock.Anything).Return(&catalogmanagementv1.Version{VersionLocator: core.StringPtr("mock-catalog.mock-version"), Version: core.StringPtr("1.0.0")}, nil)
+
+	// Component references: return empty (we don't need deep tree building in this test)
+	mockService.On("GetComponentReferences", mock.Anything).Return(&cloudinfo.OfferingReferenceResponse{
+		Required: cloudinfo.RequiredReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+		Optional: cloudinfo.OptionalReferences{OfferingReferences: []cloudinfo.OfferingReferenceItem{}},
+	}, nil)
+
+	// Project/config related calls (validation-only path still touches these helpers)
+	mockService.On("GetProjectConfigs", mock.Anything).Return([]projects.ProjectConfigSummary{}, nil)
+	mockService.On("UpdateConfig", mock.Anything, mock.Anything).Return(nil, nil, nil)
+	mockService.On("CreateProjectFromConfig", mock.Anything).Return(&cloudinfo.ProjectsConfig{ProjectID: "test-project-id"}, nil)
+	mockService.On("DeployAddonToProject", mock.Anything, mock.Anything).Return(&cloudinfo.DeployedAddonsDetails{}, nil)
+	mockService.On("GetApiKey").Return("test-api-key")
+	mockService.On("ResolveReferencesFromStringsWithContext", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
+	mockService.On("SetLogger", mock.Anything).Return()
+	mockService.On("DeleteCatalog", mock.Anything).Return(nil)
+
+	// Build options and run permutation test (validation-only)
+	options := TestAddonsOptionsDefault(&TestAddonOptions{
+		Testing:          t,
+		Prefix:           "mock-perm",
+		Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+		CloudInfoService: mockService,
+		AddonConfig: cloudinfo.AddonConfig{
+			OfferingName:        "mock-addon",
+			OfferingFlavor:      "test-flavor",
+			OfferingInstallKind: cloudinfo.InstallKindTerraform,
+			Inputs: map[string]interface{}{
+				"prefix": "mock-perm",
+				"region": "us-south",
 			},
-		})
+		},
+		// Ensure per-test quiet mode is respected; top-level logger remains verbose for progress
+		QuietMode: false,
+		// Result collection enabled implicitly by RunAddonPermutationTest
+		SkipLocalChangeCheck: true, // Allow test to run with uncommitted changes
+	})
 
-		err := options.RunAddonPermutationTest()
-		assert.NoError(t, err, "Dependency permutation test should not fail")
-	*/
+	err = options.RunAddonPermutationTest()
+	assert.NoError(t, err, "Dependency permutation test with mocks should not fail")
 }
 
 // Helper functions for dependency structure validation
