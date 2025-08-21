@@ -359,20 +359,11 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 	// Mark this locator as processed
 	processedLocators[addonConfig.VersionLocator] = true
 
-	// TODO: Remove debug logging after investigation
-	fmt.Printf("\n=== DEBUG: TREE BUILDING for %s (%s) ===\n", addonConfig.OfferingName, addonConfig.VersionLocator)
-
 	// PHASE 1: Get API flat list and fill in metadata for user's direct dependencies
 	componentsReferences, err := getter.GetComponentReferences(addonConfig.VersionLocator)
 	if err != nil {
 		return fmt.Errorf("error getting component references for %s: %w", addonConfig.VersionLocator, err)
 	}
-
-	// TODO: Remove debug logging after investigation
-	fmt.Printf("PHASE 1: Filling metadata for user's direct dependencies\n")
-	fmt.Printf("API returned %d required + %d optional dependencies\n",
-		len(componentsReferences.Required.OfferingReferences),
-		len(componentsReferences.Optional.OfferingReferences))
 
 	// Build a lookup map of all API results by name (handling multiple flavors)
 	apiDependencies := make(map[string][]*OfferingReferenceItem) // name -> list of flavors
@@ -413,7 +404,6 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 		// Find matching API result(s) for this dependency name
 		apiResults, exists := apiDependencies[depName]
 		if !exists {
-			fmt.Printf("  WARNING: User dependency %s not found in API response\n", depName)
 			continue
 		}
 
@@ -442,7 +432,6 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 		}
 
 		if matchedAPI == nil {
-			fmt.Printf("  WARNING: No matching flavor found for %s\n", depName)
 			continue
 		}
 
@@ -471,10 +460,8 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 		}
 
 		// Check if this is a required dependency
-		isRequired := false
 		for _, reqComp := range componentsReferences.Required.OfferingReferences {
 			if reqComp.Name == depName && reqComp.OfferingReference.VersionLocator == dep.VersionLocator {
-				isRequired = true
 				// Required dependencies must be enabled
 				dep.Enabled = core.BoolPtr(true)
 				dep.IsRequired = core.BoolPtr(true)
@@ -483,15 +470,9 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 			}
 		}
 
-		// TODO: Remove debug logging after investigation
-		fmt.Printf("  Filled metadata: versionLocator=%s, enabled=%v, required=%v\n",
-			dep.VersionLocator, dep.Enabled != nil && *dep.Enabled, isRequired)
 	}
 
-	fmt.Printf("END PHASE 1\n\n")
-
 	// PHASE 1.5: Add missing on_by_default dependencies that user didn't configure
-	fmt.Printf("PHASE 1.5: Adding missing on_by_default dependencies\n")
 
 	// Create a map of user-configured dependencies for quick lookup
 	userConfiguredDeps := make(map[string]bool)
@@ -505,7 +486,6 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 	if addonConfig.VersionLocator != "" {
 		version, err := infoSvc.GetCatalogVersionByLocator(addonConfig.VersionLocator)
 		if err != nil {
-			fmt.Printf("Warning: Could not get catalog version for %s: %v\n", addonConfig.OfferingName, err)
 			catalogDirectDependencies = make(map[string]bool) // Empty map as fallback
 		} else if version != nil && version.SolutionInfo != nil && version.SolutionInfo.Dependencies != nil {
 			catalogDirectDependencies = make(map[string]bool)
@@ -514,7 +494,6 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 					catalogDirectDependencies[*catalogDep.Name] = true
 				}
 			}
-			fmt.Printf("Catalog defines %d direct dependencies for %s\n", len(catalogDirectDependencies), addonConfig.OfferingName)
 		} else {
 			catalogDirectDependencies = make(map[string]bool) // Empty map as fallback
 		}
@@ -526,18 +505,15 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 		if component.OfferingReference.OnByDefault && !userConfiguredDeps[component.Name] {
 			// Only process if this is a direct dependency according to the catalog
 			if !catalogDirectDependencies[component.Name] {
-				fmt.Printf("Skipping sub-dependency %s - not a direct dependency of %s\n", component.Name, addonConfig.OfferingName)
 				continue
 			}
 
 			// Check if this dependency is globally disabled
 			if disabledOfferings[component.Name] {
-				fmt.Printf("Skipping on_by_default dependency %s - globally disabled\n", component.Name)
 				continue
 			}
 
 			// This is an on_by_default direct dependency that the user didn't configure
-			fmt.Printf("Adding missing on_by_default dependency: %s\n", component.Name)
 
 			newDependency := AddonConfig{
 				OfferingName:    component.Name,
@@ -555,21 +531,14 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 		}
 	}
 
-	fmt.Printf("END PHASE 1.5\n\n")
-
 	// PHASE 2: Recursively build sub-trees for enabled dependencies
-	fmt.Printf("PHASE 2: Building sub-trees for enabled dependencies\n")
 
 	for i := range addonConfig.Dependencies {
 		dep := &addonConfig.Dependencies[i]
 
-		fmt.Printf("Processing dependency: %s (enabled=%v)\n", dep.OfferingName,
-			dep.Enabled != nil && *dep.Enabled)
-
 		if dep.Enabled != nil && *dep.Enabled {
 			// This dependency is enabled, get its children
 			if dep.VersionLocator != "" {
-				fmt.Printf("  Getting children for %s\n", dep.OfferingName)
 
 				// Recursively process this dependency's children
 				err := infoSvc.processComponentReferencesWithGetter(dep, processedLocators, disabledOfferings, getter)
@@ -577,17 +546,12 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 					return fmt.Errorf("error processing children of %s: %w", dep.OfferingName, err)
 				}
 			} else {
-				fmt.Printf("  No version locator for %s, skipping children\n", dep.OfferingName)
 			}
 		} else {
-			fmt.Printf("  Dependency %s is disabled, pruning branch\n", dep.OfferingName)
 			// Make sure Dependencies is empty for disabled deps
 			dep.Dependencies = []AddonConfig{}
 		}
 	}
-
-	fmt.Printf("END PHASE 2\n")
-	fmt.Printf("=== END TREE BUILDING ===\n\n")
 
 	return nil
 }
@@ -670,11 +634,6 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 		return nil, fmt.Errorf("error pretty printing json: %w", err)
 	}
 
-	// TODO: Remove debug logging after investigation
-	fmt.Printf("\n=== DEBUG: Deployment Request to %s ===\n", fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/api/v1-beta/deploy/projects/%s/container", projectConfig.ProjectID))
-	fmt.Printf("Request Body:\n%s\n", prettyJSON.String())
-	fmt.Printf("=== END Deployment Request ===\n\n")
-
 	// Deploy with retry logic to handle rate limiting
 	url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/api/v1-beta/deploy/projects/%s/container", projectConfig.ProjectID)
 
@@ -747,15 +706,6 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 	if err := json.Unmarshal(body, &deployResponse); err != nil {
 		return nil, fmt.Errorf("error unmarshaling response: %w", err)
 	}
-
-	// TODO: Remove debug logging after investigation
-	fmt.Printf("\n=== DEBUG: Deployment Response ===\n")
-	fmt.Printf("Response Body:\n%s\n", string(body))
-	fmt.Printf("Deployed Configs (%d):\n", len(deployResponse.Configs))
-	for _, config := range deployResponse.Configs {
-		fmt.Printf("  - Name: %s, ID: %s\n", config.Name, config.ConfigID)
-	}
-	fmt.Printf("=== END Deployment Response ===\n\n")
 
 	// If no configs were returned, return nil
 	if len(deployResponse.Configs) == 0 {
@@ -964,39 +914,18 @@ func updateConfigInfoFromResponse(addonConfig *AddonConfig, response *DeployedAd
 		}
 	}
 
-	// TODO: Remove debug logging after investigation
-	fmt.Printf("\n=== DEBUG: UpdateConfigInfo ===\n")
-	fmt.Printf("Looking for ConfigName: %s\n", addonConfig.ConfigName)
-	fmt.Printf("Available configs in response:\n")
-	for name, id := range configMap {
-		fmt.Printf("  - %s: %s\n", name, id)
-	}
-	fmt.Printf("Available containers in response:\n")
-	for name, id := range containerMap {
-		fmt.Printf("  - %s: %s\n", name, id)
-	}
-
 	// Update the main addon config
 	if configID, exists := configMap[addonConfig.ConfigName]; exists {
-		// TODO: Remove debug logging after investigation
-		fmt.Printf("FOUND: Setting ConfigID to %s\n", configID)
 		addonConfig.ConfigID = configID
 	} else {
-		// TODO: Remove debug logging after investigation
-		fmt.Printf("NOT FOUND: No matching config for %s\n", addonConfig.ConfigName)
 	}
 
 	// Update the main addon's container config
 	if containerID, exists := containerMap[addonConfig.ConfigName]; exists {
-		// TODO: Remove debug logging after investigation
-		fmt.Printf("FOUND: Setting ContainerConfigID to %s\n", containerID)
 		addonConfig.ContainerConfigID = containerID
 		addonConfig.ContainerConfigName = addonConfig.ConfigName + " Container"
 	} else {
-		// TODO: Remove debug logging after investigation
-		fmt.Printf("NOT FOUND: No matching container for %s\n", addonConfig.ConfigName)
 	}
-	fmt.Printf("=== END UpdateConfigInfo ===\n\n")
 
 	// Recursively update all dependencies in the original structure
 	updateDependencyConfigIDs(addonConfig.Dependencies, configMap, containerMap)
