@@ -74,7 +74,7 @@ The `AddonConfig` structure defines what addon to test, which flavor to use, and
 
 ### Dependencies
 
-The framework automatically handles addon dependencies, deploying required dependencies and validating their configuration.
+The framework automatically handles addon dependencies, deploying required dependencies and validating their configuration. Direct dependencies are determined from the catalog version metadata (`SolutionInfo.Dependencies`), and transitive-only relationships are pruned when building expected trees.
 
 ### Hooks
 

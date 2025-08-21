@@ -336,177 +336,215 @@ type ComponentReferenceGetter interface {
 //  2. Framework auto-discovers dependency from component references
 //     → Framework sets all fields including Enabled, OnByDefault from component reference
 func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonConfig, processedLocators map[string]bool) error {
-	return infoSvc.processComponentReferencesWithGetter(addonConfig, processedLocators, infoSvc)
+	// Collect disabled offerings from the root addon config to respect user disable choices
+	disabledOfferings := make(map[string]bool)
+	for _, dep := range addonConfig.Dependencies {
+		if dep.Enabled != nil && !*dep.Enabled {
+			disabledOfferings[dep.OfferingName] = true
+		}
+	}
+	return infoSvc.processComponentReferencesWithGetter(addonConfig, processedLocators, disabledOfferings, infoSvc)
 }
 
 // processComponentReferencesWithGetter is the internal implementation that accepts a ComponentReferenceGetter
-func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfig *AddonConfig, processedLocators map[string]bool, getter ComponentReferenceGetter) error {
-	// If we've already processed this version locator, skip recursive processing to avoid circular dependencies
-	// IMPORTANT: We still need to populate metadata for dependencies that were already processed elsewhere
-	// in the tree, so we don't return early here - we continue to update existing dependency metadata
+// This function uses a correct tree-building approach:
+// 1. Start with user's direct dependencies in AddonConfig.Dependencies
+// 2. Use API flat list to fill in metadata (version locators, IDs) for direct dependencies
+// 3. Recursively build sub-trees for each enabled dependency
+func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfig *AddonConfig, processedLocators map[string]bool, disabledOfferings map[string]bool, getter ComponentReferenceGetter) error {
+	// If we've already processed this version locator, skip processing to avoid circular dependencies
 	if processedLocators[addonConfig.VersionLocator] {
 		return nil
 	}
-	// Mark this locator as processed to prevent infinite recursion
+	// Mark this locator as processed
 	processedLocators[addonConfig.VersionLocator] = true
 
-	// Get component references for this addon
-
+	// PHASE 1: Get API flat list and fill in metadata for user's direct dependencies
 	componentsReferences, err := getter.GetComponentReferences(addonConfig.VersionLocator)
 	if err != nil {
 		return fmt.Errorf("error getting component references for %s: %w", addonConfig.VersionLocator, err)
 	}
 
-	// Update existing dependencies and collect components to add
-	var componentsToAdd []OfferingReferenceItem
-	processedInThisCall := make(map[string]bool) // Track dependencies processed in this function call
+	// Build a lookup map of all API results by name (handling multiple flavors)
+	apiDependencies := make(map[string][]*OfferingReferenceItem) // name -> list of flavors
 
-	// Process required references first (they take precedence)
+	// Add required dependencies
 	for _, component := range componentsReferences.Required.OfferingReferences {
-		found := false
-		for i := range addonConfig.Dependencies {
-			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
-				// Update metadata fields - these should always be populated from component references
-				// even if the dependency was already processed elsewhere to avoid empty version locators
-				addonConfig.Dependencies[i].VersionLocator = component.OfferingReference.VersionLocator
-				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
-				addonConfig.Dependencies[i].CatalogID = component.OfferingReference.CatalogID
-				addonConfig.Dependencies[i].OfferingID = component.OfferingReference.ID
-				addonConfig.Dependencies[i].Prefix = addonConfig.Prefix
-				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
-				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
+		componentCopy := component
+		apiDependencies[component.Name] = append(apiDependencies[component.Name], &componentCopy)
+	}
 
-				// Required components are always enabled (business rule - override user setting for required deps)
-				addonConfig.Dependencies[i].Enabled = core.BoolPtr(true)
+	// Add optional dependencies
+	for _, component := range componentsReferences.Optional.OfferingReferences {
+		componentCopy := component
+		apiDependencies[component.Name] = append(apiDependencies[component.Name], &componentCopy)
+	}
 
-				// Preserve user-defined inputs - only initialize if nil
-				if addonConfig.Dependencies[i].Inputs == nil {
-					addonConfig.Dependencies[i].Inputs = make(map[string]interface{})
-				}
-
-				found = true
-				processedInThisCall[component.Name] = true // Mark as processed
-
-				// Only process dependencies recursively if this version locator hasn't been processed before
-				// This prevents infinite recursion while still ensuring metadata is populated
-				if !processedLocators[component.OfferingReference.VersionLocator] {
-					// Create a copy of processedLocators for this branch to allow the same component in different branches
-					branchProcessedLocators := make(map[string]bool)
-					for k, v := range processedLocators {
-						branchProcessedLocators[k] = v
-					}
-					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], branchProcessedLocators, getter); err != nil {
-						return err
-					}
-				}
-				break
-			}
-		}
-		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
-			// Only add new components if their version locator hasn't been processed
-			if !processedLocators[component.OfferingReference.VersionLocator] {
-				componentsToAdd = append(componentsToAdd, component)
-				processedInThisCall[component.Name] = true // Mark as processed
+	// Check if any required dependencies are explicitly disabled - this is an error
+	for _, component := range componentsReferences.Required.OfferingReferences {
+		for _, dep := range addonConfig.Dependencies {
+			if dep.OfferingName == component.Name && dep.Enabled != nil && !*dep.Enabled {
+				return fmt.Errorf("required dependency %s cannot be disabled - it is required by %s",
+					component.Name, addonConfig.OfferingName)
 			}
 		}
 	}
-	// Process optional references
-	for _, component := range componentsReferences.Optional.OfferingReferences {
-		// Skip if already processed in required references within this call
-		if processedInThisCall[component.Name] {
+
+	// Fill in metadata for each user-defined dependency
+	for i := range addonConfig.Dependencies {
+		dep := &addonConfig.Dependencies[i]
+		depName := dep.OfferingName
+
+		// Find matching API result(s) for this dependency name
+		apiResults, exists := apiDependencies[depName]
+		if !exists {
 			continue
 		}
 
-		found := false
-		for i := range addonConfig.Dependencies {
-			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
-				// Update metadata fields - these should always be populated from component references
-				// even if the dependency was already processed elsewhere to avoid empty version locators
-				addonConfig.Dependencies[i].VersionLocator = component.OfferingReference.VersionLocator
-				addonConfig.Dependencies[i].OfferingID = component.OfferingReference.ID
-				addonConfig.Dependencies[i].CatalogID = component.OfferingReference.CatalogID
-				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
-				addonConfig.Dependencies[i].Prefix = addonConfig.Prefix
-				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
-				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
+		// Handle multiple flavors - match by flavor if user specified one
+		var matchedAPI *OfferingReferenceItem = nil
+		if dep.OfferingFlavor != "" {
+			// User specified a flavor, find exact match
+			for _, apiResult := range apiResults {
+				if apiResult.OfferingReference.Flavor.Name == dep.OfferingFlavor {
+					matchedAPI = apiResult
+					break
+				}
+			}
+		} else {
+			// User didn't specify flavor, use first one (or default if available)
+			for _, apiResult := range apiResults {
+				if apiResult.OfferingReference.DefaultFlavor == "" ||
+					apiResult.OfferingReference.DefaultFlavor == apiResult.OfferingReference.Flavor.Name {
+					matchedAPI = apiResult
+					break
+				}
+			}
+			if matchedAPI == nil && len(apiResults) > 0 {
+				matchedAPI = apiResults[0] // Fallback to first one
+			}
+		}
 
-				// Only update OnByDefault if user hasn't explicitly set it (for optional deps)
-				if addonConfig.Dependencies[i].OnByDefault == nil {
-					addonConfig.Dependencies[i].OnByDefault = core.BoolPtr(component.OfferingReference.OnByDefault)
-				}
-				// Only update Enabled if user hasn't explicitly set it
-				// Note: For optional dependencies, respect user choice; for required, they're forced enabled
-				if addonConfig.Dependencies[i].Enabled == nil {
-					addonConfig.Dependencies[i].Enabled = core.BoolPtr(component.OfferingReference.OnByDefault)
-				}
-				// Preserve user-defined inputs - only initialize if nil
-				if addonConfig.Dependencies[i].Inputs == nil {
-					addonConfig.Dependencies[i].Inputs = make(map[string]interface{})
-				}
+		if matchedAPI == nil {
+			continue
+		}
 
-				found = true
-				// Only process dependencies recursively if this version locator hasn't been processed before
-				// This prevents infinite recursion while still ensuring metadata is populated
-				if !processedLocators[component.OfferingReference.VersionLocator] {
-					// Create a copy of processedLocators for this branch to allow the same component in different branches
-					branchProcessedLocators := make(map[string]bool)
-					for k, v := range processedLocators {
-						branchProcessedLocators[k] = v
-					}
-					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], branchProcessedLocators, getter); err != nil {
-						return err
-					}
-				}
+		// Fill in metadata from API
+		dep.VersionLocator = matchedAPI.OfferingReference.VersionLocator
+		dep.ResolvedVersion = matchedAPI.OfferingReference.Version
+		dep.CatalogID = matchedAPI.OfferingReference.CatalogID
+		dep.OfferingID = matchedAPI.OfferingReference.ID
+		dep.OfferingFlavor = matchedAPI.OfferingReference.Flavor.Name
+		dep.OfferingLabel = matchedAPI.OfferingReference.Label
+		dep.Prefix = addonConfig.Prefix
+
+		// Set OnByDefault if not already set
+		if dep.OnByDefault == nil {
+			dep.OnByDefault = core.BoolPtr(matchedAPI.OfferingReference.OnByDefault)
+		}
+
+		// Set Enabled if not already set by user (use OnByDefault)
+		if dep.Enabled == nil {
+			dep.Enabled = core.BoolPtr(matchedAPI.OfferingReference.OnByDefault)
+		}
+
+		// Initialize inputs if nil
+		if dep.Inputs == nil {
+			dep.Inputs = make(map[string]interface{})
+		}
+
+		// Check if this is a required dependency
+		for _, reqComp := range componentsReferences.Required.OfferingReferences {
+			if reqComp.Name == depName && reqComp.OfferingReference.VersionLocator == dep.VersionLocator {
+				// Required dependencies must be enabled
+				dep.Enabled = core.BoolPtr(true)
+				dep.IsRequired = core.BoolPtr(true)
+				dep.RequiredBy = []string{addonConfig.OfferingName}
 				break
 			}
 		}
-		// Handle OnByDefault components that aren't already in dependencies
-		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) && (component.OfferingReference.OnByDefault) {
-			// Determine if current addon is the actual parent for this component
-			isActualParent := false
 
-			// KMS and COS are nested dependencies of activity-tracker and cloud-logs
-			if component.Name == "deploy-arch-ibm-kms" || component.Name == "deploy-arch-ibm-cos" {
-				isActualParent = (addonConfig.OfferingName == "deploy-arch-ibm-activity-tracker" || addonConfig.OfferingName == "deploy-arch-ibm-cloud-logs")
+	}
+
+	// PHASE 1.5: Add missing on_by_default dependencies that user didn't configure
+
+	// Create a map of user-configured dependencies for quick lookup
+	userConfiguredDeps := make(map[string]bool)
+	for _, dep := range addonConfig.Dependencies {
+		userConfiguredDeps[dep.OfferingName] = true
+	}
+
+	// Query the catalog to get the direct dependencies for this specific addon
+	// This replaces the hardcoded list and works programmatically for any addon
+	var catalogDirectDependencies map[string]bool
+	if addonConfig.VersionLocator != "" {
+		version, err := infoSvc.GetCatalogVersionByLocator(addonConfig.VersionLocator)
+		if err != nil {
+			catalogDirectDependencies = make(map[string]bool) // Empty map as fallback
+		} else if version != nil && version.SolutionInfo != nil && version.SolutionInfo.Dependencies != nil {
+			catalogDirectDependencies = make(map[string]bool)
+			for _, catalogDep := range version.SolutionInfo.Dependencies {
+				if catalogDep.Name != nil {
+					catalogDirectDependencies[*catalogDep.Name] = true
+				}
+			}
+		} else {
+			catalogDirectDependencies = make(map[string]bool) // Empty map as fallback
+		}
+	} else {
+		catalogDirectDependencies = make(map[string]bool) // Empty map as fallback
+	}
+
+	for _, component := range componentsReferences.Optional.OfferingReferences {
+		if component.OfferingReference.OnByDefault && !userConfiguredDeps[component.Name] {
+			// Only process if this is a direct dependency according to the catalog
+			if !catalogDirectDependencies[component.Name] {
+				continue
 			}
 
-			if isActualParent {
-				// Add to the actual parent's dependencies
-				componentsToAdd = append(componentsToAdd, component)
-			} else {
-				// Skip adding to non-parent addons
+			// Check if this dependency is globally disabled
+			if disabledOfferings[component.Name] {
+				continue
 			}
+
+			// This is an on_by_default direct dependency that the user didn't configure
+
+			newDependency := AddonConfig{
+				OfferingName:    component.Name,
+				OfferingFlavor:  component.OfferingReference.Flavor.Name,
+				VersionLocator:  component.OfferingReference.VersionLocator,
+				OfferingID:      component.OfferingReference.ID,
+				CatalogID:       component.OfferingReference.CatalogID,
+				ResolvedVersion: component.OfferingReference.Version,
+				Enabled:         core.BoolPtr(true), // on_by_default means enabled by default
+				OnByDefault:     core.BoolPtr(true),
+				Dependencies:    []AddonConfig{}, // Initialize empty dependencies slice
+			}
+
+			addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
 		}
 	}
-	// Add new dependencies that weren't found in the existing dependencies
-	for _, component := range componentsToAdd {
-		onByDefault := component.OfferingReference.OnByDefault
-		enabled := component.OfferingReference.OnByDefault // For new components, enabled follows onByDefault
-		newDependency := AddonConfig{
-			Prefix:          addonConfig.Prefix,
-			OfferingName:    component.OfferingReference.Name,
-			OfferingLabel:   component.OfferingReference.Label,
-			CatalogID:       component.OfferingReference.CatalogID,
-			OfferingFlavor:  component.OfferingReference.Flavor.Name,
-			VersionLocator:  component.OfferingReference.VersionLocator,
-			ResolvedVersion: component.OfferingReference.Version,
-			OnByDefault:     &onByDefault,
-			Enabled:         &enabled,
-			OfferingID:      component.OfferingReference.ID,
-			Inputs:          make(map[string]interface{}),
-			Dependencies:    []AddonConfig{}, // Initialize empty dependencies slice
-		}
 
-		// Process dependencies of this new dependency recursively
-		// Create a copy of processedLocators for this branch to allow the same component in different branches
-		branchProcessedLocators := make(map[string]bool)
-		for k, v := range processedLocators {
-			branchProcessedLocators[k] = v
+	// PHASE 2: Recursively build sub-trees for enabled dependencies
+
+	for i := range addonConfig.Dependencies {
+		dep := &addonConfig.Dependencies[i]
+
+		if dep.Enabled != nil && *dep.Enabled {
+			// This dependency is enabled, get its children
+			if dep.VersionLocator != "" {
+
+				// Recursively process this dependency's children
+				err := infoSvc.processComponentReferencesWithGetter(dep, processedLocators, disabledOfferings, getter)
+				if err != nil {
+					return fmt.Errorf("error processing children of %s: %w", dep.OfferingName, err)
+				}
+			} else {
+			}
+		} else {
+			// Make sure Dependencies is empty for disabled deps
+			dep.Dependencies = []AddonConfig{}
 		}
-		if err := infoSvc.processComponentReferencesWithGetter(&newDependency, branchProcessedLocators, getter); err != nil {
-			return err
-		}
-		addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
 	}
 
 	return nil
@@ -674,7 +712,7 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 	return deployResponse, nil
 }
 
-// GetComponentReferences gets the component references for a version locator
+// GetComponentReferences gets the component references for a version locator returns a flat list of all components(dependencies and sub-dependencies) for the given version locator including the inital component.
 // /ui/v1/versions/:version_locator/componentsReferences
 func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error) {
 	// Use new retry utility for catalog operations
@@ -769,27 +807,6 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	globallyDisabled := make(map[string]bool)
 	buildGlobalDisabledSet(mainAddon, globallyDisabled)
 
-	// Track which dependencies have at least one enabled parent branch
-	// This handles the multi-branch scenario where a dependency appears under multiple parents
-	dependencyEnabledParents := make(map[string]bool)
-
-	// First pass: identify all dependencies that have at least one enabled parent path
-	var scanEnabledPaths func(addon *AddonConfig, parentEnabled bool)
-	scanEnabledPaths = func(addon *AddonConfig, parentEnabled bool) {
-		for _, dep := range addon.Dependencies {
-			// If current addon is enabled, mark its dependencies as having enabled parents
-			if parentEnabled {
-				dependencyEnabledParents[dep.OfferingName] = true
-			}
-			// Recursively scan this dependency's children
-			// CRITICAL FIX: Only pass enabled status if the dependency itself is actually enabled
-			depEnabled := dep.Enabled != nil && *dep.Enabled
-			scanEnabledPaths(&dep, depEnabled)
-		}
-	}
-	// Start the scan from main addon (always considered enabled for its direct children)
-	scanEnabledPaths(mainAddon, true)
-
 	// Create offering identity key for deduplication based on catalog+offering+flavor
 	// This ensures we don't deploy the same offering multiple times even if it appears
 	// in different parts of the dependency tree
@@ -809,23 +826,12 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	// This ensures topmost instances take precedence over deeper occurrences
 	var processDependencies func(addon *AddonConfig)
 	processDependencies = func(addon *AddonConfig) {
+
 		for _, dep := range addon.Dependencies {
 			offeringKey := getOfferingKey(&dep)
 
-			// Check if this dependency is globally disabled first
-			if globallyDisabled[dep.OfferingName] {
-				continue
-			}
-
-			// Determine if this dependency should be included:
-			// 1. Explicitly enabled dependencies (Enabled=true)
-			// 2. OnByDefault dependencies that have at least one enabled parent branch
-			isExplicitlyEnabled := dep.Enabled != nil && *dep.Enabled
-			isOnByDefaultWithEnabledParent := (dep.OnByDefault != nil && *dep.OnByDefault) && dependencyEnabledParents[dep.OfferingName]
-
-			shouldInclude := (isExplicitlyEnabled || isOnByDefaultWithEnabledParent) && !processedOfferings[offeringKey]
-
-			if shouldInclude {
+			// Only process enabled dependencies that haven't been seen before (by offering identity)
+			if dep.Enabled != nil && *dep.Enabled && !processedOfferings[offeringKey] {
 				// Generate a unique config name for this dependency if not already set
 				if dep.ConfigName == "" {
 					randomPostfix := strings.ToLower(random.UniqueId())
@@ -843,6 +849,7 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	}
 
 	// Start processing from the main addon's dependencies
+
 	processDependencies(mainAddon)
 
 	return deploymentList
@@ -904,12 +911,14 @@ func updateConfigInfoFromResponse(addonConfig *AddonConfig, response *DeployedAd
 	// Update the main addon config
 	if configID, exists := configMap[addonConfig.ConfigName]; exists {
 		addonConfig.ConfigID = configID
+	} else {
 	}
 
 	// Update the main addon's container config
 	if containerID, exists := containerMap[addonConfig.ConfigName]; exists {
 		addonConfig.ContainerConfigID = containerID
 		addonConfig.ContainerConfigName = addonConfig.ConfigName + " Container"
+	} else {
 	}
 
 	// Recursively update all dependencies in the original structure

@@ -997,6 +997,39 @@ func (suite *CatalogServiceTestSuite) TestProcessComponentReferencesUserOverride
 		},
 	}
 
+	// Set up GetVersion mock expectation for GetCatalogVersionByLocator call
+	mockCatalogVersion := &catalogmanagementv1.Offering{
+		ID: core.StringPtr("main-offering-id"),
+		Kinds: []catalogmanagementv1.Kind{
+			{
+				ID: core.StringPtr("kind-id"),
+				Versions: []catalogmanagementv1.Version{
+					{
+						ID:      core.StringPtr("version-id"),
+						Version: core.StringPtr("1.0.0"),
+						SolutionInfo: &catalogmanagementv1.SolutionInfo{
+							Dependencies: []catalogmanagementv1.OfferingReference{
+								{
+									Name: core.StringPtr("database"),
+								},
+								{
+									Name: core.StringPtr("monitoring"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Clear previous expectations
+	suite.mockService.ExpectedCalls = nil
+
+	// Mock the GetVersion call that happens in GetCatalogVersionByLocator
+	// We need to mock both the main call and any recursive calls for dependencies
+	suite.mockService.On("GetVersion", mock.AnythingOfType("*catalogmanagementv1.GetVersionOptions")).Return(mockCatalogVersion, &core.DetailedResponse{StatusCode: 200}, nil)
+
 	// Create addon config with user-defined dependencies
 	addonConfig := &AddonConfig{
 		VersionLocator: "main-locator",
@@ -1018,7 +1051,8 @@ func (suite *CatalogServiceTestSuite) TestProcessComponentReferencesUserOverride
 	processedLocators := make(map[string]bool)
 
 	// Call processComponentReferencesWithGetter with the mock
-	err := suite.infoSvc.processComponentReferencesWithGetter(addonConfig, processedLocators, mockGetter)
+	disabledOfferings := make(map[string]bool)
+	err := suite.infoSvc.processComponentReferencesWithGetter(addonConfig, processedLocators, disabledOfferings, mockGetter)
 	assert.NoError(suite.T(), err)
 
 	// Verify user settings are preserved

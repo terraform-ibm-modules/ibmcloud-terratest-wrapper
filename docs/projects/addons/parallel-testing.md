@@ -895,17 +895,18 @@ func TestAddonDependencyPermutations(t *testing.T) {
 
 ### How Permutation Testing Works
 
-1. **Automatic Discovery**: Discovers all dependencies from the catalog
-2. **Permutation Generation**: Creates all 2^n combinations of dependencies (enabled/disabled)
+1. **Automatic Discovery**: Discovers direct dependencies and their flavors from the local `ibm_catalog.json`
+2. **Permutation Generation**: Generates all enabled/disabled subsets, and for each subset enumerates flavor combinations across enabled dependencies (excludes the default “all enabled” case)
 3. **Validation-Only**: All permutations skip infrastructure deployment
 4. **Parallel Execution**: Runs all permutations in parallel for efficiency
 
 ### Example: Addon with 3 Dependencies
 
-For an addon with 3 dependencies (KMS, Observability, EventNotifications):
+For an addon with 3 direct dependencies:
 
-- **Total combinations**: 2^3 = 8
-- **Generated test cases**: 7 (excluding "all dependencies enabled" default case)
+- **Subsets**: 2^3 = 8 enabled/disabled subsets
+- **Flavor combinations**: For each subset, the number of tests equals the product of available flavors for the enabled dependencies
+- **Default filtering**: The "all dependencies enabled" subset is excluded
 - **Test time**: All run in parallel, typically 2-5 minutes total
 
 ## Choosing Your Testing Approach
