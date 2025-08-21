@@ -1226,11 +1226,11 @@ func TestAddonDependencyPermutations(t *testing.T) {
 
 The `RunAddonPermutationTest()` method automatically configures several settings:
 
-- **Logging Mode**: Set to "failure_only" to reduce log noise
+- **Logging Mode**: Per-test quiet mode with suite-level progress visible
 - **Infrastructure Deployment**: Set to `SkipInfrastructureDeployment: true` for all permutations
 - **Parallel Execution**: Uses matrix testing infrastructure for efficient parallel execution
-- **Dependency Discovery**: Automatically queries catalog for addon dependencies
-- **Permutation Generation**: Creates all 2^n combinations of dependencies (enabled/disabled)
+- **Dependency Discovery**: Parses the local `ibm_catalog.json` to discover direct dependencies and their flavors
+- **Permutation Generation**: For each enabled/disabled subset, enumerates all flavor combinations for enabled dependencies (excludes the default “all enabled” case)
 
 #### Required Configuration for Permutation Testing
 
@@ -1252,11 +1252,11 @@ options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
 
 #### Permutation Test Behavior
 
-- **Automatic Discovery**: Discovers all direct dependencies from the catalog
+- **Automatic Discovery**: Discovers direct dependencies from local `ibm_catalog.json`
 - **Validation-Only**: All permutations skip infrastructure deployment for efficiency
 - **Parallel Execution**: All permutations run in parallel
-- **Failure-Only Logging**: Only shows output for failed permutations
-- **Excludes Default**: Excludes the "on by default" case (covered by regular tests)
+- **Per-test Quiet Mode**: Shows detailed logs only on failure; high-level progress remains visible
+- **Excludes Default**: Excludes the "all enabled" case; other subsets expand to all flavor combinations
 
 ### Method Comparison
 
@@ -1284,3 +1284,16 @@ options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
 - Need comprehensive dependency validation
 - Want zero-maintenance permutation testing
 - Focused on validation rather than deployment
+### Dependency Processing Behavior
+
+- User configuration is the source of truth for which direct dependencies are enabled or disabled.
+- Catalog metadata is used to fill in version locators and flavors and to determine true direct dependencies (from the catalog version’s `SolutionInfo.Dependencies`).
+- Only enabled branches are traversed when building the dependency tree; disabled branches are pruned.
+- Direct dependencies marked `on_by_default` in the catalog are automatically included if not specified by the user, provided they are true direct dependencies of the current addon.
+
+### Required Dependencies and StrictMode
+
+If a required dependency is explicitly disabled, the framework force-enables it and marks it as required.
+
+- StrictMode=true (default): logs warnings and continues.
+- StrictMode=false: logs informational messages and captures warnings for the final report.
