@@ -454,7 +454,14 @@ func (m *MockCloudInfoService) GetOffering(catalogID, offeringID string) (result
 				VersionLocator: core.StringPtr("test-catalog.main-version"),
 				Version:        core.StringPtr("v1.0.0"),
 				SolutionInfo: &catalogmanagementv1.SolutionInfo{
-					Dependencies: []catalogmanagementv1.OfferingReference{},
+					Dependencies: []catalogmanagementv1.OfferingReference{
+						{
+							Name:      core.StringPtr("deploy-arch-ibm-account-infra-base"),
+							ID:        core.StringPtr("account-base-offering-id"),
+							CatalogID: core.StringPtr("dependency-catalog"),
+							Version:   core.StringPtr("v3.0.11"),
+						},
+					},
 				},
 			},
 		}
@@ -465,7 +472,26 @@ func (m *MockCloudInfoService) GetOffering(catalogID, offeringID string) (result
 				VersionLocator: core.StringPtr("test-catalog.observability-version"),
 				Version:        core.StringPtr("v0.0.1-dev-tf-an-zl3h3r"),
 				SolutionInfo: &catalogmanagementv1.SolutionInfo{
-					Dependencies: []catalogmanagementv1.OfferingReference{},
+					Dependencies: []catalogmanagementv1.OfferingReference{
+						{
+							Name:      core.StringPtr("deploy-arch-ibm-cos"),
+							ID:        core.StringPtr("cos-offering-id"),
+							CatalogID: core.StringPtr("dependency-catalog"),
+							Version:   core.StringPtr("v7.12.0"),
+						},
+						{
+							Name:      core.StringPtr("deploy-arch-ibm-kms"),
+							ID:        core.StringPtr("kms-offering-id"),
+							CatalogID: core.StringPtr("dependency-catalog"),
+							Version:   core.StringPtr("v1.6.0"),
+						},
+						{
+							Name:      core.StringPtr("deploy-arch-ibm-account-infra-base"),
+							ID:        core.StringPtr("account-base-offering-id"),
+							CatalogID: core.StringPtr("dependency-catalog"),
+							Version:   core.StringPtr("v3.0.11"),
+						},
+					},
 				},
 			},
 		}
@@ -476,7 +502,14 @@ func (m *MockCloudInfoService) GetOffering(catalogID, offeringID string) (result
 				VersionLocator: core.StringPtr("dependency-catalog.kms-version"),
 				Version:        core.StringPtr("v5.1.4"),
 				SolutionInfo: &catalogmanagementv1.SolutionInfo{
-					Dependencies: []catalogmanagementv1.OfferingReference{},
+					Dependencies: []catalogmanagementv1.OfferingReference{
+						{
+							Name:      core.StringPtr("deploy-arch-ibm-account-infra-base"),
+							ID:        core.StringPtr("account-base-offering-id"),
+							CatalogID: core.StringPtr("dependency-catalog"),
+							Version:   core.StringPtr("v3.0.7"),
+						},
+					},
 				},
 			},
 		}
@@ -494,6 +527,17 @@ func (m *MockCloudInfoService) GetOffering(catalogID, offeringID string) (result
 			{
 				VersionLocator: core.StringPtr("dependency-catalog.account-base-nested-version"),
 				Version:        core.StringPtr("v3.0.7"),
+				SolutionInfo: &catalogmanagementv1.SolutionInfo{
+					Dependencies: []catalogmanagementv1.OfferingReference{},
+				},
+			},
+		}
+	case "cos-offering-id":
+		name = "deploy-arch-ibm-cos"
+		versions = []catalogmanagementv1.Version{
+			{
+				VersionLocator: core.StringPtr("dependency-catalog.cos-version"),
+				Version:        core.StringPtr("v7.12.0"),
 				SolutionInfo: &catalogmanagementv1.SolutionInfo{
 					Dependencies: []catalogmanagementv1.OfferingReference{},
 				},
@@ -525,7 +569,25 @@ func (m *MockCloudInfoService) GetOffering(catalogID, offeringID string) (result
 }
 
 func (m *MockCloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID, offeringID, versionConstraint, flavor string) (version, versionLocator string, err error) {
-	return "v1.0.0", "test-catalog.dependency-version", nil
+	// Return appropriate version locator based on offering ID
+	switch offeringID {
+	case "main-offering-id":
+		return "v1.0.0", "test-catalog.main-version", nil
+	case "account-base-offering-id":
+		// Return the right version based on the constraint
+		if versionConstraint == "v3.0.7" {
+			return "v3.0.7", "dependency-catalog.account-base-nested-version", nil
+		}
+		return "v3.0.11", "dependency-catalog.account-base-version", nil
+	case "cos-offering-id":
+		return "v7.12.0", "dependency-catalog.cos-version", nil
+	case "kms-offering-id":
+		return "v1.6.0", "dependency-catalog.kms-version", nil
+	case "observability-offering-id":
+		return "v0.0.1-dev-tf-an-zl3h3r", "test-catalog.observability-version", nil
+	default:
+		return "v1.0.0", "test-catalog.dependency-version", nil
+	}
 }
 
 // MockCloudInfoServiceWithCatalogDeps is a mock that returns catalog dependencies

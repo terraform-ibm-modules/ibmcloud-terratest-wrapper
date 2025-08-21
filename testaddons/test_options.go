@@ -675,6 +675,18 @@ type TestAddonOptions struct {
 	// When set, this function will be called instead of reading from ibm_catalog.json
 	// Used primarily for mocking dependencies in comprehensive regression tests
 	GetDirectDependencyNames func() ([]string, error)
+
+	// SkipPermutations allows temporarily skipping specific permutation test cases.
+	// Each inner slice defines the set of ENABLED dependencies for a permutation to skip.
+	// - Use full offering and flavor names (flavor optional = wildcard)
+	// - Order does not matter; comparison is set-based
+	// - Dependencies not listed are treated as DISABLED in that permutation
+	// Example: skip enabling cloud-logs[rgo] + kms[instance] only (others disabled):
+	//   []cloudinfo.AddonConfig{
+	//       {OfferingName: "deploy-arch-ibm-cloud-logs", OfferingFlavor: "resource-group-only"},
+	//       {OfferingName: "deploy-arch-ibm-kms", OfferingFlavor: "instance"},
+	//   }
+	SkipPermutations [][]cloudinfo.AddonConfig
 }
 
 // TestAddonsOptionsDefault Default constructor for TestAddonOptions
