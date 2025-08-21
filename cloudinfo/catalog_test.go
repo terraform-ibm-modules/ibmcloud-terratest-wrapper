@@ -1018,7 +1018,8 @@ func (suite *CatalogServiceTestSuite) TestProcessComponentReferencesUserOverride
 	processedLocators := make(map[string]bool)
 
 	// Call processComponentReferencesWithGetter with the mock
-	err := suite.infoSvc.processComponentReferencesWithGetter(addonConfig, processedLocators, mockGetter)
+	disabledOfferings := make(map[string]bool)
+	err := suite.infoSvc.processComponentReferencesWithGetter(addonConfig, processedLocators, disabledOfferings, mockGetter)
 	assert.NoError(suite.T(), err)
 
 	// Verify user settings are preserved

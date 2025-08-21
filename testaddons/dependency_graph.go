@@ -95,6 +95,21 @@ func (options *TestAddonOptions) buildDependencyGraphWithDisabled(catalogID stri
 				continue
 			}
 
+			// Check if user has explicitly disabled this dependency
+			userExplicitlyDisabled := false
+			for _, userDep := range addonConfig.Dependencies {
+				if userDep.OfferingName == *dep.Name && userDep.Enabled != nil && !*userDep.Enabled {
+					userExplicitlyDisabled = true
+					if options.Logger != nil {
+						options.Logger.ShortInfo(fmt.Sprintf("Skipping catalog dependency %s - explicitly disabled by user configuration\n", *dep.Name))
+					}
+					break
+				}
+			}
+			if userExplicitlyDisabled {
+				continue
+			}
+
 			depCatalogID := *dep.CatalogID
 			depOfferingID := *dep.ID
 			depFlavor := dep.Flavors[0]
@@ -283,6 +298,17 @@ func (options *TestAddonOptions) validateDependencies(graph map[string][]cloudin
 		Messages:          make([]string, 0),
 	}
 
+	// Debug: Log the actual flat lists being compared for troubleshooting
+	options.Logger.ShortInfo(fmt.Sprintf("VALIDATION DEBUG: Expected list (%d items):", len(expectedDeployedList)))
+	for i, item := range expectedDeployedList {
+		options.Logger.ShortInfo(fmt.Sprintf("  %d. %s (%s, %s)", i+1, item.Name, item.Version, item.Flavor.Name))
+	}
+
+	options.Logger.ShortInfo(fmt.Sprintf("VALIDATION DEBUG: Actual deployed list (%d items):", len(actuallyDeployedList)))
+	for i, item := range actuallyDeployedList {
+		options.Logger.ShortInfo(fmt.Sprintf("  %d. %s (%s, %s)", i+1, item.Name, item.Version, item.Flavor.Name))
+	}
+
 	// Check for missing dependencies in the graph
 	for addonKey, dependencies := range graph {
 		// Parse addon info from the key format "name:version:flavor"
@@ -361,6 +387,7 @@ func (options *TestAddonOptions) validateDependencies(graph map[string][]cloudin
 	// Check if lengths differ
 	if len(expectedDeployedList) != len(actuallyDeployedList) {
 		result.IsValid = false
+		result.Messages = append(result.Messages, fmt.Sprintf("list length mismatch: expected %d configs but found %d configs deployed", len(expectedDeployedList), len(actuallyDeployedList)))
 	}
 
 	// Generate summary messages

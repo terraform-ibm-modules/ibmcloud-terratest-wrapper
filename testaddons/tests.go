@@ -2168,19 +2168,19 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 	// This allows STAGGER messages and test phases to be visible
 	// while suppressing verbose details within each individual test
 
-	// Step 1: Discover dependency names from catalog
-	dependencyNames, err := options.getDirectDependencyNames()
+	// Step 1: Discover dependency names and flavors from catalog
+	dependenciesWithFlavors, err := options.getDependenciesWithFlavors()
 	if err != nil {
-		return fmt.Errorf("failed to discover dependencies: %w", err)
+		return fmt.Errorf("failed to discover dependencies with flavors: %w", err)
 	}
 
-	if len(dependencyNames) == 0 {
+	if len(dependenciesWithFlavors) == 0 {
 		options.Testing.Skip("No dependencies found to test permutations")
 		return nil
 	}
 
-	// Step 2: Generate all permutations of dependencies
-	testCases := options.generatePermutations(dependencyNames)
+	// Step 2: Generate all permutations of dependencies including flavor combinations
+	testCases := options.generatePermutationsWithFlavors(dependenciesWithFlavors)
 
 	if len(testCases) == 0 {
 		options.Testing.Skip("No permutations generated (all would be default configuration)")
@@ -2326,6 +2326,79 @@ func (options *TestAddonOptions) getDirectDependencyNames() ([]string, error) {
 	}
 
 	return dependencyNames, nil
+}
+
+// DependencyWithFlavors represents a dependency with all its available flavors
+type DependencyWithFlavors struct {
+	Name    string
+	Flavors []string
+}
+
+// getDependenciesWithFlavors discovers direct dependencies and their available flavors from the local ibm_catalog.json file
+func (options *TestAddonOptions) getDependenciesWithFlavors() ([]DependencyWithFlavors, error) {
+	// Find the git root directory to locate ibm_catalog.json
+	gitRoot, err := common.GitRootPath(".")
+	if err != nil {
+		return nil, fmt.Errorf("failed to find git root: %w", err)
+	}
+
+	// Construct the path to ibm_catalog.json
+	catalogPath := filepath.Join(gitRoot, "ibm_catalog.json")
+
+	// Read the local ibm_catalog.json file
+	jsonFile, err := os.ReadFile(catalogPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ibm_catalog.json from %s: %w", catalogPath, err)
+	}
+
+	// Parse the JSON into CatalogJson struct
+	var catalogConfig cloudinfo.CatalogJson
+	err = json.Unmarshal(jsonFile, &catalogConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ibm_catalog.json: %w", err)
+	}
+
+	// Find the matching product by OfferingName
+	var targetProductIndex = -1
+	for i := range catalogConfig.Products {
+		if catalogConfig.Products[i].Name == options.AddonConfig.OfferingName {
+			targetProductIndex = i
+			break
+		}
+	}
+
+	if targetProductIndex == -1 {
+		return nil, fmt.Errorf("product '%s' not found in ibm_catalog.json", options.AddonConfig.OfferingName)
+	}
+
+	// Find the matching flavor by OfferingFlavor
+	var targetFlavorIndex = -1
+	for i := range catalogConfig.Products[targetProductIndex].Flavors {
+		if catalogConfig.Products[targetProductIndex].Flavors[i].Name == options.AddonConfig.OfferingFlavor {
+			targetFlavorIndex = i
+			break
+		}
+	}
+
+	if targetFlavorIndex == -1 {
+		return nil, fmt.Errorf("flavor '%s' not found in product '%s' in ibm_catalog.json",
+			options.AddonConfig.OfferingFlavor, options.AddonConfig.OfferingName)
+	}
+
+	// Extract dependencies with their flavors
+	var dependenciesWithFlavors []DependencyWithFlavors
+	targetFlavor := catalogConfig.Products[targetProductIndex].Flavors[targetFlavorIndex]
+
+	for _, dependency := range targetFlavor.Dependencies {
+		if dependency.Name != "" {
+			dependenciesWithFlavors = append(dependenciesWithFlavors, DependencyWithFlavors{
+				Name:    dependency.Name,
+				Flavors: dependency.Flavors,
+			})
+		}
+	}
+
+	return dependenciesWithFlavors, nil
 }
 
 // validateAndProcessRequiredDependencies applies the required dependency business logic to manually configured dependencies
@@ -2625,6 +2698,115 @@ func (options *TestAddonOptions) generatePermutations(dependencyNames []string) 
 	}
 
 	return testCases
+}
+
+// generatePermutationsWithFlavors creates all enabled/disabled combinations of dependencies with flavor variations
+// For now, this is a simplified version that uses the first flavor for each dependency
+// TODO: In future iterations, this can be enhanced to generate all flavor combinations
+func (options *TestAddonOptions) generatePermutationsWithFlavors(dependenciesWithFlavors []DependencyWithFlavors) []AddonTestCase {
+	var testCases []AddonTestCase
+
+	// Generate all 2^n permutations of dependencies (enabled/disabled)
+	numDeps := len(dependenciesWithFlavors)
+	totalPermutations := 1 << numDeps // 2^n where n = number of dependencies
+
+	// Generate a random prefix once per test run for UI grouping
+	randomPrefix := common.UniqueId(6)
+
+	// Sequential counter for unique prefix generation
+	permIndex := 0
+	basePrefix := options.shortenPrefix(options.Prefix)
+
+	for i := 0; i < totalPermutations; i++ {
+		// Create dependency configs for this permutation (like manual tests, but with flavors)
+		var permutationDeps []cloudinfo.AddonConfig
+		var disabledNames []string
+
+		// Set enabled/disabled based on bit pattern - create configs with proper flavors
+		for j, dep := range dependenciesWithFlavors {
+			enabled := (i & (1 << j)) != 0
+
+			// Choose appropriate flavor for this dependency
+			flavor := "fully-configurable" // default
+			if len(dep.Flavors) > 0 {
+				// Use the first flavor, or apply manual test flavor mappings
+				flavor = dep.Flavors[0]
+
+				// Apply manual test flavor preferences to match existing tests
+				if dep.Name == "deploy-arch-ibm-account-infra-base" {
+					// Use resource-group-only like TestSingle and other manual tests
+					for _, f := range dep.Flavors {
+						if f == "resource-group-only" {
+							flavor = f
+							break
+						}
+					}
+				}
+			}
+
+			// Create dependency config with proper flavor specified
+			depConfig := cloudinfo.AddonConfig{
+				OfferingName:   dep.Name,
+				OfferingFlavor: flavor,
+				Enabled:        core.BoolPtr(enabled),
+			}
+			permutationDeps = append(permutationDeps, depConfig)
+
+			if !enabled {
+				disabledNames = append(disabledNames, dep.Name)
+			}
+		}
+
+		// Skip the "all enabled" case (default configuration)
+		// This excludes the combination where all dependencies are enabled
+		if len(disabledNames) == 0 {
+			continue
+		}
+
+		// Create test case name using abbreviations with collision resolution
+		mainOfferingAbbrev := options.createInitialAbbreviation(options.AddonConfig.OfferingName)
+
+		testCaseName := fmt.Sprintf("%s-%s-%d", randomPrefix, mainOfferingAbbrev, permIndex)
+		if len(disabledNames) > 0 {
+			// Use abbreviation with collision resolution for disabled dependency names
+			abbreviatedDisabledNames := options.abbreviateWithCollisionResolution(disabledNames)
+			testCaseName = fmt.Sprintf("%s-%s-%d-disable-%s", randomPrefix, mainOfferingAbbrev, permIndex,
+				strings.Join(abbreviatedDisabledNames, "-"))
+
+		}
+
+		// Generate unique prefix using random prefix and sequential counter
+		uniquePrefix := fmt.Sprintf("%s-%s%d", randomPrefix, basePrefix, permIndex)
+
+		testCase := AddonTestCase{
+			Name:                         testCaseName,
+			Prefix:                       uniquePrefix,
+			Dependencies:                 permutationDeps,
+			SkipInfrastructureDeployment: true, // Always skip infrastructure deployment
+		}
+
+		testCases = append(testCases, testCase)
+		permIndex++ // Only increment for generated test cases
+	}
+
+	return testCases
+}
+
+// abbreviateFlavor creates a short abbreviation for flavor names
+func (options *TestAddonOptions) abbreviateFlavor(flavor string) string {
+	switch flavor {
+	case "fully-configurable":
+		return "fc"
+	case "resource-group-only":
+		return "rgo"
+	case "resource-groups-with-account-settings":
+		return "rgas"
+	case "instance":
+		return "inst"
+	default:
+		// Create abbreviation from first letters
+		return options.createInitialAbbreviation(flavor)
+	}
 }
 
 // isDefaultConfiguration checks if a permutation matches the default "on by default" configuration
