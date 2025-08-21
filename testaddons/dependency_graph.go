@@ -83,87 +83,103 @@ func (options *TestAddonOptions) buildDependencyGraphWithDisabled(catalogID stri
 	// Create a key for the graph map (using name:version:flavor as a unique identifier)
 	addonKey := generateAddonKey(offeringName, offeringVersion, flavor)
 
-	// Process catalog-defined dependencies that are on by default
+	// Build expected children from catalog defaults plus user overrides at this node
 	for _, dep := range version.SolutionInfo.Dependencies {
-		if *dep.OnByDefault {
-			// Check if this dependency has been disabled at the offering level
-			// This applies globally across the entire dependency tree
-			if disabledOfferings[*dep.Name] {
-				if options.Logger != nil {
-					options.Logger.ShortInfo(fmt.Sprintf("Skipping catalog dependency %s - disabled at offering level in dependency tree\n", *dep.Name))
-				}
-				continue
-			}
-
-			// Check if user has explicitly disabled this dependency
-			userExplicitlyDisabled := false
-			for _, userDep := range addonConfig.Dependencies {
-				if userDep.OfferingName == *dep.Name && userDep.Enabled != nil && !*userDep.Enabled {
-					userExplicitlyDisabled = true
-					if options.Logger != nil {
-						options.Logger.ShortInfo(fmt.Sprintf("Skipping catalog dependency %s - explicitly disabled by user configuration\n", *dep.Name))
-					}
-					break
-				}
-			}
-			if userExplicitlyDisabled {
-				continue
-			}
-
-			depCatalogID := *dep.CatalogID
-			depOfferingID := *dep.ID
-			depFlavor := dep.Flavors[0]
-
-			if dep.DefaultFlavor != nil && *dep.DefaultFlavor != "" {
-				depFlavor = *dep.DefaultFlavor
-			}
-
-			depVersion, depVersionLocator, err := options.CloudInfoService.GetOfferingVersionLocatorByConstraint(depCatalogID, depOfferingID, *dep.Version, depFlavor)
-			if err != nil {
-				options.Logger.ShortError(fmt.Sprintf("error: %v\n", err))
-				return nil, err
-			}
-
-			child := cloudinfo.OfferingReferenceDetail{
-				Name:    *dep.Name,
-				Version: depVersion,
-				Flavor:  cloudinfo.Flavor{Name: depFlavor},
-			}
-
-			result.Graph[addonKey] = append(result.Graph[addonKey], child)
-
-			// Find the corresponding manual dependency config for recursion
-			var childAddonConfig *cloudinfo.AddonConfig
-			for i := range addonConfig.Dependencies {
-				if addonConfig.Dependencies[i].OfferingName == *dep.Name && addonConfig.Dependencies[i].OfferingFlavor == depFlavor {
-					childAddonConfig = &addonConfig.Dependencies[i]
-					break
-				}
-			}
-			if childAddonConfig == nil {
-				childAddonConfig = &cloudinfo.AddonConfig{
-					OfferingName:   *dep.Name,
-					OfferingFlavor: depFlavor,
-					CatalogID:      depCatalogID,
-					OfferingID:     depOfferingID,
-					VersionLocator: depVersionLocator,
-					Dependencies:   []cloudinfo.AddonConfig{},
-				}
-			}
-
-			// Recursively process child dependencies
-			childResult, err := options.buildDependencyGraphWithDisabled(depCatalogID, depOfferingID, depVersionLocator, depFlavor, childAddonConfig, result.Visited, disabledOfferings)
-			if err != nil {
-				return nil, err
-			}
-
-			// Merge child results into our result
-			result.mergeResults(childResult)
+		name := stringPtrValue(dep.Name)
+		// Skip if no name (defensive)
+		if name == "" {
+			continue
 		}
-	}
 
-	// Only process catalog-defined OnByDefault dependencies
-	// Manually enabled dependencies should not be in the expected list unless they're actually deployed
+		// Global disable applies across the tree
+		if disabledOfferings[name] {
+			if options.Logger != nil {
+				options.Logger.ShortInfo(fmt.Sprintf("Skipping catalog dependency %s - disabled at offering level in dependency tree\n", name))
+			}
+			continue
+		}
+
+		// Check user overrides at this node
+		var userDepMatch *cloudinfo.AddonConfig
+		var userExplicitEnabled, userExplicitDisabled bool
+		for i := range addonConfig.Dependencies {
+			if addonConfig.Dependencies[i].OfferingName == name {
+				userDepMatch = &addonConfig.Dependencies[i]
+				if addonConfig.Dependencies[i].Enabled != nil {
+					if *addonConfig.Dependencies[i].Enabled {
+						userExplicitEnabled = true
+					} else {
+						userExplicitDisabled = true
+					}
+				}
+				break
+			}
+		}
+
+		// Selection logic: include if (OnByDefault && not user-disabled) OR user-enabled
+		include := false
+		if boolPtrValue(dep.OnByDefault) && !userExplicitDisabled {
+			include = true
+		}
+		if userExplicitEnabled {
+			include = true
+		}
+		if !include {
+			continue
+		}
+
+		// Resolve flavor: user-specified flavor takes precedence; otherwise defaultFlavor; otherwise first
+		depFlavor := firstFlavor(dep.Flavors)
+		if dep.DefaultFlavor != nil && *dep.DefaultFlavor != "" {
+			depFlavor = *dep.DefaultFlavor
+		}
+		if userDepMatch != nil && userDepMatch.OfferingFlavor != "" {
+			depFlavor = userDepMatch.OfferingFlavor
+		}
+
+		depCatalogID := stringPtrValue(dep.CatalogID)
+		depOfferingID := stringPtrValue(dep.ID)
+		depVersionStr := stringPtrValue(dep.Version)
+
+		depVersion, depVersionLocator, err := options.CloudInfoService.GetOfferingVersionLocatorByConstraint(depCatalogID, depOfferingID, depVersionStr, depFlavor)
+		if err != nil {
+			options.Logger.ShortError(fmt.Sprintf("error: %v\n", err))
+			return nil, err
+		}
+
+		child := cloudinfo.OfferingReferenceDetail{
+			Name:    name,
+			Version: depVersion,
+			Flavor:  cloudinfo.Flavor{Name: depFlavor},
+		}
+		result.Graph[addonKey] = append(result.Graph[addonKey], child)
+
+		// Find a matching child config for recursion (by name+flavor), else synthesize
+		var childAddonConfig *cloudinfo.AddonConfig
+		for i := range addonConfig.Dependencies {
+			if addonConfig.Dependencies[i].OfferingName == name && addonConfig.Dependencies[i].OfferingFlavor == depFlavor {
+				childAddonConfig = &addonConfig.Dependencies[i]
+				break
+			}
+		}
+		if childAddonConfig == nil {
+			childAddonConfig = &cloudinfo.AddonConfig{
+				OfferingName:   name,
+				OfferingFlavor: depFlavor,
+				CatalogID:      depCatalogID,
+				OfferingID:     depOfferingID,
+				VersionLocator: depVersionLocator,
+				Dependencies:   []cloudinfo.AddonConfig{},
+			}
+		}
+
+		// Recurse
+		childResult, err := options.buildDependencyGraphWithDisabled(depCatalogID, depOfferingID, depVersionLocator, depFlavor, childAddonConfig, result.Visited, disabledOfferings)
+		if err != nil {
+			return nil, err
+		}
+		result.mergeResults(childResult)
+	}
 
 	return result, nil
 }
@@ -182,6 +198,25 @@ func (result *DependencyGraphResult) mergeResults(childResult *DependencyGraphRe
 	for k, v := range childResult.Visited {
 		result.Visited[k] = v
 	}
+}
+
+// Helpers for safe pointer and flavor handling
+func stringPtrValue(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func boolPtrValue(b *bool) bool {
+	return b != nil && *b
+}
+
+func firstFlavor(flavors []string) string {
+	if len(flavors) > 0 {
+		return flavors[0]
+	}
+	return "fully-configurable"
 }
 
 // buildActuallyDeployedListFromResponse creates the actually deployed list directly from the deployment response
@@ -296,17 +331,6 @@ func (options *TestAddonOptions) validateDependencies(graph map[string][]cloudin
 		UnexpectedConfigs: make([]cloudinfo.OfferingReferenceDetail, 0),
 		MissingConfigs:    make([]cloudinfo.OfferingReferenceDetail, 0),
 		Messages:          make([]string, 0),
-	}
-
-	// Debug: Log the actual flat lists being compared for troubleshooting
-	options.Logger.ShortInfo(fmt.Sprintf("VALIDATION DEBUG: Expected list (%d items):", len(expectedDeployedList)))
-	for i, item := range expectedDeployedList {
-		options.Logger.ShortInfo(fmt.Sprintf("  %d. %s (%s, %s)", i+1, item.Name, item.Version, item.Flavor.Name))
-	}
-
-	options.Logger.ShortInfo(fmt.Sprintf("VALIDATION DEBUG: Actual deployed list (%d items):", len(actuallyDeployedList)))
-	for i, item := range actuallyDeployedList {
-		options.Logger.ShortInfo(fmt.Sprintf("  %d. %s (%s, %s)", i+1, item.Name, item.Version, item.Flavor.Name))
 	}
 
 	// Check for missing dependencies in the graph
