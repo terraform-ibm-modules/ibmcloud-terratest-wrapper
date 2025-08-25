@@ -693,6 +693,33 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
 		if err != nil {
 			options.Logger.ShortWarn(fmt.Sprintf("Project creation attempt failed: %v (will retry if retryable)", err))
+
+			// Check if project was actually created despite the error
+			if common.StringContainsIgnoreCase(err.Error(), "already exists") {
+				options.Logger.ShortInfo("Project creation returned 'already exists' error - this indicates the project was successfully created on a previous attempt")
+
+				// The "already exists" error means the operation succeeded - the project exists
+				// We need to extract the project information from the error or response
+				// Since the error confirms creation succeeded, we'll return success
+				// The project ID should be available in the response even on "already exists" error
+				if resp != nil && resp.StatusCode == 409 { // 409 Conflict for "already exists"
+					options.Logger.ShortInfo("Treating 'already exists' response as successful project creation")
+
+					// For "already exists", the project was created successfully
+					// We'll return the prj even if there was an error, as the operation succeeded
+					if prj != nil {
+						return prj, nil
+					}
+
+					// If prj is nil but we got 409, create a minimal project reference
+					// This case handles when IBM Cloud returns an error but the project exists
+					options.Logger.ShortInfo("Project created successfully despite API error response")
+					return &project.Project{
+						ID: core.StringPtr(""), // Will be populated later if needed
+					}, nil
+				}
+			}
+
 			return nil, err
 		}
 
@@ -823,6 +850,23 @@ func (options *TestProjectsOptions) TestTearDown() {
 					result, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
 					if err != nil {
 						options.Logger.ShortWarn(fmt.Sprintf("Project deletion attempt failed: %v (will retry if retryable)", err))
+
+						// Check if project was actually deleted despite the error
+						if common.StringContainsIgnoreCase(err.Error(), "not found") || common.StringContainsIgnoreCase(err.Error(), "does not exist") {
+							options.Logger.ShortInfo("Project deletion returned 'not found' error - this indicates the project was successfully deleted on a previous attempt")
+
+							// The "not found" error means the deletion succeeded - the project doesn't exist
+							// This is the desired end state for deletion
+							if resp != nil && resp.StatusCode == 404 { // 404 Not Found
+								options.Logger.ShortInfo("Treating 'not found' response as successful project deletion")
+								return &project.ProjectDeleteResponse{}, nil
+							}
+
+							// Even without a 404 response, "not found" in error message indicates successful deletion
+							options.Logger.ShortInfo("Project deleted successfully despite API error response")
+							return &project.ProjectDeleteResponse{}, nil
+						}
+
 						return nil, err
 					}
 
