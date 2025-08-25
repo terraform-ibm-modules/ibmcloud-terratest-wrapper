@@ -711,10 +711,11 @@ func TestDependencyPermutations(t *testing.T) {
 
 	// Build options and run permutation test (validation-only)
 	options := TestAddonsOptionsDefault(&TestAddonOptions{
-		Testing:          t,
-		Prefix:           "mock-perm",
-		Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
-		CloudInfoService: mockService,
+		Testing:                 t,
+		Prefix:                  "mock-perm",
+		Logger:                  common.CreateSmartAutoBufferingLogger(t.Name(), false),
+		CloudInfoService:        mockService,
+		RequiredEnvironmentVars: map[string]string{}, // Bypass environment check for unit tests
 		AddonConfig: cloudinfo.AddonConfig{
 			OfferingName:        "mock-addon",
 			OfferingFlavor:      "test-flavor",
