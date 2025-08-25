@@ -2689,6 +2689,25 @@ func (options *TestAddonOptions) generatePermutations(dependencyNames []string) 
 		// Generate unique prefix using random prefix and sequential counter
 		uniquePrefix := fmt.Sprintf("%s-%s%d", randomPrefix, basePrefix, permIndex)
 
+		// Build enabled deps view for skip matching (name+flavor)
+		var enabledForMatch []cloudinfo.AddonConfig
+		for _, cfg := range permutationDeps {
+			if cfg.Enabled != nil && *cfg.Enabled {
+				enabledForMatch = append(enabledForMatch, cloudinfo.AddonConfig{
+					OfferingName:   cfg.OfferingName,
+					OfferingFlavor: cfg.OfferingFlavor,
+				})
+			}
+		}
+
+		// Skip if this enabled set matches a configured skip permutation
+		if options != nil && options.shouldSkipPermutation(enabledForMatch) {
+			if options.Logger != nil {
+				options.Logger.ShortInfo(fmt.Sprintf("Skipping permutation: %s", testCaseName))
+			}
+			continue
+		}
+
 		testCase := AddonTestCase{
 			Name:                         testCaseName,
 			Prefix:                       uniquePrefix,

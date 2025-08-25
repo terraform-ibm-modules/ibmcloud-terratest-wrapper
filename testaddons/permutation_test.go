@@ -482,7 +482,7 @@ func TestRandomPrefixGeneration(t *testing.T) {
 
 // TestSkipPermutations_NamesOnly verifies that generatePermutations filters by enabled dependency names
 func TestSkipPermutations_NamesOnly(t *testing.T) {
-	t.Skip("TEMPORARY SKIP - unit test needs validation after recent refactor")
+
 	options := &TestAddonOptions{
 		Testing: t,
 		Prefix:  "test-prefix",
@@ -603,7 +603,7 @@ func TestSkipPermutations_WithFlavors(t *testing.T) {
 // TestDependencyPermutations tests the full dependency permutation functionality
 // This is the real test that should generate permutation reports when it fails
 func TestDependencyPermutations(t *testing.T) {
-	t.Skip("TEMPORARY SKIP - unit test needs validation after recent refactor")
+
 	// Use mocking pattern to avoid external dependencies while exercising the public API
 
 	// Create a minimal mock catalog with one dependency having two flavors
@@ -651,6 +651,12 @@ func TestDependencyPermutations(t *testing.T) {
 			Versions: []catalogmanagementv1.Version{{
 				VersionLocator: core.StringPtr("mock-catalog.mock-version"),
 				Version:        core.StringPtr("1.0.0"),
+				SolutionInfo: &catalogmanagementv1.SolutionInfo{
+					Dependencies: []catalogmanagementv1.OfferingReference{
+						// Empty dependencies array prevents nil pointer dereference
+						// Could add mock dependencies here if needed for more realistic testing
+					},
+				},
 			}},
 		}},
 	}
@@ -661,6 +667,13 @@ func TestDependencyPermutations(t *testing.T) {
 	mockService.On("GetOfferingInputs", mock.Anything, mock.Anything, mock.Anything).Return([]cloudinfo.CatalogInput{})
 	mockService.On("GetOfferingVersionLocatorByConstraint", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return("1.0.0", "mock-catalog.mock-version", nil)
 	mockService.On("GetCatalogVersionByLocator", mock.Anything).Return(&catalogmanagementv1.Version{VersionLocator: core.StringPtr("mock-catalog.mock-version"), Version: core.StringPtr("1.0.0")}, nil)
+	mockService.On("GetConfig", mock.Anything).Return(&projects.ProjectConfig{
+		ID: core.StringPtr("test-config-id"),
+		Definition: &projects.ProjectConfigDefinitionResponse{
+			Name:      core.StringPtr("mock-addon"),
+			LocatorID: core.StringPtr("mock-catalog.mock-version"),
+		},
+	}, &core.DetailedResponse{}, nil)
 
 	// Component references: return empty (we don't need deep tree building in this test)
 	mockService.On("GetComponentReferences", mock.Anything).Return(&cloudinfo.OfferingReferenceResponse{
@@ -669,14 +682,32 @@ func TestDependencyPermutations(t *testing.T) {
 	}, nil)
 
 	// Project/config related calls (validation-only path still touches these helpers)
-	mockService.On("GetProjectConfigs", mock.Anything).Return([]projects.ProjectConfigSummary{}, nil)
-	mockService.On("UpdateConfig", mock.Anything, mock.Anything).Return(nil, nil, nil)
-	mockService.On("CreateProjectFromConfig", mock.Anything).Return(&cloudinfo.ProjectsConfig{ProjectID: "test-project-id"}, nil)
-	mockService.On("DeployAddonToProject", mock.Anything, mock.Anything).Return(&cloudinfo.DeployedAddonsDetails{}, nil)
+	mockService.On("GetProjectConfigs", mock.Anything).Return([]projects.ProjectConfigSummary{
+		{
+			ID:      core.StringPtr("test-config-id"),
+			Version: core.Int64Ptr(1),
+			State:   core.StringPtr("applied"),
+		},
+	}, nil)
+	mockService.On("UpdateConfig", mock.Anything, mock.Anything).Return(&projects.ProjectConfig{ID: core.StringPtr("test-config-id")}, &core.DetailedResponse{}, nil)
+	mockService.On("CreateProjectFromConfig", mock.Anything).Return(&projects.Project{ID: core.StringPtr("test-project-id")}, &core.DetailedResponse{}, nil)
+	mockService.On("DeployAddonToProject", mock.Anything, mock.Anything).Return(&cloudinfo.DeployedAddonsDetails{
+		ProjectID: "test-project-id",
+		Configs: []struct {
+			Name     string `json:"name"`
+			ConfigID string `json:"config_id"`
+		}{
+			{
+				Name:     "mock-addon",
+				ConfigID: "test-config-id",
+			},
+		},
+	}, nil)
 	mockService.On("GetApiKey").Return("test-api-key")
 	mockService.On("ResolveReferencesFromStringsWithContext", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 	mockService.On("SetLogger", mock.Anything).Return()
 	mockService.On("DeleteCatalog", mock.Anything).Return(nil)
+	mockService.On("DeleteProject", mock.Anything).Return(&projects.ProjectDeleteResponse{}, &core.DetailedResponse{}, nil)
 
 	// Build options and run permutation test (validation-only)
 	options := TestAddonsOptionsDefault(&TestAddonOptions{
@@ -688,6 +719,9 @@ func TestDependencyPermutations(t *testing.T) {
 			OfferingName:        "mock-addon",
 			OfferingFlavor:      "test-flavor",
 			OfferingInstallKind: cloudinfo.InstallKindTerraform,
+			CatalogID:           "mock-catalog-id",
+			OfferingID:          "mock-offering-id",
+			VersionLocator:      "mock-catalog.mock-version",
 			Inputs: map[string]interface{}{
 				"prefix": "mock-perm",
 				"region": "us-south",
