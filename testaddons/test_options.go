@@ -670,6 +670,7 @@ type TestAddonOptions struct {
 	lastValidationResult *ValidationResult
 	lastTransientErrors  []string
 	lastRuntimeErrors    []string
+	lastTeardownErrors   []string
 
 	// GetDirectDependencyNames allows test injection of dependency names for permutation testing
 	// When set, this function will be called instead of reading from ibm_catalog.json
@@ -980,7 +981,7 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 		Name:        testName,
 		Prefix:      testPrefix,
 		AddonConfig: []cloudinfo.AddonConfig{addonConfig}, // Preserve tree structure with nested dependencies
-		Passed:      testError == nil,
+		Passed:      testError == nil && !options.Testing.Failed(),
 		StrictMode:  options.StrictMode,
 	}
 
@@ -1003,6 +1004,11 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 		result.RuntimeErrors = append(result.RuntimeErrors, options.lastRuntimeErrors...)
 	}
 
+	// Add teardown errors to RuntimeErrors for reporting
+	if options.lastTeardownErrors != nil {
+		result.RuntimeErrors = append(result.RuntimeErrors, options.lastTeardownErrors...)
+	}
+
 	// If test failed, parse and categorize the main error
 	if testError != nil {
 		options.categorizeError(testError, &result)
@@ -1012,6 +1018,7 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 	options.lastValidationResult = nil
 	options.lastTransientErrors = nil
 	options.lastRuntimeErrors = nil
+	options.lastTeardownErrors = nil
 
 	return result
 }

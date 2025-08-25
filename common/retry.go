@@ -80,6 +80,20 @@ func CatalogOperationRetryConfig() RetryConfig {
 	}
 }
 
+// ProjectOperationRetryConfig returns a retry configuration optimized for IBM Cloud Projects operations
+func ProjectOperationRetryConfig() RetryConfig {
+	return RetryConfig{
+		MaxRetries:            5,
+		InitialDelay:          3 * time.Second,
+		MaxDelay:              45 * time.Second,
+		Strategy:              ExponentialBackoff,
+		Jitter:                true,
+		RetryableErrorChecker: IsProjectRetryableError,
+		Logger:                nil,
+		OperationName:         "project operation",
+	}
+}
+
 // RetryWithConfig executes a function with retry logic based on the provided configuration
 func RetryWithConfig[T any](config RetryConfig, operation func() (T, error)) (T, error) {
 	var lastErr error
@@ -200,6 +214,48 @@ func IsRetryableError(err error) bool {
 
 	errLower := fmt.Sprintf("%v", err)
 	for _, pattern := range retryablePatterns {
+		if StringContainsIgnoreCase(errLower, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsProjectRetryableError determines if a project-related error should be retried
+func IsProjectRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// First check general retryable errors
+	if IsRetryableError(err) {
+		return true
+	}
+
+	// Project and database-specific errors that are likely transient
+	projectRetryablePatterns := []string{
+		"unable to write project config document into db",
+		"unable to write project config document",
+		"database timeout",
+		"database connection failed",
+		"connection pool exhausted",
+		"database unavailable",
+		"database error",
+		"transaction failed",
+		"lock timeout",
+		"deadlock",
+		"database busy",
+		"connection timeout",
+		"write conflict",
+		"resource busy",
+		"concurrent modification",
+		"database connection reset",
+		"connection lost",
+	}
+
+	errLower := fmt.Sprintf("%v", err)
+	for _, pattern := range projectRetryablePatterns {
 		if StringContainsIgnoreCase(errLower, pattern) {
 			return true
 		}
