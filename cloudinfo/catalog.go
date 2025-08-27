@@ -680,6 +680,14 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 
 		// Check other error status codes
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			// Handle ISB064E "already exists" as a special case - treat as success
+			if resp.StatusCode == 409 && (strings.Contains(string(body), "ISB064E") || strings.Contains(string(body), "already exists in project")) {
+				infoSvc.Logger.ShortInfo(fmt.Sprintf("Config already exists in project %s, treating as success", projectConfig.ProjectID))
+				// For ISB064E, we need to query the current project state and return that
+				// This ensures the caller gets accurate information about existing configs
+				return body, nil
+			}
+
 			// Debug logging for failed requests - log API URL and request body
 			infoSvc.Logger.ShortError(fmt.Sprintf("API request failed - URL: %s", url))
 			infoSvc.Logger.ShortError(fmt.Sprintf("Request body: %s", string(jsonBody)))

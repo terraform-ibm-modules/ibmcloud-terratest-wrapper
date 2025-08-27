@@ -330,6 +330,9 @@ func (options *TestAddonOptions) setupProject() error {
 
 		// Create project with retry logic to handle transient database errors
 		retryConfig := common.ProjectOperationRetryConfig()
+		if options.ProjectRetryConfig != nil {
+			retryConfig = *options.ProjectRetryConfig
+		}
 		retryConfig.Logger = options.Logger
 		retryConfig.OperationName = "project creation"
 
@@ -432,6 +435,9 @@ func (options *TestAddonOptions) testTearDown() {
 
 		// Delete project with retry logic to handle transient database errors
 		retryConfig := common.ProjectOperationRetryConfig()
+		if options.ProjectRetryConfig != nil {
+			retryConfig = *options.ProjectRetryConfig
+		}
 		retryConfig.Logger = options.Logger
 		retryConfig.OperationName = "project deletion"
 

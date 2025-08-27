@@ -188,6 +188,20 @@ func IsRetryableError(err error) bool {
 		return false
 	}
 
+	errStr := fmt.Sprintf("%v", err)
+
+	// Non-retryable errors - these should fail immediately without retry
+	nonRetryablePatterns := []string{
+		"ISB064E",                   // Config already exists - not retryable
+		"already exists in project", // Config already exists - not retryable
+	}
+
+	for _, pattern := range nonRetryablePatterns {
+		if StringContainsIgnoreCase(errStr, pattern) {
+			return false
+		}
+	}
+
 	// Network-related errors that are common in parallel test execution
 	retryablePatterns := []string{
 		"timeout",
@@ -212,9 +226,8 @@ func IsRetryableError(err error) bool {
 		"500",
 	}
 
-	errLower := fmt.Sprintf("%v", err)
 	for _, pattern := range retryablePatterns {
-		if StringContainsIgnoreCase(errLower, pattern) {
+		if StringContainsIgnoreCase(errStr, pattern) {
 			return true
 		}
 	}

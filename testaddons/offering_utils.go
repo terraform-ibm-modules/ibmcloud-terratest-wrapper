@@ -50,6 +50,9 @@ func SetOfferingDetails(options *TestAddonOptions) {
 
 	// Use common retry utility for getting top level offering in parallel execution
 	config := common.CatalogOperationRetryConfig()
+	if options.CatalogRetryConfig != nil {
+		config = *options.CatalogRetryConfig
+	}
 	config.Logger = options.Logger.GetUnderlyingLogger()
 	config.OperationName = fmt.Sprintf("GetOffering catalogID='%s', offeringID='%s'", *options.offering.CatalogID, *options.offering.ID)
 	config.MaxRetries = 3 // Keep same retry count as before
@@ -111,6 +114,9 @@ func SetOfferingDetails(options *TestAddonOptions) {
 
 		// Use common retry utility for dependency offerings as well
 		dependencyConfig := common.CatalogOperationRetryConfig()
+		if options.CatalogRetryConfig != nil {
+			dependencyConfig = *options.CatalogRetryConfig
+		}
 		dependencyConfig.Logger = options.Logger.GetUnderlyingLogger()
 		dependencyConfig.OperationName = fmt.Sprintf("GetOffering dependency catalogID='%s', offeringID='%s'", dependencyCatalogID, dependency.OfferingID)
 		dependencyConfig.MaxRetries = 3 // Keep same retry count as before
