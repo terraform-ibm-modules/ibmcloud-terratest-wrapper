@@ -2209,8 +2209,11 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 
 	// Step 4: Execute all permutations in parallel using matrix test infrastructure
 	matrix := AddonTestMatrix{
-		TestCases:   testCases,
-		BaseOptions: options,
+		TestCases:        testCases,
+		BaseOptions:      options,
+		StaggerDelay:     options.StaggerDelay,
+		StaggerBatchSize: options.StaggerBatchSize,
+		WithinBatchDelay: options.WithinBatchDelay,
 		BaseSetupFunc: func(baseOptions *TestAddonOptions, testCase AddonTestCase) *TestAddonOptions {
 			// Clone base options for each test case
 			testOptions := baseOptions.copy()

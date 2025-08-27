@@ -608,6 +608,19 @@ type TestAddonOptions struct {
 	// When nil, uses common.DefaultRetryConfig() defaults (3 retries, 2s initial delay, 30s max, exponential backoff)
 	DeployRetryConfig *common.RetryConfig
 
+	// StaggerDelay Configuration for delay between starting batches of parallel tests (optional)
+	// When nil, uses default 10 seconds. Set to 0 to disable staggering.
+	// Recommended values: 5-15 seconds for most scenarios, 20-30 seconds for high API sensitivity.
+	StaggerDelay *time.Duration
+	// StaggerBatchSize Configuration for number of tests per batch for staggered execution (optional)
+	// When nil, uses default 8 tests per batch. Set to 0 to use linear staggering.
+	// Recommended values: 8-12 for default, 4-6 for high API sensitivity, 15-25 for low sensitivity.
+	StaggerBatchSize *int
+	// WithinBatchDelay Configuration for delay between tests within the same batch (optional)
+	// When nil, uses default 2 seconds. Only used when StaggerBatchSize > 0.
+	// Recommended values: 1-3 seconds for most scenarios, 5+ for high sensitivity.
+	WithinBatchDelay *time.Duration
+
 	// VerboseValidationErrors If set to true, shows detailed individual error messages instead of consolidated summary
 	VerboseValidationErrors bool
 	// EnhancedTreeValidationOutput If set to true, shows dependency tree with validation status annotations
@@ -929,6 +942,9 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		ProjectRetryConfig:           options.ProjectRetryConfig,
 		CatalogRetryConfig:           options.CatalogRetryConfig,
 		DeployRetryConfig:            options.DeployRetryConfig,
+		StaggerDelay:                 options.StaggerDelay,
+		StaggerBatchSize:             options.StaggerBatchSize,
+		WithinBatchDelay:             options.WithinBatchDelay,
 		PreDeployHook:                options.PreDeployHook,
 		PostDeployHook:               options.PostDeployHook,
 		PreUndeployHook:              options.PreUndeployHook,
