@@ -820,6 +820,101 @@ Available retry strategies from `common.RetryStrategy`:
 - **Match strategy to failure type**: exponential for transient issues, linear for rate limiting
 - **Test retry configurations** in your specific environment before using in CI/CD pipelines
 
+### Stagger Configuration
+
+Configure timing behavior for parallel test execution to control API call spacing and prevent rate limiting during matrix tests and permutation tests:
+
+```golang
+// Configure stagger settings for permutation tests
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "perm-test",
+    StaggerDelay: StaggerDelay(15 * time.Second),     // 15s delay between batches
+    StaggerBatchSize: StaggerBatchSize(12),           // 12 tests per batch
+    WithinBatchDelay: WithinBatchDelay(3 * time.Second), // 3s delay within batch
+    AddonConfig: cloudinfo.AddonConfig{
+        OfferingName: "my-addon",
+        // ... other config
+    },
+})
+
+// These settings apply to RunAddonPermutationTest()
+err := options.RunAddonPermutationTest()
+```
+
+**Stagger Configuration Options:**
+
+- **`StaggerDelay`**: Controls delay between starting batches of parallel tests
+  - Default: 10 seconds when nil
+  - Set to 0 to disable staggering entirely
+  - Recommended: 5-15 seconds for most scenarios, 20-30 seconds for high API sensitivity
+
+- **`StaggerBatchSize`**: Number of tests per batch for staggered execution
+  - Default: 8 tests per batch when nil
+  - Set to 0 to use linear staggering (original behavior)
+  - Recommended: 8-12 for default, 4-6 for high API sensitivity, 15-25 for low sensitivity
+
+- **`WithinBatchDelay`**: Delay between tests within the same batch
+  - Default: 2 seconds when nil
+  - Only used when StaggerBatchSize > 0
+  - Recommended: 1-3 seconds for most scenarios, 5+ for high sensitivity
+
+**Environment-Specific Examples:**
+
+```golang
+// High API sensitivity environment (conservative staggering)
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "sensitive-test",
+    StaggerDelay:     StaggerDelay(30 * time.Second),  // Long delays between batches
+    StaggerBatchSize: StaggerBatchSize(4),             // Small batches
+    WithinBatchDelay: WithinBatchDelay(5 * time.Second), // Long delays within batches
+})
+
+// Fast execution environment (aggressive batching)
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "fast-test",
+    StaggerDelay:     StaggerDelay(5 * time.Second),   // Short delays between batches
+    StaggerBatchSize: StaggerBatchSize(20),            // Large batches
+    WithinBatchDelay: WithinBatchDelay(1 * time.Second), // Short delays within batches
+})
+
+// Linear staggering (original behavior, not recommended for >20 tests)
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "linear-test",
+    StaggerDelay:     StaggerDelay(10 * time.Second),  // 10s between each test
+    StaggerBatchSize: StaggerBatchSize(0),             // Disable batching
+    // WithinBatchDelay ignored when batching disabled
+})
+```
+
+**Helper Functions:**
+
+The framework provides convenient helper functions that can be used as direct values:
+
+```golang
+// Using helper functions for cleaner syntax
+options.StaggerDelay = testaddons.StaggerDelay(15 * time.Second)
+options.StaggerBatchSize = testaddons.StaggerBatchSize(12)
+options.WithinBatchDelay = testaddons.WithinBatchDelay(3 * time.Second)
+```
+
+**Usage with Different Test Methods:**
+
+- **`RunAddonPermutationTest()`**: Uses stagger settings from TestAddonOptions
+- **`RunAddonTestMatrix()`**: Uses stagger settings from AddonTestMatrix struct (higher precedence)
+- **`RunAddonTest()`**: Single tests don't use stagger settings
+
+**Best Practices:**
+
+- **Use defaults** for most scenarios - they're optimized for typical parallel test execution
+- **Increase delays and reduce batch sizes** in environments with strict API rate limiting
+- **Decrease delays and increase batch sizes** in stable environments for faster execution
+- **Monitor API rate limit errors** to determine if stagger settings need adjustment
+- **Test stagger configurations** with your specific addon's API usage patterns
+
 ### Enhanced Debug Output
 
 When input validation fails, the framework automatically provides detailed debug information to help diagnose issues:
