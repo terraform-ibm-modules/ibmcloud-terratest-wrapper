@@ -726,6 +726,100 @@ options.InputValidationRetryDelay = 3 * time.Second  // Default: 2 seconds
 
 **Note:** Input validation includes automatic retry logic to handle cases where the backend database hasn't been updated yet after configuration changes. This prevents false failures due to timing issues between configuration updates and validation checks.
 
+### Operation Retry Configuration
+
+Configure retry behavior for different types of operations to handle transient failures and adapt to different environment reliability characteristics:
+
+```golang
+// Configure project operation retries (creation, deletion)
+projectRetry := common.ProjectOperationRetryConfig() // Get default config
+projectRetry.MaxRetries = 8                          // Increase retries for unreliable environments
+projectRetry.InitialDelay = 5 * time.Second         // Longer initial delay
+projectRetry.MaxDelay = 60 * time.Second            // Higher maximum delay
+options.ProjectRetryConfig = &projectRetry
+
+// Configure catalog operation retries (offering fetches, catalog operations)
+catalogRetry := common.CatalogOperationRetryConfig() // Get default config
+catalogRetry.MaxRetries = 3                          // Fewer retries for fast environments
+catalogRetry.InitialDelay = 1 * time.Second         // Shorter delays
+options.CatalogRetryConfig = &catalogRetry
+
+// Configure deployment operation retries
+deployRetry := common.DefaultRetryConfig()           // Get default config
+deployRetry.Strategy = common.LinearBackoff          // Use linear instead of exponential
+deployRetry.MaxRetries = 2                          // Minimal retries for fast execution
+options.DeployRetryConfig = &deployRetry
+```
+
+**Retry Configuration Types:**
+
+- **`ProjectRetryConfig`**: Controls project creation and deletion retry behavior
+  - Default: 5 retries, 3s initial delay, 45s max delay, exponential backoff
+  - Handles transient database errors during project operations
+
+- **`CatalogRetryConfig`**: Controls catalog and offering operation retry behavior
+  - Default: 5 retries, 3s initial delay, 30s max delay, linear backoff
+  - Handles API rate limiting and temporary service unavailability
+
+- **`DeployRetryConfig`**: Controls deployment operation retry behavior
+  - Default: 3 retries, 2s initial delay, 30s max delay, exponential backoff
+  - Handles deployment timeouts and infrastructure failures
+
+**Default Values:**
+
+When retry configurations are `nil` (default), the framework uses sensible defaults optimized for typical testing environments. Only specify custom retry configurations when you need to adapt to specific environment characteristics.
+
+**Environment-Specific Examples:**
+
+```golang
+// High-reliability environment (unstable network, frequent transients)
+projectRetry := common.ProjectOperationRetryConfig()
+projectRetry.MaxRetries = 8
+projectRetry.InitialDelay = 5 * time.Second
+projectRetry.MaxDelay = 60 * time.Second
+
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "high-reliability-test",
+    ProjectRetryConfig: &projectRetry,
+})
+
+// Fast execution environment (stable network, minimal retries needed)
+fastRetry := common.DefaultRetryConfig()
+fastRetry.MaxRetries = 2
+fastRetry.InitialDelay = 1 * time.Second
+
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "fast-test",
+    CatalogRetryConfig: &fastRetry,
+    DeployRetryConfig: &fastRetry,
+})
+
+// Development environment (balanced approach)
+// Use defaults by not specifying retry configs (recommended for most cases)
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "dev-test",
+    // ProjectRetryConfig, CatalogRetryConfig, DeployRetryConfig all nil = use defaults
+})
+```
+
+**Retry Strategy Options:**
+
+Available retry strategies from `common.RetryStrategy`:
+- `common.ExponentialBackoff`: Delay doubles each retry (2s, 4s, 8s, 16s...)
+- `common.LinearBackoff`: Delay increases linearly (2s, 4s, 6s, 8s...)
+- `common.FixedDelay`: Same delay every retry (2s, 2s, 2s, 2s...)
+
+**Best Practices:**
+
+- **Use defaults** for most scenarios - they're optimized for typical IBM Cloud environments
+- **Increase retries** in unreliable network environments or during high-load periods
+- **Decrease retries** in stable environments or when fast failure feedback is preferred
+- **Match strategy to failure type**: exponential for transient issues, linear for rate limiting
+- **Test retry configurations** in your specific environment before using in CI/CD pipelines
+
 ### Enhanced Debug Output
 
 When input validation fails, the framework automatically provides detailed debug information to help diagnose issues:

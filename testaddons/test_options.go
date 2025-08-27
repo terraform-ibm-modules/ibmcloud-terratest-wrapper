@@ -598,6 +598,16 @@ type TestAddonOptions struct {
 	// InputValidationRetryDelay The delay between retry attempts for input validation (default: 2 seconds)
 	InputValidationRetryDelay time.Duration
 
+	// ProjectRetryConfig Configuration for project creation/deletion retry behavior (optional)
+	// When nil, uses common.ProjectOperationRetryConfig() defaults (5 retries, 3s initial delay, 45s max, exponential backoff)
+	ProjectRetryConfig *common.RetryConfig
+	// CatalogRetryConfig Configuration for catalog operation retry behavior (optional)
+	// When nil, uses common.CatalogOperationRetryConfig() defaults (5 retries, 3s initial delay, 30s max, linear backoff)
+	CatalogRetryConfig *common.RetryConfig
+	// DeployRetryConfig Configuration for deployment operation retry behavior (optional)
+	// When nil, uses common.DefaultRetryConfig() defaults (3 retries, 2s initial delay, 30s max, exponential backoff)
+	DeployRetryConfig *common.RetryConfig
+
 	// VerboseValidationErrors If set to true, shows detailed individual error messages instead of consolidated summary
 	VerboseValidationErrors bool
 	// EnhancedTreeValidationOutput If set to true, shows dependency tree with validation status annotations
@@ -916,6 +926,9 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		TestCaseName:                 options.TestCaseName,
 		InputValidationRetries:       options.InputValidationRetries,
 		InputValidationRetryDelay:    options.InputValidationRetryDelay,
+		ProjectRetryConfig:           options.ProjectRetryConfig,
+		CatalogRetryConfig:           options.CatalogRetryConfig,
+		DeployRetryConfig:            options.DeployRetryConfig,
 		PreDeployHook:                options.PreDeployHook,
 		PostDeployHook:               options.PostDeployHook,
 		PreUndeployHook:              options.PreUndeployHook,
