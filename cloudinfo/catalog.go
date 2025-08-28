@@ -50,7 +50,7 @@ func (infoSvc *CloudInfoService) GetCatalogVersionByLocator(versionLocator strin
 			}
 			return nil, fmt.Errorf("version not found")
 		} else {
-			return nil, fmt.Errorf("failed to get version: %s", response.RawResult)
+			return nil, fmt.Errorf("failed to get version (status %d): %s", response.StatusCode, response.RawResult)
 		}
 	})
 }
@@ -83,7 +83,7 @@ func (infoSvc *CloudInfoService) CreateCatalog(catalogName string) (*catalogmana
 			return catalog, nil
 		}
 
-		return nil, fmt.Errorf("failed to create catalog: %s", response.RawResult)
+		return nil, fmt.Errorf("failed to create catalog (status %d): %s", response.StatusCode, response.RawResult)
 	})
 }
 
@@ -104,7 +104,7 @@ func (infoSvc *CloudInfoService) DeleteCatalog(catalogID string) error {
 		return nil
 	}
 
-	return fmt.Errorf("failed to delete catalog: %s", response.RawResult)
+	return fmt.Errorf("failed to delete catalog (status %d): %s", response.StatusCode, response.RawResult)
 }
 
 // ImportOffering Import a new offering using the Catalog Management service
@@ -153,7 +153,7 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 			return offering, nil
 		}
 
-		return nil, fmt.Errorf("failed to import offering: %s", response.RawResult)
+		return nil, fmt.Errorf("failed to import offering (status %d): %s", response.StatusCode, response.RawResult)
 	})
 }
 

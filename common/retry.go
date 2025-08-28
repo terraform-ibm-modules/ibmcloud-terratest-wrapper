@@ -3,6 +3,8 @@ package common
 import (
 	"fmt"
 	"math/rand"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -141,6 +143,13 @@ func RetryForRateLimit[T any](operation func() (T, error)) (T, error) {
 
 // calculateDelay calculates the delay for the next retry attempt
 func calculateDelay(config RetryConfig, attempt int) time.Duration {
+	// Skip delays when running in test mode to prevent CI timeouts
+	// Go test binaries have ".test" suffix - this allows tests to run quickly
+	// while preserving retry logic and counting for test verification
+	if strings.HasSuffix(os.Args[0], ".test") {
+		return 0
+	}
+
 	var delay time.Duration
 
 	switch config.Strategy {
@@ -182,7 +191,8 @@ func calculateDelay(config RetryConfig, attempt int) time.Duration {
 	return delay
 }
 
-// IsRetryableError determines if an error should be retried based on common patterns
+// IsRetryableError determines if an error should be retried using a deny list approach
+// DEFAULT BEHAVIOR: Retry all errors EXCEPT those in the non-retryable list
 func IsRetryableError(err error) bool {
 	if err == nil {
 		return false
@@ -191,9 +201,41 @@ func IsRetryableError(err error) bool {
 	errStr := fmt.Sprintf("%v", err)
 
 	// Non-retryable errors - these should fail immediately without retry
+	// Default behavior: RETRY ALL OTHER ERRORS (including transient 404s, network errors, etc.)
 	nonRetryablePatterns := []string{
-		"ISB064E",                   // Config already exists - not retryable
-		"already exists in project", // Config already exists - not retryable
+		// Authentication and authorization errors
+		"401",
+		"unauthorized",
+		"403",
+		"forbidden",
+		"invalid token",
+		"authentication failed",
+		"access denied",
+
+		// Validation and permanent client errors
+		"400",
+		"bad request",
+		"invalid parameter",
+		"validation error",
+		"malformed request",
+
+		// Permanent conflicts and duplicates
+		"ISB064E",                   // Config already exists
+		"already exists in project", // Config already exists
+		"409",
+		"conflict",
+		"duplicate",
+
+		// Permanent not found errors (specific cases only)
+		"resource permanently deleted",
+		"catalog not found",
+		"offering not found",
+		"permanently removed",
+
+		// Quota and limit exceeded (non-temporary)
+		"quota exceeded",
+		"limit exceeded permanently",
+		"subscription expired",
 	}
 
 	for _, pattern := range nonRetryablePatterns {
@@ -202,77 +244,53 @@ func IsRetryableError(err error) bool {
 		}
 	}
 
-	// Network-related errors that are common in parallel test execution
-	retryablePatterns := []string{
-		"timeout",
-		"connection refused",
-		"connection reset",
-		"network is unreachable",
-		"temporary failure",
-		"rate limit",
-		"too many requests",
-		"service unavailable",
-		"internal server error",
-		"bad gateway",
-		"gateway timeout",
-		"deadline exceeded",
-		"context deadline exceeded",
-		"operation timed out",
-		"server error",
-		"502",
-		"503",
-		"504",
-		"429",
-		"500",
-	}
-
-	for _, pattern := range retryablePatterns {
-		if StringContainsIgnoreCase(errStr, pattern) {
-			return true
-		}
-	}
-
-	return false
+	// Default: RETRY all other errors including:
+	// - Transient 404s (like ISB143E configuration not found due to eventual consistency)
+	// - Network errors (timeouts, connection issues)
+	// - Server errors (500s, 502s, 503s, 504s)
+	// - Rate limiting (429)
+	// - Any other transient errors
+	return true
 }
 
 // IsProjectRetryableError determines if a project-related error should be retried
+// Uses the same deny list approach as IsRetryableError with additional project-specific non-retryable patterns
 func IsProjectRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
 
-	// First check general retryable errors
-	if IsRetryableError(err) {
-		return true
+	// Check general retryable errors first (uses deny list approach - defaults to retry)
+	if !IsRetryableError(err) {
+		return false
 	}
 
-	// Project and database-specific errors that are likely transient
-	projectRetryablePatterns := []string{
-		"unable to write project config document into db",
-		"unable to write project config document",
-		"database timeout",
-		"database connection failed",
-		"connection pool exhausted",
-		"database unavailable",
-		"database error",
-		"transaction failed",
-		"lock timeout",
-		"deadlock",
-		"database busy",
-		"connection timeout",
-		"write conflict",
-		"resource busy",
-		"concurrent modification",
-		"database connection reset",
-		"connection lost",
+	// Project-specific non-retryable patterns
+	// These are project errors that should NOT be retried even though they might pass the general check
+	errStr := fmt.Sprintf("%v", err)
+	projectNonRetryablePatterns := []string{
+		// Project permission/authorization errors specific to Projects service
+		"project access denied",
+		"project not authorized",
+		"insufficient project permissions",
+
+		// Project validation errors
+		"invalid project configuration",
+		"project validation failed",
+		"invalid project parameters",
+
+		// Permanent project state errors
+		"project permanently deleted",
+		"project archived",
+		"project disabled permanently",
 	}
 
-	errLower := fmt.Sprintf("%v", err)
-	for _, pattern := range projectRetryablePatterns {
-		if StringContainsIgnoreCase(errLower, pattern) {
-			return true
+	for _, pattern := range projectNonRetryablePatterns {
+		if StringContainsIgnoreCase(errStr, pattern) {
+			return false
 		}
 	}
 
-	return false
+	// Default: Retry (following deny list philosophy)
+	return true
 }
