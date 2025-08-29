@@ -1584,7 +1584,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 // runAddonTestMatrix contains the core matrix execution logic without matrix-level error reporting
 // This private method is used by both RunAddonTestMatrix() and permutation tests
 func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
-	options.Testing.Parallel()
+	// Note: Parent test is NOT made parallel to avoid blocking other tests from starting
+	// while all subtests are being created. Subtests are still parallel with each other.
+	// options.Testing.Parallel()
 
 	// Validate that BaseOptions is provided
 	if matrix.BaseOptions == nil {
