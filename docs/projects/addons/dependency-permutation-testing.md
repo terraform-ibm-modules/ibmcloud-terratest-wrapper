@@ -46,6 +46,7 @@ import (
 )
 
 func TestSecretsManagerDependencyPermutations(t *testing.T) {
+    t.Parallel()
 
     options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
@@ -355,6 +356,8 @@ When permutations fail validation, you'll see detailed error information:
 ```golang
 // Single method call tests all permutations
 func TestAddonPermutations(t *testing.T) {
+    t.Parallel()
+
     options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "addon-perm",
@@ -380,6 +383,8 @@ func TestAddonPermutations(t *testing.T) {
 ```golang
 // Manual control over each test case
 func TestAddonMatrix(t *testing.T) {
+    t.Parallel()
+
     testCases := []testaddons.AddonTestCase{
         {
             Name:   "PrimaryDeployment",
