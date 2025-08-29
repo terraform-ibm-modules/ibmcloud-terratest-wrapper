@@ -855,12 +855,40 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		rootCatalogID = options.AddonConfig.CatalogID
 		rootOfferingID = options.AddonConfig.OfferingID
 
+		// Debug logging to help track race conditions in parallel tests
+		options.Logger.ShortInfo(fmt.Sprintf("Pre-validation state: CatalogID='%s', OfferingID='%s', VersionLocator='%s' (offering_ptr=%p, catalog_ptr=%p)",
+			rootCatalogID, rootOfferingID, rootVersionLocator, options.offering, options.catalog))
+
 		// Add validation to catch the race condition/uninitialized catalog issue
 		if rootCatalogID == "" {
-			return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.CatalogID is empty - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s'", rootVersionLocator, options.AddonConfig.OfferingName), "POST_DEPLOYMENT_VALIDATION_CATALOGID")
+			options.Logger.ShortWarn("CatalogID is empty during validation - attempting to recover offering details (this may indicate a race condition in parallel test execution)")
+
+			// Attempt to refresh offering details to recover from race condition
+			SetOfferingDetails(options)
+			rootCatalogID = options.AddonConfig.CatalogID
+
+			// Check again after attempting recovery
+			if rootCatalogID == "" {
+				options.Logger.ShortError("CatalogID is still empty after recovery attempt - this indicates a serious issue with offering setup or parallel test synchronization")
+				return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.CatalogID is empty after recovery attempt - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s'", rootVersionLocator, options.AddonConfig.OfferingName), "POST_DEPLOYMENT_VALIDATION_CATALOGID")
+			} else {
+				options.Logger.ShortInfo(fmt.Sprintf("Successfully recovered CatalogID: %s", rootCatalogID))
+			}
 		}
 		if rootOfferingID == "" {
-			return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.OfferingID is empty - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s', CatalogID='%s'", rootVersionLocator, options.AddonConfig.OfferingName, rootCatalogID), "POST_DEPLOYMENT_VALIDATION_OFFERINGID")
+			options.Logger.ShortWarn("OfferingID is empty during validation - attempting to recover offering details (this may indicate a race condition in parallel test execution)")
+
+			// Attempt to refresh offering details to recover from race condition
+			SetOfferingDetails(options)
+			rootOfferingID = options.AddonConfig.OfferingID
+
+			// Check again after attempting recovery
+			if rootOfferingID == "" {
+				options.Logger.ShortError("OfferingID is still empty after recovery attempt - this indicates a serious issue with offering setup or parallel test synchronization")
+				return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.OfferingID is empty after recovery attempt - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s', CatalogID='%s'", rootVersionLocator, options.AddonConfig.OfferingName, rootCatalogID), "POST_DEPLOYMENT_VALIDATION_OFFERINGID")
+			} else {
+				options.Logger.ShortInfo(fmt.Sprintf("Successfully recovered OfferingID: %s", rootOfferingID))
+			}
 		}
 		if rootVersionLocator == "" {
 			return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.VersionLocator is empty - this may indicate incomplete offering setup. OfferingName='%s', CatalogID='%s', OfferingID='%s'", options.AddonConfig.OfferingName, rootCatalogID, rootOfferingID), "POST_DEPLOYMENT_VALIDATION_VERSIONLOCATOR")
@@ -1814,8 +1842,14 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 
 			// Ensure CloudInfoService is initialized before using it for catalog operations
 			if testOptions.CloudInfoService == nil {
+				cacheEnabled := true
+				if testOptions.CacheEnabled != nil {
+					cacheEnabled = *testOptions.CacheEnabled
+				}
 				cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
-					Logger: testOptions.Logger,
+					Logger:       testOptions.Logger,
+					CacheEnabled: cacheEnabled,
+					CacheTTL:     testOptions.CacheTTL,
 				})
 				if err != nil {
 					require.NoError(t, err, "Failed to initialize CloudInfoService")

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
@@ -17,13 +18,38 @@ import (
 )
 
 // GetCatalogVersionByLocator gets a version by its locator using the Catalog Management service
+// CACHED: Static catalog metadata - safe to cache as version locator data doesn't change
+// NOTE: Cache can be bypassed with BYPASS_CACHE_FOR_VALIDATION=true for critical validation scenarios
 func (infoSvc *CloudInfoService) GetCatalogVersionByLocator(versionLocator string) (*catalogmanagementv1.Version, error) {
+	// Check cache first if caching is enabled and not bypassed for validation
+	if infoSvc.apiCache != nil && !infoSvc.shouldBypassCache() {
+		cacheKey := infoSvc.apiCache.generateCatalogVersionKey(versionLocator)
+
+		infoSvc.apiCache.mutex.RLock()
+		cached, exists := infoSvc.apiCache.catalogVersionCache[cacheKey]
+		infoSvc.apiCache.mutex.RUnlock()
+
+		if exists && !infoSvc.apiCache.isExpired(cached.Timestamp) {
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.stats.CatalogVersionHits++
+			infoSvc.apiCache.mutex.Unlock()
+
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Cache HIT for catalog version: versionLocator='%s'", versionLocator))
+			return cached.Version, cached.Error
+		}
+
+		// Cache miss
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.stats.CatalogVersionMisses++
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
 	// Use new retry utility for catalog operations
 	config := common.CatalogOperationRetryConfig()
 	config.Logger = infoSvc.Logger
 	config.OperationName = fmt.Sprintf("GetCatalogVersionByLocator '%s'", versionLocator)
 
-	return common.RetryWithConfig(config, func() (*catalogmanagementv1.Version, error) {
+	version, err := common.RetryWithConfig(config, func() (*catalogmanagementv1.Version, error) {
 		// Call the GetCatalogVersionByLocator method with the version locator and the context
 		getVersionOptions := &catalogmanagementv1.GetVersionOptions{
 			VersionLocID: &versionLocator,
@@ -53,6 +79,22 @@ func (infoSvc *CloudInfoService) GetCatalogVersionByLocator(versionLocator strin
 			return nil, fmt.Errorf("failed to get version (status %d): %s", response.StatusCode, response.RawResult)
 		}
 	})
+
+	// Cache the result if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateCatalogVersionKey(versionLocator)
+		cachedResult := &CachedCatalogVersion{
+			Version:   version,
+			Error:     err,
+			Timestamp: time.Now(),
+		}
+
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.catalogVersionCache[cacheKey] = cachedResult
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
+	return version, err
 }
 
 // CreateCatalog creates a new private catalog using the Catalog Management service
@@ -552,6 +594,7 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 
 // DeployAddonToProject deploys an addon and its dependencies to a project
 // POST /api/v1-beta/deploy/projects/:projectID/container
+// NOT CACHED: Deployment operations must always be executed fresh
 
 // This function handles dependency tree hierarchy by ensuring:
 // 1. Each offering (version_locator) appears only once in the deployment list
@@ -722,14 +765,38 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 
 // GetComponentReferences gets the component references for a version locator returns a flat list of all components(dependencies and sub-dependencies) for the given version locator including the inital component.
 // /ui/v1/versions/:version_locator/componentsReferences
+// CACHED: Static dependency tree metadata - safe to cache as component references don't change for a version
 func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error) {
+	// Check cache first if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateComponentReferencesKey(versionLocator)
+
+		infoSvc.apiCache.mutex.RLock()
+		cached, exists := infoSvc.apiCache.componentReferencesCache[cacheKey]
+		infoSvc.apiCache.mutex.RUnlock()
+
+		if exists && !infoSvc.apiCache.isExpired(cached.Timestamp) {
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.stats.ComponentReferencesHits++
+			infoSvc.apiCache.mutex.Unlock()
+
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Cache HIT for component references: versionLocator='%s'", versionLocator))
+			return cached.References, cached.Error
+		}
+
+		// Cache miss
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.stats.ComponentReferencesMisses++
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
 	// Use new retry utility for catalog operations
 	config := common.CatalogOperationRetryConfig()
 	config.Logger = infoSvc.Logger
 	config.OperationName = fmt.Sprintf("GetComponentReferences for '%s'", versionLocator)
 	config.MaxRetries = 10 // More retries for component references
 
-	return common.RetryWithConfig(config, func() (*OfferingReferenceResponse, error) {
+	result, err := common.RetryWithConfig(config, func() (*OfferingReferenceResponse, error) {
 		// Build the request URL
 		url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/ui/v1/versions/%s/componentsReferences", versionLocator)
 
@@ -791,6 +858,22 @@ func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (
 
 		return &offeringReferences, nil
 	})
+
+	// Cache the result if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateComponentReferencesKey(versionLocator)
+		cachedResult := &CachedComponentReferences{
+			References: result,
+			Error:      err,
+			Timestamp:  time.Now(),
+		}
+
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.componentReferencesCache[cacheKey] = cachedResult
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
+	return result, err
 }
 
 // buildHierarchicalDeploymentList creates a deployment list respecting dependency hierarchy.
@@ -951,6 +1034,7 @@ func updateDependencyConfigIDs(dependencies []AddonConfig, configMap map[string]
 }
 
 // GetOffering gets the details of an Offering from a specified Catalog
+// CACHED: Static catalog metadata - safe to cache as offering details don't change
 func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error) {
 
 	// Add validation and debugging for empty parameters
@@ -959,6 +1043,29 @@ func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string
 	}
 	if offeringID == "" {
 		return nil, nil, fmt.Errorf("offeringID cannot be empty - this may indicate an uninitialized offering ID")
+	}
+
+	// Check cache first if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateOfferingKey(catalogID, offeringID)
+
+		infoSvc.apiCache.mutex.RLock()
+		cached, exists := infoSvc.apiCache.offeringCache[cacheKey]
+		infoSvc.apiCache.mutex.RUnlock()
+
+		if exists && !infoSvc.apiCache.isExpired(cached.Timestamp) {
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.stats.OfferingHits++
+			infoSvc.apiCache.mutex.Unlock()
+
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Cache HIT for offering: catalogID='%s', offeringID='%s'", catalogID, offeringID))
+			return cached.Offering, cached.Response, cached.Error
+		}
+
+		// Cache miss
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.stats.OfferingMisses++
+		infoSvc.apiCache.mutex.Unlock()
 	}
 
 	infoSvc.Logger.ShortInfo(fmt.Sprintf("Getting offering details: catalogID='%s', offeringID='%s'", catalogID, offeringID))
@@ -998,6 +1105,25 @@ func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string
 		// Success - return the result
 		return &GetOfferingResult{offering: offering, response: response}, nil
 	})
+
+	// Cache the result if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateOfferingKey(catalogID, offeringID)
+		cachedResult := &CachedOffering{
+			Timestamp: time.Now(),
+		}
+
+		if err != nil {
+			cachedResult.Error = err
+		} else {
+			cachedResult.Offering = resultValue.offering
+			cachedResult.Response = resultValue.response
+		}
+
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.offeringCache[cacheKey] = cachedResult
+		infoSvc.apiCache.mutex.Unlock()
+	}
 
 	if err != nil {
 		return nil, nil, err
@@ -1106,6 +1232,7 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 // Here version_constraint could a pinned version like(v1.0.3) , unpinned version like(^v2.1.4 or ~v1.5.6)
 // range based matching is also supported >=v1.1.2,<=v4.3.1 or <=v3.1.4,>=v1.1.0
 // It uses MatchVersion function in common package to find the suitable version available in case it is not pinned
+// CACHED: Static version resolution - safe to cache as version constraints resolve to the same locator
 func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID string, offeringID string, version_constraint string, flavor string) (string, string, error) {
 
 	// Add validation and debugging for empty parameters
@@ -1116,10 +1243,45 @@ func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID
 		return "", "", fmt.Errorf("offeringID cannot be empty when getting offering version locator - this may indicate an uninitialized offering ID")
 	}
 
+	// Check cache first if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateVersionLocatorKey(catalogID, offeringID, version_constraint, flavor)
+
+		infoSvc.apiCache.mutex.RLock()
+		cached, exists := infoSvc.apiCache.versionLocatorCache[cacheKey]
+		infoSvc.apiCache.mutex.RUnlock()
+
+		if exists && !infoSvc.apiCache.isExpired(cached.Timestamp) {
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.stats.VersionLocatorHits++
+			infoSvc.apiCache.mutex.Unlock()
+
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Cache HIT for version locator: catalogID='%s', offeringID='%s', constraint='%s', flavor='%s'", catalogID, offeringID, version_constraint, flavor))
+			return cached.Version, cached.Locator, cached.Error
+		}
+
+		// Cache miss
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.stats.VersionLocatorMisses++
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
 	infoSvc.Logger.ShortInfo(fmt.Sprintf("Getting offering version locator: catalogID='%s', offeringID='%s', constraint='%s', flavor='%s'", catalogID, offeringID, version_constraint, flavor))
 
 	offering, _, err := infoSvc.GetOffering(catalogID, offeringID)
 	if err != nil {
+		// Cache the error if caching is enabled
+		if infoSvc.apiCache != nil {
+			cacheKey := infoSvc.apiCache.generateVersionLocatorKey(catalogID, offeringID, version_constraint, flavor)
+			cachedResult := &CachedVersionLocator{
+				Error:     fmt.Errorf("unable to get the dependency offering with catalogID='%s', offeringID='%s', constraint='%s', flavor='%s': %w", catalogID, offeringID, version_constraint, flavor, err),
+				Timestamp: time.Now(),
+			}
+
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.versionLocatorCache[cacheKey] = cachedResult
+			infoSvc.apiCache.mutex.Unlock()
+		}
 		return "", "", fmt.Errorf("unable to get the dependency offering with catalogID='%s', offeringID='%s', constraint='%s', flavor='%s': %w", catalogID, offeringID, version_constraint, flavor, err)
 	}
 
@@ -1141,10 +1303,40 @@ func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID
 
 	bestVersion := common.GetLatestVersionByConstraint(versionList, version_constraint)
 	if bestVersion == "" {
-		return "", "", fmt.Errorf("could not find a matching version for dependency %s ", *offering.Name)
+		err := fmt.Errorf("could not find a matching version for dependency %s ", *offering.Name)
+
+		// Cache the error if caching is enabled
+		if infoSvc.apiCache != nil {
+			cacheKey := infoSvc.apiCache.generateVersionLocatorKey(catalogID, offeringID, version_constraint, flavor)
+			cachedResult := &CachedVersionLocator{
+				Error:     err,
+				Timestamp: time.Now(),
+			}
+
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.versionLocatorCache[cacheKey] = cachedResult
+			infoSvc.apiCache.mutex.Unlock()
+		}
+
+		return "", "", err
 	}
 
 	versionLocator := versionLocatorMap[bestVersion]
+
+	// Cache the successful result if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateVersionLocatorKey(catalogID, offeringID, version_constraint, flavor)
+		cachedResult := &CachedVersionLocator{
+			Version:   bestVersion,
+			Locator:   versionLocator,
+			Timestamp: time.Now(),
+		}
+
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.versionLocatorCache[cacheKey] = cachedResult
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
 	return bestVersion, versionLocator, nil
 
 }

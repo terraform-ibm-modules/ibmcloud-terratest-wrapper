@@ -65,6 +65,8 @@ func (infoSvc *CloudInfoService) CreateProjectFromConfig(config *ProjectsConfig)
 	return infoSvc.projectsService.CreateProject(projectOptions)
 }
 
+// GetProject gets current project state
+// NOT CACHED: Project state can change and tests must validate current state
 func (infoSvc *CloudInfoService) GetProject(projectID string) (result *project.Project, response *core.DetailedResponse, err error) {
 	getProjectOptions := &project.GetProjectOptions{
 		ID: &projectID,
@@ -72,6 +74,8 @@ func (infoSvc *CloudInfoService) GetProject(projectID string) (result *project.P
 	return infoSvc.projectsService.GetProject(getProjectOptions)
 }
 
+// GetProjectConfigs lists all configurations for a project
+// NOT CACHED: Configuration list can change during test execution
 func (infoSvc *CloudInfoService) GetProjectConfigs(projectID string) (results []project.ProjectConfigSummary, err error) {
 	listConfigsOptions := &project.ListConfigsOptions{
 		ProjectID: &projectID,
@@ -94,6 +98,8 @@ func (infoSvc *CloudInfoService) GetProjectConfigs(projectID string) (results []
 	return allResults, nil
 }
 
+// DeleteProject deletes a project
+// NOT CACHED: Destructive operation must always be executed fresh
 func (infoSvc *CloudInfoService) DeleteProject(projectID string) (result *project.ProjectDeleteResponse, response *core.DetailedResponse, err error) {
 	deleteProjectOptions := &project.DeleteProjectOptions{
 		ID: &projectID,
@@ -228,6 +234,8 @@ func (infoSvc *CloudInfoService) ForceValidateProjectConfig(configDetails *Confi
 	return infoSvc.projectsService.ValidateConfig(validateConfigOptions)
 }
 
+// ValidateProjectConfig validates a project configuration
+// NOT CACHED: Validation results must always be fresh - critical for test correctness
 func (infoSvc *CloudInfoService) ValidateProjectConfig(configDetails *ConfigDetails) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 	configVersion, isDeployed := infoSvc.IsConfigDeployed(configDetails)
 	if !isDeployed {
@@ -237,12 +245,16 @@ func (infoSvc *CloudInfoService) ValidateProjectConfig(configDetails *ConfigDeta
 	}
 }
 
+// GetProjectConfigVersion gets a specific configuration version
+// NOT CACHED: Configuration version state can change during test execution
 func (infoSvc *CloudInfoService) GetProjectConfigVersion(configDetails *ConfigDetails, version int64) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 
 	getConfigOptions := infoSvc.projectsService.NewGetConfigVersionOptions(configDetails.ProjectID, configDetails.ConfigID, version)
 	return infoSvc.projectsService.GetConfigVersion(getConfigOptions)
 }
 
+// GetConfig gets the current configuration state - CRITICAL for test validation
+// NOT CACHED: Configuration state can change and tests must always validate actual deployed state
 func (infoSvc *CloudInfoService) GetConfig(configDetails *ConfigDetails) (result *project.ProjectConfig, response *core.DetailedResponse, err error) {
 	getConfigOptions := &project.GetConfigOptions{
 		ProjectID: &configDetails.ProjectID,
@@ -272,6 +284,7 @@ func (infoSvc *CloudInfoService) UpdateConfigWithHeaders(configDetails *ConfigDe
 }
 
 // DeployConfig deploys a project config
+// NOT CACHED: Deployment operations must always be executed fresh
 func (infoSvc *CloudInfoService) DeployConfig(configDetails *ConfigDetails) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 	configVersion, isDeployed := infoSvc.IsConfigDeployed(configDetails)
 	if !isDeployed {
@@ -290,6 +303,7 @@ func (infoSvc *CloudInfoService) ForceDeployConfig(configDetails *ConfigDetails)
 }
 
 // IsConfigDeployed checks if the config is deployed
+// NOT CACHED: Deployment status must always be checked in real-time
 func (infoSvc *CloudInfoService) IsConfigDeployed(configDetails *ConfigDetails) (projectConfig *project.ProjectConfigVersion, isDeployed bool) {
 	config, _, err := infoSvc.GetConfig(configDetails)
 	if err != nil {
@@ -315,6 +329,7 @@ func (infoSvc *CloudInfoService) IsConfigDeployed(configDetails *ConfigDetails) 
 }
 
 // UndeployConfig undeploys a project config
+// NOT CACHED: Deployment operations must always be executed fresh
 func (infoSvc *CloudInfoService) UndeployConfig(details *ConfigDetails) (result *project.ProjectConfigVersion, response *core.DetailedResponse, err error) {
 	undeployConfigOptions := &project.UndeployConfigOptions{
 		ProjectID: &details.ProjectID,

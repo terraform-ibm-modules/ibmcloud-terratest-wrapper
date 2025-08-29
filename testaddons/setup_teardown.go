@@ -139,8 +139,14 @@ func (options *TestAddonOptions) testSetup() error {
 
 	// create new CloudInfoService if not supplied
 	if options.CloudInfoService == nil {
+		cacheEnabled := true
+		if options.CacheEnabled != nil {
+			cacheEnabled = *options.CacheEnabled
+		}
 		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
-			Logger: options.Logger,
+			Logger:       options.Logger,
+			CacheEnabled: cacheEnabled,
+			CacheTTL:     options.CacheTTL,
 		})
 		if err != nil {
 			return err
