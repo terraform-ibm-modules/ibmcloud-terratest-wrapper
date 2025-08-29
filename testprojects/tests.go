@@ -996,7 +996,14 @@ func (options *TestProjectsOptions) testSetup() error {
 
 	// create new CloudInfoService if not supplied
 	if options.CloudInfoService == nil {
-		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
+		cacheEnabled := true
+		if options.CacheEnabled != nil {
+			cacheEnabled = *options.CacheEnabled
+		}
+		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
+			CacheEnabled: cacheEnabled,
+			CacheTTL:     options.CacheTTL,
+		})
 		if err != nil {
 			return err
 		}
