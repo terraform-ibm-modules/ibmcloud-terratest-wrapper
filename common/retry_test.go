@@ -297,8 +297,8 @@ func TestRetryConfigurations(t *testing.T) {
 	t.Run("CatalogOperationRetryConfig", func(t *testing.T) {
 		config := CatalogOperationRetryConfig()
 		assert.Equal(t, 5, config.MaxRetries)
-		assert.Equal(t, 3*time.Second, config.InitialDelay)
-		assert.Equal(t, 30*time.Second, config.MaxDelay)
+		assert.Equal(t, 5*time.Second, config.InitialDelay)
+		assert.Equal(t, 60*time.Second, config.MaxDelay)
 		assert.Equal(t, LinearBackoff, config.Strategy)
 		assert.True(t, config.Jitter)
 		assert.NotNil(t, config.RetryableErrorChecker)

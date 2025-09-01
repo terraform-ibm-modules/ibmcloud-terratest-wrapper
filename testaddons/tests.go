@@ -466,7 +466,10 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	// They are declared here but will only be evaluated after dependency validation
 
 	// set offering details
-	SetOfferingDetails(options)
+	err = SetOfferingDetails(options)
+	if err != nil {
+		return setFailureResult(err, "SET_OFFERING_DETAILS")
+	}
 
 	// Create a map of deployed config IDs for this test case to avoid processing configs from other test cases
 	deployedConfigIDs := make(map[string]bool)
@@ -864,7 +867,11 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			options.Logger.ShortWarn("CatalogID is empty during validation - attempting to recover offering details (this may indicate a race condition in parallel test execution)")
 
 			// Attempt to refresh offering details to recover from race condition
-			SetOfferingDetails(options)
+			err := SetOfferingDetails(options)
+			if err != nil {
+				options.Logger.ShortError(fmt.Sprintf("Failed to refresh offering details during catalog ID recovery: %v", err))
+				return setFailureResult(fmt.Errorf("failed to recover catalog ID: %w", err), "CATALOG_ID_RECOVERY")
+			}
 			rootCatalogID = options.AddonConfig.CatalogID
 
 			// Check again after attempting recovery
@@ -879,7 +886,11 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			options.Logger.ShortWarn("OfferingID is empty during validation - attempting to recover offering details (this may indicate a race condition in parallel test execution)")
 
 			// Attempt to refresh offering details to recover from race condition
-			SetOfferingDetails(options)
+			err := SetOfferingDetails(options)
+			if err != nil {
+				options.Logger.ShortError(fmt.Sprintf("Failed to refresh offering details during offering ID recovery: %v", err))
+				return setFailureResult(fmt.Errorf("failed to recover offering ID: %w", err), "OFFERING_ID_RECOVERY")
+			}
 			rootOfferingID = options.AddonConfig.OfferingID
 
 			// Check again after attempting recovery
@@ -1043,11 +1054,21 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			}
 
 			if rootConfig != nil {
-				options.printComprehensiveTreeWithStatus(*rootConfig, allDeployedTree, graph, "", true, make(map[string]bool), validationResult)
+				var builder strings.Builder
+				builder.WriteString("\n") // Add newline at start for proper alignment
+				options.printComprehensiveTreeWithStatus(*rootConfig, allDeployedTree, graph, "", true, make(map[string]bool), validationResult, &builder)
+				if treeStr := builder.String(); treeStr != "" {
+					options.Logger.ShortInfo(strings.TrimSuffix(treeStr, "\n"))
+				}
 			}
 		} else if rootAddon != nil {
 			// Fallback to original tree if no comprehensive tree available
-			options.printAddonTreeWithStatus(*rootAddon, graph, "", true, make(map[string]bool), deployedMap, errorMap, missingMap)
+			var builder strings.Builder
+			builder.WriteString("\n") // Add newline at start for proper alignment
+			options.printAddonTreeWithStatus(*rootAddon, graph, "", true, make(map[string]bool), deployedMap, errorMap, missingMap, &builder)
+			if treeStr := builder.String(); treeStr != "" {
+				options.Logger.ShortInfo(strings.TrimSuffix(treeStr, "\n"))
+			}
 		}
 
 		// Print validation results
@@ -1488,7 +1509,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		hookErr := options.PreDeployHook(options)
 		if hookErr != nil {
 			options.Testing.Fail()
-			return hookErr
+			return setFailureResult(hookErr, "PRE_DEPLOY_HOOK")
 		}
 		options.Logger.ShortInfo("Finished PreDeployHook")
 	}
@@ -1527,7 +1548,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return hookErr
+			return setFailureResult(hookErr, "POST_DEPLOY_HOOK")
 		}
 		options.Logger.ShortInfo("Finished PostDeployHook")
 	}
@@ -1539,7 +1560,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return hookErr
+			return setFailureResult(hookErr, "PRE_UNDEPLOY_HOOK")
 		}
 		options.Logger.ShortInfo("Finished PreUndeployHook")
 	}
@@ -1575,7 +1596,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return hookErr
+			return setFailureResult(hookErr, "POST_UNDEPLOY_HOOK")
 		}
 		options.Logger.ShortInfo("Finished PostUndeployHook")
 	}

@@ -466,6 +466,8 @@ func TestSchematicWaitForJobFinish(t *testing.T) {
 }
 
 func TestSchematicApiRetry(t *testing.T) {
+	// Ensure no real sleep during retry unit tests
+	t.Setenv("SKIP_RETRY_DELAYS", "true")
 	retry := 1
 	svc := &SchematicsTestService{
 		TestOptions: &TestSchematicOptions{
