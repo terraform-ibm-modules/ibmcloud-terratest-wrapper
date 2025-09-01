@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/jinzhu/copier"
@@ -104,6 +105,11 @@ type TestOptions struct {
 	// NOTE: when using `...WithVars()` constructor, this value will be automatically added to the appropriate
 	// TerraformVars entries for tags.
 	Tags []string
+
+	// PostCreateDelay is the delay to wait after creating resources before attempting to read them.
+	// This helps with eventual consistency issues in IBM Cloud APIs.
+	// Default: 1 second. Set to a pointer to 0 duration to disable delays explicitly.
+	PostCreateDelay *time.Duration
 
 	// For Consistency Checks: Specify terraform resource names to ignore for consistency checks.
 	// You can ignore specific resources in both idempotent and upgrade consistency checks by adding their names to these
@@ -304,6 +310,12 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 	newOptions.TerraformOptions = nil
 
 	newOptions.IsUpgradeTest = false
+
+	// Set default post-creation delay if not already set
+	if newOptions.PostCreateDelay == nil {
+		delay := 1 * time.Second
+		newOptions.PostCreateDelay = &delay
+	}
 
 	return newOptions
 

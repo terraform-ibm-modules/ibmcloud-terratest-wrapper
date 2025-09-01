@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"strings"
 	"time"
 )
 
@@ -143,10 +142,10 @@ func RetryForRateLimit[T any](operation func() (T, error)) (T, error) {
 
 // calculateDelay calculates the delay for the next retry attempt
 func calculateDelay(config RetryConfig, attempt int) time.Duration {
-	// Skip delays when running in test mode to prevent CI timeouts
-	// Go test binaries have ".test" suffix - this allows tests to run quickly
-	// while preserving retry logic and counting for test verification
-	if strings.HasSuffix(os.Args[0], ".test") {
+	// Skip delays when SKIP_RETRY_DELAYS environment variable is set to "true"
+	// This allows unit tests to run quickly while preserving retry logic and counting
+	// Integration tests should NOT set this variable to allow proper rate limiting protection
+	if os.Getenv("SKIP_RETRY_DELAYS") == "true" {
 		return 0
 	}
 

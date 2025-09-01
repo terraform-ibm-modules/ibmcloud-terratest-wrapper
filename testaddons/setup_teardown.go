@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
@@ -203,6 +204,13 @@ func (options *TestAddonOptions) setupCatalog() error {
 				return fmt.Errorf("error creating catalog for shared use: %w", err)
 			}
 			options.catalog = catalog
+
+			// Add post-creation delay for eventual consistency
+			if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
+				options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *options.PostCreateDelay))
+				time.Sleep(*options.PostCreateDelay)
+			}
+
 			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
 				options.Logger.ShortInfo(fmt.Sprintf("Created catalog for shared use: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
 			} else {
@@ -218,6 +226,13 @@ func (options *TestAddonOptions) setupCatalog() error {
 				return fmt.Errorf("error creating a new catalog: %w", err)
 			}
 			options.catalog = catalog
+
+			// Add post-creation delay for eventual consistency
+			if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
+				options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *options.PostCreateDelay))
+				time.Sleep(*options.PostCreateDelay)
+			}
+
 			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
 				options.Logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
 			} else {
@@ -387,6 +402,13 @@ func (options *TestAddonOptions) setupProject() error {
 		}
 		options.currentProject = prj
 		options.currentProjectConfig.ProjectID = *options.currentProject.ID
+
+		// Add post-creation delay for eventual consistency
+		if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
+			options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for project to be available...", *options.PostCreateDelay))
+			time.Sleep(*options.PostCreateDelay)
+		}
+
 		options.Logger.ShortInfo(fmt.Sprintf("Created a new project: %s with ID %s", options.ProjectName, options.currentProjectConfig.ProjectID))
 		projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", options.currentProjectConfig.ProjectID)
 		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
