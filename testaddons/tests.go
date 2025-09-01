@@ -1702,8 +1702,6 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 		}
 
 		options.Testing.Run(tc.Name, func(t *testing.T) {
-			t.Parallel()
-
 			defer func() {
 				if r := recover(); r != nil {
 					// Don't re-panic, just log it and let test fail gracefully
@@ -1762,6 +1760,9 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 				}
 				time.Sleep(staggerWait)
 			}
+
+			// Enable parallel execution after stagger delay to ensure tests are released in order
+			t.Parallel()
 
 			// Show test start progress for permutation tests or when in quiet mode
 			if matrix.BaseOptions.QuietMode || matrix.BaseOptions.PermutationTestReport != nil {
