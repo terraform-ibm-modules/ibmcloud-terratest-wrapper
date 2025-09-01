@@ -855,8 +855,10 @@ func (svc *SchematicsTestService) retryApiCall(apiError error, apiStatusCode int
 		}
 	}
 
-	// wait and retry
-	time.Sleep(time.Duration(maxWait) * time.Second)
+	// wait and retry (skip in unit tests when SKIP_RETRY_DELAYS=true)
+	if os.Getenv("SKIP_RETRY_DELAYS") != "true" {
+		time.Sleep(time.Duration(maxWait) * time.Second)
+	}
 	return true
 }
 

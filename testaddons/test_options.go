@@ -695,6 +695,11 @@ type TestAddonOptions struct {
 	lastRuntimeErrors    []string
 	lastTeardownErrors   []string
 
+	// PostCreateDelay is the delay to wait after creating resources before attempting to read them.
+	// This helps with eventual consistency issues in IBM Cloud APIs.
+	// Default: 1 second. Set to a pointer to 0 duration to disable delays explicitly.
+	PostCreateDelay *time.Duration
+
 	// GetDirectDependencyNames allows test injection of dependency names for permutation testing
 	// When set, this function will be called instead of reading from ibm_catalog.json
 	// Used primarily for mocking dependencies in comprehensive regression tests
@@ -837,6 +842,12 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 		newOptions.Logger = common.CreateSmartAutoBufferingLogger(testName, newOptions.QuietMode)
 	}
 
+	// Set default post-creation delay if not already set
+	if newOptions.PostCreateDelay == nil {
+		delay := 1 * time.Second
+		newOptions.PostCreateDelay = &delay
+	}
+
 	return newOptions
 }
 
@@ -950,6 +961,7 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		TestCaseName:                 options.TestCaseName,
 		InputValidationRetries:       options.InputValidationRetries,
 		InputValidationRetryDelay:    options.InputValidationRetryDelay,
+		PostCreateDelay:              options.PostCreateDelay,
 		ProjectRetryConfig:           options.ProjectRetryConfig,
 		CatalogRetryConfig:           options.CatalogRetryConfig,
 		DeployRetryConfig:            options.DeployRetryConfig,

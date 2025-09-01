@@ -56,6 +56,9 @@ func (suite *CatalogServiceTestSuite) SetupTest() {
 			Logger: common.NewTestLogger("CatalogServiceTest"),
 		},
 	}
+	// Ensure unit tests that exercise retry logic do not incur real delays
+	// common.calculateDelay skips when SKIP_RETRY_DELAYS == "true"
+	suite.T().Setenv("SKIP_RETRY_DELAYS", "true")
 }
 
 func (suite *CatalogServiceTestSuite) TestGetCatalogVersionByLocator() {
@@ -178,6 +181,7 @@ func (suite *CatalogServiceTestSuite) TestCreateCatalog() {
 	}
 
 	for _, tc := range testCases {
+
 		suite.Run(tc.name, func() {
 			// Clear previous expectations
 			suite.mockService.ExpectedCalls = nil

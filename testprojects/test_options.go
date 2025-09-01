@@ -109,6 +109,11 @@ type TestProjectsOptions struct {
 	SkipUndeploy      bool
 	SkipProjectDelete bool
 
+	// PostCreateDelay is the delay to wait after creating resources before attempting to read them.
+	// This helps with eventual consistency issues in IBM Cloud APIs.
+	// Default: 1 second. Set to a pointer to 0 duration to disable delays explicitly.
+	PostCreateDelay *time.Duration
+
 	// internal use
 	currentProject       *project.Project
 	currentProjectConfig *cloudinfo.ProjectsConfig
@@ -205,6 +210,12 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 			ApiKey: core.StringPtr(os.Getenv(ibmcloudApiKeyVar)),
 			Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
 		}
+	}
+
+	// Set default post-creation delay if not already set
+	if newOptions.PostCreateDelay == nil {
+		delay := 1 * time.Second
+		newOptions.PostCreateDelay = &delay
 	}
 
 	return newOptions

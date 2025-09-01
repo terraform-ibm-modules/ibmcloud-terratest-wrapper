@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
@@ -31,17 +32,8 @@ func (options *TestAddonOptions) testSetup() error {
 		options.Logger = common.CreateSmartAutoBufferingLogger(options.Testing.Name(), false)
 	}
 
-	// Set logger prefix based on available identifiers (in order of preference)
-	if options.TestCaseName != "" {
-		// Use TestCaseName for clear test identification (preferred for matrix tests and custom scenarios)
-		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.TestCaseName))
-	} else if options.ProjectName != "" {
-		// For single tests, include project name in prefix
-		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.ProjectName))
-	} else {
-		// For tests without project name, use simple prefix
-		options.Logger.SetPrefix("ADDON")
-	}
+	// Set logger prefix - test context already provides test identification
+	options.Logger.SetPrefix("")
 
 	options.Logger.EnableDateTime(false)
 
@@ -194,6 +186,12 @@ func (options *TestAddonOptions) setupCatalog() error {
 		if options.catalog != nil {
 			if options.catalog.Label != nil && options.catalog.ID != nil {
 				options.Logger.ShortInfo(fmt.Sprintf("Using existing catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+				// Seed root AddonConfig CatalogID from the shared/ existing catalog to avoid later
+				// recovery paths that depend on network calls (helps under 429 rate limits)
+				if options.AddonConfig.CatalogID == "" {
+					options.AddonConfig.CatalogID = *options.catalog.ID
+					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from existing catalog: %s", options.AddonConfig.CatalogID))
+				}
 			} else {
 				options.Logger.ShortWarn("Using existing catalog but catalog details are incomplete")
 			}
@@ -209,8 +207,20 @@ func (options *TestAddonOptions) setupCatalog() error {
 				return fmt.Errorf("error creating catalog for shared use: %w", err)
 			}
 			options.catalog = catalog
+
+			// Add post-creation delay for eventual consistency
+			if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
+				options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *options.PostCreateDelay))
+				time.Sleep(*options.PostCreateDelay)
+			}
+
 			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
 				options.Logger.ShortInfo(fmt.Sprintf("Created catalog for shared use: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+				// Seed root AddonConfig CatalogID immediately after creation
+				if options.AddonConfig.CatalogID == "" {
+					options.AddonConfig.CatalogID = *options.catalog.ID
+					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from newly created shared catalog: %s", options.AddonConfig.CatalogID))
+				}
 			} else {
 				options.Logger.ShortWarn("Created catalog for shared use but catalog details are incomplete")
 			}
@@ -224,8 +234,20 @@ func (options *TestAddonOptions) setupCatalog() error {
 				return fmt.Errorf("error creating a new catalog: %w", err)
 			}
 			options.catalog = catalog
+
+			// Add post-creation delay for eventual consistency
+			if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
+				options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *options.PostCreateDelay))
+				time.Sleep(*options.PostCreateDelay)
+			}
+
 			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
 				options.Logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+				// Seed root AddonConfig CatalogID immediately after creation
+				if options.AddonConfig.CatalogID == "" {
+					options.AddonConfig.CatalogID = *options.catalog.ID
+					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from newly created catalog: %s", options.AddonConfig.CatalogID))
+				}
 			} else {
 				options.Logger.ShortWarn("Created catalog but catalog details are incomplete")
 			}
@@ -393,6 +415,13 @@ func (options *TestAddonOptions) setupProject() error {
 		}
 		options.currentProject = prj
 		options.currentProjectConfig.ProjectID = *options.currentProject.ID
+
+		// Add post-creation delay for eventual consistency
+		if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
+			options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for project to be available...", *options.PostCreateDelay))
+			time.Sleep(*options.PostCreateDelay)
+		}
+
 		options.Logger.ShortInfo(fmt.Sprintf("Created a new project: %s with ID %s", options.ProjectName, options.currentProjectConfig.ProjectID))
 		projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", options.currentProjectConfig.ProjectID)
 		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))

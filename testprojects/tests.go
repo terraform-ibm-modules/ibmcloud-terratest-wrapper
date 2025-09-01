@@ -739,6 +739,12 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", fmt.Sprintf("https://cloud.ibm.com/projects/%s", *prj.ID)))
 		options.currentProject = prj
 		options.currentProjectConfig.ProjectID = *prj.ID
+
+		// Add post-creation delay for eventual consistency
+		if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
+			options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for project to be available...", *options.PostCreateDelay))
+			time.Sleep(*options.PostCreateDelay)
+		}
 	} else {
 		projectURL := fmt.Sprintf("https://cloud.ibm.com/projects")
 		options.Logger.ShortError(fmt.Sprintf("Project creation failed after retries - Console: %s", projectURL))

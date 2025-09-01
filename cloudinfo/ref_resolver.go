@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -295,7 +296,10 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRetryContext(region string
 					}
 				}
 
-				time.Sleep(waitTime)
+				// Skip wait in unit tests when SKIP_RETRY_DELAYS=true
+				if os.Getenv("SKIP_RETRY_DELAYS") != "true" {
+					time.Sleep(waitTime)
+				}
 				continue
 			} else if infoSvc.Logger != nil {
 				// Only log non-retryable errors at error level during the final attempt
