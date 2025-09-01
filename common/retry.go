@@ -71,8 +71,8 @@ func RateLimitRetryConfig() RetryConfig {
 func CatalogOperationRetryConfig() RetryConfig {
 	return RetryConfig{
 		MaxRetries:            5,
-		InitialDelay:          3 * time.Second,
-		MaxDelay:              30 * time.Second,
+		InitialDelay:          5 * time.Second,
+		MaxDelay:              60 * time.Second,
 		Strategy:              LinearBackoff,
 		Jitter:                true,
 		RetryableErrorChecker: IsRetryableError,
