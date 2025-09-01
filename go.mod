@@ -9,7 +9,7 @@ require (
 	github.com/IBM-Cloud/power-go-client v1.12.0
 	github.com/IBM/cloud-databases-go-sdk v0.8.0
 	github.com/IBM/go-sdk-core/v5 v5.21.0
-	github.com/IBM/platform-services-go-sdk v0.86.0
+	github.com/IBM/platform-services-go-sdk v0.86.1
 	github.com/IBM/project-go-sdk v0.3.6
 	github.com/IBM/schematics-go-sdk v0.4.0
 	github.com/IBM/vpc-go-sdk v0.70.1
@@ -20,7 +20,7 @@ require (
 	github.com/gruntwork-io/terratest v0.50.0
 	github.com/hashicorp/terraform-json v0.26.0
 	github.com/jinzhu/copier v0.4.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.41.0
 	gopkg.in/yaml.v3 v3.0.1
 )

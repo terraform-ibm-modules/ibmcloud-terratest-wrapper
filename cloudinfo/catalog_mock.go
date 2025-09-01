@@ -389,3 +389,20 @@ func (m *MockCloudInfoServiceForPermutation) ResolveReferencesWithContext(region
 
 	return response, args.Error(1)
 }
+
+// ClearCache clears the API response cache (mock implementation for testing)
+func (m *MockCloudInfoServiceForPermutation) ClearCache() {
+	m.Called()
+}
+
+// GetCacheStats returns cache statistics (mock implementation for testing)
+func (m *MockCloudInfoServiceForPermutation) GetCacheStats() CacheStats {
+	args := m.Called()
+	return args.Get(0).(CacheStats)
+}
+
+// IsCacheEnabled returns whether caching is enabled (mock implementation for testing)
+func (m *MockCloudInfoServiceForPermutation) IsCacheEnabled() bool {
+	args := m.Called()
+	return args.Bool(0)
+}

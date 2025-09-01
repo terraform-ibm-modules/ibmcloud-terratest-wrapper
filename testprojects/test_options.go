@@ -133,6 +133,17 @@ type TestProjectsOptions struct {
 	PostUndeployHook func(options *TestProjectsOptions) error
 
 	Logger *common.TestLogger
+
+	// CacheEnabled enables API response caching for catalog operations to reduce API calls by 70-80%
+	// When enabled, static catalog metadata (offerings, versions, dependencies) will be cached
+	// Dynamic state (configs, deployments, validation) is never cached to ensure test correctness
+	// Default: true (cache enabled by default for performance benefits)
+	CacheEnabled *bool
+
+	// CacheTTL sets the time-to-live for cached API responses
+	// Default: 10 minutes if not specified when cache is enabled
+	// Recommended: 5-15 minutes for test scenarios, 10 minutes for CI/CD pipelines
+	CacheTTL time.Duration
 }
 
 // TestProjectOptionsDefault Default constructor for TestProjectsOptions

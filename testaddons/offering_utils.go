@@ -87,7 +87,24 @@ func SetOfferingDetails(options *TestAddonOptions) {
 	}
 	options.AddonConfig.OfferingInputs = options.CloudInfoService.GetOfferingInputs(topLevelOffering, topLevelVersion, *options.offering.ID)
 	options.AddonConfig.VersionID = topLevelVersion
-	options.AddonConfig.CatalogID = *options.offering.CatalogID
+
+	// Defensive check for CatalogID to handle race conditions in parallel tests
+	if options.offering.CatalogID == nil {
+		options.Logger.ShortWarn("Offering CatalogID is nil - attempting to recover from catalog object (this may indicate a race condition in parallel test execution)")
+		// Try to get catalog ID from the catalog object as fallback
+		if options.catalog != nil && options.catalog.ID != nil {
+			options.AddonConfig.CatalogID = *options.catalog.ID
+			options.Logger.ShortInfo(fmt.Sprintf("Recovered CatalogID from catalog object: %s", options.AddonConfig.CatalogID))
+		} else {
+			options.Logger.ShortError("Cannot recover CatalogID - both offering.CatalogID and catalog.ID are nil")
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
+			options.Testing.Fail()
+			return
+		}
+	} else {
+		options.AddonConfig.CatalogID = *options.offering.CatalogID
+	}
 
 	// Ensure OfferingID is set (it should have been set in setupOffering, but add safety check for race conditions in parallel tests)
 	if options.AddonConfig.OfferingID == "" {

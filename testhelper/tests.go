@@ -164,7 +164,14 @@ func (options *TestOptions) testTearDown() {
 				_, err := ValidateTerraformOutputs(options.LastTestTerraformOutputs, expected_outputs...)
 				if err == nil {
 					cbr_rule_ids := options.LastTestTerraformOutputs[options.CBRRuleListOutputVariable].([]interface{})
-					infosvc, err := cloudinfo.NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, cloudinfo.CloudInfoServiceOptions{})
+					cacheEnabled := true
+					if options.CacheEnabled != nil {
+						cacheEnabled = *options.CacheEnabled
+					}
+					infosvc, err := cloudinfo.NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, cloudinfo.CloudInfoServiceOptions{
+						CacheEnabled: cacheEnabled,
+						CacheTTL:     options.CacheTTL,
+					})
 					if err != nil {
 						logger.Log(options.Testing, "Error creating CloudInfoService for testhelper, skipping CBR Rule disable")
 					} else {
@@ -217,7 +224,14 @@ func (options *TestOptions) testTearDown() {
 						}
 						// If resource_group_id or resource_group_ids are in the outputs then list resources in the resource group
 						if len(actualOutputs) > 0 {
-							cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, cloudinfo.CloudInfoServiceOptions{})
+							cacheEnabled := true
+							if options.CacheEnabled != nil {
+								cacheEnabled = *options.CacheEnabled
+							}
+							cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, cloudinfo.CloudInfoServiceOptions{
+								CacheEnabled: cacheEnabled,
+								CacheTTL:     options.CacheTTL,
+							})
 							if err != nil {
 								logger.Log(options.Testing, "Error creating CloudInfoService for testhelper, skipping resource listing")
 							} else {
