@@ -21,6 +21,15 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
 )
 
+// logErrorWithRateLimitCheck logs an error, but treats rate limiting errors as warnings
+func logErrorWithRateLimitCheck(logger common.Logger, operation string, err error) {
+	if strings.Contains(err.Error(), "retrying with backoff") {
+		logger.ShortWarn(fmt.Sprintf("Warning %s: %v", operation, err))
+	} else {
+		logger.ShortError(fmt.Sprintf("Error %s: %v", operation, err))
+	}
+}
+
 // ConfigDependencyInfo holds information about a config's dependencies for circular dependency analysis
 type ConfigDependencyInfo struct {
 	ID                   string            // Config ID
@@ -241,7 +250,8 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	deployedConfigs, err := options.CloudInfoService.DeployAddonToProject(&options.AddonConfig, options.currentProjectConfig)
 
 	if err != nil {
-		options.Logger.ShortError(fmt.Sprintf("Error deploying the addon to project: %v", err))
+		// Check if this is a rate limiting error that was retried - log as warning instead of error
+		logErrorWithRateLimitCheck(options.Logger, "deploying the addon to project", err)
 
 		// When deployment fails, attempt to build and log the expected dependency tree for debugging
 		// This helps identify what should have been deployed when analyzing failures
@@ -2095,7 +2105,7 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 						catalog, err := testOptions.CloudInfoService.CreateCatalog(descriptiveCatalogName)
 						if err != nil {
 							sharedMutex.Unlock() // Release mutex on error
-							testOptions.Logger.ShortError(fmt.Sprintf("Error creating shared catalog: %v", err))
+							logErrorWithRateLimitCheck(testOptions.Logger, "creating shared catalog", err)
 							require.NoError(t, err, "Failed to create shared catalog for matrix tests")
 							return
 						}
@@ -2121,7 +2131,7 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 						)
 						if err != nil {
 							sharedMutex.Unlock() // Release mutex on error
-							testOptions.Logger.ShortError(fmt.Sprintf("Error importing shared offering: %v", err))
+							logErrorWithRateLimitCheck(testOptions.Logger, "importing shared offering", err)
 							require.NoError(t, err, "Failed to import shared offering for matrix tests")
 							return
 						}
