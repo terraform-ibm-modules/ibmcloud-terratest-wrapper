@@ -153,23 +153,29 @@ func (options *TestAddonOptions) PrintDependencyTree(graph map[string][]cloudinf
 	}
 
 	if rootAddon != nil {
-		options.printAddonTree(*rootAddon, graph, "", true, make(map[string]bool))
+		// Build entire tree as string to prevent log interleaving
+		var builder strings.Builder
+		options.printAddonTree(*rootAddon, graph, "", true, make(map[string]bool), &builder)
+		// Log the complete tree as a single entry
+		if treeStr := builder.String(); treeStr != "" {
+			options.Logger.ShortInfo(strings.TrimSuffix(treeStr, "\n"))
+		}
 	}
 }
 
 // printAddonTree recursively prints an addon and its dependencies in tree format
-func (options *TestAddonOptions) printAddonTree(addon cloudinfo.OfferingReferenceDetail, graph map[string][]cloudinfo.OfferingReferenceDetail, indent string, isLast bool, visited map[string]bool) {
+func (options *TestAddonOptions) printAddonTree(addon cloudinfo.OfferingReferenceDetail, graph map[string][]cloudinfo.OfferingReferenceDetail, indent string, isLast bool, visited map[string]bool, builder *strings.Builder) {
 	// Create a unique key for this addon
 	addonKey := generateAddonKeyFromDetail(addon)
 
 	// Print the current addon
 	symbol := options.getTreeSymbol(isLast)
-	options.Logger.ShortInfo(fmt.Sprintf("%s%s %s (%s, %s)", indent, symbol, addon.Name, addon.Version, addon.Flavor.Name))
+	builder.WriteString(fmt.Sprintf("%s%s %s (%s, %s)\n", indent, symbol, addon.Name, addon.Version, addon.Flavor.Name))
 
 	// Check if we've already visited this addon to avoid infinite loops
 	if visited[addonKey] {
 		nextIndent := options.getIndentString(indent, isLast)
-		options.Logger.ShortInfo(fmt.Sprintf("%s%s (already shown above)", nextIndent, "└── [circular reference]"))
+		builder.WriteString(fmt.Sprintf("%s%s (already shown above)\n", nextIndent, "└── [circular reference]"))
 		return
 	}
 
@@ -188,7 +194,7 @@ func (options *TestAddonOptions) printAddonTree(addon cloudinfo.OfferingReferenc
 	nextIndent := options.getIndentString(indent, isLast)
 	for i, dep := range dependencies {
 		isLastDep := i == len(dependencies)-1
-		options.printAddonTree(dep, graph, nextIndent, isLastDep, visited)
+		options.printAddonTree(dep, graph, nextIndent, isLastDep, visited, builder)
 	}
 
 	// Remove from visited when we're done with this branch
@@ -271,7 +277,11 @@ func (options *TestAddonOptions) printDependencyTreeWithValidationStatus(graph m
 	// Show expected tree first
 	options.Logger.ShortInfo("Expected dependency tree:")
 	if rootAddon != nil {
-		options.printAddonTree(*rootAddon, graph, "", true, make(map[string]bool))
+		var builder strings.Builder
+		options.printAddonTree(*rootAddon, graph, "", true, make(map[string]bool), &builder)
+		if treeStr := builder.String(); treeStr != "" {
+			options.Logger.ShortInfo(strings.TrimSuffix(treeStr, "\n"))
+		}
 	}
 	options.Logger.ShortInfo("")
 
