@@ -32,17 +32,8 @@ func (options *TestAddonOptions) testSetup() error {
 		options.Logger = common.CreateSmartAutoBufferingLogger(options.Testing.Name(), false)
 	}
 
-	// Set logger prefix based on available identifiers (in order of preference)
-	if options.TestCaseName != "" {
-		// Use TestCaseName for clear test identification (preferred for matrix tests and custom scenarios)
-		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.TestCaseName))
-	} else if options.ProjectName != "" {
-		// For single tests, include project name in prefix
-		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.ProjectName))
-	} else {
-		// For tests without project name, use simple prefix
-		options.Logger.SetPrefix("ADDON")
-	}
+	// Set logger prefix - test context already provides test identification
+	options.Logger.SetPrefix("")
 
 	options.Logger.EnableDateTime(false)
 
@@ -195,6 +186,12 @@ func (options *TestAddonOptions) setupCatalog() error {
 		if options.catalog != nil {
 			if options.catalog.Label != nil && options.catalog.ID != nil {
 				options.Logger.ShortInfo(fmt.Sprintf("Using existing catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+				// Seed root AddonConfig CatalogID from the shared/ existing catalog to avoid later
+				// recovery paths that depend on network calls (helps under 429 rate limits)
+				if options.AddonConfig.CatalogID == "" {
+					options.AddonConfig.CatalogID = *options.catalog.ID
+					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from existing catalog: %s", options.AddonConfig.CatalogID))
+				}
 			} else {
 				options.Logger.ShortWarn("Using existing catalog but catalog details are incomplete")
 			}
@@ -219,6 +216,11 @@ func (options *TestAddonOptions) setupCatalog() error {
 
 			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
 				options.Logger.ShortInfo(fmt.Sprintf("Created catalog for shared use: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+				// Seed root AddonConfig CatalogID immediately after creation
+				if options.AddonConfig.CatalogID == "" {
+					options.AddonConfig.CatalogID = *options.catalog.ID
+					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from newly created shared catalog: %s", options.AddonConfig.CatalogID))
+				}
 			} else {
 				options.Logger.ShortWarn("Created catalog for shared use but catalog details are incomplete")
 			}
@@ -241,6 +243,11 @@ func (options *TestAddonOptions) setupCatalog() error {
 
 			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
 				options.Logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
+				// Seed root AddonConfig CatalogID immediately after creation
+				if options.AddonConfig.CatalogID == "" {
+					options.AddonConfig.CatalogID = *options.catalog.ID
+					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from newly created catalog: %s", options.AddonConfig.CatalogID))
+				}
 			} else {
 				options.Logger.ShortWarn("Created catalog but catalog details are incomplete")
 			}
