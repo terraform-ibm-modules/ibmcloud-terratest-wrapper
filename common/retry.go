@@ -70,10 +70,10 @@ func RateLimitRetryConfig() RetryConfig {
 // CatalogOperationRetryConfig returns a retry configuration for IBM Cloud catalog operations
 func CatalogOperationRetryConfig() RetryConfig {
 	return RetryConfig{
-		MaxRetries:            5,
+		MaxRetries:            10,
 		InitialDelay:          5 * time.Second,
-		MaxDelay:              60 * time.Second,
-		Strategy:              LinearBackoff,
+		MaxDelay:              120 * time.Second,
+		Strategy:              ExponentialBackoff,
 		Jitter:                true,
 		RetryableErrorChecker: IsRetryableError,
 		Logger:                nil,
@@ -86,7 +86,7 @@ func ProjectOperationRetryConfig() RetryConfig {
 	return RetryConfig{
 		MaxRetries:            5,
 		InitialDelay:          3 * time.Second,
-		MaxDelay:              45 * time.Second,
+		MaxDelay:              90 * time.Second,
 		Strategy:              ExponentialBackoff,
 		Jitter:                true,
 		RetryableErrorChecker: IsProjectRetryableError,

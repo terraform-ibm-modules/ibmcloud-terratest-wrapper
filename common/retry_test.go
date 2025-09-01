@@ -296,10 +296,10 @@ func TestRetryConfigurations(t *testing.T) {
 
 	t.Run("CatalogOperationRetryConfig", func(t *testing.T) {
 		config := CatalogOperationRetryConfig()
-		assert.Equal(t, 5, config.MaxRetries)
+		assert.Equal(t, 10, config.MaxRetries)
 		assert.Equal(t, 5*time.Second, config.InitialDelay)
-		assert.Equal(t, 60*time.Second, config.MaxDelay)
-		assert.Equal(t, LinearBackoff, config.Strategy)
+		assert.Equal(t, 120*time.Second, config.MaxDelay)
+		assert.Equal(t, ExponentialBackoff, config.Strategy)
 		assert.True(t, config.Jitter)
 		assert.NotNil(t, config.RetryableErrorChecker)
 	})
@@ -308,7 +308,7 @@ func TestRetryConfigurations(t *testing.T) {
 		config := ProjectOperationRetryConfig()
 		assert.Equal(t, 5, config.MaxRetries)
 		assert.Equal(t, 3*time.Second, config.InitialDelay)
-		assert.Equal(t, 45*time.Second, config.MaxDelay)
+		assert.Equal(t, 90*time.Second, config.MaxDelay)
 		assert.Equal(t, ExponentialBackoff, config.Strategy)
 		assert.True(t, config.Jitter)
 		assert.NotNil(t, config.RetryableErrorChecker)
