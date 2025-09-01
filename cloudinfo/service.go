@@ -11,6 +11,7 @@ import (
 
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	projects "github.com/IBM/project-go-sdk/projectv1"
@@ -166,6 +167,8 @@ type CloudInfoService struct {
 	refResolverLock         sync.Mutex
 	// apiCache provides in-memory caching for expensive API operations
 	apiCache *APICache
+	// offeringSingleflight prevents duplicate concurrent GetOffering requests
+	offeringSingleflight singleflight.Group
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
