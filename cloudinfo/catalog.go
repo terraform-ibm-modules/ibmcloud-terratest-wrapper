@@ -62,9 +62,9 @@ func (infoSvc *CloudInfoService) GetCatalogVersionByLocator(versionLocator strin
 
 		// Handle rate limiting (429) and other temporary failures
 		if response.StatusCode == 429 {
-			return nil, fmt.Errorf("rate limited (status: %d)", response.StatusCode)
+			return nil, fmt.Errorf("rate limited on GetVersion for versionLocator='%s' (status: %d) - this indicates high API load, retrying with backoff", versionLocator, response.StatusCode)
 		} else if response.StatusCode >= 500 {
-			return nil, fmt.Errorf("server error (status: %d)", response.StatusCode)
+			return nil, fmt.Errorf("server error on GetVersion for versionLocator='%s' (status: %d)", versionLocator, response.StatusCode)
 		}
 
 		// Check if the response status code is 200 (success)
@@ -116,8 +116,10 @@ func (infoSvc *CloudInfoService) CreateCatalog(catalogName string) (*catalogmana
 		}
 
 		// Handle rate limiting (429) and other temporary failures
-		if response.StatusCode == 429 || response.StatusCode >= 500 {
-			return nil, fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
+		if response.StatusCode == 429 {
+			return nil, fmt.Errorf("rate limited on CreateCatalog for catalogName='%s' (status: %d) - this indicates high API load, retrying with backoff", catalogName, response.StatusCode)
+		} else if response.StatusCode >= 500 {
+			return nil, fmt.Errorf("server error on CreateCatalog for catalogName='%s' (status: %d)", catalogName, response.StatusCode)
 		}
 
 		// Check if the response status code is 201 (created)
@@ -186,8 +188,10 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 		}
 
 		// Handle rate limiting (429) and other temporary failures
-		if response.StatusCode == 429 || response.StatusCode >= 500 {
-			return nil, fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
+		if response.StatusCode == 429 {
+			return nil, fmt.Errorf("rate limited on ImportOffering for catalogID='%s', offeringName='%s' (status: %d) - this indicates high API load, retrying with backoff", catalogID, offeringName, response.StatusCode)
+		} else if response.StatusCode >= 500 {
+			return nil, fmt.Errorf("server error on ImportOffering for catalogID='%s', offeringName='%s' (status: %d)", catalogID, offeringName, response.StatusCode)
 		}
 
 		// Check if the response status code is 201 (created)
@@ -718,7 +722,7 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 
 		// Handle rate limiting (429) with retry
 		if resp.StatusCode == 429 {
-			return nil, fmt.Errorf("rate limited")
+			return nil, fmt.Errorf("rate limited on DeployAddonToProject for projectID='%s', offeringName='%s' (status: %d) - this indicates high API load, retrying with backoff", projectConfig.ProjectID, addonConfig.OfferingName, resp.StatusCode)
 		}
 
 		// Check other error status codes
@@ -842,7 +846,7 @@ func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (
 
 		// Handle rate limiting (429) with retry
 		if resp.StatusCode == 429 {
-			return nil, fmt.Errorf("rate limited")
+			return nil, fmt.Errorf("rate limited on GetComponentReferences for versionLocator='%s' (status: %d) - this indicates high API load, retrying with backoff", versionLocator, resp.StatusCode)
 		}
 
 		// Check other error status codes
@@ -1070,63 +1074,88 @@ func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string
 
 	infoSvc.Logger.ShortInfo(fmt.Sprintf("Getting offering details: catalogID='%s', offeringID='%s'", catalogID, offeringID))
 
-	// Use new retry utility for catalog operations
-	config := common.CatalogOperationRetryConfig()
-	config.Logger = infoSvc.Logger
-	config.OperationName = fmt.Sprintf("GetOffering catalogID='%s', offeringID='%s'", catalogID, offeringID)
+	// Use singleflight to prevent duplicate concurrent requests for the same offering
+	singleflightKey := fmt.Sprintf("offering:%s:%s", catalogID, offeringID)
 
 	type GetOfferingResult struct {
 		offering *catalogmanagementv1.Offering
 		response *core.DetailedResponse
 	}
 
-	resultValue, err := common.RetryWithConfig(config, func() (*GetOfferingResult, error) {
-		options := &catalogmanagementv1.GetOfferingOptions{
-			CatalogIdentifier: &catalogID,
-			OfferingID:        &offeringID,
-		}
+	// Wrap the entire retry operation in singleflight to deduplicate concurrent requests
+	singleflightResult, err, shared := infoSvc.offeringSingleflight.Do(singleflightKey, func() (interface{}, error) {
+		// Use new retry utility for catalog operations
+		config := common.CatalogOperationRetryConfig()
+		config.Logger = infoSvc.Logger
+		config.OperationName = fmt.Sprintf("GetOffering catalogID='%s', offeringID='%s'", catalogID, offeringID)
 
-		offering, response, err := infoSvc.catalogService.GetOffering(options)
-		if err != nil {
-			// Provide much more detailed error information
-			return nil, fmt.Errorf("error getting offering from catalog '%s' with offering ID '%s': %w", catalogID, offeringID, err)
-		}
+		return common.RetryWithConfig(config, func() (*GetOfferingResult, error) {
+			options := &catalogmanagementv1.GetOfferingOptions{
+				CatalogIdentifier: &catalogID,
+				OfferingID:        &offeringID,
+			}
 
-		// Handle rate limiting (429) and other temporary failures
-		if response.StatusCode == 429 || response.StatusCode >= 500 {
-			return nil, fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
-		}
+			offering, response, err := infoSvc.catalogService.GetOffering(options)
+			if err != nil {
+				// Provide much more detailed error information
+				return nil, fmt.Errorf("error getting offering from catalog '%s' with offering ID '%s': %w", catalogID, offeringID, err)
+			}
 
-		// Check if the response status code is not 200
-		if response.StatusCode != 200 {
-			return nil, fmt.Errorf("failed to get offering from catalog '%s' with offering ID '%s' (status: %d): %s", catalogID, offeringID, response.StatusCode, response.RawResult)
-		}
+			// Handle rate limiting (429) and other temporary failures
+			if response.StatusCode == 429 {
+				return nil, fmt.Errorf("rate limited on GetOffering for catalogID='%s', offeringID='%s' (status: %d) - this indicates high API load, retrying with backoff", catalogID, offeringID, response.StatusCode)
+			} else if response.StatusCode >= 500 {
+				return nil, fmt.Errorf("server error on GetOffering for catalogID='%s', offeringID='%s' (status: %d)", catalogID, offeringID, response.StatusCode)
+			}
 
-		// Success - return the result
-		return &GetOfferingResult{offering: offering, response: response}, nil
+			// Check if the response status code is not 200
+			if response.StatusCode != 200 {
+				return nil, fmt.Errorf("failed to get offering from catalog '%s' with offering ID '%s' (status: %d): %s", catalogID, offeringID, response.StatusCode, response.RawResult)
+			}
+
+			// Success - return the result
+			return &GetOfferingResult{offering: offering, response: response}, nil
+		})
 	})
 
-	// Cache the result if caching is enabled
+	if shared {
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Deduplication: sharing GetOffering result for catalogID='%s', offeringID='%s'", catalogID, offeringID))
+	}
+
+	if err != nil {
+		// Cache the error result if caching is enabled
+		if infoSvc.apiCache != nil {
+			cacheKey := infoSvc.apiCache.generateOfferingKey(catalogID, offeringID)
+			cachedResult := &CachedOffering{
+				Error:     err,
+				Timestamp: time.Now(),
+			}
+
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.offeringCache[cacheKey] = cachedResult
+			infoSvc.apiCache.mutex.Unlock()
+		}
+		return nil, nil, err
+	}
+
+	// Type assert the result back to our expected type
+	resultValue, ok := singleflightResult.(*GetOfferingResult)
+	if !ok {
+		return nil, nil, fmt.Errorf("internal error: unexpected result type from singleflight")
+	}
+
+	// Cache the successful result if caching is enabled
 	if infoSvc.apiCache != nil {
 		cacheKey := infoSvc.apiCache.generateOfferingKey(catalogID, offeringID)
 		cachedResult := &CachedOffering{
+			Offering:  resultValue.offering,
+			Response:  resultValue.response,
 			Timestamp: time.Now(),
-		}
-
-		if err != nil {
-			cachedResult.Error = err
-		} else {
-			cachedResult.Offering = resultValue.offering
-			cachedResult.Response = resultValue.response
 		}
 
 		infoSvc.apiCache.mutex.Lock()
 		infoSvc.apiCache.offeringCache[cacheKey] = cachedResult
 		infoSvc.apiCache.mutex.Unlock()
-	}
-
-	if err != nil {
-		return nil, nil, err
 	}
 
 	return resultValue.offering, resultValue.response, nil
