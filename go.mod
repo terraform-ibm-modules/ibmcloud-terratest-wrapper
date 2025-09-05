@@ -2,7 +2,7 @@ module github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper
 
 go 1.24.0
 
-toolchain go1.25.0
+toolchain go1.25.1
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240719075425-078fcb3a55be
@@ -12,7 +12,7 @@ require (
 	github.com/IBM/platform-services-go-sdk v0.86.1
 	github.com/IBM/project-go-sdk v0.3.6
 	github.com/IBM/schematics-go-sdk v0.4.0
-	github.com/IBM/vpc-go-sdk v0.70.1
+	github.com/IBM/vpc-go-sdk v0.71.1
 	github.com/go-git/go-git/v5 v5.16.2
 	github.com/go-openapi/errors v0.22.2
 	github.com/go-openapi/strfmt v0.23.0
