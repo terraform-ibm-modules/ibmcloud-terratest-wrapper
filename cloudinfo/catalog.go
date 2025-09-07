@@ -571,6 +571,35 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 		}
 	}
 
+	for _, component := range componentsReferences.Required.OfferingReferences {
+		if !userConfiguredDeps[component.Name] {
+			// Only process if this is a direct dependency according to the catalog
+			if !catalogDirectDependencies[component.Name] {
+				continue
+			}
+
+			// Check if this dependency is globally disabled
+			if disabledOfferings[component.Name] {
+				continue
+			}
+
+			// This is a required direct dependency that the user didn't configure
+
+			newDependency := AddonConfig{
+				OfferingName:    component.Name,
+				OfferingFlavor:  component.OfferingReference.Flavor.Name,
+				VersionLocator:  component.OfferingReference.VersionLocator,
+				OfferingID:      component.OfferingReference.ID,
+				CatalogID:       component.OfferingReference.CatalogID,
+				ResolvedVersion: component.OfferingReference.Version,
+				Enabled:         core.BoolPtr(true), // on_by_default means enabled by default
+				OnByDefault:     core.BoolPtr(true),
+				Dependencies:    []AddonConfig{}, // Initialize empty dependencies slice
+			}
+
+			addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
+		}
+	}
 	// PHASE 2: Recursively build sub-trees for enabled dependencies
 
 	for i := range addonConfig.Dependencies {
