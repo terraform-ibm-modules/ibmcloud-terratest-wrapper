@@ -6,11 +6,11 @@ toolchain go1.25.1
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240719075425-078fcb3a55be
-	github.com/IBM-Cloud/power-go-client v1.12.0
+	github.com/IBM-Cloud/power-go-client v1.13.0
 	github.com/IBM/cloud-databases-go-sdk v0.8.0
 	github.com/IBM/go-sdk-core/v5 v5.21.0
-	github.com/IBM/platform-services-go-sdk v0.86.1
-	github.com/IBM/project-go-sdk v0.3.6
+	github.com/IBM/platform-services-go-sdk v0.87.0
+	github.com/IBM/project-go-sdk v0.3.7
 	github.com/IBM/schematics-go-sdk v0.4.0
 	github.com/IBM/vpc-go-sdk v0.71.1
 	github.com/go-git/go-git/v5 v5.16.2
@@ -21,7 +21,7 @@ require (
 	github.com/hashicorp/terraform-json v0.26.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.41.0
+	golang.org/x/crypto v0.42.0
 	golang.org/x/sync v0.17.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -92,11 +92,11 @@ require (
 	go.opentelemetry.io/otel v1.35.0 // indirect
 	go.opentelemetry.io/otel/metric v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
-	golang.org/x/mod v0.26.0 // indirect
-	golang.org/x/net v0.42.0 // indirect
-	golang.org/x/sys v0.35.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
-	golang.org/x/tools v0.35.0 // indirect
+	golang.org/x/mod v0.27.0 // indirect
+	golang.org/x/net v0.43.0 // indirect
+	golang.org/x/sys v0.36.0 // indirect
+	golang.org/x/text v0.29.0 // indirect
+	golang.org/x/tools v0.36.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
