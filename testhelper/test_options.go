@@ -56,6 +56,10 @@ type TestOptions struct {
 	// standard test variables.
 	TerraformVars map[string]interface{}
 
+	// This map contains key-value pairs that will be used as variables for the test terraform run.
+	// If set, the test will execute a second modified terraform apply with the given variables.
+	ModifiedTerraformVars map[string]interface{}
+
 	// When set during teardown this Terraform output will be used to disable CBR Rules that were created during the
 	// test to allow to destroy to complete.
 	// The last latest state of the terraform output will be used, and expects a list of CBR Rule IDs in string format.
