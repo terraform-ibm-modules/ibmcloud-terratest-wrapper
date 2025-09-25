@@ -356,86 +356,8 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		}
 	}
 
-	// Process AddonConfig.Inputs with OverrideInputMappings logic for regular (non-matrix) tests
-	// This ensures input override logging and reference preservation works for both matrix and regular tests
-	if options.AddonConfig.Inputs != nil && len(options.AddonConfig.Inputs) > 0 {
-		// Apply the same reference-aware input processing logic as matrix tests
-		if options.OverrideInputMappings != nil && !*options.OverrideInputMappings {
-			// Reference preservation mode (default)
-			configReferences := options.configInputReferences[addonID]
-			preservedCount := 0
-			overriddenCount := 0
-
-			for inputKey, inputValue := range options.AddonConfig.Inputs {
-				if referenceValue, isReference := configReferences[inputKey]; isReference {
-					// Preserve reference value
-					if !options.QuietMode {
-						options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': preserving reference value '%s' (ignoring test override)", inputKey, referenceValue))
-					}
-					configDetails.Inputs[inputKey] = referenceValue
-					preservedCount++
-				} else {
-					// Override with new value
-					if !options.QuietMode {
-						existingValue := configDetails.Inputs[inputKey]
-						options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
-					}
-					configDetails.Inputs[inputKey] = inputValue
-					overriddenCount++
-				}
-			}
-
-			// Summary logging
-			if !options.QuietMode && (preservedCount > 0 || overriddenCount > 0) {
-				options.Logger.ShortInfo(fmt.Sprintf("Input merging complete: %d reference(s) preserved, %d input(s) overridden (OverrideInputMappings=false)", preservedCount, overriddenCount))
-			}
-		} else {
-			// Override all mode (legacy behavior)
-			overriddenCount := 0
-			if !options.QuietMode {
-				options.Logger.ShortInfo("Overriding ALL inputs (OverrideInputMappings=true)")
-			}
-
-			for inputKey, inputValue := range options.AddonConfig.Inputs {
-				if !options.QuietMode {
-					existingValue := configDetails.Inputs[inputKey]
-					options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
-				}
-				configDetails.Inputs[inputKey] = inputValue
-				overriddenCount++
-			}
-
-			if !options.QuietMode && overriddenCount > 0 {
-				options.Logger.ShortInfo(fmt.Sprintf("Input override complete: %d input(s) overridden (OverrideInputMappings=true)", overriddenCount))
-			}
-		}
-	}
-
-	confPatch := projectv1.ProjectConfigDefinitionPatch{
-		Inputs: configDetails.Inputs,
-		Authorizations: &projectv1.ProjectConfigAuth{
-			ApiKey: core.StringPtr(options.CloudInfoService.GetApiKey()),
-			Method: core.StringPtr(projectv1.ProjectConfigAuth_Method_ApiKey),
-		},
-	}
-	prjConfig, response, err := options.CloudInfoService.UpdateConfig(&configDetails, &confPatch)
-	if err != nil {
-		options.Logger.ShortError(fmt.Sprintf("Error updating the configuration: %v", err))
-		options.Logger.MarkFailed()
-		options.Logger.FlushOnFailure()
-		options.Testing.Fail()
-		return fmt.Errorf("error updating the configuration: %w", err)
-	}
-	if response.RawResult != nil {
-		options.Logger.ShortInfo(fmt.Sprintf("Response: %s", string(response.RawResult)))
-	}
-	options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration: %s", *prjConfig.ID))
-	if prjConfig.StateCode != nil {
-		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration statecode: %s", *prjConfig.StateCode))
-	}
-	if prjConfig.State != nil {
-		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration state: %s", *prjConfig.State))
-	}
+	mergeInputs(options, options.AddonConfig.Inputs, configDetails, addonID)
+	updateProjectConfiguration(options, configDetails)
 
 	// create TestProjectsOptions to use with the projects package
 	deployOptions := testprojects.TestProjectsOptions{
@@ -507,6 +429,10 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			ProjectID: options.currentProjectConfig.ProjectID,
 			ConfigID:  *config.ID,
 		})
+		if err != nil {
+			options.Logger.ShortError(fmt.Sprintf("Failed to get configuration details: %v", err))
+			return setFailureResult(fmt.Errorf("failed to get configuration details: %w", err), "UPDATE_CONFIGURATION")
+		}
 
 		addonConfigDetails := cloudinfo.ConfigDetails{
 			ProjectID: options.currentProjectConfig.ProjectID,
@@ -518,96 +444,9 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		// so we know which inputs need to be updated for the current configuration
 		for _, dep := range options.AddonConfig.Dependencies {
 			if dep.VersionLocator == *config.Definition.LocatorID {
-				// Process AddonConfig.Inputs with OverrideInputMappings logic for regular (non-matrix) tests
-				// This ensures input override logging and reference preservation works for both matrix and regular tests
-				if dep.Inputs != nil && len(dep.Inputs) > 0 {
-					// Apply the same reference-aware input processing logic as matrix tests
-					if options.OverrideInputMappings != nil && !*options.OverrideInputMappings {
-						// Reference preservation mode (default)
-						configReferences := options.configInputReferences[addonID]
-						preservedCount := 0
-						overriddenCount := 0
-
-						for inputKey, inputValue := range dep.Inputs {
-							if referenceValue, isReference := configReferences[inputKey]; isReference {
-								// Preserve reference value
-								if !options.QuietMode {
-									options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': preserving reference value '%s' (ignoring test override)", inputKey, referenceValue))
-								}
-								addonConfigDetails.Inputs[inputKey] = referenceValue
-								preservedCount++
-							} else {
-								// Override with new value
-								if !options.QuietMode {
-									existingValue := addonConfigDetails.Inputs[inputKey]
-									options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
-								}
-								addonConfigDetails.Inputs[inputKey] = inputValue
-								overriddenCount++
-							}
-						}
-
-						// Summary logging
-						if !options.QuietMode && (preservedCount > 0 || overriddenCount > 0) {
-							options.Logger.ShortInfo(fmt.Sprintf("Input merging complete: %d reference(s) preserved, %d input(s) overridden (OverrideInputMappings=false)", preservedCount, overriddenCount))
-						}
-					} else {
-						// Override all mode (legacy behavior)
-						overriddenCount := 0
-						if !options.QuietMode {
-							options.Logger.ShortInfo("Overriding ALL inputs (OverrideInputMappings=true)")
-						}
-
-						for inputKey, inputValue := range options.AddonConfig.Inputs {
-							if !options.QuietMode {
-								existingValue := addonConfigDetails.Inputs[inputKey]
-								options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
-							}
-							addonConfigDetails.Inputs[inputKey] = inputValue
-							overriddenCount++
-						}
-
-						if !options.QuietMode && overriddenCount > 0 {
-							options.Logger.ShortInfo(fmt.Sprintf("Input override complete: %d input(s) overridden (OverrideInputMappings=true)", overriddenCount))
-						}
-					}
-				}
-
+				mergeInputs(options, dep.Inputs, addonConfigDetails, addonID)
+				updateProjectConfiguration(options, addonConfigDetails)
 			}
-		}
-
-		confPatch := projectv1.ProjectConfigDefinitionPatch{
-			Inputs: currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs,
-			Authorizations: &projectv1.ProjectConfigAuth{
-				ApiKey: core.StringPtr(options.CloudInfoService.GetApiKey()),
-				Method: core.StringPtr(projectv1.ProjectConfigAuth_Method_ApiKey),
-			},
-		}
-		addonConfig, response, err := options.CloudInfoService.UpdateConfig(&addonConfigDetails, &confPatch)
-		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error updating the configuration: %v", err))
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return fmt.Errorf("error updating the configuration: %w", err)
-		}
-		if response.RawResult != nil {
-			options.Logger.ShortInfo(fmt.Sprintf("Response: %s", string(response.RawResult)))
-		}
-		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration: %s", *addonConfig.ID))
-		if addonConfig.StateCode != nil {
-			options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration statecode: %s", *addonConfig.StateCode))
-		}
-		if addonConfig.State != nil {
-			options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration state: %s", *addonConfig.State))
-		}
-
-		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error getting the configuration: %v", err))
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return fmt.Errorf("error getting the configuration: %w", err)
 		}
 
 		// Initialize reference cache if needed
@@ -3754,4 +3593,90 @@ func (options *TestAddonOptions) displaySingleTestStrictModeWarnings() {
 
 		options.Logger.ProgressInfo("")
 	}
+}
+
+func mergeInputs(options *TestAddonOptions, inputs map[string]interface{}, configDetails cloudinfo.ConfigDetails, addonID string) {
+	// Process AddonConfig.Inputs with OverrideInputMappings logic for regular (non-matrix) tests
+	// This ensures input override logging and reference preservation works for both matrix and regular tests
+	if inputs != nil && len(inputs) > 0 {
+		// Apply the same reference-aware input processing logic as matrix tests
+		if options.OverrideInputMappings != nil && !*options.OverrideInputMappings {
+			// Reference preservation mode (default)
+			configReferences := options.configInputReferences[addonID]
+			preservedCount := 0
+			overriddenCount := 0
+
+			for inputKey, inputValue := range inputs {
+				if referenceValue, isReference := configReferences[inputKey]; isReference {
+					// Preserve reference value
+					if !options.QuietMode {
+						options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': preserving reference value '%s' (ignoring test override)", inputKey, referenceValue))
+					}
+					configDetails.Inputs[inputKey] = referenceValue
+					preservedCount++
+				} else {
+					// Override with new value
+					if !options.QuietMode {
+						existingValue := configDetails.Inputs[inputKey]
+						options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
+					}
+					configDetails.Inputs[inputKey] = inputValue
+					overriddenCount++
+				}
+			}
+
+			// Summary logging
+			if !options.QuietMode && (preservedCount > 0 || overriddenCount > 0) {
+				options.Logger.ShortInfo(fmt.Sprintf("Input merging complete: %d reference(s) preserved, %d input(s) overridden (OverrideInputMappings=false)", preservedCount, overriddenCount))
+			}
+		} else {
+			// Override all mode (legacy behavior)
+			overriddenCount := 0
+			if !options.QuietMode {
+				options.Logger.ShortInfo("Overriding ALL inputs (OverrideInputMappings=true)")
+			}
+
+			for inputKey, inputValue := range options.AddonConfig.Inputs {
+				if !options.QuietMode {
+					existingValue := configDetails.Inputs[inputKey]
+					options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
+				}
+				configDetails.Inputs[inputKey] = inputValue
+				overriddenCount++
+			}
+
+			if !options.QuietMode && overriddenCount > 0 {
+				options.Logger.ShortInfo(fmt.Sprintf("Input override complete: %d input(s) overridden (OverrideInputMappings=true)", overriddenCount))
+			}
+		}
+	}
+}
+
+func updateProjectConfiguration(options *TestAddonOptions, configDetails cloudinfo.ConfigDetails) error {
+	confPatch := projectv1.ProjectConfigDefinitionPatch{
+		Inputs: configDetails.Inputs,
+		Authorizations: &projectv1.ProjectConfigAuth{
+			ApiKey: core.StringPtr(options.CloudInfoService.GetApiKey()),
+			Method: core.StringPtr(projectv1.ProjectConfigAuth_Method_ApiKey),
+		},
+	}
+	prjConfig, response, err := options.CloudInfoService.UpdateConfig(&configDetails, &confPatch)
+	if err != nil {
+		options.Logger.ShortError(fmt.Sprintf("Error updating the configuration: %v", err))
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
+		options.Testing.Fail()
+		return fmt.Errorf("error updating the configuration: %w", err)
+	}
+	if response.RawResult != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Response: %s", string(response.RawResult)))
+	}
+	options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration: %s", *prjConfig.ID))
+	if prjConfig.StateCode != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration statecode: %s", *prjConfig.StateCode))
+	}
+	if prjConfig.State != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration state: %s", *prjConfig.State))
+	}
+	return nil
 }
