@@ -349,7 +349,7 @@ options.AddonConfig.Dependencies = []cloudinfo.AddonConfig{
 }
 ```
 
-**Note:** This can be used for direct and indirect dependencies. 
+**Note:** This can be used for direct and indirect dependencies.
 
 ### Dependency Configuration Options
 
