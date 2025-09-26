@@ -356,6 +356,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		}
 	}
 
+	// update main addon configuration with user defined inputs
 	mergeInputs(options, options.AddonConfig.Inputs, configDetails, addonID)
 	updateProjectConfiguration(options, configDetails)
 
@@ -440,9 +441,10 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			Inputs:    currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs,
 			ConfigID:  *config.ID,
 		}
-		// match dependency containing user inputs with project configuration returned by API
-		// so we know which inputs need to be updated for the current configuration
+
 		for _, dep := range options.AddonConfig.Dependencies {
+			// match dependency containing user inputs with project configuration returned by API
+			// so we know which inputs need to be updated for the current configuration
 			if dep.VersionLocator == *config.Definition.LocatorID {
 				mergeInputs(options, dep.Inputs, addonConfigDetails, addonID)
 				updateProjectConfiguration(options, addonConfigDetails)
