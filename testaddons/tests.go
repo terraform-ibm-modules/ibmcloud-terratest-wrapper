@@ -3638,7 +3638,7 @@ func mergeInputs(options *TestAddonOptions, inputs map[string]interface{}, confi
 				options.Logger.ShortInfo("Overriding ALL inputs (OverrideInputMappings=true)")
 			}
 
-			for inputKey, inputValue := range options.AddonConfig.Inputs {
+			for inputKey, inputValue := range inputs {
 				if !options.QuietMode {
 					existingValue := configDetails.Inputs[inputKey]
 					options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
