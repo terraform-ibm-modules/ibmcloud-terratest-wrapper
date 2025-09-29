@@ -691,6 +691,20 @@ func (options *TestOptions) runTest() (string, error) {
 		}
 	}
 
+	// run another terraform apply if ModifiedTerraformVars have been set
+	if err == nil && options.ModifiedTerraformVars != nil {
+		logger.Log(options.Testing, "Running modified apply with terraform vars")
+		logger.Log(options.Testing, "START: Modify Apply")
+		options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
+			TerraformDir:    options.TerraformDir,
+			TerraformBinary: options.TerraformBinary,
+			Vars:            options.ModifiedTerraformVars,
+		})
+		_, err := terraform.ApplyE(options.Testing, options.TerraformOptions)
+		assert.Nil(options.Testing, err, "Failed", err)
+		logger.Log(options.Testing, "FINISHED: Modify Apply")
+	}
+
 	if err == nil && options.PostApplyHook != nil {
 		logger.Log(options.Testing, "Running PostApplyHook")
 		hook_err := options.PostApplyHook(options)
