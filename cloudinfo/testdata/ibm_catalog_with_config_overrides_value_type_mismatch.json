@@ -78,7 +78,7 @@
               "key": "input3",
               "type": "array",
               "description": "Description for input3",
-              "default_value": "[\"catalog_arr_value1\", \"catalog_arr_value2\"]",
+              "default_value": "not_an_array_just_a_string",
               "required": true,
               "display_name": "Input 3"
             },

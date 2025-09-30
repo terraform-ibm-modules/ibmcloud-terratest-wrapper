@@ -808,7 +808,7 @@ func updateInputsFromCatalog(stackConfig *ConfigDetails, catalogConfig CatalogJs
 					} else {
 						stackConfig.StackDefinition.Inputs[i].Default = &val
 					}
-				case "string", "password", "array":
+				case "string", "password", "array", "object":
 					if val, ok := inputDefault.(string); ok {
 						stackConfig.StackDefinition.Inputs[i].Default = &val
 					}
@@ -833,6 +833,21 @@ func updateInputsFromCatalog(stackConfig *ConfigDetails, catalogConfig CatalogJs
 				Hidden:      core.BoolPtr(false),
 			})
 		}
+	}
+}
+
+// isStructuredDataString checks if a string value appears to contain HCL/Terraform structured data
+// that matches the expected type. This is common in IBM Cloud catalog configurations where
+// complex array or object defaults are stored as HCL string literals.
+func isStructuredDataString(s string, expectedType string) bool {
+	trimmed := strings.TrimSpace(s)
+	switch expectedType {
+	case "array":
+		return strings.HasPrefix(trimmed, "[")
+	case "object":
+		return strings.HasPrefix(trimmed, "{")
+	default:
+		return false
 	}
 }
 
@@ -865,7 +880,20 @@ func validateCatalogInputsInStackDefinition(stackJson Stack, catalogConfig Catal
 				if catalogInput.DefaultValue != nil {
 					defaultValueType := reflect.TypeOf(catalogInput.DefaultValue).String()
 					expectedDefaultValueType := convertGoTypeToExpectedType(defaultValueType)
-					if !isValidType(expectedType, expectedDefaultValueType) {
+
+					// Special case: Allow strings that contain HCL/Terraform structures
+					// for array/object types (common in IBM Cloud catalog configs)
+					allowHclString := false
+					if expectedDefaultValueType == "string" && (expectedType == "array" || expectedType == "object") {
+						if strVal, ok := catalogInput.DefaultValue.(string); ok {
+							if isStructuredDataString(strVal, expectedType) {
+								// This is likely HCL/Terraform code as a string - allow it
+								allowHclString = true
+							}
+						}
+					}
+
+					if !allowHclString && !isValidType(expectedType, expectedDefaultValueType) {
 						defaultTypeMismatches = append(defaultTypeMismatches, fmt.Sprintf("catalog configuration default value type mismatch in product '%s', flavor '%s': %s expected type: %s, got: %s", productName, flavorName, catalogInput.Key, expectedType, expectedDefaultValueType))
 					}
 				}

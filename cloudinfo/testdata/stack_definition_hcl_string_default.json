@@ -1,0 +1,43 @@
+{
+  "inputs": [
+    {
+      "name": "secret_groups",
+      "required": false,
+      "type": "array",
+      "hidden": false,
+      "default": []
+    },
+    {
+      "name": "config_object",
+      "required": false,
+      "type": "object",
+      "hidden": false,
+      "default": {}
+    },
+    {
+      "name": "region",
+      "required": true,
+      "type": "string",
+      "hidden": false,
+      "default": "us-south"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output1",
+      "value": "ref:../members/member1/outputs/output1"
+    }
+  ],
+  "members": [
+    {
+      "inputs": [
+        {
+          "name": "region",
+          "value": "ref:../../inputs/region"
+        }
+      ],
+      "name": "member1",
+      "version_locator": "version1"
+    }
+  ]
+}

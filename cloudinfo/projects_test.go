@@ -1047,6 +1047,59 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 					"catalog configuration default value type mismatch in product 'Product Name', flavor 'Flavor Name': input2 expected type: int, got: string\n" +
 					"extra catalog input variable not found in stack definition in product 'Product Name', flavor 'Flavor Name': input5"),
 		},
+		{
+			name: "catalog with HCL string defaults for array/object types, should pass validation",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_hcl_string_default.json",
+			catalogJsonPath: "testdata/ibm_catalog_hcl_string_default.json",
+			expectedConfig: &projects.StackDefinition{
+				ID: core.StringPtr("mockProjectID"),
+				StackDefinition: &projects.StackDefinitionBlock{
+					Inputs: []projects.StackDefinitionInputVariable{
+						{
+							Name:        core.StringPtr("config_object"),
+							Type:        core.StringPtr("object"),
+							Required:    core.BoolPtr(false),
+							Default:     core.StringPtr("{\n    setting1 = \"value1\"\n    setting2 = 42\n    nested   = {\n      key = \"value\"\n    }\n  }"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("us-south"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("secret_groups"),
+							Type:        core.StringPtr("array"),
+							Required:    core.BoolPtr(false),
+							Default:     core.StringPtr("[\n    {\n      secret_group_name        = \"General\"\n      secret_group_description = \"A general purpose secrets group with an associated access group which has a secrets reader role\"\n      create_access_group      = true\n      access_group_name        = \"general-secrets-group-access-group\"\n      access_group_roles       = [\"SecretsReader\"]\n    }\n  ]"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+					},
+					Outputs: []projects.StackDefinitionOutputVariable{
+						{Name: core.StringPtr("output1"), Value: core.StringPtr("ref:../members/member1/outputs/output1")},
+					},
+					Members: []projects.StackDefinitionMember{
+						{
+							Name:           core.StringPtr("member1"),
+							VersionLocator: core.StringPtr("version1"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("region"), Value: core.StringPtr("ref:../../inputs/region")},
+							},
+						},
+					},
+				},
+			},
+			expectedError: nil,
+		},
 	}
 
 	for _, tc := range testCases {
