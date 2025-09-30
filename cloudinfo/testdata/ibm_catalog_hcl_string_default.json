@@ -1,0 +1,64 @@
+{
+  "products": [
+    {
+      "label": "Product with HCL Defaults",
+      "name": "Product Name",
+      "product_kind": "solution",
+      "tags": ["test"],
+      "keywords": ["test"],
+      "short_description": "Test product with HCL string defaults",
+      "long_description": "Test product with HCL string defaults for array and object types",
+      "offering_docs_url": "http://example.com/docs",
+      "offering_icon_url": "http://example.com/icon",
+      "provider_name": "Test Provider",
+      "features": [],
+      "support_details": "Support details",
+      "flavors": [
+        {
+          "label": "Test Flavor",
+          "name": "Flavor Name",
+          "working_directory": ".",
+          "compliance": {
+            "authority": "scc-v3",
+            "profiles": []
+          },
+          "iam_permissions": [],
+          "architecture": {
+            "features": [],
+            "diagrams": []
+          },
+          "configuration": [
+            {
+              "key": "secret_groups",
+              "type": "array",
+              "description": "Secret groups configuration",
+              "default_value": "[\n    {\n      secret_group_name        = \"General\"\n      secret_group_description = \"A general purpose secrets group with an associated access group which has a secrets reader role\"\n      create_access_group      = true\n      access_group_name        = \"general-secrets-group-access-group\"\n      access_group_roles       = [\"SecretsReader\"]\n    }\n  ]",
+              "required": false
+            },
+            {
+              "key": "config_object",
+              "type": "object",
+              "description": "Configuration object",
+              "default_value": "{\n    setting1 = \"value1\"\n    setting2 = 42\n    nested   = {\n      key = \"value\"\n    }\n  }",
+              "required": false
+            },
+            {
+              "key": "region",
+              "type": "string",
+              "description": "IBM Cloud region",
+              "default_value": "us-south",
+              "required": true
+            }
+          ],
+          "outputs": [
+            {
+              "key": "output1",
+              "description": "Test output"
+            }
+          ],
+          "install_type": "fullstack"
+        }
+      ]
+    }
+  ]
+}
