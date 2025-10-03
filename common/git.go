@@ -12,10 +12,12 @@ import (
 	"testing"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/gruntwork-io/terratest/modules/logger"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"golang.org/x/crypto/ssh"
@@ -36,6 +38,10 @@ type gitOps interface {
 	getOriginBranch(repoPath string) string
 	// ExecuteCommand executes a command and returns its output.
 	executeCommand(dir string, command string, args ...string) ([]byte, error)
+	// GetLatestCommitID gets the ID of latest commit on the current branch.
+	getLatestCommitID(epoDir string) (string, error)
+	// CommitExistsInRemote checks if a commitID exists in the remote repo
+	commitExistsInRemote(remoteURL, commitID string) (bool, error)
 }
 
 // envOps is an interface that abstracts environment variable operations.
@@ -121,6 +127,71 @@ func (r *realGitOps) getCurrentBranch() (string, error) {
 		fmt.Println("HEAD means no branch, running in detached mode. This is probably running in GHA")
 	}
 	return branch, nil
+}
+
+func CommitExistsInRemote(remoteURL string, commitID string) (bool, error) {
+	return (&realGitOps{}).commitExistsInRemote(remoteURL, commitID)
+}
+
+// commitExistsInRemote checks if commitID exists in the remote repo
+func (g *realGitOps) commitExistsInRemote(remoteURL, commitID string) (bool, error) {
+	// 1. Create an in-memory repository
+	repo, err := git.Init(memory.NewStorage(), nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to init in-memory repo: %w", err)
+	}
+
+	// 2. Create a temporary remote
+	tempRemoteName := "timUpstreamTemp"
+	tempRemote, err := repo.CreateRemote(&config.RemoteConfig{
+		Name: tempRemoteName,
+		URLs: []string{remoteURL},
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to create temporary remote: %w", err)
+	}
+
+	// 3. Fetch all branches and PR refs
+	refSpecs := []config.RefSpec{
+		config.RefSpec(fmt.Sprintf("+refs/heads/*:refs/remotes/%s/*", tempRemoteName)),
+		config.RefSpec(fmt.Sprintf("+refs/pull/*/head:refs/remotes/%s/pr/*", tempRemoteName)),
+	}
+	err = tempRemote.Fetch(&git.FetchOptions{
+		RemoteName: tempRemoteName,
+		RefSpecs:   refSpecs,
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return false, fmt.Errorf("fetch failed: %w", err)
+	}
+
+	// 4. Resolve the commit by hash
+	hash := plumbing.NewHash(commitID)
+	_, err = repo.CommitObject(hash)
+	if err != nil {
+		// not found
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// getLatestCommitID returns the hash of the latest commit on the current branch
+func (g *realGitOps) getLatestCommitID(repoPath string) (string, error) {
+	repo, err := git.PlainOpen(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open repo: %w", err)
+	}
+
+	ref, err := repo.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	return ref.Hash().String(), nil
+}
+
+func GetLatestCommitID(repoPath string) (string, error) {
+	return (&realGitOps{}).getLatestCommitID(repoPath)
 }
 
 func (r *realGitOps) getOriginURL(repoPath string) string {
@@ -278,10 +349,7 @@ func GetCurrentPrRepoAndBranch() (string, string, error) {
 
 func getCurrentPrRepoAndBranch(git gitOps) (string, string, error) {
 	// Get the current branch name
-	branch, err := git.getCurrentBranch()
-	if err != nil {
-		return "", "", err
-	}
+	branch, err := getCurrentBranch(git)
 
 	repoPath, err := git.gitRootPath(".")
 	if err != nil {
@@ -294,6 +362,20 @@ func getCurrentPrRepoAndBranch(git gitOps) (string, string, error) {
 	}
 
 	return repoURL, branch, nil
+}
+
+func GetCurrentBranch() (string, error) {
+	return getCurrentBranch(&realGitOps{})
+}
+
+func getCurrentBranch(git gitOps) (string, error) {
+	// Get the current branch name
+	branch, err := git.getCurrentBranch()
+	if err != nil {
+		return "failed to get current branch", err
+	}
+
+	return branch, nil
 }
 
 // DetermineAuthMethod determines the appropriate authentication method for a given repository URL.
