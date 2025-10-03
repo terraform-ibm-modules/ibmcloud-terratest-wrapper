@@ -219,6 +219,16 @@ func (m *MockCommander) getOriginBranch(repoPath string) string {
 	return args.String(0)
 }
 
+func (m *MockCommander) getLatestCommitID(repoPath string) (string, error) {
+	args := m.Called()
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockCommander) commitExistsInRemote(remoteURL string, commitID string) (bool, error) {
+	args := m.Called()
+	return args.Bool(0), args.Error(1)
+}
+
 func (m *MockCommander) executeCommand(dir string, command string, args ...string) ([]byte, error) {
 	callArgs := []interface{}{dir, command}
 	for _, arg := range args {
