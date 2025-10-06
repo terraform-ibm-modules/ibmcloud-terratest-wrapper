@@ -225,6 +225,12 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport() (commitUrl, repo, branc
 		return "", "", "", fmt.Errorf("failed to validate PR commit exists for offering import: %w", err)
 	}
 
+	branch, err = common.GetCurrentBranch()
+	if err != nil {
+		infoSvc.Logger.ShortWarn("Error getting current branch for offering import validation")
+		return "", "", "", fmt.Errorf("failed to get repository info for offering import: %w", err)
+	}
+
 	// Convert repository URL to HTTPS format for branch validation and catalog import
 	repo = normalizeRepositoryURL(repoUrl)
 
