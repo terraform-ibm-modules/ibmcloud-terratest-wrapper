@@ -12,7 +12,7 @@ require (
 	github.com/IBM/platform-services-go-sdk v0.86.1
 	github.com/IBM/project-go-sdk v0.3.6
 	github.com/IBM/schematics-go-sdk v0.4.0
-	github.com/IBM/vpc-go-sdk v0.71.1
+	github.com/IBM/vpc-go-sdk v1.0.2
 	github.com/go-git/go-git/v5 v5.16.2
 	github.com/go-openapi/errors v0.22.2
 	github.com/go-openapi/strfmt v0.23.0
@@ -97,6 +97,7 @@ require (
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/tools v0.35.0 // indirect
+	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
