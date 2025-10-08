@@ -48,13 +48,13 @@ func (infoSvc *CloudInfoService) CreateProjectFromConfig(config *ProjectsConfig)
 
 	projectOptions := &project.CreateProjectOptions{
 		Definition: &project.ProjectPrototypeDefinition{
-			Name:                  &config.ProjectName,
-			DestroyOnDelete:       core.BoolPtr(config.DestroyOnDelete),
-			Description:           &config.ProjectDescription,
-			Store:                 config.Store,
-			MonitoringEnabled:     core.BoolPtr(config.MonitoringEnabled),
-			AutoDeploy:            core.BoolPtr(config.AutoDeploy),
-			RequireManualApproval: core.BoolPtr(config.RequireManualApproval),
+			Name:              &config.ProjectName,
+			DestroyOnDelete:   core.BoolPtr(config.DestroyOnDelete),
+			Description:       &config.ProjectDescription,
+			Store:             config.Store,
+			MonitoringEnabled: core.BoolPtr(config.MonitoringEnabled),
+			AutoDeploy:        core.BoolPtr(config.AutoDeploy),
+			AutoDeployMode:    &config.AutoDeployMode,
 		},
 		Location:      &config.Location,
 		ResourceGroup: &config.ResourceGroup,

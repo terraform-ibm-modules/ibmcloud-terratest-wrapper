@@ -41,14 +41,14 @@ type TestProjectsOptions struct {
 	// After constructor = `my-test-xu5oby`
 	Prefix string
 
-	ProjectName                  string
-	ProjectDescription           string
-	ProjectLocation              string
-	ProjectDestroyOnDelete       *bool
-	ProjectMonitoringEnabled     *bool
-	ProjectAutoDeploy            *bool
-	ProjectRequireManualApproval *bool
-	ProjectEnvironments          []project.EnvironmentPrototype
+	ProjectName              string
+	ProjectDescription       string
+	ProjectLocation          string
+	ProjectDestroyOnDelete   *bool
+	ProjectMonitoringEnabled *bool
+	ProjectAutoDeploy        *bool
+	ProjectAutoDeployMode    string
+	ProjectEnvironments      []project.EnvironmentPrototype
 
 	CloudInfoService cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 
@@ -195,8 +195,8 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	if newOptions.ProjectAutoDeploy == nil {
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
 	}
-	if newOptions.ProjectAutoDeploy == nil {
-		newOptions.ProjectAutoDeploy = core.BoolPtr(false)
+	if newOptions.ProjectAutoDeployMode == "" {
+		newOptions.ProjectAutoDeployMode = "auto_approve"
 	}
 
 	if newOptions.StackAutoSyncInterval == 0 {

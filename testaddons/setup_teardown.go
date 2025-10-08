@@ -346,15 +346,15 @@ func (options *TestAddonOptions) setupProject() error {
 			options.ProjectMonitoringEnabled = core.BoolPtr(false)
 		}
 		options.currentProjectConfig = &cloudinfo.ProjectsConfig{
-			Location:              options.ProjectLocation,
-			ProjectName:           options.ProjectName,
-			ProjectDescription:    options.ProjectDescription,
-			ResourceGroup:         options.ResourceGroup,
-			DestroyOnDelete:       *options.ProjectDestroyOnDelete,
-			MonitoringEnabled:     *options.ProjectMonitoringEnabled,
-			AutoDeploy:            *options.ProjectAutoDeploy,
-			RequireManualApproval: *options.ProjectRequireManualApproval,
-			Environments:          options.ProjectEnvironments,
+			Location:           options.ProjectLocation,
+			ProjectName:        options.ProjectName,
+			ProjectDescription: options.ProjectDescription,
+			ResourceGroup:      options.ResourceGroup,
+			DestroyOnDelete:    *options.ProjectDestroyOnDelete,
+			MonitoringEnabled:  *options.ProjectMonitoringEnabled,
+			AutoDeploy:         *options.ProjectAutoDeploy,
+			AutoDeployMode:     options.ProjectAutoDeployMode,
+			Environments:       options.ProjectEnvironments,
 		}
 
 		// Create project with retry logic to handle transient database errors

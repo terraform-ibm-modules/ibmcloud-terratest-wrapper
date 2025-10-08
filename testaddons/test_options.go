@@ -542,14 +542,14 @@ type TestAddonOptions struct {
 	// After constructor = `my-test-xu5oby`
 	Prefix string
 
-	ProjectName                  string
-	ProjectDescription           string
-	ProjectLocation              string
-	ProjectDestroyOnDelete       *bool
-	ProjectMonitoringEnabled     *bool
-	ProjectAutoDeploy            *bool
-	ProjectRequireManualApproval *bool
-	ProjectEnvironments          []project.EnvironmentPrototype
+	ProjectName              string
+	ProjectDescription       string
+	ProjectLocation          string
+	ProjectDestroyOnDelete   *bool
+	ProjectMonitoringEnabled *bool
+	ProjectAutoDeploy        *bool
+	ProjectAutoDeployMode    string
+	ProjectEnvironments      []project.EnvironmentPrototype
 
 	CloudInfoService cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 
@@ -781,8 +781,8 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	if newOptions.ProjectAutoDeploy == nil {
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
 	}
-	if newOptions.ProjectRequireManualApproval == nil {
-		newOptions.ProjectRequireManualApproval = core.BoolPtr(false)
+	if newOptions.ProjectAutoDeployMode == "" {
+		newOptions.ProjectAutoDeployMode = "auto_approval"
 	}
 
 	// We need to handle the bool default properly - default SharedCatalog to false for individual tests
@@ -945,7 +945,7 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		ProjectDestroyOnDelete:       options.ProjectDestroyOnDelete,
 		ProjectMonitoringEnabled:     options.ProjectMonitoringEnabled,
 		ProjectAutoDeploy:            options.ProjectAutoDeploy,
-		ProjectRequireManualApproval: options.ProjectRequireManualApproval,
+		ProjectAutoDeployMode:        options.ProjectAutoDeployMode,
 		ProjectEnvironments:          options.ProjectEnvironments,
 		CloudInfoService:             options.CloudInfoService,
 		CatalogUseExisting:           options.CatalogUseExisting,
