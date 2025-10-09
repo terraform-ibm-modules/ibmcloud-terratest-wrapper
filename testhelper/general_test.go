@@ -28,7 +28,7 @@ type cloudInfoServiceMock struct {
 	lock                              sync.Mutex
 }
 
-func (mock *cloudInfoServiceMock) CreateStackDefinitionWrapper(stackDefOptions *projects.CreateStackDefinitionOptions, members []projects.StackConfigMember) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
+func (mock *cloudInfoServiceMock) CreateStackDefinitionWrapper(stackDefOptions *projects.CreateStackDefinitionOptions, members []projects.StackMember) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
 
@@ -214,7 +214,7 @@ func (mock *cloudInfoServiceMock) GetSchematicsJobLogsForMember(member *projects
 // to get around this we create a wrapper that can take in the missing list of members that can be used in the mock
 // to return a valid response
 
-func (mock *cloudInfoServiceMock) CreateStackDefinition(stackDefOptions *projects.CreateStackDefinitionOptions, members []projects.StackConfigMember) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
+func (mock *cloudInfoServiceMock) CreateStackDefinition(stackDefOptions *projects.CreateStackDefinitionOptions, members []projects.StackMember) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
 	args := mock.Called(stackDefOptions, members)
 	return args.Get(0).(*projects.StackDefinition), args.Get(1).(*core.DetailedResponse), args.Error(2)
 }

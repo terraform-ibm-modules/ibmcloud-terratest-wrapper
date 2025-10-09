@@ -753,7 +753,7 @@ func (suite *RefResolverTestSuite) TestResolveReferencesFromStrings() {
 	// Create mock responses
 	mockProjectResponse := &projects.Project{
 		ID: core.StringPtr(mockProjectID),
-		Definition: &projects.ProjectDefinitionProperties{
+		Definition: &projects.ProjectDefinition{
 			Name: core.StringPtr(mockProjectName),
 		},
 	}

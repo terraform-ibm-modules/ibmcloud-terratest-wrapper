@@ -10,7 +10,7 @@ require (
 	github.com/IBM/cloud-databases-go-sdk v0.8.0
 	github.com/IBM/go-sdk-core/v5 v5.21.0
 	github.com/IBM/platform-services-go-sdk v0.86.1
-	github.com/IBM/project-go-sdk v0.3.6
+	github.com/IBM/project-go-sdk v0.3.9
 	github.com/IBM/schematics-go-sdk v0.4.0
 	github.com/IBM/vpc-go-sdk v1.0.2
 	github.com/go-git/go-git/v5 v5.16.2

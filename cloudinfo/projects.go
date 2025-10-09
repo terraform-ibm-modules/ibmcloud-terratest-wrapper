@@ -116,7 +116,7 @@ func (infoSvc *CloudInfoService) CreateConfig(configDetails *ConfigDetails) (res
 	// 2. If not try use infoSvc.ApiKey
 	if configDetails.Authorizations == nil {
 		if infoSvc.ApiKey != "" {
-			authMethod := project.ProjectConfigAuth_Method_ApiKey
+			authMethod := "api_key"
 			configDetails.Authorizations = &project.ProjectConfigAuth{
 				ApiKey: &infoSvc.ApiKey,
 				Method: &authMethod,
@@ -179,7 +179,7 @@ func (infoSvc *CloudInfoService) CreateConfigFromCatalogJson(configDetails *Conf
 func (infoSvc *CloudInfoService) CreateNewStack(stackConfig *ConfigDetails) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 
 	// Create a project config first
-	createProjectConfigDefinitionOptions := &project.ProjectConfigDefinitionPrototypeStackConfigDefinitionProperties{
+	createProjectConfigDefinitionOptions := &project.ProjectConfigDefinitionPrototype{
 		Description:    &stackConfig.Description,
 		Name:           &stackConfig.Name,
 		Members:        stackConfig.MemberConfigs,
@@ -369,9 +369,10 @@ func (infoSvc *CloudInfoService) IsUndeploying(details *ConfigDetails) (projectC
 func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDetails, stackConfigPath string, catalogJsonPath string) (stackDefinition *project.StackDefinition, response *core.DetailedResponse, err error) {
 	if stackConfig.Authorizations == nil {
 		// Set default authorizations if not provided
+		auth_method := "api_key"
 		stackConfig.Authorizations = &project.ProjectConfigAuth{
 			ApiKey: &infoSvc.ApiKey,
-			Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
+			Method: &auth_method,
 		}
 	}
 
@@ -636,7 +637,7 @@ func processMembers(stackJson Stack, stackConfig *ConfigDetails, memberInputsMap
 
 		curDaProjectConfig := daProjectConfig.ID
 		stackConfig.Members = append(stackConfig.Members, *daProjectConfig)
-		stackConfig.MemberConfigs = append(stackConfig.MemberConfigs, project.StackConfigMember{
+		stackConfig.MemberConfigs = append(stackConfig.MemberConfigs, project.StackMember{
 			Name:     curMemberName,
 			ConfigID: curDaProjectConfig,
 		})

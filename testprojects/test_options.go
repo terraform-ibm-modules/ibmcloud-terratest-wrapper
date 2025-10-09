@@ -210,9 +210,10 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	// a random location will be selected at project creation time in CreateProjectFromConfig
 
 	if newOptions.StackAuthorizations == nil {
+		auth_method := "api_key"
 		newOptions.StackAuthorizations = &project.ProjectConfigAuth{
 			ApiKey: core.StringPtr(os.Getenv(ibmcloudApiKeyVar)),
-			Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
+			Method: &auth_method,
 		}
 	}
 

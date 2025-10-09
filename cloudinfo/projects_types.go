@@ -47,7 +47,7 @@ type ConfigDetails struct {
 	// Member Config details used to override the default member inputs
 	// Only need to set the name and inputs
 	MemberConfigDetails []ConfigDetails
-	MemberConfigs       []project.StackConfigMember
+	MemberConfigs       []project.StackMember
 
 	// CatalogProductName The name of the product in the catalog. Defaults to the first product in the catalog.
 	CatalogProductName string
