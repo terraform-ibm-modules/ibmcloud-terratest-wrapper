@@ -548,8 +548,10 @@ type TestAddonOptions struct {
 	ProjectDestroyOnDelete   *bool
 	ProjectMonitoringEnabled *bool
 	ProjectAutoDeploy        *bool
-	ProjectAutoDeployMode    string
-	ProjectEnvironments      []project.EnvironmentPrototype
+
+	// ProjectAutoDeployMode Valid values are "manual_approval" and "auto_approval".
+	ProjectAutoDeployMode string
+	ProjectEnvironments   []project.EnvironmentPrototype
 
 	CloudInfoService cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 
