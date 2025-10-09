@@ -334,7 +334,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		}
 		configDetails.Members = append(configDetails.Members, *prjCfg)
 
-		configDetails.MemberConfigs = append(configDetails.MemberConfigs, projectv1.StackConfigMember{
+		configDetails.MemberConfigs = append(configDetails.MemberConfigs, projectv1.StackMember{
 			ConfigID: core.StringPtr(config.ConfigID),
 			Name:     core.StringPtr(config.Name),
 		})
@@ -3659,7 +3659,7 @@ func updateProjectConfiguration(options *TestAddonOptions, configDetails cloudin
 		Inputs: configDetails.Inputs,
 		Authorizations: &projectv1.ProjectConfigAuth{
 			ApiKey: core.StringPtr(options.CloudInfoService.GetApiKey()),
-			Method: core.StringPtr(projectv1.ProjectConfigAuth_Method_ApiKey),
+			Method: core.StringPtr("api_key"),
 		},
 	}
 	prjConfig, response, err := options.CloudInfoService.UpdateConfig(&configDetails, &confPatch)

@@ -671,6 +671,9 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 	if options.ProjectAutoDeploy == nil {
 		options.ProjectAutoDeploy = core.BoolPtr(false)
 	}
+	if options.ProjectAutoDeployMode == "" {
+		options.ProjectAutoDeployMode = project.ProjectDefinition_AutoDeployMode_AutoApproval
+	}
 	if options.ProjectMonitoringEnabled == nil {
 		options.ProjectMonitoringEnabled = core.BoolPtr(false)
 	}
@@ -682,6 +685,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		DestroyOnDelete:    *options.ProjectDestroyOnDelete,
 		MonitoringEnabled:  *options.ProjectMonitoringEnabled,
 		AutoDeploy:         *options.ProjectAutoDeploy,
+		AutoDeployMode:     options.ProjectAutoDeployMode,
 		Environments:       options.ProjectEnvironments,
 	}
 	// Create project with retry logic to handle transient database errors

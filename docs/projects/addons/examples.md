@@ -744,16 +744,17 @@ func TestAddonWithCustomProject(t *testing.T) {
     t.Parallel()
 
     options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
-        Testing:                  t,
-        Prefix:                   "custom-project",
-        ResourceGroup:            "my-project-rg",
-        ProjectName:              "my-custom-project",
-        ProjectDescription:       "Custom project for specialized testing",
-        ProjectLocation:          "us-south",
-        ProjectDestroyOnDelete:   core.BoolPtr(true),
-        ProjectMonitoringEnabled: core.BoolPtr(true),
-        ProjectAutoDeploy:        core.BoolPtr(false), // Manual deployment
-        DeployTimeoutMinutes:     120, // 2 hours instead of default 6
+        Testing:                        t,
+        Prefix:                         "custom-project",
+        ResourceGroup:                  "my-project-rg",
+        ProjectName:                    "my-custom-project",
+        ProjectDescription:             "Custom project for specialized testing",
+        ProjectLocation:                "us-south",
+        ProjectDestroyOnDelete:         core.BoolPtr(true),
+        ProjectMonitoringEnabled:       core.BoolPtr(true),
+        ProjectAutoDeploy:              core.BoolPtr(false), // Manual deployment
+        ProjectAutoDeployMode:          "manual_approval",    // Require manual approval
+        DeployTimeoutMinutes:           120, // 2 hours instead of default 6
     })
 
     options.AddonConfig = cloudinfo.NewAddonConfigTerraform(

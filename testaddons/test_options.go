@@ -548,7 +548,10 @@ type TestAddonOptions struct {
 	ProjectDestroyOnDelete   *bool
 	ProjectMonitoringEnabled *bool
 	ProjectAutoDeploy        *bool
-	ProjectEnvironments      []project.EnvironmentPrototype
+
+	// ProjectAutoDeployMode Valid values are "manual_approval" and "auto_approval".
+	ProjectAutoDeployMode string
+	ProjectEnvironments   []project.EnvironmentPrototype
 
 	CloudInfoService cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 
@@ -780,6 +783,9 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	if newOptions.ProjectAutoDeploy == nil {
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
 	}
+	if newOptions.ProjectAutoDeployMode == "" {
+		newOptions.ProjectAutoDeployMode = project.ProjectDefinition_AutoDeployMode_AutoApproval
+	}
 
 	// We need to handle the bool default properly - default SharedCatalog to false for individual tests
 	// Matrix tests will override this to true and handle cleanup automatically
@@ -941,6 +947,7 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		ProjectDestroyOnDelete:       options.ProjectDestroyOnDelete,
 		ProjectMonitoringEnabled:     options.ProjectMonitoringEnabled,
 		ProjectAutoDeploy:            options.ProjectAutoDeploy,
+		ProjectAutoDeployMode:        options.ProjectAutoDeployMode,
 		ProjectEnvironments:          options.ProjectEnvironments,
 		CloudInfoService:             options.CloudInfoService,
 		CatalogUseExisting:           options.CatalogUseExisting,

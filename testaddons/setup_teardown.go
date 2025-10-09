@@ -353,6 +353,7 @@ func (options *TestAddonOptions) setupProject() error {
 			DestroyOnDelete:    *options.ProjectDestroyOnDelete,
 			MonitoringEnabled:  *options.ProjectMonitoringEnabled,
 			AutoDeploy:         *options.ProjectAutoDeploy,
+			AutoDeployMode:     options.ProjectAutoDeployMode,
 			Environments:       options.ProjectEnvironments,
 		}
 

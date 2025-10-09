@@ -65,9 +65,10 @@ options.ProjectLocation = "us-south"                    // Default: "us-south"
 ### Project Behavior Settings
 
 ```golang
-options.ProjectDestroyOnDelete = core.BoolPtr(true)     // Default: true
-options.ProjectMonitoringEnabled = core.BoolPtr(true)   // Default: true
-options.ProjectAutoDeploy = core.BoolPtr(true)          // Default: true
+options.ProjectDestroyOnDelete = core.BoolPtr(true)         // Default: true
+options.ProjectMonitoringEnabled = core.BoolPtr(true)       // Default: true
+options.ProjectAutoDeploy = core.BoolPtr(true)              // Default: true
+options.ProjectAutoDeployMode = "manual_approval"           // Default: "auto_approval"
 ```
 
 ### Project Environments

@@ -74,17 +74,6 @@ func (mock *ProjectsServiceMock) NewCreateConfigOptions(projectID string, defini
 				Members:        def.Members,
 			},
 		}
-	case *projects.ProjectConfigDefinitionPrototypeStackConfigDefinitionProperties:
-		createConfigOptions = &projects.CreateConfigOptions{
-			ProjectID: core.StringPtr(projectID),
-			Definition: &projects.ProjectConfigDefinitionPrototypeStackConfigDefinitionProperties{
-				Name:           def.Name,
-				Description:    def.Description,
-				Authorizations: def.Authorizations,
-				EnvironmentID:  def.EnvironmentID,
-				Members:        def.Members,
-			},
-		}
 	default:
 		panic(fmt.Sprintf("unsupported definition type: %T", definition))
 	}
@@ -120,17 +109,6 @@ func (mock *ProjectsServiceMock) CreateConfig(createConfigOptions *projects.Crea
 				Name:           def.Name,
 				Description:    def.Description,
 				LocatorID:      def.LocatorID,
-				Authorizations: def.Authorizations,
-				Inputs:         def.Inputs,
-				Members:        def.Members,
-			},
-		}
-	case *projects.ProjectConfigDefinitionPrototypeStackConfigDefinitionProperties:
-		projectConfig = &projects.ProjectConfig{
-			ID: createConfigOptions.ProjectID,
-			Definition: &projects.ProjectConfigDefinitionResponse{
-				Name:           def.Name,
-				Description:    def.Description,
 				Authorizations: def.Authorizations,
 				Inputs:         def.Inputs,
 				Members:        def.Members,

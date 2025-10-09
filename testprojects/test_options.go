@@ -47,7 +47,10 @@ type TestProjectsOptions struct {
 	ProjectDestroyOnDelete   *bool
 	ProjectMonitoringEnabled *bool
 	ProjectAutoDeploy        *bool
-	ProjectEnvironments      []project.EnvironmentPrototype
+
+	// ProjectAutoDeployMode Valid values are "manual_approval" and "auto_approval".
+	ProjectAutoDeployMode string
+	ProjectEnvironments   []project.EnvironmentPrototype
 
 	CloudInfoService cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 
@@ -194,6 +197,9 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	if newOptions.ProjectAutoDeploy == nil {
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
 	}
+	if newOptions.ProjectAutoDeployMode == "" {
+		newOptions.ProjectAutoDeployMode = project.ProjectDefinition_AutoDeployMode_AutoApproval
+	}
 
 	if newOptions.StackAutoSyncInterval == 0 {
 		newOptions.StackAutoSyncInterval = 20
@@ -208,7 +214,7 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	if newOptions.StackAuthorizations == nil {
 		newOptions.StackAuthorizations = &project.ProjectConfigAuth{
 			ApiKey: core.StringPtr(os.Getenv(ibmcloudApiKeyVar)),
-			Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
+			Method: core.StringPtr("api_key"),
 		}
 	}
 

@@ -54,6 +54,7 @@ func (infoSvc *CloudInfoService) CreateProjectFromConfig(config *ProjectsConfig)
 			Store:             config.Store,
 			MonitoringEnabled: core.BoolPtr(config.MonitoringEnabled),
 			AutoDeploy:        core.BoolPtr(config.AutoDeploy),
+			AutoDeployMode:    &config.AutoDeployMode,
 		},
 		Location:      &config.Location,
 		ResourceGroup: &config.ResourceGroup,
@@ -115,10 +116,9 @@ func (infoSvc *CloudInfoService) CreateConfig(configDetails *ConfigDetails) (res
 	// 2. If not try use infoSvc.ApiKey
 	if configDetails.Authorizations == nil {
 		if infoSvc.ApiKey != "" {
-			authMethod := project.ProjectConfigAuth_Method_ApiKey
 			configDetails.Authorizations = &project.ProjectConfigAuth{
 				ApiKey: &infoSvc.ApiKey,
-				Method: &authMethod,
+				Method: core.StringPtr("api_key"),
 			}
 		}
 	}
@@ -178,7 +178,7 @@ func (infoSvc *CloudInfoService) CreateConfigFromCatalogJson(configDetails *Conf
 func (infoSvc *CloudInfoService) CreateNewStack(stackConfig *ConfigDetails) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
 
 	// Create a project config first
-	createProjectConfigDefinitionOptions := &project.ProjectConfigDefinitionPrototypeStackConfigDefinitionProperties{
+	createProjectConfigDefinitionOptions := &project.ProjectConfigDefinitionPrototype{
 		Description:    &stackConfig.Description,
 		Name:           &stackConfig.Name,
 		Members:        stackConfig.MemberConfigs,
@@ -370,7 +370,7 @@ func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDe
 		// Set default authorizations if not provided
 		stackConfig.Authorizations = &project.ProjectConfigAuth{
 			ApiKey: &infoSvc.ApiKey,
-			Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
+			Method: core.StringPtr("api_key"),
 		}
 	}
 
@@ -635,7 +635,7 @@ func processMembers(stackJson Stack, stackConfig *ConfigDetails, memberInputsMap
 
 		curDaProjectConfig := daProjectConfig.ID
 		stackConfig.Members = append(stackConfig.Members, *daProjectConfig)
-		stackConfig.MemberConfigs = append(stackConfig.MemberConfigs, project.StackConfigMember{
+		stackConfig.MemberConfigs = append(stackConfig.MemberConfigs, project.StackMember{
 			Name:     curMemberName,
 			ConfigID: curDaProjectConfig,
 		})
