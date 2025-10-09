@@ -17,7 +17,7 @@ require (
 	github.com/go-openapi/errors v0.22.2
 	github.com/go-openapi/strfmt v0.23.0
 	github.com/google/go-cmp v0.7.0
-	github.com/gruntwork-io/terratest v0.50.0
+	github.com/gruntwork-io/terratest v0.51.0
 	github.com/hashicorp/terraform-json v0.26.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.11.1
@@ -92,13 +92,13 @@ require (
 	go.opentelemetry.io/otel v1.35.0 // indirect
 	go.opentelemetry.io/otel/metric v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
+	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/mod v0.26.0 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/tools v0.35.0 // indirect
-	google.golang.org/protobuf v1.36.5 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	sigs.k8s.io/yaml v1.4.0 // indirect
+	sigs.k8s.io/yaml v1.6.0 // indirect
 )

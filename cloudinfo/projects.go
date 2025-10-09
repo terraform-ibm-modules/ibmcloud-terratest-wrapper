@@ -116,10 +116,9 @@ func (infoSvc *CloudInfoService) CreateConfig(configDetails *ConfigDetails) (res
 	// 2. If not try use infoSvc.ApiKey
 	if configDetails.Authorizations == nil {
 		if infoSvc.ApiKey != "" {
-			authMethod := "api_key"
 			configDetails.Authorizations = &project.ProjectConfigAuth{
 				ApiKey: &infoSvc.ApiKey,
-				Method: &authMethod,
+				Method: core.StringPtr("api_key"),
 			}
 		}
 	}
@@ -369,10 +368,9 @@ func (infoSvc *CloudInfoService) IsUndeploying(details *ConfigDetails) (projectC
 func (infoSvc *CloudInfoService) CreateStackFromConfigFile(stackConfig *ConfigDetails, stackConfigPath string, catalogJsonPath string) (stackDefinition *project.StackDefinition, response *core.DetailedResponse, err error) {
 	if stackConfig.Authorizations == nil {
 		// Set default authorizations if not provided
-		auth_method := "api_key"
 		stackConfig.Authorizations = &project.ProjectConfigAuth{
 			ApiKey: &infoSvc.ApiKey,
-			Method: &auth_method,
+			Method: core.StringPtr("api_key"),
 		}
 	}
 

@@ -196,7 +196,7 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
 	}
 	if newOptions.ProjectAutoDeployMode == "" {
-		newOptions.ProjectAutoDeployMode = "auto_approve"
+		newOptions.ProjectAutoDeployMode = project.ProjectDefinition_AutoDeployMode_AutoApproval
 	}
 
 	if newOptions.StackAutoSyncInterval == 0 {
@@ -210,10 +210,9 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	// a random location will be selected at project creation time in CreateProjectFromConfig
 
 	if newOptions.StackAuthorizations == nil {
-		auth_method := "api_key"
 		newOptions.StackAuthorizations = &project.ProjectConfigAuth{
 			ApiKey: core.StringPtr(os.Getenv(ibmcloudApiKeyVar)),
-			Method: &auth_method,
+			Method: core.StringPtr("api_key"),
 		}
 	}
 

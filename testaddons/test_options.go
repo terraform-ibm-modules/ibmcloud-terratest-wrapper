@@ -782,7 +782,7 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
 	}
 	if newOptions.ProjectAutoDeployMode == "" {
-		newOptions.ProjectAutoDeployMode = "auto_approval"
+		newOptions.ProjectAutoDeployMode = project.ProjectDefinition_AutoDeployMode_AutoApproval
 	}
 
 	// We need to handle the bool default properly - default SharedCatalog to false for individual tests

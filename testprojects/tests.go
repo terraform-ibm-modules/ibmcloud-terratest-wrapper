@@ -672,7 +672,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		options.ProjectAutoDeploy = core.BoolPtr(false)
 	}
 	if options.ProjectAutoDeployMode == "" {
-		options.ProjectAutoDeployMode = "auto_approval"
+		options.ProjectAutoDeployMode = project.ProjectDefinition_AutoDeployMode_AutoApproval
 	}
 	if options.ProjectMonitoringEnabled == nil {
 		options.ProjectMonitoringEnabled = core.BoolPtr(false)

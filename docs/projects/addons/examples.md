@@ -753,7 +753,7 @@ func TestAddonWithCustomProject(t *testing.T) {
         ProjectDestroyOnDelete:         core.BoolPtr(true),
         ProjectMonitoringEnabled:       core.BoolPtr(true),
         ProjectAutoDeploy:              core.BoolPtr(false), // Manual deployment
-        ProjectAutoDeployMode:          "manual_approve",    // Require manual approval
+        ProjectAutoDeployMode:          "manual_approval",    // Require manual approval
         DeployTimeoutMinutes:           120, // 2 hours instead of default 6
     })
 
