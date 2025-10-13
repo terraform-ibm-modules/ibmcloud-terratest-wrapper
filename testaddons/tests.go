@@ -446,7 +446,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			// match dependency containing user inputs with project configuration returned by API
 			// so we know which inputs need to be updated for the current configuration
 			if dep.VersionLocator == *config.Definition.LocatorID {
-				mergeInputs(options, dep.Inputs, addonConfigDetails, addonID)
+				mergeInputs(options, dep.Inputs, addonConfigDetails, *config.ID)
 				updateProjectConfiguration(options, addonConfigDetails)
 			}
 		}
