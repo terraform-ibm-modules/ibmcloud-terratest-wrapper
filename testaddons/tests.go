@@ -248,6 +248,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	options.Logger.ShortInfo("Deploying the addon to project")
 
 	deployedConfigs, err := options.CloudInfoService.DeployAddonToProject(&options.AddonConfig, options.currentProjectConfig)
+
 	if err != nil {
 		// Check if this is a rate limiting error that was retried - log as warning instead of error
 		logErrorWithRateLimitCheck(options.Logger, "deploying the addon to project", err)
