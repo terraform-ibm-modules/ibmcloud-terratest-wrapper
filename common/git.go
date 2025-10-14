@@ -14,6 +14,7 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
@@ -39,9 +40,17 @@ type gitOps interface {
 	// ExecuteCommand executes a command and returns its output.
 	executeCommand(dir string, command string, args ...string) ([]byte, error)
 	// GetLatestCommitID gets the ID of latest commit on the current branch.
-	getLatestCommitID(epoDir string) (string, error)
+	getLatestCommitID(repoDir string) (string, error)
 	// CommitExistsInRemote checks if a commitID exists in the remote repo
 	commitExistsInRemote(remoteURL, commitID string) (bool, error)
+	// Init git repo
+	Init(storage *memory.Storage) (*git.Repository, error)
+	//PlainInit git repo
+	PlainInit(remoteRepoPath string) (*git.Repository, error)
+	// PlainOpen git repo
+	PlainOpen(repoPath string) (*git.Repository, error)
+	// CommitOptions git repo
+	CommitOptions(name string, email string) *git.CommitOptions
 }
 
 // envOps is an interface that abstracts environment variable operations.
@@ -133,10 +142,27 @@ func CommitExistsInRemote(remoteURL string, commitID string) (bool, error) {
 	return (&realGitOps{}).commitExistsInRemote(remoteURL, commitID)
 }
 
+func (g *realGitOps) Init(storage *memory.Storage) (*git.Repository, error) {
+	return git.Init(memory.NewStorage(), nil)
+}
+
+func (g *realGitOps) PlainInit(remoteRepoPath string) (*git.Repository, error) {
+	return git.PlainInit(remoteRepoPath, false)
+}
+
+func (g *realGitOps) CommitOptions(name string, email string) *git.CommitOptions {
+	return &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  "Test User",
+			Email: "test@example.com",
+		},
+	}
+}
+
 // commitExistsInRemote checks if commitID exists in the remote repo
 func (g *realGitOps) commitExistsInRemote(remoteURL, commitID string) (bool, error) {
 	// 1. Create an in-memory repository
-	repo, err := git.Init(memory.NewStorage(), nil)
+	repo, err := g.Init(memory.NewStorage())
 	if err != nil {
 		return false, fmt.Errorf("failed to init in-memory repo: %w", err)
 	}
@@ -175,9 +201,13 @@ func (g *realGitOps) commitExistsInRemote(remoteURL, commitID string) (bool, err
 	return true, nil
 }
 
+func (g *realGitOps) PlainOpen(repoPath string) (*git.Repository, error) {
+	return git.PlainOpen(repoPath)
+}
+
 // getLatestCommitID returns the hash of the latest commit on the current branch
 func (g *realGitOps) getLatestCommitID(repoPath string) (string, error) {
-	repo, err := git.PlainOpen(repoPath)
+	repo, err := g.PlainOpen(repoPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open repo: %w", err)
 	}
@@ -349,7 +379,10 @@ func GetCurrentPrRepoAndBranch() (string, string, error) {
 
 func getCurrentPrRepoAndBranch(git gitOps) (string, string, error) {
 	// Get the current branch name
-	branch, err := getCurrentBranch(git)
+	branch, err := git.getCurrentBranch()
+	if err != nil {
+		return "", "", err
+	}
 
 	repoPath, err := git.gitRootPath(".")
 	if err != nil {
@@ -362,20 +395,6 @@ func getCurrentPrRepoAndBranch(git gitOps) (string, string, error) {
 	}
 
 	return repoURL, branch, nil
-}
-
-func GetCurrentBranch() (string, error) {
-	return getCurrentBranch(&realGitOps{})
-}
-
-func getCurrentBranch(git gitOps) (string, error) {
-	// Get the current branch name
-	branch, err := git.getCurrentBranch()
-	if err != nil {
-		return "failed to get current branch", err
-	}
-
-	return branch, nil
 }
 
 // DetermineAuthMethod determines the appropriate authentication method for a given repository URL.
