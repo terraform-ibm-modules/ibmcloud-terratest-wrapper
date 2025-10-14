@@ -217,15 +217,14 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport() (commitUrl, repo, branc
 	gitRoot, _ := common.GitRootPath(".")
 	commitID, _ := common.GetLatestCommitID(gitRoot)
 	repoName := filepath.Base(gitRoot)
-	repoUrl := fmt.Sprintf("https://github.com/terraform-ibm-modules/%s", repoName)
-	doesCommitExistInTIMRemote, err := common.CommitExistsInRemote(repoUrl, commitID)
-	if !doesCommitExistInTIMRemote {
+	repoUrl, branch := common.GetBaseRepoAndBranch(repoName, "")
+	doesCommitExistInRemote, err := common.CommitExistsInRemote(repoUrl, commitID)
+	if !doesCommitExistInRemote {
 		infoSvc.Logger.ShortError(fmt.Sprintf("Required commit '%s' does not exist in repository '%s'.", commitID, repo))
-		infoSvc.Logger.ShortError("Please ensure a PR has been opened against the remote TIM repository before running the test.")
+		infoSvc.Logger.ShortError("Please ensure a PR has been opened against the remote repository before running the test.")
 		return "", "", "", fmt.Errorf("failed to validate PR commit exists for offering import: %w", err)
 	}
 
-	branch, err = common.GetCurrentBranch()
 	if err != nil {
 		infoSvc.Logger.ShortWarn("Error getting current branch for offering import validation")
 		return "", "", "", fmt.Errorf("failed to get repository info for offering import: %w", err)
