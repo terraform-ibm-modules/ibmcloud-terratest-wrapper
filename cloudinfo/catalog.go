@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -208,17 +208,29 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 // branch validation and repository URL conversion that's needed for catalog operations.
 //
 // Returns:
-// - branchUrl: The formatted branch URL ready for catalog import
+// - commitUrl: The commit URL ready for catalog import
 // - repo: The normalized repository URL
 // - branch: The resolved branch name
 // - error: Any error that occurred during preparation
-func (infoSvc *CloudInfoService) PrepareOfferingImport() (branchUrl, repo, branch string, err error) {
+func (infoSvc *CloudInfoService) PrepareOfferingImport() (commitUrl, repo, branch string, err error) {
 	// Get repository info
-	repo, branch, err = common.GetCurrentPrRepoAndBranch()
+	gitRoot, _ := common.GitRootPath(".")
+	commitID, _ := common.GetLatestCommitID(gitRoot)
+	repoName := filepath.Base(gitRoot)
+	repoUrl, branch := common.GetBaseRepoAndBranch(repoName, "")
+	doesCommitExistInRemote, err := common.CommitExistsInRemote(repoUrl, commitID)
 	if err != nil {
-		infoSvc.Logger.ShortWarn("Error getting current branch and repo for offering import validation")
+		infoSvc.Logger.ShortWarn("Error getting current branch for offering import validation")
 		return "", "", "", fmt.Errorf("failed to get repository info for offering import: %w", err)
 	}
+	if !doesCommitExistInRemote {
+		infoSvc.Logger.ShortError(fmt.Sprintf("Required commit '%s' does not exist in repository '%s'.", commitID, repo))
+		infoSvc.Logger.ShortError("Please ensure a PR has been opened against the remote repository before running the test.")
+		return "", "", "", fmt.Errorf("failed to validate PR commit exists for offering import: %w", err)
+	}
+
+	// Convert repository URL to HTTPS format for branch validation and catalog import
+	repo = normalizeRepositoryURL(repoUrl)
 
 	// Resolve actual branch name in CI environments where git returns "HEAD"
 	resolvedBranch := resolveCIBranchName(branch)
@@ -227,35 +239,9 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport() (branchUrl, repo, branc
 		branch = resolvedBranch
 	}
 
-	// Convert repository URL to HTTPS format for branch validation and catalog import
-	repo = normalizeRepositoryURL(repo)
+	commitUrl = fmt.Sprintf("%s/commit/%s", repo, commitID)
 
-	// Validate that the branch exists in the remote repository (required for offering import)
-	// Skip validation only if we're in a detached HEAD state and can't determine the actual branch
-	if branch == "HEAD" {
-		infoSvc.Logger.ShortInfo("Skipping branch validation as running in detached HEAD mode and unable to resolve actual branch name")
-		infoSvc.Logger.ShortInfo("This is common in CI environments - catalog operations will use the commit hash instead")
-	} else {
-		infoSvc.Logger.ShortInfo(fmt.Sprintf("Validating that branch '%s' exists in remote repository before creating any resources", branch))
-		branchExists, err := common.CheckRemoteBranchExists(repo, branch)
-		if err != nil {
-			infoSvc.Logger.ShortWarn(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
-			return "", "", "", fmt.Errorf("failed to validate branch exists for offering import: %w", err)
-		}
-		if !branchExists {
-			infoSvc.Logger.ShortError(fmt.Sprintf("Required branch '%s' does not exist in repository '%s'", branch, repo))
-			infoSvc.Logger.ShortError("This branch is required for offering import/catalog tests to work properly.")
-			infoSvc.Logger.ShortError("Please ensure the branch exists in the remote repository before running the test.")
-			return "", "", "", fmt.Errorf("required branch '%s' does not exist in repository '%s' (required for offering import)", branch, repo)
-		}
-		infoSvc.Logger.ShortInfo(fmt.Sprintf("Branch '%s' confirmed to exist in remote repository", branch))
-	}
-
-	// Format the branch URL for catalog import
-	// URL encode only the branch name, not the entire URL
-	branchUrl = fmt.Sprintf("%s/tree/%s", repo, url.PathEscape(branch))
-
-	return branchUrl, repo, branch, nil
+	return commitUrl, repo, branch, nil
 }
 
 // ImportOfferingWithValidation performs the complete offering import workflow including
