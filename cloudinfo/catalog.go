@@ -219,15 +219,14 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport() (commitUrl, repo, branc
 	repoName := filepath.Base(gitRoot)
 	repoUrl, branch := common.GetBaseRepoAndBranch(repoName, "")
 	doesCommitExistInRemote, err := common.CommitExistsInRemote(repoUrl, commitID)
+	if err != nil {
+		infoSvc.Logger.ShortWarn("Error getting current branch for offering import validation")
+		return "", "", "", fmt.Errorf("failed to get repository info for offering import: %w", err)
+	}
 	if !doesCommitExistInRemote {
 		infoSvc.Logger.ShortError(fmt.Sprintf("Required commit '%s' does not exist in repository '%s'.", commitID, repo))
 		infoSvc.Logger.ShortError("Please ensure a PR has been opened against the remote repository before running the test.")
 		return "", "", "", fmt.Errorf("failed to validate PR commit exists for offering import: %w", err)
-	}
-
-	if err != nil {
-		infoSvc.Logger.ShortWarn("Error getting current branch for offering import validation")
-		return "", "", "", fmt.Errorf("failed to get repository info for offering import: %w", err)
 	}
 
 	// Convert repository URL to HTTPS format for branch validation and catalog import

@@ -153,8 +153,8 @@ func (g *realGitOps) PlainInit(remoteRepoPath string) (*git.Repository, error) {
 func (g *realGitOps) CommitOptions(name string, email string) *git.CommitOptions {
 	return &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  "Test User",
-			Email: "test@example.com",
+			Name:  name,
+			Email: email,
 		},
 	}
 }
