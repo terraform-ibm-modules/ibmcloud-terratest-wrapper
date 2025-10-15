@@ -239,7 +239,7 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport() (commitUrl, repo, branc
 		branch = resolvedBranch
 	}
 
-	commitUrl = fmt.Sprintf("%s/commit/%s", repoUrl, commitID)
+	commitUrl = fmt.Sprintf("%s/commit/%s", repo, commitID)
 
 	return commitUrl, repo, branch, nil
 }
