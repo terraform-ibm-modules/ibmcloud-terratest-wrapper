@@ -216,7 +216,7 @@ type CloudInfoServiceI interface {
 	GetSchematicsJobLogs(jobID string, location string) (result *schematics.JobLog, response *core.DetailedResponse, err error)
 	GetSchematicsJobLogsText(jobID string, location string) (logs string, err error)
 	ArePipelineActionsRunning(stackConfig *ConfigDetails) (bool, error)
-	GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string) (string, string)
+	GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string, projectID string, configID string) (string, string)
 	GetSchematicsJobFileData(jobID string, fileType string, location string) (*schematics.JobFileData, error)
 	GetSchematicsJobPlanJson(jobID string, location string) (string, error)
 	GetSchematicsServiceByLocation(location string) (schematicsService, error)

@@ -1355,9 +1355,9 @@ func extractComponentFromPattern(configPattern string) string {
 func (report *PermutationTestReport) getValidationInsight(errorType string) string {
 	switch errorType {
 	case "Unexpected config":
-		return "ISSUE: Configuration deployed despite being disabled in test setup"
+		return "ISSUE: Configuration added to project despite being disabled in test setup"
 	case "Missing config":
-		return "ISSUE: Required dependency not deployed when expected"
+		return "ISSUE: Required dependency not added to project when expected"
 	case "Missing dependency":
 		return "ISSUE: Addon requires dependency that is disabled"
 	case "Circular dependency":

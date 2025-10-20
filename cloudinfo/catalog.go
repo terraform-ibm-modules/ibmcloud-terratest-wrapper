@@ -757,7 +757,7 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 		}
 
 		// Only log success message after confirming the request succeeded
-		infoSvc.Logger.ShortInfo(fmt.Sprintf("Configuration deployed to project %s: %s", projectConfig.ProjectName, projectConfig.ProjectID))
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Configuration added to project %s: %s", projectConfig.ProjectName, projectConfig.ProjectID))
 
 		return body, nil
 	})

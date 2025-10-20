@@ -205,7 +205,7 @@ func (mock *cloudInfoServiceMock) ArePipelineActionsRunning(stackConfig *cloudin
 	return false, nil
 }
 
-func (mock *cloudInfoServiceMock) GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string) (string, string) {
+func (mock *cloudInfoServiceMock) GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string, projectID string, configID string) (string, string) {
 	return "", ""
 }
 
