@@ -59,9 +59,9 @@ func (options *TestAddonOptions) printConsolidatedValidationSummary(validationRe
 
 	// Unexpected Configs Section - show in tree format
 	if unexpectedCount > 0 {
-		builder.WriteString("❌ UNEXPECTED CONFIGS DEPLOYED:\n")
+		builder.WriteString("❌ UNEXPECTED CONFIGS ADDED TO PROJECT:\n")
 		for i, unexpectedConfig := range validationResult.UnexpectedConfigs {
-			builder.WriteString(fmt.Sprintf("  %d. %s (%s, %s) - should not be deployed\n",
+			builder.WriteString(fmt.Sprintf("  %d. %s (%s, %s) - should not be added to project\n",
 				i+1, unexpectedConfig.Name, unexpectedConfig.Version, unexpectedConfig.Flavor.Name))
 		}
 		builder.WriteString("\n")
@@ -395,9 +395,9 @@ func (options *TestAddonOptions) printAddonTreeWithStatusAndPath(addon cloudinfo
 		statusSymbol = " ❌ MISSING" // Missing completely
 	} else if deployedMap[addonKey] {
 		if _, hasError := errorMap[addonKey]; hasError {
-			statusSymbol = " ✅ DEPLOYED (dependency issue)" // Deployed but with dependency issues
+			statusSymbol = " ✅ ADDED_TO_PROJECT (dependency issue)" // Added to project but with dependency issues
 		} else {
-			statusSymbol = " ✅ DEPLOYED" // Deployed correctly
+			statusSymbol = " ✅ ADDED_TO_PROJECT" // Added to project correctly
 		}
 	} else {
 		statusSymbol = " ❓ UNKNOWN STATUS" // Status unclear
@@ -584,12 +584,12 @@ func (options *TestAddonOptions) getConfigStatus(config cloudinfo.OfferingRefere
 	for _, depErr := range validationResult.DependencyErrors {
 		errorKey := generateAddonKeyFromDependencyError(depErr)
 		if configKey == errorKey {
-			return " ✅ DEPLOYED (dependency issue)", options.Logger.ShortWarn
+			return " ✅ ADDED_TO_PROJECT (dependency issue)", options.Logger.ShortWarn
 		}
 	}
 
-	// Default - deployed correctly
-	return " ✅ DEPLOYED", options.Logger.ShortInfo
+	// Default - added to project correctly
+	return " ✅ ADDED_TO_PROJECT", options.Logger.ShortInfo
 }
 
 // findDeployedDependencies finds any deployed configurations that might be dependencies

@@ -1180,6 +1180,9 @@ func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.P
 
 		if member.LastValidated.Result != nil {
 			logMessage.WriteString(fmt.Sprintf("\n\t(%s) Validation result: %s", memberName, *member.LastValidated.Result))
+			if *member.LastValidated.Result == "failed" {
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) Note: Validation = terraform plan. Infrastructure deployment (terraform apply) cannot proceed without successful validation.", memberName))
+			}
 		} else {
 			logMessage.WriteString(fmt.Sprintf("\n\t(%s) Validation result: nil", memberName))
 		}
@@ -1189,7 +1192,7 @@ func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.P
 				logMessage.WriteString(fmt.Sprintf("\n\t(%s) Failed resource: %s", memberName, failedResource))
 			}
 		} else {
-			logMessage.WriteString(fmt.Sprintf("\n\t(%s) failed Validation, no failed resources returned", memberName))
+			logMessage.WriteString(fmt.Sprintf("\n\t(%s) Validation (terraform plan) failed, but no specific failed resources returned by API", memberName))
 		}
 
 		if member.LastValidated.Job.Summary != nil && member.LastValidated.Job.Summary.PlanMessages != nil && member.LastValidated.Job.Summary.PlanMessages.ErrorMessages != nil {

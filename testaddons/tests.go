@@ -283,12 +283,14 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	// Store deployed configs for later use in dependency validation
 	options.deployedConfigs = deployedConfigs
 
-	options.Logger.ShortInfo("DEPLOYMENT STEP: Deployment completed successfully")
-	options.Logger.ShortInfo(fmt.Sprintf("Deployed Configurations to Project ID: %s", options.currentProjectConfig.ProjectID))
+	options.Logger.ShortInfo("DEPLOYMENT STEP: Configurations added to project successfully")
+	options.Logger.ShortInfo("Note: Configurations are registered with IBM Cloud Projects, not yet deployed")
+	options.Logger.ShortInfo("Workflow: 1) Add to Project → 2) Validate (terraform plan) → 3) Deploy (terraform apply)")
+	options.Logger.ShortInfo(fmt.Sprintf("Added Configurations to Project ID: %s", options.currentProjectConfig.ProjectID))
 	for _, config := range deployedConfigs.Configs {
 		options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", config.Name, config.ConfigID))
 	}
-	options.Logger.ShortInfo("Addon deployed successfully")
+	options.Logger.ShortInfo("Next step: IBM Cloud Projects will validate configurations using terraform plan")
 
 	// Show configuration update progress in quiet mode
 	if options.QuietMode {
@@ -1467,19 +1469,22 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		}
 		errorList := deployOptions.TriggerDeployAndWait()
 		if len(errorList) > 0 {
-			options.Logger.ShortError("Errors occurred during deploy")
+			options.Logger.ShortError("Errors occurred during infrastructure deployment")
+			options.Logger.ShortError("Note: IBM Cloud Projects workflow requires successful validation (terraform plan) before deployment (terraform apply)")
+			options.Logger.ShortError("If validation failed, infrastructure was never deployed - only configurations were added to project")
 			for _, err := range errorList {
 				options.Logger.ShortError(fmt.Sprintf("  %v", err))
 			}
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return fmt.Errorf("errors occurred during deploy")
+			return fmt.Errorf("errors occurred during infrastructure deployment")
 		}
 		if options.QuietMode {
 			options.Logger.ProgressSuccess("Infrastructure deployment completed")
 		}
-		options.Logger.ShortInfo("Deploy completed successfully")
+		options.Logger.ShortInfo("Infrastructure deployment completed successfully")
+		options.Logger.ShortInfo("All configurations validated (terraform plan) and deployed (terraform apply)")
 		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✔"))
 	} else {
 		options.Logger.ShortInfo("Infrastructure deployment skipped")
