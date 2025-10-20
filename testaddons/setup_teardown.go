@@ -2,6 +2,7 @@ package testaddons
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -454,16 +455,30 @@ func (options *TestAddonOptions) TestTearDown() {
 
 // testTearDown performs the test teardown
 func (options *TestAddonOptions) testTearDown() {
-	// Show teardown progress in quiet mode
-	if options.QuietMode {
-		options.Logger.ProgressStage("Cleaning up resources")
-	}
-
 	// Flush buffered logs if test failed to show debug information during cleanup
 	options.Logger.FlushOnFailure()
 
 	// perform the test teardown
 	options.Logger.ShortInfo("Performing test teardown")
+
+	// Always show project URL if project exists, regardless of teardown path
+	if options.currentProject != nil && options.currentProject.ID != nil {
+		projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", *options.currentProject.ID)
+		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
+	}
+
+	// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
+	envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
+
+	// Do not destroy if tests failed and "DO_NOT_DESTROY_ON_FAILURE" is true
+	if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+		if options.currentProject == nil || options.currentProject.ID == nil {
+			options.Logger.ShortError("Terratest failed. No project to delete.")
+		} else {
+			options.Logger.ShortError("Terratest failed. Debug the Test and delete resources manually.")
+		}
+		return
+	}
 
 	// Project cleanup logic: always clean up projects since we're not sharing them
 	if options.currentProject != nil && options.currentProject.ID != nil {
@@ -516,12 +531,6 @@ func (options *TestAddonOptions) testTearDown() {
 			errorMsg := fmt.Sprintf("Project deletion failed: %v", err)
 			options.lastTeardownErrors = append(options.lastTeardownErrors, errorMsg)
 			projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", *options.currentProject.ID)
-
-			// Always show project console link on critical failures, even in quiet mode
-			if options.QuietMode {
-				options.Logger.ShortError(fmt.Sprintf("Project deletion failed - Console: %s", projectURL))
-			}
-
 			options.Logger.ShortWarn(fmt.Sprintf("Error deleting Test Project: %s\nProject Console: %s", err, projectURL))
 		}
 	} else {
