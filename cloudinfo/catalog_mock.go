@@ -320,8 +320,8 @@ func (m *MockCloudInfoServiceForPermutation) GetReclamationIdFromCRN(CRN string)
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockCloudInfoServiceForPermutation) GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string) (string, string) {
-	args := m.Called(member, memberName, projectRegion)
+func (m *MockCloudInfoServiceForPermutation) GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string, projectID string, configID string) (string, string) {
+	args := m.Called(member, memberName, projectRegion, projectID, configID)
 	return args.String(0), args.String(1)
 }
 

@@ -12,9 +12,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	project "github.com/IBM/project-go-sdk/projectv1"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
 // CreateProjectFromConfig creates a project with the given config
@@ -1024,10 +1026,75 @@ func (infoSvc *CloudInfoService) LookupMemberNameByID(stackDetails *project.Proj
 	return *member.Definition.(*project.ProjectConfigDefinitionResponse).Name, nil
 }
 
+// GetMemberWithWorkspaceInfo fetches a member configuration with retries until workspace CRN and job ID are populated
+// This handles eventual consistency issues where the IBM Cloud backend hasn't yet populated these fields after a job failure
+func (infoSvc *CloudInfoService) GetMemberWithWorkspaceInfo(projectID, configID string) (*project.ProjectConfig, error) {
+	retryConfig := common.ProjectOperationRetryConfig()
+	retryConfig.MaxRetries = 12 // ~3 minutes with exponential backoff
+	retryConfig.InitialDelay = 5 * time.Second
+	retryConfig.MaxDelay = 30 * time.Second
+	retryConfig.Logger = infoSvc.Logger
+	retryConfig.OperationName = "fetch member workspace info"
+
+	member, err := common.RetryWithConfig(retryConfig, func() (*project.ProjectConfig, error) {
+		// Fetch the latest member configuration
+		config, _, err := infoSvc.GetConfig(&ConfigDetails{
+			ProjectID: projectID,
+			ConfigID:  configID,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		// Check if workspace info is populated
+		hasWorkspaceInfo := false
+		if config.Schematics != nil && config.Schematics.WorkspaceCrn != nil {
+			hasWorkspaceInfo = true
+		}
+
+		// Check if job ID is populated (any of the job types)
+		hasJobID := false
+		if config.LastValidated != nil && config.LastValidated.Job != nil && config.LastValidated.Job.ID != nil {
+			hasJobID = true
+		} else if config.LastDeployed != nil && config.LastDeployed.Job != nil && config.LastDeployed.Job.ID != nil {
+			hasJobID = true
+		} else if config.LastUndeployed != nil && config.LastUndeployed.Job != nil && config.LastUndeployed.Job.ID != nil {
+			hasJobID = true
+		}
+
+		// If we have both workspace info and job ID, we're good
+		if hasWorkspaceInfo && hasJobID {
+			return config, nil
+		}
+
+		// Otherwise, return an error to trigger retry
+		return nil, fmt.Errorf("workspace CRN or job ID not yet populated (eventual consistency)")
+	})
+
+	return member, err
+}
+
 // GetSchematicsJobLogsForMember gets the schematics job logs for a member
-func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.ProjectConfig, memberName string, projectRegion string) (details string, terraformLogs string) {
+// If projectID and configID are provided (non-empty), it will retry fetching the member configuration
+// until workspace CRN and job ID are populated, handling eventual consistency issues
+func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.ProjectConfig, memberName string, projectRegion string, projectID string, configID string) (details string, terraformLogs string) {
 	var logMessage strings.Builder
 	var terraformLogMessage strings.Builder
+
+	// Try to fetch fresh member data with retry if projectID and configID are provided
+	// This handles eventual consistency where workspace CRN and job ID may not be immediately available
+	if projectID != "" && configID != "" {
+		freshMember, retryErr := infoSvc.GetMemberWithWorkspaceInfo(projectID, configID)
+		if retryErr != nil {
+			// Log the retry failure but continue with the original member data
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.ShortWarn(fmt.Sprintf("Could not fetch complete workspace info after retries: %v. Using available data.", retryErr))
+			}
+		} else {
+			// Use the fresh member data which should have complete workspace info
+			member = freshMember
+		}
+	}
 
 	// determine schematics geo location from project region
 	schematicsLocation := projectRegion[0:2]

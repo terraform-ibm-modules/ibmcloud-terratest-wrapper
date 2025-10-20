@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"testing"
 
@@ -1136,6 +1137,104 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 
 		})
 	}
+}
+
+func (suite *ProjectsServiceTestSuite) TestGetMemberWithWorkspaceInfo_Success() {
+	projectID := "test-project-id"
+	configID := "test-config-id"
+
+	// Mock member config with workspace info and job ID populated
+	mockMember := &projects.ProjectConfig{
+		ID: core.StringPtr(configID),
+		Schematics: &projects.SchematicsMetadata{
+			WorkspaceCrn: core.StringPtr("crn:v1:bluemix:public:schematics:us-south:a/abc123::workspace:ws-123"),
+		},
+		LastValidated: &projects.LastValidatedActionWithSummary{
+			Href: core.StringPtr("https://example.com"),
+			Job: &projects.ActionJobWithIdAndSummary{
+				ID:      core.StringPtr("job-123"),
+				Summary: &projects.ActionJobSummary{},
+			},
+		},
+	}
+
+	mockResponse := &core.DetailedResponse{StatusCode: 200}
+
+	// Mock GetConfig to return member with workspace info on first try
+	suite.mockService.On("GetConfig", mock.MatchedBy(func(opts *projects.GetConfigOptions) bool {
+		return *opts.ProjectID == projectID && *opts.ID == configID
+	})).Return(mockMember, mockResponse, nil)
+
+	// Call the function
+	result, err := suite.infoSvc.GetMemberWithWorkspaceInfo(projectID, configID)
+
+	// Verify
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), configID, *result.ID)
+	assert.NotNil(suite.T(), result.Schematics)
+	assert.NotNil(suite.T(), result.Schematics.WorkspaceCrn)
+	assert.NotNil(suite.T(), result.LastValidated)
+	assert.NotNil(suite.T(), result.LastValidated.Job)
+	assert.NotNil(suite.T(), result.LastValidated.Job.ID)
+}
+
+func (suite *ProjectsServiceTestSuite) TestGetMemberWithWorkspaceInfo_EventualConsistency() {
+	// Set environment variable to skip retry delays for faster testing
+	originalSkipDelays := os.Getenv("SKIP_RETRY_DELAYS")
+	os.Setenv("SKIP_RETRY_DELAYS", "true")
+	defer os.Setenv("SKIP_RETRY_DELAYS", originalSkipDelays)
+
+	projectID := "test-project-id"
+	configID := "test-config-id"
+
+	// First call: Member without workspace info (eventual consistency)
+	memberWithoutInfo := &projects.ProjectConfig{
+		ID:         core.StringPtr(configID),
+		Schematics: nil, // No workspace info yet
+	}
+
+	// Second call: Member with workspace info populated
+	memberWithInfo := &projects.ProjectConfig{
+		ID: core.StringPtr(configID),
+		Schematics: &projects.SchematicsMetadata{
+			WorkspaceCrn: core.StringPtr("crn:v1:bluemix:public:schematics:us-south:a/abc123::workspace:ws-123"),
+		},
+		LastDeployed: &projects.LastActionWithSummary{
+			Href: core.StringPtr("https://example.com"),
+			Job: &projects.ActionJobWithIdAndSummary{
+				ID:      core.StringPtr("job-456"),
+				Summary: &projects.ActionJobSummary{},
+			},
+		},
+	}
+
+	mockResponse := &core.DetailedResponse{StatusCode: 200}
+
+	// Mock GetConfig to return different results on sequential calls
+	suite.mockService.On("GetConfig", mock.MatchedBy(func(opts *projects.GetConfigOptions) bool {
+		return *opts.ProjectID == projectID && *opts.ID == configID
+	})).Return(memberWithoutInfo, mockResponse, nil).Once()
+
+	suite.mockService.On("GetConfig", mock.MatchedBy(func(opts *projects.GetConfigOptions) bool {
+		return *opts.ProjectID == projectID && *opts.ID == configID
+	})).Return(memberWithInfo, mockResponse, nil)
+
+	// Call the function - it should retry and eventually get the complete data
+	result, err := suite.infoSvc.GetMemberWithWorkspaceInfo(projectID, configID)
+
+	// Verify
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), configID, *result.ID)
+	assert.NotNil(suite.T(), result.Schematics)
+	assert.NotNil(suite.T(), result.Schematics.WorkspaceCrn)
+	assert.NotNil(suite.T(), result.LastDeployed)
+	assert.NotNil(suite.T(), result.LastDeployed.Job)
+	assert.NotNil(suite.T(), result.LastDeployed.Job.ID)
+
+	// Verify GetConfig was called at least twice (retry happened)
+	suite.mockService.AssertNumberOfCalls(suite.T(), "GetConfig", 2)
 }
 
 func TestProjectsServiceTestSuite(t *testing.T) {
