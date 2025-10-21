@@ -626,32 +626,6 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			}
 		}
 
-		// If version-based lookup failed, try matching by offering name or configuration name
-		if !addonFound {
-			configName := *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name
-
-			// Use structured configuration matching instead of fragile string patterns
-			mainAddonMatcher := NewConfigurationMatcherForAddon(options.AddonConfig)
-			if matched, rule := mainAddonMatcher.IsMatch(configName); matched {
-				targetAddon = options.AddonConfig
-				addonFound = true
-				options.Logger.ShortInfo(fmt.Sprintf("Matched addon using %s for config: %s (rule: %s)",
-					rule.Strategy.String(), configName, rule.Description))
-			} else {
-				// Try to match dependencies using structured matching
-				for i, dependency := range options.AddonConfig.Dependencies {
-					dependencyMatcher := NewConfigurationMatcherForAddon(dependency)
-					if matched, rule := dependencyMatcher.IsMatch(configName); matched {
-						targetAddon = options.AddonConfig.Dependencies[i]
-						addonFound = true
-						options.Logger.ShortInfo(fmt.Sprintf("Matched dependency using %s for config: %s (rule: %s)",
-							rule.Strategy.String(), configName, rule.Description))
-						break
-					}
-				}
-			}
-		}
-
 		if !addonFound {
 			options.Logger.ShortWarn(fmt.Sprintf("Could not resolve addon definition for config: %s (ID: %s, Version: %s)",
 				*currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name, *currentConfigDetails.ID, version))
