@@ -234,25 +234,25 @@ func (svc *SchematicsTestService) CreateUploadTarFile(projectPath string) (strin
 	svc.TestOptions.Testing.Log("[SCHEMATICS] Creating TAR file")
 	tarballName, tarballErr := CreateSchematicTar(projectPath, &svc.TestOptions.TarIncludePatterns)
 	if tarballErr != nil {
-		return "", fmt.Errorf("error creating tar file: %w", tarballErr)
+		return "", fmt.Errorf("error creating tar file: %s", tarballErr.Error())
 	}
 
 	svc.TestOptions.Testing.Log("[SCHEMATICS] Uploading TAR file")
 	uploadErr := svc.UploadTarToWorkspace(tarballName)
 	if uploadErr != nil {
-		return tarballName, fmt.Errorf("error uploading tar file to workspace: %w - %s", uploadErr, svc.WorkspaceNameForLog)
+		return tarballName, fmt.Errorf("error uploading tar file to workspace: %s - %s", uploadErr.Error(), svc.WorkspaceNameForLog)
 	}
 
 	// -------- UPLOAD TAR FILE ----------
 	// find the tar upload job
 	uploadJob, uploadJobErr := svc.FindLatestWorkspaceJobByName(SchematicsJobTypeUpload)
 	if uploadJobErr != nil {
-		return tarballName, fmt.Errorf("error finding the upload tar action: %w - %s", uploadJobErr, svc.WorkspaceNameForLog)
+		return tarballName, fmt.Errorf("error finding the upload tar action: %s - %s", uploadJobErr.Error(), svc.WorkspaceNameForLog)
 	}
 	// wait for it to finish
 	uploadJobStatus, uploadJobStatusErr := svc.WaitForFinalJobStatus(*uploadJob.ActionID)
 	if uploadJobStatusErr != nil {
-		return tarballName, fmt.Errorf("error waiting for upload of tar to finish: %w - %s", uploadJobStatusErr, svc.WorkspaceNameForLog)
+		return tarballName, fmt.Errorf("error waiting for upload of tar to finish: %s - %s", uploadJobStatusErr.Error(), svc.WorkspaceNameForLog)
 	}
 	// check if complete
 	if uploadJobStatus != SchematicsJobStatusCompleted {
@@ -447,50 +447,62 @@ func (svc *SchematicsTestService) CreateDestroyJob() (*schematics.WorkspaceActiv
 // This can be used to find a job by its type when the jobID is not known.
 // A "NotFound" error will be thrown if there are no existing jobs of the provided type.
 func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (*schematics.WorkspaceActivity, error) {
+	// Create a custom retry config for this operation
+	retryConfig := common.DefaultRetryConfig()
+	retryConfig.MaxRetries = 3
+	retryConfig.OperationName = "FindLatestWorkspaceJobByName"
 
-	// get array of jobs using workspace id
-	var listResult *schematics.WorkspaceActivities
-	var resp *core.DetailedResponse
-	var listErr error
-	retries := 0
-	for {
-		listResult, resp, listErr = svc.SchematicsApiSvc.ListWorkspaceActivities(&schematics.ListWorkspaceActivitiesOptions{
+	// We can't use the logger directly since testing.T doesn't implement the common.Logger interface
+	// Instead, we'll log manually in our operation function
+
+	// Use the common retry package
+	job, err := common.RetryWithConfig(retryConfig, func() (*schematics.WorkspaceActivity, error) {
+		// get array of jobs using workspace id
+		listResult, _, listErr := svc.SchematicsApiSvc.ListWorkspaceActivities(&schematics.ListWorkspaceActivitiesOptions{
 			WID: core.StringPtr(svc.WorkspaceID),
 		})
-		if svc.retryApiCall(listErr, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ListWorkspaceActivities, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
+
+		if listErr != nil {
+			return nil, listErr
 		}
-	}
 
-	if listErr != nil {
-		return nil, listErr
-	}
+		// loop through jobs and get latest one that matches name
+		var jobResult *schematics.WorkspaceActivity
+		var availableJobTypes []string // Track available job types for better error messages
 
-	// loop through jobs and get latest one that matches name
-	var jobResult *schematics.WorkspaceActivity
-	for i, job := range listResult.Actions {
-		// only match name
-		if *job.Name == jobName {
-			// keep latest job of svc name
-			if jobResult != nil {
-				if time.Time(*job.PerformedAt).After(time.Time(*jobResult.PerformedAt)) {
+		for i, job := range listResult.Actions {
+			// Add job type to available types list if it has a name
+			if job.Name != nil {
+				availableJobTypes = append(availableJobTypes, *job.Name)
+			}
+
+			// only match name
+			if job.Name != nil && *job.Name == jobName {
+				// keep latest job of svc name
+				if jobResult != nil {
+					if time.Time(*job.PerformedAt).After(time.Time(*jobResult.PerformedAt)) {
+						jobResult = &listResult.Actions[i]
+					}
+				} else {
 					jobResult = &listResult.Actions[i]
 				}
-			} else {
-				jobResult = &listResult.Actions[i]
 			}
 		}
-	}
 
-	// if jobResult is nil then none were found, throw error
-	if jobResult == nil {
-		return nil, errors.NotFound("job <%s> not found in workspace", jobName)
-	}
+		// if jobResult is nil then none were found, throw error
+		if jobResult == nil {
+			// Log available job types for debugging
+			if len(availableJobTypes) > 0 && svc.TestOptions != nil && svc.TestOptions.Testing != nil {
+				svc.TestOptions.Testing.Logf("[SCHEMATICS] Job <%s> not found, retrying. Available job types: %v",
+					jobName, availableJobTypes)
+			}
+			return nil, errors.NotFound("job <%s> not found in workspace", jobName)
+		}
 
-	return jobResult, nil
+		return jobResult, nil
+	})
+
+	return job, err
 }
 
 // GetWorkspaceJobDetail will return a data structure with full details about an existing Schematics Workspace activity for the

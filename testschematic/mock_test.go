@@ -52,6 +52,8 @@ type schematicServiceMock struct {
 	applyComplete                bool
 	destroyComplete              bool
 	workspaceDeleteComplete      bool
+	listActivitiesCallCount      int                              // Track number of calls to ListWorkspaceActivities
+	activitiesForRetry           [][]schematics.WorkspaceActivity // Activities to return on each call
 }
 
 // IAM AUTHENTICATOR INTERFACE MOCK
@@ -76,6 +78,8 @@ func mockSchematicServiceReset(mock *schematicServiceMock, options *TestSchemati
 	mock.applyComplete = false
 	mock.destroyComplete = false
 	mock.workspaceDeleteComplete = false
+	mock.listActivitiesCallCount = 0
+	mock.activitiesForRetry = nil
 	options.Testing = new(testing.T)
 }
 
@@ -162,8 +166,29 @@ func (mock *schematicServiceMock) ListWorkspaceActivities(listWorkspaceactivitie
 	if mock.failListWorkspaceActivities {
 		return nil, &core.DetailedResponse{StatusCode: 404}, &schematicErrorMock{}
 	}
+
 	var result *schematics.WorkspaceActivities
-	if mock.emptyListWorkspaceActivities {
+
+	// Check if we're using the retry functionality
+	if len(mock.activitiesForRetry) > 0 {
+		// Increment call count
+		currentCall := mock.listActivitiesCallCount
+		mock.listActivitiesCallCount++
+
+		// Return the appropriate activities based on call count
+		if currentCall < len(mock.activitiesForRetry) {
+			result = &schematics.WorkspaceActivities{
+				WorkspaceID: core.StringPtr(mockWorkspaceID),
+				Actions:     mock.activitiesForRetry[currentCall],
+			}
+		} else {
+			// If we've exhausted our predefined responses, use the last one
+			result = &schematics.WorkspaceActivities{
+				WorkspaceID: core.StringPtr(mockWorkspaceID),
+				Actions:     mock.activitiesForRetry[len(mock.activitiesForRetry)-1],
+			}
+		}
+	} else if mock.emptyListWorkspaceActivities {
 		result = &schematics.WorkspaceActivities{
 			WorkspaceID: core.StringPtr(mockWorkspaceID),
 			Actions:     []schematics.WorkspaceActivity{},
@@ -183,6 +208,7 @@ func (mock *schematicServiceMock) ListWorkspaceActivities(listWorkspaceactivitie
 			}
 		}
 	}
+
 	response := &core.DetailedResponse{StatusCode: 200}
 	return result, response, nil
 }
