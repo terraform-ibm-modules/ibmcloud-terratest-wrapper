@@ -447,28 +447,20 @@ func (svc *SchematicsTestService) CreateDestroyJob() (*schematics.WorkspaceActiv
 // This can be used to find a job by its type when the jobID is not known.
 // A "NotFound" error will be thrown if there are no existing jobs of the provided type.
 func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (*schematics.WorkspaceActivity, error) {
-	// Define the maximum number of retries and delay between retries
-	maxRetries := 3
-	retryDelay := 2 * time.Second
+	// Create a custom retry config for this operation
+	retryConfig := common.DefaultRetryConfig()
+	retryConfig.MaxRetries = 3
+	retryConfig.OperationName = "FindLatestWorkspaceJobByName"
 
-	// Try multiple times to find the job
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	// We can't use the logger directly since testing.T doesn't implement the common.Logger interface
+	// Instead, we'll log manually in our operation function
+
+	// Use the common retry package
+	job, err := common.RetryWithConfig(retryConfig, func() (*schematics.WorkspaceActivity, error) {
 		// get array of jobs using workspace id
-		var listResult *schematics.WorkspaceActivities
-		var resp *core.DetailedResponse
-		var listErr error
-		apiRetries := 0
-		for {
-			listResult, resp, listErr = svc.SchematicsApiSvc.ListWorkspaceActivities(&schematics.ListWorkspaceActivitiesOptions{
-				WID: core.StringPtr(svc.WorkspaceID),
-			})
-			if svc.retryApiCall(listErr, getDetailedResponseStatusCode(resp), apiRetries) {
-				apiRetries++
-				svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ListWorkspaceActivities, status code: %d", getDetailedResponseStatusCode(resp))
-			} else {
-				break
-			}
-		}
+		listResult, _, listErr := svc.SchematicsApiSvc.ListWorkspaceActivities(&schematics.ListWorkspaceActivitiesOptions{
+			WID: core.StringPtr(svc.WorkspaceID),
+		})
 
 		if listErr != nil {
 			return nil, listErr
@@ -497,31 +489,20 @@ func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (
 			}
 		}
 
-		// if jobResult is nil then none were found
+		// if jobResult is nil then none were found, throw error
 		if jobResult == nil {
-			// If this is not the last attempt, wait and try again
-			if attempt < maxRetries-1 {
-				svc.TestOptions.Testing.Logf("[SCHEMATICS] Job <%s> not found, retrying in %v (attempt %d/%d)",
-					jobName, retryDelay, attempt+1, maxRetries)
-				svc.TestOptions.Testing.Logf("[SCHEMATICS] Available job types: %v", availableJobTypes)
-				time.Sleep(retryDelay)
-				continue
-			}
-
-			// On the last attempt, return a detailed error
-			if len(availableJobTypes) > 0 {
-				svc.TestOptions.Testing.Logf("[SCHEMATICS] Available job types: %v", availableJobTypes)
-				// Use errors.NotFound to maintain compatibility with existing tests
-				return nil, errors.NotFound("job <%s> not found in workspace", jobName)
+			// Log available job types for debugging
+			if len(availableJobTypes) > 0 && svc.TestOptions != nil && svc.TestOptions.Testing != nil {
+				svc.TestOptions.Testing.Logf("[SCHEMATICS] Job <%s> not found, retrying. Available job types: %v",
+					jobName, availableJobTypes)
 			}
 			return nil, errors.NotFound("job <%s> not found in workspace", jobName)
 		}
 
 		return jobResult, nil
-	}
+	})
 
-	// This should never be reached due to the return in the loop
-	return nil, fmt.Errorf("job <%s> not found after %d attempts", jobName, maxRetries)
+	return job, err
 }
 
 // GetWorkspaceJobDetail will return a data structure with full details about an existing Schematics Workspace activity for the
