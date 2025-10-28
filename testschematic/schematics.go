@@ -234,25 +234,25 @@ func (svc *SchematicsTestService) CreateUploadTarFile(projectPath string) (strin
 	svc.TestOptions.Testing.Log("[SCHEMATICS] Creating TAR file")
 	tarballName, tarballErr := CreateSchematicTar(projectPath, &svc.TestOptions.TarIncludePatterns)
 	if tarballErr != nil {
-		return "", fmt.Errorf("error creating tar file: %w", tarballErr)
+		return "", fmt.Errorf("error creating tar file: %s", tarballErr.Error())
 	}
 
 	svc.TestOptions.Testing.Log("[SCHEMATICS] Uploading TAR file")
 	uploadErr := svc.UploadTarToWorkspace(tarballName)
 	if uploadErr != nil {
-		return tarballName, fmt.Errorf("error uploading tar file to workspace: %w - %s", uploadErr, svc.WorkspaceNameForLog)
+		return tarballName, fmt.Errorf("error uploading tar file to workspace: %s - %s", uploadErr.Error(), svc.WorkspaceNameForLog)
 	}
 
 	// -------- UPLOAD TAR FILE ----------
 	// find the tar upload job
 	uploadJob, uploadJobErr := svc.FindLatestWorkspaceJobByName(SchematicsJobTypeUpload)
 	if uploadJobErr != nil {
-		return tarballName, fmt.Errorf("error finding the upload tar action: %w - %s", uploadJobErr, svc.WorkspaceNameForLog)
+		return tarballName, fmt.Errorf("error finding the upload tar action: %s - %s", uploadJobErr.Error(), svc.WorkspaceNameForLog)
 	}
 	// wait for it to finish
 	uploadJobStatus, uploadJobStatusErr := svc.WaitForFinalJobStatus(*uploadJob.ActionID)
 	if uploadJobStatusErr != nil {
-		return tarballName, fmt.Errorf("error waiting for upload of tar to finish: %w - %s", uploadJobStatusErr, svc.WorkspaceNameForLog)
+		return tarballName, fmt.Errorf("error waiting for upload of tar to finish: %s - %s", uploadJobStatusErr.Error(), svc.WorkspaceNameForLog)
 	}
 	// check if complete
 	if uploadJobStatus != SchematicsJobStatusCompleted {
@@ -447,50 +447,81 @@ func (svc *SchematicsTestService) CreateDestroyJob() (*schematics.WorkspaceActiv
 // This can be used to find a job by its type when the jobID is not known.
 // A "NotFound" error will be thrown if there are no existing jobs of the provided type.
 func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (*schematics.WorkspaceActivity, error) {
+	// Define the maximum number of retries and delay between retries
+	maxRetries := 3
+	retryDelay := 2 * time.Second
 
-	// get array of jobs using workspace id
-	var listResult *schematics.WorkspaceActivities
-	var resp *core.DetailedResponse
-	var listErr error
-	retries := 0
-	for {
-		listResult, resp, listErr = svc.SchematicsApiSvc.ListWorkspaceActivities(&schematics.ListWorkspaceActivitiesOptions{
-			WID: core.StringPtr(svc.WorkspaceID),
-		})
-		if svc.retryApiCall(listErr, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ListWorkspaceActivities, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
-		}
-	}
-
-	if listErr != nil {
-		return nil, listErr
-	}
-
-	// loop through jobs and get latest one that matches name
-	var jobResult *schematics.WorkspaceActivity
-	for i, job := range listResult.Actions {
-		// only match name
-		if *job.Name == jobName {
-			// keep latest job of svc name
-			if jobResult != nil {
-				if time.Time(*job.PerformedAt).After(time.Time(*jobResult.PerformedAt)) {
-					jobResult = &listResult.Actions[i]
-				}
+	// Try multiple times to find the job
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// get array of jobs using workspace id
+		var listResult *schematics.WorkspaceActivities
+		var resp *core.DetailedResponse
+		var listErr error
+		apiRetries := 0
+		for {
+			listResult, resp, listErr = svc.SchematicsApiSvc.ListWorkspaceActivities(&schematics.ListWorkspaceActivitiesOptions{
+				WID: core.StringPtr(svc.WorkspaceID),
+			})
+			if svc.retryApiCall(listErr, getDetailedResponseStatusCode(resp), apiRetries) {
+				apiRetries++
+				svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ListWorkspaceActivities, status code: %d", getDetailedResponseStatusCode(resp))
 			} else {
-				jobResult = &listResult.Actions[i]
+				break
 			}
 		}
+
+		if listErr != nil {
+			return nil, listErr
+		}
+
+		// loop through jobs and get latest one that matches name
+		var jobResult *schematics.WorkspaceActivity
+		var availableJobTypes []string // Track available job types for better error messages
+
+		for i, job := range listResult.Actions {
+			// Add job type to available types list if it has a name
+			if job.Name != nil {
+				availableJobTypes = append(availableJobTypes, *job.Name)
+			}
+
+			// only match name
+			if job.Name != nil && *job.Name == jobName {
+				// keep latest job of svc name
+				if jobResult != nil {
+					if time.Time(*job.PerformedAt).After(time.Time(*jobResult.PerformedAt)) {
+						jobResult = &listResult.Actions[i]
+					}
+				} else {
+					jobResult = &listResult.Actions[i]
+				}
+			}
+		}
+
+		// if jobResult is nil then none were found
+		if jobResult == nil {
+			// If this is not the last attempt, wait and try again
+			if attempt < maxRetries-1 {
+				svc.TestOptions.Testing.Logf("[SCHEMATICS] Job <%s> not found, retrying in %v (attempt %d/%d)",
+					jobName, retryDelay, attempt+1, maxRetries)
+				svc.TestOptions.Testing.Logf("[SCHEMATICS] Available job types: %v", availableJobTypes)
+				time.Sleep(retryDelay)
+				continue
+			}
+
+			// On the last attempt, return a detailed error
+			if len(availableJobTypes) > 0 {
+				svc.TestOptions.Testing.Logf("[SCHEMATICS] Available job types: %v", availableJobTypes)
+				// Use errors.NotFound to maintain compatibility with existing tests
+				return nil, errors.NotFound("job <%s> not found in workspace", jobName)
+			}
+			return nil, errors.NotFound("job <%s> not found in workspace", jobName)
+		}
+
+		return jobResult, nil
 	}
 
-	// if jobResult is nil then none were found, throw error
-	if jobResult == nil {
-		return nil, errors.NotFound("job <%s> not found in workspace", jobName)
-	}
-
-	return jobResult, nil
+	// This should never be reached due to the return in the loop
+	return nil, fmt.Errorf("job <%s> not found after %d attempts", jobName, maxRetries)
 }
 
 // GetWorkspaceJobDetail will return a data structure with full details about an existing Schematics Workspace activity for the

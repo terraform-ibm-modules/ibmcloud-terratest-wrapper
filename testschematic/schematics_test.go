@@ -1,6 +1,7 @@
 package testschematic
 
 import (
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -325,6 +326,101 @@ func TestSchematicFindJob(t *testing.T) {
 		_, err := svc.FindLatestWorkspaceJobByName("TEST_ACTION")
 		assert.ErrorAs(t, err, &mockErrorType)
 		schematicSvc.failListWorkspaceActivities = false
+	})
+}
+
+func TestFindLatestWorkspaceJobByNameWithRetry(t *testing.T) {
+	zero := 0
+	retryCount := 2
+	schematicSvc := new(schematicServiceMock)
+	authSvc := new(iamAuthenticatorMock)
+	svc := &SchematicsTestService{
+		SchematicsApiSvc:    schematicSvc,
+		ApiAuthenticator:    authSvc,
+		WorkspaceID:         mockWorkspaceID,
+		WorkspaceName:       "test-workspace",
+		WorkspaceNameForLog: "[ test-workspace (ws12345) ]",
+		TestOptions: &TestSchematicOptions{
+			Testing:                      t,
+			SchematicSvcRetryCount:       &retryCount,
+			SchematicSvcRetryWaitSeconds: &zero, // Set to 0 for faster tests
+		},
+	}
+
+	t.Run("RetrySucceeds", func(t *testing.T) {
+		// Set up the mock to return different results on subsequent calls
+		schematicSvc.listActivitiesCallCount = 0
+		schematicSvc.activitiesForRetry = [][]schematics.WorkspaceActivity{
+			// First call - return activities without the TAR_WORKSPACE_UPLOAD job
+			{
+				{ActionID: core.StringPtr("activity1"), Name: core.StringPtr("SOME_OTHER_JOB"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now())), Status: core.StringPtr(SchematicsJobStatusCompleted)},
+			},
+			// Second call - return activities with the TAR_WORKSPACE_UPLOAD job
+			{
+				{ActionID: core.StringPtr("activity1"), Name: core.StringPtr("SOME_OTHER_JOB"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now())), Status: core.StringPtr(SchematicsJobStatusCompleted)},
+				{ActionID: core.StringPtr(mockActivityID), Name: core.StringPtr(SchematicsJobTypeUpload), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now())), Status: core.StringPtr(SchematicsJobStatusCompleted)},
+			},
+		}
+
+		// This test verifies that with retry logic, the function succeeds on the second attempt
+		// Add debug logging
+		t.Logf("Before call: listActivitiesCallCount = %d", schematicSvc.listActivitiesCallCount)
+
+		// Call FindLatestWorkspaceJobByName
+		job, err := svc.FindLatestWorkspaceJobByName(SchematicsJobTypeUpload)
+
+		// Add more debug logging
+		t.Logf("After call: listActivitiesCallCount = %d", schematicSvc.listActivitiesCallCount)
+		t.Logf("Error: %v", err)
+		t.Logf("Job: %v", job)
+
+		// With retry logic, we should get the job on the second attempt
+		assert.NoError(t, err)
+		assert.NotNil(t, job)
+		assert.Equal(t, 2, schematicSvc.listActivitiesCallCount) // Called twice with retry
+		assert.Equal(t, mockActivityID, *job.ActionID)
+	})
+}
+
+func TestErrorFormatInFindLatestWorkspaceJobByName(t *testing.T) {
+	zero := 0
+	schematicSvc := new(schematicServiceMock)
+	authSvc := new(iamAuthenticatorMock)
+	svc := &SchematicsTestService{
+		SchematicsApiSvc:    schematicSvc,
+		ApiAuthenticator:    authSvc,
+		WorkspaceID:         mockWorkspaceID,
+		WorkspaceName:       "test-workspace",
+		WorkspaceNameForLog: "[ test-workspace (ws12345) ]",
+		TestOptions: &TestSchematicOptions{
+			Testing:                      t,
+			SchematicSvcRetryCount:       &zero,
+			SchematicSvcRetryWaitSeconds: &zero,
+		},
+	}
+
+	t.Run("VerifyErrorFormat", func(t *testing.T) {
+		// Set up activities without the TAR_WORKSPACE_UPLOAD job
+		schematicSvc.activities = []schematics.WorkspaceActivity{
+			{ActionID: core.StringPtr("activity1"), Name: core.StringPtr("SOME_OTHER_JOB"), PerformedAt: conv.DateTime(strfmt.DateTime(time.Now())), Status: core.StringPtr(SchematicsJobStatusCompleted)},
+		}
+
+		// Create a simple error
+		originalErr := fmt.Errorf("job <TAR_WORKSPACE_UPLOAD> not found in workspace")
+
+		// Test wrapping with %w (should show pointer)
+		wrappedWithW := fmt.Errorf("error finding the upload tar action: %w - %s", originalErr, svc.WorkspaceNameForLog)
+		errorStrW := fmt.Sprintf("%#v", wrappedWithW)
+		t.Logf("Error string with %%w: %s", errorStrW)
+
+		// Test wrapping with %v (should not show pointer)
+		wrappedWithV := fmt.Errorf("error finding the upload tar action: %v - %s", originalErr, svc.WorkspaceNameForLog)
+		errorStrV := fmt.Sprintf("%#v", wrappedWithV)
+		t.Logf("Error string with %%v: %s", errorStrV)
+
+		// Verify that %w contains pointer format but %v doesn't
+		assert.Contains(t, errorStrW, "&fmt.wrapError", "Error with %%w should contain pointer format")
+		assert.NotContains(t, errorStrV, "&fmt.wrapError", "Error with %%v should not contain pointer format")
 	})
 }
 
