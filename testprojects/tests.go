@@ -143,6 +143,8 @@ func (options *TestProjectsOptions) TriggerDeploy() error {
 	return nil
 }
 
+var validationErrors int = 0
+
 func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 	err := options.TriggerDeploy()
 	if err != nil {
@@ -242,11 +244,18 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 			case project.ProjectConfig_State_Deployed, project.ProjectConfig_State_Approved:
 				currentDeployStatus = fmt.Sprintf("%s%s%s is %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
 			case project.ProjectConfig_State_ValidatingFailed, project.ProjectConfig_State_DeployingFailed:
-				deployableState = false
-				failed = true
-				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location, options.currentStackConfig.ProjectID, *member.ID)
-				options.Logger.ShortError(terraLogs)
-				errorList = append(errorList, fmt.Errorf("%s", logMessage))
+				deployableState = true
+				failed = false
+				validationErrors++
+				if validationErrors > 2 {
+					deployableState = false
+					failed = true
+					logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location, options.currentStackConfig.ProjectID, *member.ID)
+					options.Logger.ShortError(terraLogs)
+					errorList = append(errorList, fmt.Errorf("%s", logMessage))
+				} else {
+					options.Logger.ShortWarn("Validation failed.. Retrying")
+				}
 			case project.ProjectConfig_State_Draft:
 				if stateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite || (stateCode == project.ProjectConfig_StateCode_AwaitingMemberDeployment && strings.HasSuffix(memberName, " Container")) {
 					currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
