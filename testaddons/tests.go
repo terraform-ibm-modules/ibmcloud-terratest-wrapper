@@ -287,9 +287,16 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	options.Logger.ShortInfo("Note: Configurations are registered with IBM Cloud Projects, not yet deployed")
 	options.Logger.ShortInfo("Workflow: 1) Add to Project → 2) Validate (terraform plan) → 3) Deploy (terraform apply)")
 	options.Logger.ShortInfo(fmt.Sprintf("Added Configurations to Project ID: %s", options.currentProjectConfig.ProjectID))
-	for _, config := range deployedConfigs.Configs {
-		options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", config.Name, config.ConfigID))
+
+	// Defensive nil checks to prevent panic when deployedConfigs is nil
+	if deployedConfigs != nil && deployedConfigs.Configs != nil {
+		for _, config := range deployedConfigs.Configs {
+			options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", config.Name, config.ConfigID))
+		}
+	} else {
+		options.Logger.ShortWarn("No configuration details available from deployment response")
 	}
+
 	options.Logger.ShortInfo("Next step: IBM Cloud Projects will validate configurations using terraform plan")
 
 	// Show configuration update progress in quiet mode
@@ -313,50 +320,54 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	}
 
 	configDetails.MemberConfigs = nil
-	for _, config := range deployedConfigs.Configs {
 
-		prjCfg, _, err := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
-			ProjectID: options.currentProjectConfig.ProjectID,
-			Name:      config.Name,
-			ConfigID:  config.ConfigID,
-		})
-		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error retrieving config %s: %v", config.Name, err))
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return setFailureResult(fmt.Errorf("error retrieving config %s: %w", config.Name, err), "CONFIG_RETRIEVAL")
-		}
-		if prjCfg == nil {
-			options.Logger.ShortError(fmt.Sprintf("Retrieved config %s is nil", config.Name))
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return setFailureResult(fmt.Errorf("retrieved config %s is nil", config.Name), "CONFIG_NIL")
-		}
-		configDetails.Members = append(configDetails.Members, *prjCfg)
+	// Add defensive nil check to prevent panic when deployedConfigs is nil
+	if deployedConfigs != nil && deployedConfigs.Configs != nil {
+		for _, config := range deployedConfigs.Configs {
 
-		configDetails.MemberConfigs = append(configDetails.MemberConfigs, projectv1.StackMember{
-			ConfigID: core.StringPtr(config.ConfigID),
-			Name:     core.StringPtr(config.Name),
-		})
+			prjCfg, _, err := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+				ProjectID: options.currentProjectConfig.ProjectID,
+				Name:      config.Name,
+				ConfigID:  config.ConfigID,
+			})
+			if err != nil {
+				options.Logger.ShortError(fmt.Sprintf("Error retrieving config %s: %v", config.Name, err))
+				options.Logger.MarkFailed()
+				options.Logger.FlushOnFailure()
+				options.Testing.Fail()
+				return setFailureResult(fmt.Errorf("error retrieving config %s: %w", config.Name, err), "CONFIG_RETRIEVAL")
+			}
+			if prjCfg == nil {
+				options.Logger.ShortError(fmt.Sprintf("Retrieved config %s is nil", config.Name))
+				options.Logger.MarkFailed()
+				options.Logger.FlushOnFailure()
+				options.Testing.Fail()
+				return setFailureResult(fmt.Errorf("retrieved config %s is nil", config.Name), "CONFIG_NIL")
+			}
+			configDetails.Members = append(configDetails.Members, *prjCfg)
 
-		// Collect input references for OverrideInputMappings logic (reuse existing GetConfig call)
-		if options.configInputReferences == nil {
-			options.configInputReferences = make(map[string]map[string]string)
-		}
-		if resp, ok := prjCfg.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
-			references := make(map[string]string)
-			for inputKey, inputValue := range resp.Inputs {
-				if strValue, ok := inputValue.(string); ok && strings.HasPrefix(strValue, "ref:") {
-					references[inputKey] = strValue
+			configDetails.MemberConfigs = append(configDetails.MemberConfigs, projectv1.StackMember{
+				ConfigID: core.StringPtr(config.ConfigID),
+				Name:     core.StringPtr(config.Name),
+			})
+
+			// Collect input references for OverrideInputMappings logic (reuse existing GetConfig call)
+			if options.configInputReferences == nil {
+				options.configInputReferences = make(map[string]map[string]string)
+			}
+			if resp, ok := prjCfg.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
+				references := make(map[string]string)
+				for inputKey, inputValue := range resp.Inputs {
+					if strValue, ok := inputValue.(string); ok && strings.HasPrefix(strValue, "ref:") {
+						references[inputKey] = strValue
+					}
+				}
+				if len(references) > 0 {
+					options.configInputReferences[config.ConfigID] = references
 				}
 			}
-			if len(references) > 0 {
-				options.configInputReferences[config.ConfigID] = references
-			}
 		}
-	}
+	} // End of nil check for deployedConfigs
 
 	// update main addon configuration with user defined inputs
 	mergeInputs(options, options.AddonConfig.Inputs, configDetails, addonID)
