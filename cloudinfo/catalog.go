@@ -747,7 +747,52 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 				infoSvc.Logger.ShortInfo(fmt.Sprintf("Config already exists in project %s, treating as success", projectConfig.ProjectID))
 				// For ISB064E, we need to query the current project state and return that
 				// This ensures the caller gets accurate information about existing configs
-				return body, nil
+
+				// Query the project to get actual deployed configs
+				projectConfigs, err := infoSvc.GetProjectConfigs(projectConfig.ProjectID)
+				if err != nil {
+					// If we can't get project configs, log the error but return an empty valid response
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Could not retrieve project configs after 409: %v", err))
+					// Return an empty but valid DeployedAddonsDetails structure
+					emptyResponse := &DeployedAddonsDetails{
+						ProjectID: projectConfig.ProjectID,
+						Configs: []struct {
+							Name     string `json:"name"`
+							ConfigID string `json:"config_id"`
+						}{},
+					}
+					emptyBody, _ := json.Marshal(emptyResponse)
+					return emptyBody, nil
+				}
+
+				// Build DeployedAddonsDetails from project configs
+				deployedResponse := &DeployedAddonsDetails{
+					ProjectID: projectConfig.ProjectID,
+					Configs: make([]struct {
+						Name     string `json:"name"`
+						ConfigID string `json:"config_id"`
+					}, 0, len(projectConfigs)),
+				}
+
+				for _, config := range projectConfigs {
+					if config.ID != nil && config.Definition != nil && config.Definition.Name != nil {
+						deployedResponse.Configs = append(deployedResponse.Configs, struct {
+							Name     string `json:"name"`
+							ConfigID string `json:"config_id"`
+						}{
+							Name:     *config.Definition.Name,
+							ConfigID: *config.ID,
+						})
+					}
+				}
+
+				// Marshal the response to JSON
+				responseBody, err := json.Marshal(deployedResponse)
+				if err != nil {
+					return nil, fmt.Errorf("error marshaling deployed configs response: %w", err)
+				}
+
+				return responseBody, nil
 			}
 
 			// Debug logging for failed requests - log API URL and request body
