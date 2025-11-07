@@ -54,6 +54,7 @@ type CloudInfoService struct {
 
 // interface for the cloudinfo service (can be mocked in tests)
 type CloudInfoServiceI interface {
+	GetAvailableVpcRegions() ([]vpcv1.Region, error)
 	GetLeastVpcTestRegion() (string, error)
 	GetLeastVpcTestRegionWithoutActivityTracker() (string, error)
 	GetLeastPowerConnectionZone() (string, error)
