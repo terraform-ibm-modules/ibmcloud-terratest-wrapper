@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -33,6 +34,17 @@ func (a *MockAuthenticator) Authenticate(request *http.Request) error {
 func (a *MockAuthenticator) Validate() error {
 	// A mock authenticator is always valid for testing purposes
 	return nil
+}
+
+// RequestToken returns a mock IAM token response for testing
+func (a *MockAuthenticator) RequestToken() (*core.IamTokenServerResponse, error) {
+	return &core.IamTokenServerResponse{
+		AccessToken:  a.Token,
+		RefreshToken: "mock-refresh-token",
+		TokenType:    "Bearer",
+		ExpiresIn:    3600,
+		Expiration:   0,
+	}, nil
 }
 
 func TestMockAuthenticator(t *testing.T) {
