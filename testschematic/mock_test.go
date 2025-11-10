@@ -15,7 +15,6 @@ import (
 	"github.com/go-openapi/strfmt/conv"
 	"github.com/stretchr/testify/mock"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
-	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
 const mockWorkspaceID = "ws12345"
@@ -484,25 +483,25 @@ func (mock *cloudInfoServiceMock) GetSchematicsJobPlanJson(jobID string, locatio
 }
 
 // Schematics methods for cloudInfoServiceMock
-func (mock *cloudInfoServiceMock) CreateSchematicsPlanJob(workspaceID string, location string, logger common.Logger) (*schematics.WorkspaceActivityPlanResult, error) {
+func (mock *cloudInfoServiceMock) CreateSchematicsPlanJob(workspaceID string, location string) (*schematics.WorkspaceActivityPlanResult, error) {
 	return &schematics.WorkspaceActivityPlanResult{
 		Activityid: core.StringPtr(mockPlanID),
 	}, nil
 }
 
-func (mock *cloudInfoServiceMock) CreateSchematicsApplyJob(workspaceID string, location string, logger common.Logger) (*schematics.WorkspaceActivityApplyResult, error) {
+func (mock *cloudInfoServiceMock) CreateSchematicsApplyJob(workspaceID string, location string) (*schematics.WorkspaceActivityApplyResult, error) {
 	return &schematics.WorkspaceActivityApplyResult{
 		Activityid: core.StringPtr(mockApplyID),
 	}, nil
 }
 
-func (mock *cloudInfoServiceMock) CreateSchematicsDestroyJob(workspaceID string, location string, logger common.Logger) (*schematics.WorkspaceActivityDestroyResult, error) {
+func (mock *cloudInfoServiceMock) CreateSchematicsDestroyJob(workspaceID string, location string) (*schematics.WorkspaceActivityDestroyResult, error) {
 	return &schematics.WorkspaceActivityDestroyResult{
 		Activityid: core.StringPtr(mockDestroyID),
 	}, nil
 }
 
-func (mock *cloudInfoServiceMock) FindLatestSchematicsJobByName(workspaceID string, jobName string, location string, logger common.Logger) (*schematics.WorkspaceActivity, error) {
+func (mock *cloudInfoServiceMock) FindLatestSchematicsJobByName(workspaceID string, jobName string, location string) (*schematics.WorkspaceActivity, error) {
 	// Access the schematicServiceMock to check for error conditions
 	// This is a simplified approach - in real implementation, we'd need proper state management
 	if jobName == "I_WILL_NOT_BE_FOUND" {
@@ -513,23 +512,23 @@ func (mock *cloudInfoServiceMock) FindLatestSchematicsJobByName(workspaceID stri
 	}, nil
 }
 
-func (mock *cloudInfoServiceMock) GetSchematicsWorkspaceJobDetail(workspaceID string, jobID string, location string, logger common.Logger) (*schematics.WorkspaceActivity, error) {
+func (mock *cloudInfoServiceMock) GetSchematicsWorkspaceJobDetail(workspaceID string, jobID string, location string) (*schematics.WorkspaceActivity, error) {
 	return &schematics.WorkspaceActivity{
 		ActionID: core.StringPtr(jobID),
 	}, nil
 }
 
-func (mock *cloudInfoServiceMock) WaitForSchematicsJobCompletion(workspaceID string, jobID string, location string, timeoutMinutes int, logger common.Logger) (string, error) {
+func (mock *cloudInfoServiceMock) WaitForSchematicsJobCompletion(workspaceID string, jobID string, location string, timeoutMinutes int) (string, error) {
 	return cloudinfo.SchematicsJobStatusCompleted, nil
 }
 
-func (mock *cloudInfoServiceMock) GetSchematicsWorkspaceOutputs(workspaceID string, location string, logger common.Logger) (map[string]interface{}, error) {
+func (mock *cloudInfoServiceMock) GetSchematicsWorkspaceOutputs(workspaceID string, location string) (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"output1": "value1",
 	}, nil
 }
 
-func (mock *cloudInfoServiceMock) DeleteSchematicsWorkspace(workspaceID string, location string, destroyResources bool, logger common.Logger) (string, error) {
+func (mock *cloudInfoServiceMock) DeleteSchematicsWorkspace(workspaceID string, location string, destroyResources bool) (string, error) {
 	return "deleted", nil
 }
 

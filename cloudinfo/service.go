@@ -222,19 +222,19 @@ type CloudInfoServiceI interface {
 	GetSchematicsServiceByLocation(location string) (schematicsService, error)
 
 	// New Schematics workspace operations
-	CreateSchematicsWorkspace(name, resourceGroup, region, templateFolder, terraformVersion string, tags []string, envVars []map[string]interface{}, envMetadata []schematics.EnvironmentValuesMetadata, logger common.Logger) (*schematics.WorkspaceResponse, error)
-	DeleteSchematicsWorkspace(workspaceID, location string, destroyResources bool, logger common.Logger) (string, error)
-	UploadTarToSchematicsWorkspace(workspaceID, templateID, tarPath, location string, logger common.Logger) error
-	UpdateSchematicsWorkspaceVariables(workspaceID, templateID string, variables []schematics.WorkspaceVariableRequest, location string, logger common.Logger) error
-	GetSchematicsWorkspaceOutputs(workspaceID, location string, logger common.Logger) (map[string]interface{}, error)
+	CreateSchematicsWorkspace(name, resourceGroup, region, templateFolder, terraformVersion string, tags []string, envVars []map[string]interface{}, envMetadata []schematics.EnvironmentValuesMetadata) (*schematics.WorkspaceResponse, error)
+	DeleteSchematicsWorkspace(workspaceID, location string, destroyResources bool) (string, error)
+	UploadTarToSchematicsWorkspace(workspaceID, templateID, tarPath, location string) error
+	UpdateSchematicsWorkspaceVariables(workspaceID, templateID string, variables []schematics.WorkspaceVariableRequest, location string) error
+	GetSchematicsWorkspaceOutputs(workspaceID, location string) (map[string]interface{}, error)
 
 	// New Schematics job operations
-	CreateSchematicsPlanJob(workspaceID, location string, logger common.Logger) (*schematics.WorkspaceActivityPlanResult, error)
-	CreateSchematicsApplyJob(workspaceID, location string, logger common.Logger) (*schematics.WorkspaceActivityApplyResult, error)
-	CreateSchematicsDestroyJob(workspaceID, location string, logger common.Logger) (*schematics.WorkspaceActivityDestroyResult, error)
-	GetSchematicsWorkspaceJobDetail(workspaceID, jobID, location string, logger common.Logger) (*schematics.WorkspaceActivity, error)
-	FindLatestSchematicsJobByName(workspaceID, jobName, location string, logger common.Logger) (*schematics.WorkspaceActivity, error)
-	WaitForSchematicsJobCompletion(workspaceID, jobID, location string, timeoutMinutes int, logger common.Logger) (string, error)
+	CreateSchematicsPlanJob(workspaceID, location string) (*schematics.WorkspaceActivityPlanResult, error)
+	CreateSchematicsApplyJob(workspaceID, location string) (*schematics.WorkspaceActivityApplyResult, error)
+	CreateSchematicsDestroyJob(workspaceID, location string) (*schematics.WorkspaceActivityDestroyResult, error)
+	GetSchematicsWorkspaceJobDetail(workspaceID, jobID, location string) (*schematics.WorkspaceActivity, error)
+	FindLatestSchematicsJobByName(workspaceID, jobName, location string) (*schematics.WorkspaceActivity, error)
+	WaitForSchematicsJobCompletion(workspaceID, jobID, location string, timeoutMinutes int) (string, error)
 	GetReclamationIdFromCRN(CRN string) (string, error)
 	DeleteInstanceFromReclamationId(reclamationID string) error
 	DeleteInstanceFromReclamationByCRN(CRN string) error

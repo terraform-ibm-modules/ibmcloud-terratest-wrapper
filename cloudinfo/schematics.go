@@ -417,7 +417,6 @@ func getApiRetryStatusExceptions() []int {
 // tags is a slice of tags to apply to the workspace.
 // envVars is a slice of environment variable maps.
 // envMetadata is a slice of environment variable metadata.
-// logger is an optional logger for output (can be nil).
 // Returns the created workspace and any error encountered.
 func (infoSvc *CloudInfoService) CreateSchematicsWorkspace(
 	name string,
@@ -428,7 +427,6 @@ func (infoSvc *CloudInfoService) CreateSchematicsWorkspace(
 	tags []string,
 	envVars []map[string]interface{},
 	envMetadata []schematics.EnvironmentValuesMetadata,
-	logger commonpkg.Logger,
 ) (*schematics.WorkspaceResponse, error) {
 	var folder *string
 	var version *string
@@ -485,8 +483,8 @@ func (infoSvc *CloudInfoService) CreateSchematicsWorkspace(
 			if commonpkg.IntArrayContains(getApiRetryStatusExceptions(), statusCode) {
 				return nil, wsErr
 			}
-			if logger != nil {
-				logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY CreateWorkspace, status code: %d", statusCode))
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY CreateWorkspace, status code: %d", statusCode))
 			}
 			return nil, wsErr
 		}
@@ -497,8 +495,8 @@ func (infoSvc *CloudInfoService) CreateSchematicsWorkspace(
 		return nil, err
 	}
 
-	if logger != nil {
-		logger.Info(fmt.Sprintf("[SCHEMATICS] Created workspace: %s (ID: %s))", *workspace.Name, *workspace.ID))
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] Created workspace: %s (ID: %s))", *workspace.Name, *workspace.ID))
 	}
 
 	return workspace, nil
@@ -508,13 +506,11 @@ func (infoSvc *CloudInfoService) CreateSchematicsWorkspace(
 // workspaceID is the ID of the workspace to delete.
 // location is the workspace location (e.g., "us", "eu").
 // destroyResources indicates whether to destroy Terraform resources before deleting workspace.
-// logger is an optional logger for output (can be nil).
 // Returns the deletion result string and any error encountered.
 func (infoSvc *CloudInfoService) DeleteSchematicsWorkspace(
 	workspaceID string,
 	location string,
 	destroyResources bool,
-	logger commonpkg.Logger,
 ) (string, error) {
 	// Get refresh token
 	response, err := infoSvc.authenticator.RequestToken()
@@ -554,8 +550,8 @@ func (infoSvc *CloudInfoService) DeleteSchematicsWorkspace(
 			if commonpkg.IntArrayContains(getApiRetryStatusExceptions(), statusCode) {
 				return nil, delErr
 			}
-			if logger != nil {
-				logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY DeleteWorkspace, status code: %d", statusCode))
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY DeleteWorkspace, status code: %d", statusCode))
 			}
 			return nil, delErr
 		}
@@ -566,8 +562,8 @@ func (infoSvc *CloudInfoService) DeleteSchematicsWorkspace(
 		return "", fmt.Errorf("delete of schematic workspace failed: %w", err)
 	}
 
-	if logger != nil {
-		logger.Info(fmt.Sprintf("[SCHEMATICS] Deleted workspace: %s", workspaceID))
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] Deleted workspace: %s", workspaceID))
 	}
 
 	return *result, nil
@@ -578,14 +574,12 @@ func (infoSvc *CloudInfoService) DeleteSchematicsWorkspace(
 // templateID is the ID of the workspace template.
 // tarPath is the file path to the TAR file to upload.
 // location is the workspace location (e.g., "us", "eu").
-// logger is an optional logger for output (can be nil).
 // Returns any error encountered.
 func (infoSvc *CloudInfoService) UploadTarToSchematicsWorkspace(
 	workspaceID string,
 	templateID string,
 	tarPath string,
 	location string,
-	logger commonpkg.Logger,
 ) error {
 	fileReader, fileErr := os.Open(tarPath)
 	if fileErr != nil {
@@ -621,8 +615,8 @@ func (infoSvc *CloudInfoService) UploadTarToSchematicsWorkspace(
 			if commonpkg.IntArrayContains(getApiRetryStatusExceptions(), statusCode) {
 				return nil, uploadErr
 			}
-			if logger != nil {
-				logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY TemplateRepoUpload, status code: %d", statusCode))
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY TemplateRepoUpload, status code: %d", statusCode))
 			}
 			return nil, uploadErr
 		}
@@ -633,8 +627,8 @@ func (infoSvc *CloudInfoService) UploadTarToSchematicsWorkspace(
 		return err
 	}
 
-	if logger != nil {
-		logger.Info(fmt.Sprintf("[SCHEMATICS] Uploaded TAR to workspace: %s", workspaceID))
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] Uploaded TAR to workspace: %s", workspaceID))
 	}
 
 	return nil
@@ -645,14 +639,12 @@ func (infoSvc *CloudInfoService) UploadTarToSchematicsWorkspace(
 // templateID is the ID of the workspace template.
 // variables is a slice of workspace variable requests.
 // location is the workspace location (e.g., "us", "eu").
-// logger is an optional logger for output (can be nil).
 // Returns any error encountered.
 func (infoSvc *CloudInfoService) UpdateSchematicsWorkspaceVariables(
 	workspaceID string,
 	templateID string,
 	variables []schematics.WorkspaceVariableRequest,
 	location string,
-	logger commonpkg.Logger,
 ) error {
 	templateModel := &schematics.ReplaceWorkspaceInputsOptions{
 		WID:           core.StringPtr(workspaceID),
@@ -680,8 +672,8 @@ func (infoSvc *CloudInfoService) UpdateSchematicsWorkspaceVariables(
 			if commonpkg.IntArrayContains(getApiRetryStatusExceptions(), statusCode) {
 				return nil, updateErr
 			}
-			if logger != nil {
-				logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY ReplaceWorkspaceInputs, status code: %d", statusCode))
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY ReplaceWorkspaceInputs, status code: %d", statusCode))
 			}
 			return nil, updateErr
 		}
@@ -692,8 +684,8 @@ func (infoSvc *CloudInfoService) UpdateSchematicsWorkspaceVariables(
 		return err
 	}
 
-	if logger != nil {
-		logger.Info(fmt.Sprintf("[SCHEMATICS] Updated variables for workspace: %s", workspaceID))
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] Updated variables for workspace: %s", workspaceID))
 	}
 
 	return nil
@@ -702,12 +694,10 @@ func (infoSvc *CloudInfoService) UpdateSchematicsWorkspaceVariables(
 // GetSchematicsWorkspaceOutputs retrieves the current Terraform outputs from a Schematics workspace.
 // workspaceID is the ID of the workspace.
 // location is the workspace location (e.g., "us", "eu").
-// logger is an optional logger for output (can be nil).
 // Returns a map of output names to values and any error encountered.
 func (infoSvc *CloudInfoService) GetSchematicsWorkspaceOutputs(
 	workspaceID string,
 	location string,
-	logger commonpkg.Logger,
 ) (map[string]interface{}, error) {
 	// Get the appropriate schematics service for the location
 	svc, svcErr := infoSvc.GetSchematicsServiceByLocation(location)
@@ -731,8 +721,8 @@ func (infoSvc *CloudInfoService) GetSchematicsWorkspaceOutputs(
 			if commonpkg.IntArrayContains(getApiRetryStatusExceptions(), statusCode) {
 				return nil, outputErr
 			}
-			if logger != nil {
-				logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY GetWorkspaceOutputs, status code: %d", statusCode))
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY GetWorkspaceOutputs, status code: %d", statusCode))
 			}
 			return nil, outputErr
 		}
@@ -755,8 +745,8 @@ func (infoSvc *CloudInfoService) GetSchematicsWorkspaceOutputs(
 		}
 	}
 
-	if logger != nil {
-		logger.Info(fmt.Sprintf("[SCHEMATICS] Retrieved %d outputs from workspace: %s", len(allOutputs), workspaceID))
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] Retrieved %d outputs from workspace: %s", len(allOutputs), workspaceID))
 	}
 
 	return allOutputs, nil
@@ -765,12 +755,10 @@ func (infoSvc *CloudInfoService) GetSchematicsWorkspaceOutputs(
 // CreateSchematicsPlanJob initiates a new PLAN action on a Schematics workspace.
 // workspaceID is the ID of the workspace.
 // location is the workspace location (e.g., "us", "eu").
-// logger is an optional logger for output (can be nil).
 // Returns the plan result and any error encountered.
 func (infoSvc *CloudInfoService) CreateSchematicsPlanJob(
 	workspaceID string,
 	location string,
-	logger commonpkg.Logger,
 ) (*schematics.WorkspaceActivityPlanResult, error) {
 	// Get refresh token
 	response, err := infoSvc.authenticator.RequestToken()
@@ -804,8 +792,8 @@ func (infoSvc *CloudInfoService) CreateSchematicsPlanJob(
 			if commonpkg.IntArrayContains(getApiRetryStatusExceptions(), statusCode) {
 				return nil, planErr
 			}
-			if logger != nil {
-				logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY PlanWorkspaceCommand, status code: %d", statusCode))
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY PlanWorkspaceCommand, status code: %d", statusCode))
 			}
 			return nil, planErr
 		}
@@ -816,8 +804,8 @@ func (infoSvc *CloudInfoService) CreateSchematicsPlanJob(
 		return nil, err
 	}
 
-	if logger != nil && planResult.Activityid != nil {
-		logger.Info(fmt.Sprintf("[SCHEMATICS] Created plan job: %s for workspace: %s", *planResult.Activityid, workspaceID))
+	if infoSvc.Logger != nil && planResult.Activityid != nil {
+		infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] Created plan job: %s for workspace: %s", *planResult.Activityid, workspaceID))
 	}
 
 	return planResult, nil
@@ -826,12 +814,10 @@ func (infoSvc *CloudInfoService) CreateSchematicsPlanJob(
 // CreateSchematicsApplyJob initiates a new APPLY action on a Schematics workspace.
 // workspaceID is the ID of the workspace.
 // location is the workspace location (e.g., "us", "eu").
-// logger is an optional logger for output (can be nil).
 // Returns the apply result and any error encountered.
 func (infoSvc *CloudInfoService) CreateSchematicsApplyJob(
 	workspaceID string,
 	location string,
-	logger commonpkg.Logger,
 ) (*schematics.WorkspaceActivityApplyResult, error) {
 	// Get refresh token
 	response, err := infoSvc.authenticator.RequestToken()
@@ -865,8 +851,8 @@ func (infoSvc *CloudInfoService) CreateSchematicsApplyJob(
 			if commonpkg.IntArrayContains(getApiRetryStatusExceptions(), statusCode) {
 				return nil, applyErr
 			}
-			if logger != nil {
-				logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY ApplyWorkspaceCommand, status code: %d", statusCode))
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY ApplyWorkspaceCommand, status code: %d", statusCode))
 			}
 			return nil, applyErr
 		}
@@ -877,8 +863,8 @@ func (infoSvc *CloudInfoService) CreateSchematicsApplyJob(
 		return nil, err
 	}
 
-	if logger != nil && applyResult.Activityid != nil {
-		logger.Info(fmt.Sprintf("[SCHEMATICS] Created apply job: %s for workspace: %s", *applyResult.Activityid, workspaceID))
+	if infoSvc.Logger != nil && applyResult.Activityid != nil {
+		infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] Created apply job: %s for workspace: %s", *applyResult.Activityid, workspaceID))
 	}
 
 	return applyResult, nil
@@ -887,12 +873,10 @@ func (infoSvc *CloudInfoService) CreateSchematicsApplyJob(
 // CreateSchematicsDestroyJob initiates a new DESTROY action on a Schematics workspace.
 // workspaceID is the ID of the workspace.
 // location is the workspace location (e.g., "us", "eu").
-// logger is an optional logger for output (can be nil).
 // Returns the destroy result and any error encountered.
 func (infoSvc *CloudInfoService) CreateSchematicsDestroyJob(
 	workspaceID string,
 	location string,
-	logger commonpkg.Logger,
 ) (*schematics.WorkspaceActivityDestroyResult, error) {
 	// Get refresh token
 	response, err := infoSvc.authenticator.RequestToken()
@@ -926,8 +910,8 @@ func (infoSvc *CloudInfoService) CreateSchematicsDestroyJob(
 			if commonpkg.IntArrayContains(getApiRetryStatusExceptions(), statusCode) {
 				return nil, destroyErr
 			}
-			if logger != nil {
-				logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY DestroyWorkspaceCommand, status code: %d", statusCode))
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY DestroyWorkspaceCommand, status code: %d", statusCode))
 			}
 			return nil, destroyErr
 		}
@@ -938,8 +922,8 @@ func (infoSvc *CloudInfoService) CreateSchematicsDestroyJob(
 		return nil, err
 	}
 
-	if logger != nil && destroyResult.Activityid != nil {
-		logger.Info(fmt.Sprintf("[SCHEMATICS] Created destroy job: %s for workspace: %s", *destroyResult.Activityid, workspaceID))
+	if infoSvc.Logger != nil && destroyResult.Activityid != nil {
+		infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] Created destroy job: %s for workspace: %s", *destroyResult.Activityid, workspaceID))
 	}
 
 	return destroyResult, nil
@@ -949,13 +933,11 @@ func (infoSvc *CloudInfoService) CreateSchematicsDestroyJob(
 // workspaceID is the ID of the workspace.
 // jobID is the ID of the job/activity.
 // location is the workspace location (e.g., "us", "eu").
-// logger is an optional logger for output (can be nil).
 // Returns the workspace activity details and any error encountered.
 func (infoSvc *CloudInfoService) GetSchematicsWorkspaceJobDetail(
 	workspaceID string,
 	jobID string,
 	location string,
-	logger commonpkg.Logger,
 ) (*schematics.WorkspaceActivity, error) {
 	// Get the appropriate schematics service for the location
 	svc, svcErr := infoSvc.GetSchematicsServiceByLocation(location)
@@ -980,8 +962,8 @@ func (infoSvc *CloudInfoService) GetSchematicsWorkspaceJobDetail(
 			if commonpkg.IntArrayContains(getApiRetryStatusExceptions(), statusCode) {
 				return nil, actErr
 			}
-			if logger != nil {
-				logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY GetWorkspaceActivity, status code: %d", statusCode))
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY GetWorkspaceActivity, status code: %d", statusCode))
 			}
 			return nil, actErr
 		}
@@ -999,13 +981,11 @@ func (infoSvc *CloudInfoService) GetSchematicsWorkspaceJobDetail(
 // workspaceID is the ID of the workspace.
 // jobName is the job type name (e.g., SchematicsJobTypePlan, SchematicsJobTypeApply).
 // location is the workspace location (e.g., "us", "eu").
-// logger is an optional logger for output (can be nil).
 // Returns the workspace activity and any error encountered.
 func (infoSvc *CloudInfoService) FindLatestSchematicsJobByName(
 	workspaceID string,
 	jobName string,
 	location string,
-	logger commonpkg.Logger,
 ) (*schematics.WorkspaceActivity, error) {
 	// Get the appropriate schematics service for the location
 	svc, svcErr := infoSvc.GetSchematicsServiceByLocation(location)
@@ -1054,8 +1034,8 @@ func (infoSvc *CloudInfoService) FindLatestSchematicsJobByName(
 		// if jobResult is nil then none were found, throw error
 		if jobResult == nil {
 			// Log available job types for debugging
-			if len(availableJobTypes) > 0 && logger != nil {
-				logger.Info(fmt.Sprintf("[SCHEMATICS] Job <%s> not found, retrying. Available job types: %v",
+			if len(availableJobTypes) > 0 && infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] Job <%s> not found, retrying. Available job types: %v",
 					jobName, availableJobTypes))
 			}
 			return nil, errors.NotFound("job <%s> not found in workspace", jobName)
@@ -1072,14 +1052,12 @@ func (infoSvc *CloudInfoService) FindLatestSchematicsJobByName(
 // jobID is the ID of the job/activity.
 // location is the workspace location (e.g., "us", "eu").
 // timeoutMinutes is the maximum time to wait for job completion.
-// logger is an optional logger for output (can be nil).
 // Returns the final job status and any error encountered.
 func (infoSvc *CloudInfoService) WaitForSchematicsJobCompletion(
 	workspaceID string,
 	jobID string,
 	location string,
 	timeoutMinutes int,
-	logger commonpkg.Logger,
 ) (string, error) {
 	var status string
 	var job *schematics.WorkspaceActivity
@@ -1102,13 +1080,13 @@ func (infoSvc *CloudInfoService) WaitForSchematicsJobCompletion(
 		}
 
 		// get details of job
-		job, jobErr = infoSvc.GetSchematicsWorkspaceJobDetail(workspaceID, jobID, location, nil)
+		job, jobErr = infoSvc.GetSchematicsWorkspaceJobDetail(workspaceID, jobID, location)
 		if jobErr != nil {
 			return "", jobErr
 		}
 		// only log this once a minute or so
-		if runMinutes > lastLog && logger != nil {
-			logger.Info(fmt.Sprintf("[SCHEMATICS] ... still waiting for job %s to complete: %d minutes", *job.Name, runMinutes))
+		if runMinutes > lastLog && infoSvc.Logger != nil {
+			infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] ... still waiting for job %s to complete: %d minutes", *job.Name, runMinutes))
 			lastLog = runMinutes
 		}
 
@@ -1117,8 +1095,8 @@ func (infoSvc *CloudInfoService) WaitForSchematicsJobCompletion(
 			len(*job.Status) > 0 &&
 			*job.Status != SchematicsJobStatusCreated &&
 			*job.Status != SchematicsJobStatusInProgress {
-			if logger != nil {
-				logger.Info(fmt.Sprintf("[SCHEMATICS] The status of job %s is: %s", *job.Name, *job.Status))
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] The status of job %s is: %s", *job.Name, *job.Status))
 			}
 			break
 		}

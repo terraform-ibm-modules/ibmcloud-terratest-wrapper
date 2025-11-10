@@ -317,7 +317,6 @@ func (svc *SchematicsTestService) CreatePlanJob() (*schematics.WorkspaceActivity
 	return svc.CloudInfoService.CreateSchematicsPlanJob(
 		svc.WorkspaceID,
 		svc.WorkspaceLocation,
-		nil, // logger - nil is acceptable, cloudinfo handles it
 	)
 }
 
@@ -327,7 +326,6 @@ func (svc *SchematicsTestService) CreateApplyJob() (*schematics.WorkspaceActivit
 	return svc.CloudInfoService.CreateSchematicsApplyJob(
 		svc.WorkspaceID,
 		svc.WorkspaceLocation,
-		nil, // logger - nil is acceptable, cloudinfo handles it
 	)
 }
 
@@ -337,7 +335,6 @@ func (svc *SchematicsTestService) CreateDestroyJob() (*schematics.WorkspaceActiv
 	return svc.CloudInfoService.CreateSchematicsDestroyJob(
 		svc.WorkspaceID,
 		svc.WorkspaceLocation,
-		nil, // logger - nil is acceptable, cloudinfo handles it
 	)
 }
 
@@ -349,7 +346,6 @@ func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (
 		svc.WorkspaceID,
 		jobName,
 		svc.WorkspaceLocation,
-		nil, // logger - nil is acceptable, cloudinfo handles it
 	)
 }
 
@@ -360,7 +356,6 @@ func (svc *SchematicsTestService) GetWorkspaceJobDetail(jobID string) (*schemati
 		svc.WorkspaceID,
 		jobID,
 		svc.WorkspaceLocation,
-		nil, // logger - nil is acceptable, cloudinfo handles it
 	)
 }
 
@@ -380,7 +375,6 @@ func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, e
 		jobID,
 		svc.WorkspaceLocation,
 		int(waitMinutes),
-		nil, // logger - nil is acceptable, cloudinfo handles it
 	)
 }
 
@@ -389,7 +383,6 @@ func (svc *SchematicsTestService) GetLatestWorkspaceOutputs() (map[string]interf
 	return svc.CloudInfoService.GetSchematicsWorkspaceOutputs(
 		svc.WorkspaceID,
 		svc.WorkspaceLocation,
-		nil, // logger - nil is acceptable, cloudinfo handles it
 	)
 }
 
@@ -399,7 +392,6 @@ func (svc *SchematicsTestService) DeleteWorkspace() (string, error) {
 		svc.WorkspaceID,
 		svc.WorkspaceLocation,
 		false, // destroyResources = false
-		nil,   // logger - nil is acceptable, cloudinfo handles it
 	)
 }
 

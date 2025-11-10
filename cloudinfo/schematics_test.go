@@ -195,7 +195,6 @@ func TestCreateSchematicsWorkspace(t *testing.T) {
 			[]string{"test"},
 			nil,
 			nil,
-			nil,
 		)
 
 		assert.NoError(t, err)
@@ -230,7 +229,7 @@ func TestDeleteSchematicsWorkspace(t *testing.T) {
 			nil,
 		).Once()
 
-		result, err := infoSvc.DeleteSchematicsWorkspace("ws-12345", "us-south", false, nil)
+		result, err := infoSvc.DeleteSchematicsWorkspace("ws-12345", "us-south", false)
 
 		assert.NoError(t, err)
 		assert.Equal(t, "deleted", result)
@@ -268,7 +267,7 @@ func TestCreateSchematicsPlanJob(t *testing.T) {
 			nil,
 		).Once()
 
-		result, err := infoSvc.CreateSchematicsPlanJob("ws-12345", "us-south", nil)
+		result, err := infoSvc.CreateSchematicsPlanJob("ws-12345", "us-south")
 
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
@@ -307,7 +306,7 @@ func TestCreateSchematicsApplyJob(t *testing.T) {
 			nil,
 		).Once()
 
-		result, err := infoSvc.CreateSchematicsApplyJob("ws-12345", "us-south", nil)
+		result, err := infoSvc.CreateSchematicsApplyJob("ws-12345", "us-south")
 
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
@@ -346,7 +345,7 @@ func TestCreateSchematicsDestroyJob(t *testing.T) {
 			nil,
 		).Once()
 
-		result, err := infoSvc.CreateSchematicsDestroyJob("ws-12345", "us-south", nil)
+		result, err := infoSvc.CreateSchematicsDestroyJob("ws-12345", "us-south")
 
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
@@ -379,7 +378,7 @@ func TestGetSchematicsWorkspaceOutputs(t *testing.T) {
 			nil,
 		).Once()
 
-		result, err := infoSvc.GetSchematicsWorkspaceOutputs("ws-12345", "us-south", nil)
+		result, err := infoSvc.GetSchematicsWorkspaceOutputs("ws-12345", "us-south")
 
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
