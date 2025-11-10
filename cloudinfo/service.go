@@ -501,7 +501,9 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.authenticator = options.Authenticator
 	} else {
 		infoSvc.authenticator = &core.IamAuthenticator{
-			ApiKey: options.ApiKey,
+			ApiKey:       options.ApiKey,
+			ClientId:     "bx", // Required for refresh_token in Schematics operations
+			ClientSecret: "bx", // pragma: allowlist secret
 		}
 	}
 	infoSvc.ApiKey = options.ApiKey
