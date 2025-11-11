@@ -521,6 +521,11 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.iamIdentityService = iamService
 	}
 
+	_, err := infoSvc.getApiKeyDetail()
+	if err != nil {
+		infoSvc.Logger.Error(fmt.Sprintf("Could not get Apikey details: %v", err))
+	}
+
 	// if IamPolicyService is not supplied, use default external service
 	if options.IamPolicyService != nil {
 		infoSvc.iamPolicyService = options.IamPolicyService

@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/IBM/go-sdk-core/v5/core"
-	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 )
 
@@ -31,15 +30,7 @@ func (infoSvc *CloudInfoService) GetResourceGroupIDByName(resourceGroupName stri
 func (infoSvc *CloudInfoService) CreateResourceGroup(name string) (*resourcemanagerv2.ResCreateResourceGroup, *core.DetailedResponse, error) {
 	resourceGroupOptions := infoSvc.resourceManagerService.NewCreateResourceGroupOptions()
 	resourceGroupOptions.SetName(name)
-	opts := &iamidentityv1.GetAPIKeysDetailsOptions{IamAPIKey: core.StringPtr(infoSvc.ApiKey)}
-	apikeyDetails, resp, err := infoSvc.iamIdentityService.GetAPIKeysDetails(opts)
-	if err != nil {
-		return nil, nil, fmt.Errorf("error retrieving apikey details: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, resp, fmt.Errorf("unexpected status code retrieving apikey details: %w", err)
-	}
-	resourceGroupOptions.SetAccountID(*apikeyDetails.AccountID)
+	resourceGroupOptions.SetAccountID(*infoSvc.apiKeyDetail.AccountID)
 	return infoSvc.resourceManagerService.CreateResourceGroup(resourceGroupOptions)
 }
 
