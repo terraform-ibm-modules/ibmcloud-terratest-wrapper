@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 )
 
@@ -30,6 +31,15 @@ func (infoSvc *CloudInfoService) GetResourceGroupIDByName(resourceGroupName stri
 func (infoSvc *CloudInfoService) CreateResourceGroup(name string) (*resourcemanagerv2.ResCreateResourceGroup, *core.DetailedResponse, error) {
 	resourceGroupOptions := infoSvc.resourceManagerService.NewCreateResourceGroupOptions()
 	resourceGroupOptions.SetName(name)
+	opts := &iamidentityv1.GetAPIKeysDetailsOptions{IamAPIKey: core.StringPtr(infoSvc.ApiKey)}
+	apikeyDetails, resp, err := infoSvc.iamIdentityService.GetAPIKeysDetails(opts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error retrieving apikey details: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, resp, fmt.Errorf("unexpected status code retrieving apikey details: %w", err)
+	}
+	resourceGroupOptions.SetAccountID(*apikeyDetails.AccountID)
 	return infoSvc.resourceManagerService.CreateResourceGroup(resourceGroupOptions)
 }
 
@@ -49,13 +59,13 @@ func (infoSvc *CloudInfoService) DeleteResourceGroup(resourceGroupId string) (*c
 func (infoSvc *CloudInfoService) WithNewResourceGroup(name string, task func() error) error {
 	fmt.Println("Running task inside resource group context...")
 	resourceGroup, resp, err := infoSvc.CreateResourceGroup(name)
-	fmt.Printf("Created resource group %s with ID %s", name, *resourceGroup.ID)
 	if err != nil {
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
+	fmt.Printf("Created resource group %s with ID %s", name, *resourceGroup.ID)
 
 	defer infoSvc.DeleteResourceGroup(*resourceGroup.ID)
 

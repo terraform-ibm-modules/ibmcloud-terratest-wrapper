@@ -56,6 +56,8 @@ func TestCreateResourceGroup(t *testing.T) {
 				ID: core.StringPtr("test-id"),
 			},
 		},
+		iamIdentityService: &iamIdentityServiceMock{},
+		ApiKey:             "mockapikey",
 	}
 
 	t.Run("CreateResourceGroup_Success", func(t *testing.T) {
@@ -85,11 +87,13 @@ func TestWithNewResourceGroup(t *testing.T) {
 
 	t.Run("WithNewResourceGroup_Success", func(t *testing.T) {
 		infoSvc := CloudInfoService{
+			ApiKey: "mockapikey",
 			resourceManagerService: &resourceManagerServiceMock{
 				mockResCreateResourceGroup: &resourcemanagerv2.ResCreateResourceGroup{
 					ID: core.StringPtr("test-id"),
 				},
 			},
+			iamIdentityService: &iamIdentityServiceMock{},
 		}
 
 		task := func() error {
@@ -103,11 +107,13 @@ func TestWithNewResourceGroup(t *testing.T) {
 
 	t.Run("WithNewResourceGroup_TaskFails", func(t *testing.T) {
 		infoSvc := CloudInfoService{
+			ApiKey: "mockapikey",
 			resourceManagerService: &resourceManagerServiceMock{
 				mockResCreateResourceGroup: &resourcemanagerv2.ResCreateResourceGroup{
 					ID: core.StringPtr("test-id"),
 				},
 			},
+			iamIdentityService: &iamIdentityServiceMock{},
 		}
 
 		task := func() error {

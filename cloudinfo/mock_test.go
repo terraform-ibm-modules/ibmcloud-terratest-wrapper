@@ -92,16 +92,15 @@ func (mock *iamIdentityServiceMock) GetAPIKeysDetails(options *iamidentityv1.Get
 	name := "MOCK_NAME"
 	acctId := "MOCK_ACCOUNT_ID"
 
-	// if the api key in option is ERROR then pass error back
 	if *options.IamAPIKey == "ERROR" {
-		return nil, nil, errors.New("mock API key is bad")
+		return nil, &core.DetailedResponse{StatusCode: 400}, errors.New("mock API key is bad")
 	}
 
 	return &iamidentityv1.APIKey{
 		ID:        &id,
 		Name:      &name,
 		AccountID: &acctId,
-	}, nil, nil
+	}, &core.DetailedResponse{StatusCode: 200}, nil
 }
 
 // IAM POLICY SERVICE MOCK
