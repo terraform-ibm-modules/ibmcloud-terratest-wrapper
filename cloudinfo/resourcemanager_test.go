@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
 	"github.com/stretchr/testify/assert"
 )
@@ -58,6 +59,12 @@ func TestCreateResourceGroup(t *testing.T) {
 		},
 	}
 
+	// NEW: manually set apiKeyDetail so CreateResourceGroup has an AccountID to use
+	accountID := "MOCK_ACCOUNT_ID"
+	infoSvc.apiKeyDetail = &iamidentityv1.APIKey{
+		AccountID: &accountID,
+	}
+
 	t.Run("CreateResourceGroup_Success", func(t *testing.T) {
 		resourceGroup, resp, err := infoSvc.CreateResourceGroup("test-group")
 		assert.NotNil(t, resp)
@@ -82,9 +89,9 @@ func TestDeleteResourceGroup(t *testing.T) {
 }
 
 func TestWithNewResourceGroup(t *testing.T) {
-
 	t.Run("WithNewResourceGroup_Success", func(t *testing.T) {
 		infoSvc := CloudInfoService{
+			ApiKey: "mockapikey",
 			resourceManagerService: &resourceManagerServiceMock{
 				mockResCreateResourceGroup: &resourcemanagerv2.ResCreateResourceGroup{
 					ID: core.StringPtr("test-id"),
@@ -92,10 +99,13 @@ func TestWithNewResourceGroup(t *testing.T) {
 			},
 		}
 
-		task := func() error {
-			// Simulate successful task
-			return nil
+		// Pre-populate apiKeyDetail
+		accountID := "MOCK_ACCOUNT_ID"
+		infoSvc.apiKeyDetail = &iamidentityv1.APIKey{
+			AccountID: &accountID,
 		}
+
+		task := func() error { return nil }
 
 		err := infoSvc.WithNewResourceGroup("test-group", task)
 		assert.Nil(t, err)
@@ -103,11 +113,17 @@ func TestWithNewResourceGroup(t *testing.T) {
 
 	t.Run("WithNewResourceGroup_TaskFails", func(t *testing.T) {
 		infoSvc := CloudInfoService{
+			ApiKey: "mockapikey",
 			resourceManagerService: &resourceManagerServiceMock{
 				mockResCreateResourceGroup: &resourcemanagerv2.ResCreateResourceGroup{
 					ID: core.StringPtr("test-id"),
 				},
 			},
+		}
+		// Pre-populate apiKeyDetail
+		accountID := "MOCK_ACCOUNT_ID"
+		infoSvc.apiKeyDetail = &iamidentityv1.APIKey{
+			AccountID: &accountID,
 		}
 
 		task := func() error {

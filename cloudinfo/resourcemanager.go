@@ -30,6 +30,7 @@ func (infoSvc *CloudInfoService) GetResourceGroupIDByName(resourceGroupName stri
 func (infoSvc *CloudInfoService) CreateResourceGroup(name string) (*resourcemanagerv2.ResCreateResourceGroup, *core.DetailedResponse, error) {
 	resourceGroupOptions := infoSvc.resourceManagerService.NewCreateResourceGroupOptions()
 	resourceGroupOptions.SetName(name)
+	resourceGroupOptions.SetAccountID(*infoSvc.apiKeyDetail.AccountID)
 	return infoSvc.resourceManagerService.CreateResourceGroup(resourceGroupOptions)
 }
 
@@ -49,13 +50,13 @@ func (infoSvc *CloudInfoService) DeleteResourceGroup(resourceGroupId string) (*c
 func (infoSvc *CloudInfoService) WithNewResourceGroup(name string, task func() error) error {
 	fmt.Println("Running task inside resource group context...")
 	resourceGroup, resp, err := infoSvc.CreateResourceGroup(name)
-	fmt.Printf("Created resource group %s with ID %s", name, *resourceGroup.ID)
 	if err != nil {
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
+	fmt.Printf("Created resource group %s with ID %s", name, *resourceGroup.ID)
 
 	defer infoSvc.DeleteResourceGroup(*resourceGroup.ID)
 
