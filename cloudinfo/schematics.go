@@ -408,6 +408,49 @@ func getApiRetryStatusExceptions() []int {
 	return []int{401, 403}
 }
 
+func (infoSvc *CloudInfoService) GetSchematicsWorkspace(workspaceID string, location string) (*schematics.WorkspaceResponse, error) {
+	getWorkspaceOptions := &schematics.GetWorkspaceOptions{
+		WID: core.StringPtr(workspaceID),
+	}
+
+	// Get the appropriate schematics service for the region
+	svc, svcErr := infoSvc.GetSchematicsServiceByLocation(location)
+	if svcErr != nil {
+		return nil, fmt.Errorf("error getting schematics service for location %s: %w", location, svcErr)
+	}
+
+	// Use common retry mechanism
+	retryConfig := commonpkg.DefaultRetryConfig()
+	retryConfig.MaxRetries = defaultApiRetryCount
+	retryConfig.InitialDelay = time.Duration(defaultApiRetryWaitSeconds) * time.Second
+	retryConfig.OperationName = "GetSchematicsWorkspace"
+
+	workspace, err := commonpkg.RetryWithConfig(retryConfig, func() (*schematics.WorkspaceResponse, error) {
+		ws, resp, wsErr := svc.GetWorkspace(getWorkspaceOptions)
+		if wsErr != nil {
+			statusCode := GetDetailedResponseStatusCode(resp)
+			// Don't retry on auth errors
+			if commonpkg.IntArrayContains(getApiRetryStatusExceptions(), statusCode) {
+				return nil, wsErr
+			}
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] RETRY GetWorkspace, status code: %d", statusCode))
+			}
+			return nil, wsErr
+		}
+		return ws, nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] Got workspace: %s (ID: %s))", *workspace.Name, *workspace.ID))
+	}
+	return workspace, nil
+}
+
 // CreateSchematicsWorkspace creates a new IBM Schematics Workspace for testing.
 // name is the workspace name.
 // resourceGroup is the resource group ID.

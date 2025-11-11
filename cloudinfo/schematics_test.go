@@ -48,6 +48,14 @@ func (m *mockIamAuthenticator) RequestToken() (*core.IamTokenServerResponse, err
 	return args.Get(0).(*core.IamTokenServerResponse), args.Error(1)
 }
 
+func (m *mockSchematicsService) GetWorkspace(options *schematics.GetWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error) {
+	args := m.Called(options)
+	if args.Get(0) == nil {
+		return nil, args.Get(1).(*core.DetailedResponse), args.Error(2)
+	}
+	return args.Get(0).(*schematics.WorkspaceResponse), args.Get(1).(*core.DetailedResponse), args.Error(2)
+}
+
 func (m *mockSchematicsService) CreateWorkspace(options *schematics.CreateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error) {
 	args := m.Called(options)
 	if args.Get(0) == nil {

@@ -229,6 +229,7 @@ type CloudInfoServiceI interface {
 	GetSchematicsWorkspaceOutputs(workspaceID, location string) (map[string]interface{}, error)
 
 	// New Schematics job operations
+	GetSchematicsWorkspace(workspaceID, location string) (*schematics.WorkspaceResponse, error)
 	CreateSchematicsPlanJob(workspaceID, location string) (*schematics.WorkspaceActivityPlanResult, error)
 	CreateSchematicsApplyJob(workspaceID, location string) (*schematics.WorkspaceActivityApplyResult, error)
 	CreateSchematicsDestroyJob(workspaceID, location string) (*schematics.WorkspaceActivityDestroyResult, error)
@@ -417,6 +418,7 @@ type schematicsService interface {
 	GetServiceURL() string
 
 	// Workspace operations
+	GetWorkspace(*schematics.GetWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
 	CreateWorkspace(*schematics.CreateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
 	UpdateWorkspace(*schematics.UpdateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
 	DeleteWorkspace(*schematics.DeleteWorkspaceOptions) (*string, *core.DetailedResponse, error)

@@ -8,6 +8,7 @@ import (
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	projects "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/IBM/schematics-go-sdk/schematicsv1"
+	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/stretchr/testify/mock"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
@@ -334,6 +335,16 @@ func (m *MockCloudInfoServiceForPermutation) GetSchematicsJobFileData(jobID stri
 	}
 
 	return jobFileData, args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetSchematicsWorkspace(jobID string, location string) (*schematics.WorkspaceResponse, error) {
+	args := m.Called(jobID, location)
+
+	var workspace *schematicsv1.WorkspaceResponse
+	if args.Get(0) != nil {
+		workspace = args.Get(0).(*schematicsv1.WorkspaceResponse)
+	}
+	return workspace, args.Error(1)
 }
 
 func (m *MockCloudInfoServiceForPermutation) GetSchematicsJobPlanJson(jobID string, location string) (string, error) {

@@ -18,6 +18,7 @@ import (
 )
 
 const mockWorkspaceID = "ws12345"
+const mockWorkspaceStatus = "ACTIVE"
 const mockWorkspaceName = "NewWorkspace-12345"
 const mockTemplateID = "template54321"
 const mockActivityID = "activity98765"
@@ -483,6 +484,12 @@ func (mock *cloudInfoServiceMock) GetSchematicsJobPlanJson(jobID string, locatio
 }
 
 // Schematics methods for cloudInfoServiceMock
+func (mock *cloudInfoServiceMock) GetSchematicsWorkspace(workspaceID string, location string) (*schematics.WorkspaceResponse, error) {
+	return &schematics.WorkspaceResponse{
+		Status: core.StringPtr(mockWorkspaceStatus),
+	}, nil
+}
+
 func (mock *cloudInfoServiceMock) CreateSchematicsPlanJob(workspaceID string, location string) (*schematics.WorkspaceActivityPlanResult, error) {
 	return &schematics.WorkspaceActivityPlanResult{
 		Activityid: core.StringPtr(mockPlanID),
