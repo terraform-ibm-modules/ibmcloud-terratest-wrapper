@@ -1296,6 +1296,19 @@ func (m *MockTokenTrackingAuthenticator) Validate() error {
 	return nil
 }
 
+func (m *MockTokenTrackingAuthenticator) RequestToken() (*core.IamTokenServerResponse, error) {
+	if m.TokenRefreshCallback != nil {
+		m.TokenRefreshCallback()
+	}
+	return &core.IamTokenServerResponse{
+		AccessToken:  "mock-token-" + m.ApiKey,
+		RefreshToken: "mock-refresh-token",
+		TokenType:    "Bearer",
+		ExpiresIn:    3600,
+		Expiration:   0,
+	}, nil
+}
+
 // Tests for transformStackStyleReference
 func TestTransformStackStyleReference(t *testing.T) {
 	projectInfo := &ProjectInfo{

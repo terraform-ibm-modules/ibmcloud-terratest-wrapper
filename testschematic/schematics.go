@@ -3,46 +3,32 @@
 package testschematic
 
 import (
-	"archive/tar"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
-	"github.com/go-openapi/errors"
-	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
-// IBM schematics job types
-const SchematicsJobTypeUpload = "TAR_WORKSPACE_UPLOAD"
-const SchematicsJobTypeUpdate = "WORKSPACE_UPDATE"
-const SchematicsJobTypePlan = "PLAN"
-const SchematicsJobTypeApply = "APPLY"
-const SchematicsJobTypeDestroy = "DESTROY"
-
-// IBM schematics job status
-const SchematicsJobStatusCompleted = "COMPLETED"
-const SchematicsJobStatusFailed = "FAILED"
-const SchematicsJobStatusCreated = "CREATED"
-const SchematicsJobStatusInProgress = "INPROGRESS"
-
-// Defaults for API retry mechanic
-const defaultApiRetryCount int = 5
-const defaultApiRetryWaitSeconds int = 30
-
-// golang does not support constant array/slice, this is our constant
-func getApiRetryStatusExceptions() []int {
-	return []int{401, 403}
-}
+// Re-export constants from cloudinfo for backward compatibility
+const (
+	SchematicsJobTypeUpload       = cloudinfo.SchematicsJobTypeUpload
+	SchematicsJobTypeUpdate       = cloudinfo.SchematicsJobTypeUpdate
+	SchematicsJobTypePlan         = cloudinfo.SchematicsJobTypePlan
+	SchematicsJobTypeApply        = cloudinfo.SchematicsJobTypeApply
+	SchematicsJobTypeDestroy      = cloudinfo.SchematicsJobTypeDestroy
+	SchematicsJobStatusCompleted  = cloudinfo.SchematicsJobStatusCompleted
+	SchematicsJobStatusFailed     = cloudinfo.SchematicsJobStatusFailed
+	SchematicsJobStatusCreated    = cloudinfo.SchematicsJobStatusCreated
+	SchematicsJobStatusInProgress = cloudinfo.SchematicsJobStatusInProgress
+)
 
 // interface for the external schematics service api. Can be mocked for tests
 type SchematicsApiSvcI interface {
@@ -148,8 +134,36 @@ func (svc *SchematicsTestService) InitializeSchematicsService() error {
 }
 
 // CreateTestWorkspace will create a new IBM Schematics Workspace that will be used for testing.
+// This is a test-specific wrapper that uses the mocked SchematicsApiSvc directly.
+// For production use, consider using cloudinfo.CreateSchematicsWorkspace instead.
 func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup string, region string, templateFolder string, terraformVersion string, tags []string) (*schematics.WorkspaceResponse, error) {
+	// initialize empty environment structures
+	envValues := make([]map[string]interface{}, 0)
+	envMetadata := []schematics.EnvironmentValuesMetadata{}
 
+	// add env needed for restapi provider by default
+	cloudinfo.AddWorkspaceEnv(&envValues, &envMetadata, "API_DATA_IS_SENSITIVE", "true", false, false)
+
+	// add additional env values that were set in test options
+	for _, envEntry := range svc.TestOptions.WorkspaceEnvVars {
+		cloudinfo.AddWorkspaceEnv(&envValues, &envMetadata, envEntry.Key, envEntry.Value, envEntry.Hidden, envEntry.Secure)
+	}
+
+	// add netrc credentials if required
+	if len(svc.TestOptions.NetrcSettings) > 0 { // pragma: allowlist secret
+		// Convert NetrcCredential to cloudinfo.NetrcCredential
+		netrcCreds := make([]cloudinfo.NetrcCredential, len(svc.TestOptions.NetrcSettings)) // pragma: allowlist secret
+		for i, cred := range svc.TestOptions.NetrcSettings {                                // pragma: allowlist secret
+			netrcCreds[i] = cloudinfo.NetrcCredential{ // pragma: allowlist secret
+				Host:     cred.Host,
+				Username: cred.Username,
+				Password: cred.Password, // pragma: allowlist secret
+			}
+		}
+		cloudinfo.AddNetrcToWorkspaceEnv(&envValues, &envMetadata, netrcCreds) // pragma: allowlist secret
+	}
+
+	// Use the mocked SchematicsApiSvc directly for testing
 	var folder *string
 	var version *string
 	var wsVersion []string
@@ -160,31 +174,11 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 		folder = core.StringPtr(templateFolder)
 	}
 
-	// choose nil default for version if not supplied, so that they omit from template setup
-	// (schematics should then determine defaults)
 	if len(terraformVersion) > 0 {
 		version = core.StringPtr(terraformVersion)
 		wsVersion = []string{terraformVersion}
 	}
 
-	// initialize empty environment structures
-	envValues := make([]map[string]interface{}, 0)
-	envMetadata := []schematics.EnvironmentValuesMetadata{}
-
-	// add env needed for restapi provider by default
-	addWorkspaceEnv(&envValues, &envMetadata, "API_DATA_IS_SENSITIVE", "true", false, false)
-
-	// add additional env values that were set in test options
-	for _, envEntry := range svc.TestOptions.WorkspaceEnvVars {
-		addWorkspaceEnv(&envValues, &envMetadata, envEntry.Key, envEntry.Value, envEntry.Hidden, envEntry.Secure)
-	}
-
-	// add netrc credientials if required
-	if len(svc.TestOptions.NetrcSettings) > 0 {
-		addNetrcToWorkspaceEnv(&envValues, &envMetadata, svc.TestOptions.NetrcSettings)
-	}
-
-	// create env and input vars template
 	templateModel := &schematics.TemplateSourceDataRequest{
 		Folder:            folder,
 		Type:              version,
@@ -202,28 +196,16 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 		Tags:          tags,
 	}
 
-	var workspace *schematics.WorkspaceResponse
-	var resp *core.DetailedResponse
-	var workspaceErr error
-	retries := 0
-	for {
-		workspace, resp, workspaceErr = svc.SchematicsApiSvc.CreateWorkspace(createWorkspaceOptions)
-		if svc.retryApiCall(workspaceErr, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY CreateWorkspace, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
-		}
-	}
-
-	if workspaceErr != nil {
-		return nil, workspaceErr
+	workspace, _, err := svc.SchematicsApiSvc.CreateWorkspace(createWorkspaceOptions)
+	if err != nil {
+		return nil, err
 	}
 
 	// set workspace and template IDs created for later use
 	svc.WorkspaceID = *workspace.ID
 	svc.TemplateID = *workspace.TemplateData[0].ID
 	svc.WorkspaceName = *workspace.Name
+	svc.TestOptions.Testing.Logf("[SCHEMATICS] Created workspace: %s (ID: %s)", *workspace.Name, *workspace.ID)
 
 	return workspace, nil
 }
@@ -232,7 +214,7 @@ func (svc *SchematicsTestService) CreateTestWorkspace(name string, resourceGroup
 // Returns the full tarball name that was created on local system (path included).
 func (svc *SchematicsTestService) CreateUploadTarFile(projectPath string) (string, error) {
 	svc.TestOptions.Testing.Log("[SCHEMATICS] Creating TAR file")
-	tarballName, tarballErr := CreateSchematicTar(projectPath, &svc.TestOptions.TarIncludePatterns)
+	tarballName, tarballErr := cloudinfo.CreateSchematicsTar(projectPath, svc.TestOptions.TarIncludePatterns)
 	if tarballErr != nil {
 		return "", fmt.Errorf("error creating tar file: %s", tarballErr.Error())
 	}
@@ -265,7 +247,6 @@ func (svc *SchematicsTestService) CreateUploadTarFile(projectPath string) (strin
 // UpdateTestTemplateVars will update an existing Schematics Workspace terraform template with a
 // Variablestore, which will set terraform input variables for test runs.
 func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTerraformVar) error {
-
 	// set up an array of workspace variables based on TerraformVars supplied.
 	var strVal string
 	var strErr error
@@ -288,30 +269,19 @@ func (svc *SchematicsTestService) UpdateTestTemplateVars(vars []TestSchematicTer
 		})
 	}
 
+	// Use mocked SchematicsApiSvc directly for testing
 	templateModel := &schematics.ReplaceWorkspaceInputsOptions{
 		WID:           core.StringPtr(svc.WorkspaceID),
 		TID:           core.StringPtr(svc.TemplateID),
 		Variablestore: variables,
 	}
 
-	// now update template
-	var resp *core.DetailedResponse
-	var updateErr error
-	retries := 0
-	for {
-		_, resp, updateErr = svc.SchematicsApiSvc.ReplaceWorkspaceInputs(templateModel)
-		if svc.retryApiCall(updateErr, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ReplaceWorkspaceInputs, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
-		}
+	_, _, err := svc.SchematicsApiSvc.ReplaceWorkspaceInputs(templateModel)
+	if err != nil {
+		return err
 	}
 
-	if updateErr != nil {
-		return updateErr
-	}
-
+	svc.TestOptions.Testing.Logf("[SCHEMATICS] Updated variables for workspace: %s", svc.WorkspaceID)
 	return nil
 }
 
@@ -322,6 +292,7 @@ func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
 	if fileErr != nil {
 		return fmt.Errorf("error opening reader for tar path: %w", fileErr)
 	}
+	defer fileReader.Close()
 	fileReaderWrapper := io.NopCloser(fileReader)
 
 	uploadTarOptions := &schematics.TemplateRepoUploadOptions{
@@ -331,207 +302,61 @@ func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
 		FileContentType: core.StringPtr("application/octet-stream"),
 	}
 
-	var resp *core.DetailedResponse
-	var uploadErr error
-	retries := 0
-	for {
-		_, resp, uploadErr = svc.SchematicsApiSvc.TemplateRepoUpload(uploadTarOptions)
-		if svc.retryApiCall(uploadErr, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY TemplateRepoUpload, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
-		}
-	}
-	if uploadErr != nil {
-		return uploadErr
+	_, _, err := svc.SchematicsApiSvc.TemplateRepoUpload(uploadTarOptions)
+	if err != nil {
+		return err
 	}
 
+	svc.TestOptions.Testing.Logf("[SCHEMATICS] Uploaded TAR to workspace: %s", svc.WorkspaceID)
 	return nil
 }
 
 // CreatePlanJob will initiate a new PLAN action on an existing terraform Schematics Workspace.
 // Will return a result object containing details about the new action.
 func (svc *SchematicsTestService) CreatePlanJob() (*schematics.WorkspaceActivityPlanResult, error) {
-	refreshToken, tokenErr := svc.GetRefreshToken()
-	if tokenErr != nil {
-		return nil, tokenErr
-	}
-
-	var planResult *schematics.WorkspaceActivityPlanResult
-	var resp *core.DetailedResponse
-	var err error
-	retries := 0
-	for {
-		planResult, resp, err = svc.SchematicsApiSvc.PlanWorkspaceCommand(&schematics.PlanWorkspaceCommandOptions{
-			WID:          core.StringPtr(svc.WorkspaceID),
-			RefreshToken: core.StringPtr(refreshToken),
-		})
-		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY PlanWorkspaceCommand, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return planResult, nil
+	return svc.CloudInfoService.CreateSchematicsPlanJob(
+		svc.WorkspaceID,
+		svc.WorkspaceLocation,
+	)
 }
 
 // CreateApplyJob will initiate a new APPLY action on an existing terraform Schematics Workspace.
 // Will return a result object containing details about the new action.
 func (svc *SchematicsTestService) CreateApplyJob() (*schematics.WorkspaceActivityApplyResult, error) {
-	refreshToken, tokenErr := svc.GetRefreshToken()
-	if tokenErr != nil {
-		return nil, tokenErr
-	}
-
-	var applyResult *schematics.WorkspaceActivityApplyResult
-	var resp *core.DetailedResponse
-	var err error
-	retries := 0
-	for {
-		applyResult, resp, err = svc.SchematicsApiSvc.ApplyWorkspaceCommand(&schematics.ApplyWorkspaceCommandOptions{
-			WID:          core.StringPtr(svc.WorkspaceID),
-			RefreshToken: core.StringPtr(refreshToken),
-		})
-		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY ApplyWorkspaceCommand, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return applyResult, nil
+	return svc.CloudInfoService.CreateSchematicsApplyJob(
+		svc.WorkspaceID,
+		svc.WorkspaceLocation,
+	)
 }
 
 // CreateDestroyJob will initiate a new DESTROY action on an existing terraform Schematics Workspace.
 // Will return a result object containing details about the new action.
 func (svc *SchematicsTestService) CreateDestroyJob() (*schematics.WorkspaceActivityDestroyResult, error) {
-	refreshToken, tokenErr := svc.GetRefreshToken()
-	if tokenErr != nil {
-		return nil, tokenErr
-	}
-
-	var destroyResult *schematics.WorkspaceActivityDestroyResult
-	var resp *core.DetailedResponse
-	var err error
-	retries := 0
-	for {
-		destroyResult, resp, err = svc.SchematicsApiSvc.DestroyWorkspaceCommand(&schematics.DestroyWorkspaceCommandOptions{
-			WID:          core.StringPtr(svc.WorkspaceID),
-			RefreshToken: core.StringPtr(refreshToken),
-		})
-		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY DestroyWorkspaceCommand, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	return destroyResult, nil
+	return svc.CloudInfoService.CreateSchematicsDestroyJob(
+		svc.WorkspaceID,
+		svc.WorkspaceLocation,
+	)
 }
 
 // FindLatestWorkspaceJobByName will find the latest executed job of the type supplied and return data about that job.
 // This can be used to find a job by its type when the jobID is not known.
 // A "NotFound" error will be thrown if there are no existing jobs of the provided type.
 func (svc *SchematicsTestService) FindLatestWorkspaceJobByName(jobName string) (*schematics.WorkspaceActivity, error) {
-	// Create a custom retry config for this operation
-	retryConfig := common.DefaultRetryConfig()
-	retryConfig.MaxRetries = 3
-	retryConfig.OperationName = "FindLatestWorkspaceJobByName"
-
-	// We can't use the logger directly since testing.T doesn't implement the common.Logger interface
-	// Instead, we'll log manually in our operation function
-
-	// Use the common retry package
-	job, err := common.RetryWithConfig(retryConfig, func() (*schematics.WorkspaceActivity, error) {
-		// get array of jobs using workspace id
-		listResult, _, listErr := svc.SchematicsApiSvc.ListWorkspaceActivities(&schematics.ListWorkspaceActivitiesOptions{
-			WID: core.StringPtr(svc.WorkspaceID),
-		})
-
-		if listErr != nil {
-			return nil, listErr
-		}
-
-		// loop through jobs and get latest one that matches name
-		var jobResult *schematics.WorkspaceActivity
-		var availableJobTypes []string // Track available job types for better error messages
-
-		for i, job := range listResult.Actions {
-			// Add job type to available types list if it has a name
-			if job.Name != nil {
-				availableJobTypes = append(availableJobTypes, *job.Name)
-			}
-
-			// only match name
-			if job.Name != nil && *job.Name == jobName {
-				// keep latest job of svc name
-				if jobResult != nil {
-					if time.Time(*job.PerformedAt).After(time.Time(*jobResult.PerformedAt)) {
-						jobResult = &listResult.Actions[i]
-					}
-				} else {
-					jobResult = &listResult.Actions[i]
-				}
-			}
-		}
-
-		// if jobResult is nil then none were found, throw error
-		if jobResult == nil {
-			// Log available job types for debugging
-			if len(availableJobTypes) > 0 && svc.TestOptions != nil && svc.TestOptions.Testing != nil {
-				svc.TestOptions.Testing.Logf("[SCHEMATICS] Job <%s> not found, retrying. Available job types: %v",
-					jobName, availableJobTypes)
-			}
-			return nil, errors.NotFound("job <%s> not found in workspace", jobName)
-		}
-
-		return jobResult, nil
-	})
-
-	return job, err
+	return svc.CloudInfoService.FindLatestSchematicsJobByName(
+		svc.WorkspaceID,
+		jobName,
+		svc.WorkspaceLocation,
+	)
 }
 
 // GetWorkspaceJobDetail will return a data structure with full details about an existing Schematics Workspace activity for the
 // given Job ID.
 func (svc *SchematicsTestService) GetWorkspaceJobDetail(jobID string) (*schematics.WorkspaceActivity, error) {
-
-	// look up job by ID
-	var activityResponse *schematics.WorkspaceActivity
-	var resp *core.DetailedResponse
-	var err error
-	retries := 0
-	for {
-		activityResponse, resp, err = svc.SchematicsApiSvc.GetWorkspaceActivity(&schematics.GetWorkspaceActivityOptions{
-			WID:        core.StringPtr(svc.WorkspaceID),
-			ActivityID: core.StringPtr(jobID),
-		})
-		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY GetWorkspaceActivity, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
-		}
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	return activityResponse, nil
+	return svc.CloudInfoService.GetSchematicsWorkspaceJobDetail(
+		svc.WorkspaceID,
+		jobID,
+		svc.WorkspaceLocation,
+	)
 }
 
 // WaitForFinalJobStatus will look up details about the given activity and check the status value. If the status implies that the activity
@@ -540,349 +365,34 @@ func (svc *SchematicsTestService) GetWorkspaceJobDetail(jobID string) (*schemati
 // Returns the final status value of the activity when it has finished.
 // Returns an error if the activity does not finish before the configured time threshold.
 func (svc *SchematicsTestService) WaitForFinalJobStatus(jobID string) (string, error) {
-	var status string
-	var job *schematics.WorkspaceActivity
-	var jobErr error
-
-	// Wait for the job to be complete
-	start := time.Now()
-	lastLog := int16(0)
-	runMinutes := int16(0)
 	waitMinutes := DefaultWaitJobCompleteMinutes
 	if svc.TestOptions != nil && svc.TestOptions.WaitJobCompleteMinutes > 0 {
 		waitMinutes = svc.TestOptions.WaitJobCompleteMinutes
 	}
 
-	for {
-		// check for timeout and throw error
-		runMinutes = int16(time.Since(start).Minutes())
-		if runMinutes > waitMinutes {
-			return "", fmt.Errorf("time exceeded waiting for schematic job to finish")
-		}
-
-		// get details of job
-		job, jobErr = svc.GetWorkspaceJobDetail(jobID)
-		if jobErr != nil {
-			return "", jobErr
-		}
-		// only log svc once a minute or so
-		if runMinutes > lastLog {
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] ... still waiting for job %s to complete: %d minutes", *job.Name, runMinutes)
-			lastLog = runMinutes
-		}
-
-		// check if it is finished
-		if job.Status != nil &&
-			len(*job.Status) > 0 &&
-			*job.Status != SchematicsJobStatusCreated &&
-			*job.Status != SchematicsJobStatusInProgress {
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] The status of job %s is: %s", *job.Name, *job.Status)
-			break
-		}
-
-		// wait 60 seconds
-		time.Sleep(60 * time.Second)
-	}
-
-	// if we reach svc point the job has finished, return status
-	status = *job.Status
-
-	return status, nil
+	return svc.CloudInfoService.WaitForSchematicsJobCompletion(
+		svc.WorkspaceID,
+		jobID,
+		svc.WorkspaceLocation,
+		int(waitMinutes),
+	)
 }
 
 // GetLatestWorkspaceOutputs will return a map of current terraform outputs stored in the workspace
 func (svc *SchematicsTestService) GetLatestWorkspaceOutputs() (map[string]interface{}, error) {
-
-	var outputResponse []schematics.OutputValuesInner
-	var resp *core.DetailedResponse
-	var err error
-	retries := 0
-	for {
-		outputResponse, resp, err = svc.SchematicsApiSvc.GetWorkspaceOutputs(&schematics.GetWorkspaceOutputsOptions{
-			WID: core.StringPtr(svc.WorkspaceID),
-		})
-		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY GetWorkspaceOutputs, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
-		}
-	}
-
-	if err != nil {
-		return make(map[string]interface{}), err
-	}
-
-	// DEV NOTE: the return type from SDK is an array of output wrapper, inside is an array of output maps.
-	// I'm not sure why though, as a schematic workspace would only have one set of outputs?
-	// Through testing I only saw one set of outputs (outputResponse[0].OutputValues[0]),
-	// but just to be safe I'm implementing a loop/merge here, just in case.
-	allOutputs := make(map[string]interface{})
-	for _, outputWrapper := range outputResponse {
-		for _, outputInner := range outputWrapper.OutputValues {
-			maps.Copy(allOutputs, outputInner) // shallow copy into all, from inner (with key merge)
-		}
-	}
-
-	return allOutputs, nil
+	return svc.CloudInfoService.GetSchematicsWorkspaceOutputs(
+		svc.WorkspaceID,
+		svc.WorkspaceLocation,
+	)
 }
 
 // DeleteWorkspace will delete the existing workspace created for the test service.
 func (svc *SchematicsTestService) DeleteWorkspace() (string, error) {
-
-	refreshToken, tokenErr := svc.GetRefreshToken()
-	if tokenErr != nil {
-		return "", tokenErr
-	}
-
-	var result *string
-	var resp *core.DetailedResponse
-	var err error
-	retries := 0
-	for {
-		result, resp, err = svc.SchematicsApiSvc.DeleteWorkspace(&schematics.DeleteWorkspaceOptions{
-			WID:              core.StringPtr(svc.WorkspaceID),
-			RefreshToken:     core.StringPtr(refreshToken),
-			DestroyResources: core.StringPtr("false"),
-		})
-		if svc.retryApiCall(err, getDetailedResponseStatusCode(resp), retries) {
-			retries++
-			svc.TestOptions.Testing.Logf("[SCHEMATICS] RETRY DeleteWorkspace, status code: %d", getDetailedResponseStatusCode(resp))
-		} else {
-			break
-		}
-	}
-
-	if err != nil {
-		return "", fmt.Errorf("delete of schematic job failed: %w", err)
-	}
-
-	return *result, nil
-}
-
-// CreateSchematicTar will accept a path to a Terraform project and an array of file patterns to include,
-// and will create a TAR file in a temporary location that contains all of the project's files that match the
-// supplied file patterns. This TAR file can then be uploaded to a Schematics Workspace template.
-// Returns a string of the complete TAR file path and file name.
-// Error is returned if any issues happen while creating TAR file.
-func CreateSchematicTar(projectPath string, includePatterns *[]string) (string, error) {
-
-	// create unique tar filename
-	target := filepath.Join(os.TempDir(), fmt.Sprintf("schematic-test-%s.tar", strings.ToLower(random.UniqueId())))
-
-	// set up tarfile on filesystem
-	tarfile, fileErr := os.Create(target)
-	if fileErr != nil {
-		return "", fileErr
-	}
-	defer tarfile.Close()
-
-	// create a tar file writer
-	tw := tar.NewWriter(tarfile)
-	defer tw.Close()
-
-	// track files added
-	totalFiles := 0
-	// track directories added, we only want to add them once
-	dirsAdded := []string{}
-
-	// start loop through provided list of patterns
-	// if none provided, assume just terraform files
-	if len(*includePatterns) == 0 {
-		includePatterns = &[]string{"*.tf"}
-	}
-
-	// schematics needs an outer folder in the tar file to contain everything, create that here and add this to everything later
-	// use current head of project path directory for dir info
-	parentDirInfo, parentDirInfoErr := os.Stat(projectPath)
-	if parentDirInfoErr != nil {
-		return "", parentDirInfoErr
-	}
-	parentDirHdr, parentDirHdrErr := tar.FileInfoHeader(parentDirInfo, parentDirInfo.Name())
-	if parentDirHdrErr != nil {
-		return "", parentDirHdrErr
-	}
-	if tarWriteOuterDirErr := tw.WriteHeader(parentDirHdr); tarWriteOuterDirErr != nil {
-		return "", tarWriteOuterDirErr
-	}
-
-	for _, pattern := range *includePatterns {
-		// for glob search, use full path plus pattern
-		patternPath := filepath.Join(projectPath, pattern)
-		files, _ := filepath.Glob(patternPath)
-
-		// loop through files
-		for _, fileName := range files {
-			// get file info
-			info, infoErr := os.Stat(fileName)
-			if infoErr != nil {
-				return "", infoErr
-			}
-			// keep the full path to file, and a relative path based on project path
-			// full path used for info lookups, relative is used for inside TAR file
-			fullFileDir := filepath.Dir(fileName)
-			relFileDir, relFileDirErr := filepath.Rel(projectPath, fullFileDir)
-			if relFileDirErr != nil {
-				return "", relFileDirErr
-			}
-
-			// skip directories that were directly found by the Glob, we will add those another way (see below)
-			if info.IsDir() {
-				continue
-			}
-
-			hdr, hdrErr := tar.FileInfoHeader(info, info.Name())
-			if hdrErr != nil {
-				return "", hdrErr
-			}
-
-			// the FI header sets the name as base name only, so to preserve the leading relative directories (if needed)
-			// we will alter the name
-			if relFileDir != "." {
-				hdr.Name = filepath.Join(parentDirInfo.Name(), relFileDir, hdr.Name)
-				hdr.Linkname = hdr.Name
-
-				// if the file resides in subdirectory, add that directory to tar file so that extraction works correctly
-				if !common.StrArrayContains(dirsAdded, relFileDir) {
-					dirInfo, dirInfoErr := os.Stat(fullFileDir)
-					if dirInfoErr != nil {
-						return "", dirInfoErr
-					}
-					dirHdr, dirHdrErr := tar.FileInfoHeader(dirInfo, filepath.Join(parentDirInfo.Name(), relFileDir))
-					if dirHdrErr != nil {
-						return "", dirHdrErr
-					}
-					dirHdr.Name = filepath.Join(parentDirInfo.Name(), relFileDir) // use full realative path
-					if tarWriteDirErr := tw.WriteHeader(dirHdr); tarWriteDirErr != nil {
-						return "", tarWriteDirErr
-					}
-					dirsAdded = append(dirsAdded, relFileDir)
-				}
-			} else {
-				// file is at root level, put it right below parent dir
-				hdr.Name = filepath.Join(parentDirInfo.Name(), hdr.Name)
-				hdr.Linkname = hdr.Name
-			}
-
-			// prefer GNU format
-			hdr.Format = tar.FormatGNU
-
-			// start writing to tarball
-			if tarWriteErr := tw.WriteHeader(hdr); tarWriteErr != nil {
-				return "", tarWriteErr
-			}
-
-			// now open file and copy contents to tarball
-			file, fileErr := os.Open(fileName)
-			if fileErr != nil {
-				return "", fileErr
-			}
-			defer file.Close()
-			_, writeErr := io.Copy(tw, file)
-			if writeErr != nil {
-				return "", writeErr
-			}
-
-			// keep track of files added
-			totalFiles = totalFiles + 1
-		}
-	}
-
-	// if there were zero files added to the tar we need to error, as it will be empty
-	// also just delete the file, we don't want it hanging around
-	if totalFiles == 0 {
-		defer os.Remove(target)
-		return "", fmt.Errorf("tar file is empty, no files added")
-	}
-
-	return target, nil
-}
-
-func addWorkspaceEnv(values *[]map[string]interface{}, metadata *[]schematics.EnvironmentValuesMetadata, key string, value string, hidden bool, secure bool) {
-	// Create a map of type map[string]interface{} to store key-value pair
-	envValue := map[string]interface{}{key: value}
-
-	// Append the map to the values slice
-	*values = append(*values, envValue)
-
-	// Add a metadata entry for the sensitive value
-	*metadata = append(*metadata, schematics.EnvironmentValuesMetadata{
-		Name:   core.StringPtr(key),
-		Hidden: core.BoolPtr(hidden),
-		Secure: core.BoolPtr(secure),
-	})
-}
-
-func addNetrcToWorkspaceEnv(values *[]map[string]interface{}, metadata *[]schematics.EnvironmentValuesMetadata, netrcEntries []NetrcCredential) {
-	// Create a slice to store netrc entries
-	netrcValue := [][]string{}
-
-	// Loop through provided entries and add to the slice
-	for _, netrc := range netrcEntries {
-		entry := []string{
-			netrc.Host,
-			netrc.Username,
-			netrc.Password,
-		}
-		netrcValue = append(netrcValue, entry)
-	}
-
-	// turn entire array into string
-	netrcValueStr, _ := common.ConvertValueToJsonString(netrcValue)
-	// Add the slice of netrc entries to env with "__netrc__" as the key
-	*values = append(*values, map[string]interface{}{"__netrc__": netrcValueStr})
-
-	// Add a metadata entry for the sensitive value
-	*metadata = append(*metadata, schematics.EnvironmentValuesMetadata{
-		Name:   core.StringPtr("__netrc__"),
-		Hidden: core.BoolPtr(false), // Set to false as it's not hidden
-		Secure: core.BoolPtr(true),  // Set to true as it's considered secure
-	})
-}
-
-func (svc *SchematicsTestService) retryApiCall(apiError error, apiStatusCode int, currentRetryCount int) bool {
-	// set up defaults
-	maxRetries := defaultApiRetryCount
-	maxWait := defaultApiRetryWaitSeconds
-
-	// override defaults if provided
-	if svc.TestOptions.SchematicSvcRetryCount != nil {
-		maxRetries = *svc.TestOptions.SchematicSvcRetryCount
-	}
-	if svc.TestOptions.SchematicSvcRetryWaitSeconds != nil {
-		maxWait = *svc.TestOptions.SchematicSvcRetryWaitSeconds
-	}
-
-	// if we are at our max retry count, do not retry
-	if currentRetryCount >= maxRetries {
-		return false
-	}
-
-	// if no error was returned, or if it was and we should ignore status code, do not retry
-	if apiError == nil {
-		return false
-	} else {
-		if common.IntArrayContains(getApiRetryStatusExceptions(), apiStatusCode) {
-			return false
-		}
-	}
-
-	// wait and retry (skip in unit tests when SKIP_RETRY_DELAYS=true)
-	if os.Getenv("SKIP_RETRY_DELAYS") != "true" {
-		time.Sleep(time.Duration(maxWait) * time.Second)
-	}
-	return true
-}
-
-// helper function to return the HTTP status code from an IBM SDK reponse.
-// If the response itself is `nil`, assume this would be due to error and set
-// the code to "500"
-func getDetailedResponseStatusCode(resp *core.DetailedResponse) int {
-	if resp != nil {
-		return resp.StatusCode
-	} else {
-		return 500
-	}
+	return svc.CloudInfoService.DeleteSchematicsWorkspace(
+		svc.WorkspaceID,
+		svc.WorkspaceLocation,
+		false, // destroyResources = false
+	)
 }
 
 // variable validation function for validating if some variable is passed to test which is not

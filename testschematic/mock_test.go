@@ -1,6 +1,7 @@
 package testschematic
 
 import (
+	"fmt"
 	"net/http"
 	"sync"
 	"testing"
@@ -479,6 +480,56 @@ func (mock *cloudInfoServiceMock) GetSchematicsJobFileData(jobID string, fileTyp
 func (mock *cloudInfoServiceMock) GetSchematicsJobPlanJson(jobID string, location string) (string, error) {
 	// needed a valid json for marshalling, this is the terraform-ibm-resource-group plan with no changes
 	return "{\"format_version\":\"1.2\",\"terraform_version\":\"1.9.2\",\"variables\":{\"ibmcloud_api_key\":{\"value\":\"dummy-key\"},\"resource_group_name\":{\"value\":\"geretain-test-resources\"}},\"planned_values\":{\"outputs\":{\"resource_group_id\":{\"sensitive\":false,\"type\":\"string\",\"value\":\"292170bc79c94f5e9019e46fb48f245a\"},\"resource_group_name\":{\"sensitive\":false,\"type\":\"string\",\"value\":\"geretain-test-resources\"}},\"root_module\":{}},\"output_changes\":{\"resource_group_id\":{\"actions\":[\"no-op\"],\"before\":\"292170bc79c94f5e9019e46fb48f245a\",\"after\":\"292170bc79c94f5e9019e46fb48f245a\",\"after_unknown\":false,\"before_sensitive\":false,\"after_sensitive\":false},\"resource_group_name\":{\"actions\":[\"no-op\"],\"before\":\"geretain-test-resources\",\"after\":\"geretain-test-resources\",\"after_unknown\":false,\"before_sensitive\":false,\"after_sensitive\":false}},\"prior_state\":{\"format_version\":\"1.0\",\"terraform_version\":\"1.9.2\",\"values\":{\"outputs\":{\"resource_group_id\":{\"sensitive\":false,\"value\":\"292170bc79c94f5e9019e46fb48f245a\",\"type\":\"string\"},\"resource_group_name\":{\"sensitive\":false,\"value\":\"geretain-test-resources\",\"type\":\"string\"}},\"root_module\":{\"child_modules\":[{\"resources\":[{\"address\":\"module.resource_group.data.ibm_resource_group.existing_resource_group[0]\",\"mode\":\"data\",\"type\":\"ibm_resource_group\",\"name\":\"existing_resource_group\",\"index\":0,\"provider_name\":\"registry.terraform.io/ibm-cloud/ibm\",\"schema_version\":0,\"values\":{\"account_id\":\"abac0df06b644a9cabc6e44f55b3880e\",\"created_at\":\"2022-08-04T16:52:02.227Z\",\"crn\":\"crn:v1:bluemix:public:resource-controller::a/abac0df06b644a9cabc6e44f55b3880e::resource-group:292170bc79c94f5e9019e46fb48f245a\",\"id\":\"292170bc79c94f5e9019e46fb48f245a\",\"is_default\":false,\"name\":\"geretain-test-resources\",\"payment_methods_url\":null,\"quota_id\":\"a3d7b8d01e261c24677937c29ab33f3c\",\"quota_url\":\"/v2/quota_definitions/a3d7b8d01e261c24677937c29ab33f3c\",\"resource_linkages\":[],\"state\":\"ACTIVE\",\"teams_url\":null,\"updated_at\":\"2022-08-04T16:52:02.227Z\"},\"sensitive_values\":{\"resource_linkages\":[]}}],\"address\":\"module.resource_group\"}]}}},\"configuration\":{\"provider_config\":{\"ibm\":{\"name\":\"ibm\",\"full_name\":\"registry.terraform.io/ibm-cloud/ibm\",\"version_constraint\":\"1.49.0\",\"expressions\":{\"ibmcloud_api_key\":{\"references\":[\"var.ibmcloud_api_key\"]}}}},\"root_module\":{\"outputs\":{\"resource_group_id\":{\"expression\":{\"references\":[\"module.resource_group.resource_group_id\",\"module.resource_group\"]},\"description\":\"Resource group ID\"},\"resource_group_name\":{\"expression\":{\"references\":[\"module.resource_group.resource_group_name\",\"module.resource_group\"]},\"description\":\"Resource group name\"}},\"module_calls\":{\"resource_group\":{\"source\":\"../../\",\"expressions\":{\"existing_resource_group_name\":{\"references\":[\"var.resource_group_name\"]}},\"module\":{\"outputs\":{\"resource_group_id\":{\"expression\":{\"references\":[\"var.existing_resource_group_name\",\"data.ibm_resource_group.existing_resource_group[0].id\",\"data.ibm_resource_group.existing_resource_group[0]\",\"data.ibm_resource_group.existing_resource_group\",\"ibm_resource_group.resource_group[0].id\",\"ibm_resource_group.resource_group[0]\",\"ibm_resource_group.resource_group\"]},\"description\":\"Resource group ID\"},\"resource_group_name\":{\"expression\":{\"references\":[\"var.existing_resource_group_name\",\"data.ibm_resource_group.existing_resource_group[0].name\",\"data.ibm_resource_group.existing_resource_group[0]\",\"data.ibm_resource_group.existing_resource_group\",\"ibm_resource_group.resource_group[0].name\",\"ibm_resource_group.resource_group[0]\",\"ibm_resource_group.resource_group\"]},\"description\":\"Resource group name\"}},\"resources\":[{\"address\":\"ibm_resource_group.resource_group\",\"mode\":\"managed\",\"type\":\"ibm_resource_group\",\"name\":\"resource_group\",\"provider_config_key\":\"ibm\",\"expressions\":{\"name\":{\"references\":[\"var.resource_group_name\"]},\"quota_id\":{\"constant_value\":null}},\"schema_version\":0,\"count_expression\":{\"references\":[\"var.existing_resource_group_name\"]}},{\"address\":\"data.ibm_resource_group.existing_resource_group\",\"mode\":\"data\",\"type\":\"ibm_resource_group\",\"name\":\"existing_resource_group\",\"provider_config_key\":\"ibm\",\"expressions\":{\"name\":{\"references\":[\"var.existing_resource_group_name\"]}},\"schema_version\":0,\"count_expression\":{\"references\":[\"var.existing_resource_group_name\"]}}],\"variables\":{\"existing_resource_group_name\":{\"default\":null,\"description\":\"Name of the existing resource group.  Required if not creating new resource group\"},\"resource_group_name\":{\"default\":null,\"description\":\"Name of the resource group to create. Required if not using existing resource group\"}}}}},\"variables\":{\"ibmcloud_api_key\":{\"description\":\"The IBM Cloud API Token\",\"sensitive\":true},\"resource_group_name\":{\"description\":\"Resource group name\"}}}},\"relevant_attributes\":[{\"resource\":\"module.resource_group.data.ibm_resource_group.existing_resource_group[0]\",\"attribute\":[\"name\"]},{\"resource\":\"module.resource_group.ibm_resource_group.resource_group[0]\",\"attribute\":[\"name\"]},{\"resource\":\"module.resource_group.data.ibm_resource_group.existing_resource_group[0]\",\"attribute\":[\"id\"]},{\"resource\":\"module.resource_group.ibm_resource_group.resource_group[0]\",\"attribute\":[\"id\"]}],\"timestamp\":\"2024-11-13T21:02:28Z\",\"applyable\":false,\"complete\":true,\"errored\":false}", nil
+}
+
+// Schematics methods for cloudInfoServiceMock
+func (mock *cloudInfoServiceMock) CreateSchematicsPlanJob(workspaceID string, location string) (*schematics.WorkspaceActivityPlanResult, error) {
+	return &schematics.WorkspaceActivityPlanResult{
+		Activityid: core.StringPtr(mockPlanID),
+	}, nil
+}
+
+func (mock *cloudInfoServiceMock) CreateSchematicsApplyJob(workspaceID string, location string) (*schematics.WorkspaceActivityApplyResult, error) {
+	return &schematics.WorkspaceActivityApplyResult{
+		Activityid: core.StringPtr(mockApplyID),
+	}, nil
+}
+
+func (mock *cloudInfoServiceMock) CreateSchematicsDestroyJob(workspaceID string, location string) (*schematics.WorkspaceActivityDestroyResult, error) {
+	return &schematics.WorkspaceActivityDestroyResult{
+		Activityid: core.StringPtr(mockDestroyID),
+	}, nil
+}
+
+func (mock *cloudInfoServiceMock) FindLatestSchematicsJobByName(workspaceID string, jobName string, location string) (*schematics.WorkspaceActivity, error) {
+	// Access the schematicServiceMock to check for error conditions
+	// This is a simplified approach - in real implementation, we'd need proper state management
+	if jobName == "I_WILL_NOT_BE_FOUND" {
+		return nil, fmt.Errorf("NotFound: job not found")
+	}
+	return &schematics.WorkspaceActivity{
+		ActionID: core.StringPtr(mockActivityID),
+	}, nil
+}
+
+func (mock *cloudInfoServiceMock) GetSchematicsWorkspaceJobDetail(workspaceID string, jobID string, location string) (*schematics.WorkspaceActivity, error) {
+	return &schematics.WorkspaceActivity{
+		ActionID: core.StringPtr(jobID),
+	}, nil
+}
+
+func (mock *cloudInfoServiceMock) WaitForSchematicsJobCompletion(workspaceID string, jobID string, location string, timeoutMinutes int) (string, error) {
+	return cloudinfo.SchematicsJobStatusCompleted, nil
+}
+
+func (mock *cloudInfoServiceMock) GetSchematicsWorkspaceOutputs(workspaceID string, location string) (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"output1": "value1",
+	}, nil
+}
+
+func (mock *cloudInfoServiceMock) DeleteSchematicsWorkspace(workspaceID string, location string, destroyResources bool) (string, error) {
+	return "deleted", nil
 }
 
 /**** END MOCK CloudInfoService ****/

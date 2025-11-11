@@ -406,3 +406,80 @@ func (m *MockCloudInfoServiceForPermutation) IsCacheEnabled() bool {
 	args := m.Called()
 	return args.Bool(0)
 }
+
+// Schematics methods added during migration
+func (m *MockCloudInfoServiceForPermutation) CreateSchematicsWorkspace(name string, resourceGroup string, region string, templateFolder string, terraformVersion string, tags []string, envVars []map[string]interface{}, envMetadata []schematicsv1.EnvironmentValuesMetadata) (*schematicsv1.WorkspaceResponse, error) {
+	args := m.Called(name, resourceGroup, region, templateFolder, terraformVersion, tags, envVars, envMetadata)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*schematicsv1.WorkspaceResponse), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) DeleteSchematicsWorkspace(workspaceID string, location string, destroyResources bool) (string, error) {
+	args := m.Called(workspaceID, location, destroyResources)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) UploadTarToSchematicsWorkspace(workspaceID string, templateID string, tarPath string, location string) error {
+	args := m.Called(workspaceID, templateID, tarPath, location)
+	return args.Error(0)
+}
+
+func (m *MockCloudInfoServiceForPermutation) UpdateSchematicsWorkspaceVariables(workspaceID string, templateID string, variables []schematicsv1.WorkspaceVariableRequest, location string) error {
+	args := m.Called(workspaceID, templateID, variables, location)
+	return args.Error(0)
+}
+
+func (m *MockCloudInfoServiceForPermutation) CreateSchematicsPlanJob(workspaceID string, location string) (*schematicsv1.WorkspaceActivityPlanResult, error) {
+	args := m.Called(workspaceID, location)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*schematicsv1.WorkspaceActivityPlanResult), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) CreateSchematicsApplyJob(workspaceID string, location string) (*schematicsv1.WorkspaceActivityApplyResult, error) {
+	args := m.Called(workspaceID, location)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*schematicsv1.WorkspaceActivityApplyResult), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) CreateSchematicsDestroyJob(workspaceID string, location string) (*schematicsv1.WorkspaceActivityDestroyResult, error) {
+	args := m.Called(workspaceID, location)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*schematicsv1.WorkspaceActivityDestroyResult), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) WaitForSchematicsJobCompletion(workspaceID string, jobID string, location string, timeoutMinutes int) (string, error) {
+	args := m.Called(workspaceID, jobID, location, timeoutMinutes)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetSchematicsWorkspaceJobDetail(workspaceID string, jobID string, location string) (*schematicsv1.WorkspaceActivity, error) {
+	args := m.Called(workspaceID, jobID, location)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*schematicsv1.WorkspaceActivity), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) FindLatestSchematicsJobByName(workspaceID string, jobName string, location string) (*schematicsv1.WorkspaceActivity, error) {
+	args := m.Called(workspaceID, jobName, location)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*schematicsv1.WorkspaceActivity), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetSchematicsWorkspaceOutputs(workspaceID string, location string) (map[string]interface{}, error) {
+	args := m.Called(workspaceID, location)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(map[string]interface{}), args.Error(1)
+}

@@ -220,6 +220,21 @@ type CloudInfoServiceI interface {
 	GetSchematicsJobFileData(jobID string, fileType string, location string) (*schematics.JobFileData, error)
 	GetSchematicsJobPlanJson(jobID string, location string) (string, error)
 	GetSchematicsServiceByLocation(location string) (schematicsService, error)
+
+	// New Schematics workspace operations
+	CreateSchematicsWorkspace(name, resourceGroup, region, templateFolder, terraformVersion string, tags []string, envVars []map[string]interface{}, envMetadata []schematics.EnvironmentValuesMetadata) (*schematics.WorkspaceResponse, error)
+	DeleteSchematicsWorkspace(workspaceID, location string, destroyResources bool) (string, error)
+	UploadTarToSchematicsWorkspace(workspaceID, templateID, tarPath, location string) error
+	UpdateSchematicsWorkspaceVariables(workspaceID, templateID string, variables []schematics.WorkspaceVariableRequest, location string) error
+	GetSchematicsWorkspaceOutputs(workspaceID, location string) (map[string]interface{}, error)
+
+	// New Schematics job operations
+	CreateSchematicsPlanJob(workspaceID, location string) (*schematics.WorkspaceActivityPlanResult, error)
+	CreateSchematicsApplyJob(workspaceID, location string) (*schematics.WorkspaceActivityApplyResult, error)
+	CreateSchematicsDestroyJob(workspaceID, location string) (*schematics.WorkspaceActivityDestroyResult, error)
+	GetSchematicsWorkspaceJobDetail(workspaceID, jobID, location string) (*schematics.WorkspaceActivity, error)
+	FindLatestSchematicsJobByName(workspaceID, jobName, location string) (*schematics.WorkspaceActivity, error)
+	WaitForSchematicsJobCompletion(workspaceID, jobID, location string, timeoutMinutes int) (string, error)
 	GetReclamationIdFromCRN(CRN string) (string, error)
 	DeleteInstanceFromReclamationId(reclamationID string) error
 	DeleteInstanceFromReclamationByCRN(CRN string) error
@@ -395,10 +410,26 @@ type catalogService interface {
 
 // schematicsService for external Schematics V1 Service API. Used for mocking.
 type schematicsService interface {
+	// Existing methods
 	ListJobLogs(listJobLogsOptions *schematics.ListJobLogsOptions) (result *schematics.JobLog, response *core.DetailedResponse, err error)
 	GetJobFiles(getJobFilesOptions *schematics.GetJobFilesOptions) (result *schematics.JobFileData, response *core.DetailedResponse, err error)
 	GetEnableGzipCompression() bool
 	GetServiceURL() string
+
+	// Workspace operations
+	CreateWorkspace(*schematics.CreateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
+	UpdateWorkspace(*schematics.UpdateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
+	DeleteWorkspace(*schematics.DeleteWorkspaceOptions) (*string, *core.DetailedResponse, error)
+	TemplateRepoUpload(*schematics.TemplateRepoUploadOptions) (*schematics.TemplateRepoTarUploadResponse, *core.DetailedResponse, error)
+	ReplaceWorkspaceInputs(*schematics.ReplaceWorkspaceInputsOptions) (*schematics.UserValues, *core.DetailedResponse, error)
+	GetWorkspaceOutputs(*schematics.GetWorkspaceOutputsOptions) ([]schematics.OutputValuesInner, *core.DetailedResponse, error)
+
+	// Job operations
+	ListWorkspaceActivities(*schematics.ListWorkspaceActivitiesOptions) (*schematics.WorkspaceActivities, *core.DetailedResponse, error)
+	GetWorkspaceActivity(*schematics.GetWorkspaceActivityOptions) (*schematics.WorkspaceActivity, *core.DetailedResponse, error)
+	PlanWorkspaceCommand(*schematics.PlanWorkspaceCommandOptions) (*schematics.WorkspaceActivityPlanResult, *core.DetailedResponse, error)
+	ApplyWorkspaceCommand(*schematics.ApplyWorkspaceCommandOptions) (*schematics.WorkspaceActivityApplyResult, *core.DetailedResponse, error)
+	DestroyWorkspaceCommand(*schematics.DestroyWorkspaceCommandOptions) (*schematics.WorkspaceActivityDestroyResult, *core.DetailedResponse, error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -470,7 +501,9 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.authenticator = options.Authenticator
 	} else {
 		infoSvc.authenticator = &core.IamAuthenticator{
-			ApiKey: options.ApiKey,
+			ApiKey:       options.ApiKey,
+			ClientId:     "bx", // Required for refresh_token in Schematics operations
+			ClientSecret: "bx", // pragma: allowlist secret
 		}
 	}
 	infoSvc.ApiKey = options.ApiKey
