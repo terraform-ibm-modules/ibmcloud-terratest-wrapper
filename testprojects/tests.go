@@ -243,7 +243,6 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 			case project.ProjectConfig_State_Deployed, project.ProjectConfig_State_Approved:
 				currentDeployStatus = fmt.Sprintf("%s%s%s is %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
 			case project.ProjectConfig_State_ValidatingFailed, project.ProjectConfig_State_DeployingFailed:
-				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location, options.currentStackConfig.ProjectID, *member.ID)
 
 				// In the case of Project Validation errors, if the workspace is not in FAILED state continue with deployment
 				re := regexp.MustCompile(`workspace:(.+)$`)
@@ -253,8 +252,8 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				}
 				workspaceID := matches[1]
 				location := strings.SplitN(workspaceID, "-", 2)[0]
-				checkWorkspace, _ := options.CloudInfoService.GetSchematicsWorkspace(workspaceID, location)
-				options.CloudInfoService.WaitForSchematicsJobCompletion(workspaceID, *checkWorkspace.LastJob.JobID, location, 10)
+				options.CloudInfoService.WaitForSchematicsJobCompletion(workspaceID, *member.LastValidated.Job.ID, location, 10)
+				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location, options.currentStackConfig.ProjectID, *member.ID)
 				workspace, err := options.CloudInfoService.GetSchematicsWorkspace(workspaceID, location)
 				if err != nil {
 					options.Logger.ShortInfo(fmt.Sprintf("Failed to get schematics workspace %s: %s", *member.Schematics.WorkspaceCrn, err))
