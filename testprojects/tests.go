@@ -245,6 +245,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 			case project.ProjectConfig_State_ValidatingFailed, project.ProjectConfig_State_DeployingFailed:
 				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location, options.currentStackConfig.ProjectID, *member.ID)
 
+				// In the case of Project Validation errors, if the workspace is not in FAILED state continue with deployment
 				re := regexp.MustCompile(`workspace:(.+)$`)
 				matches := re.FindStringSubmatch(*member.Schematics.WorkspaceCrn)
 				if len(matches) != 2 {
@@ -252,11 +253,13 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				}
 				workspaceID := matches[1]
 				location := strings.SplitN(workspaceID, "-", 2)[0]
+				checkWorkspace, _ := options.CloudInfoService.GetSchematicsWorkspace(workspaceID, location)
+				options.CloudInfoService.WaitForSchematicsJobCompletion(workspaceID, *checkWorkspace.LastJob.JobID, location, 10)
 				workspace, err := options.CloudInfoService.GetSchematicsWorkspace(workspaceID, location)
 				if err != nil {
 					options.Logger.ShortInfo(fmt.Sprintf("Failed to get schematics workspace %s: %s", *member.Schematics.WorkspaceCrn, err))
 				}
-				if workspace.Status == core.StringPtr("FAILED") {
+				if *workspace.Status == "FAILED" {
 					deployableState = false
 					failed = true
 					options.Logger.ShortError(terraLogs)
@@ -264,9 +267,8 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				} else {
 					deployableState = true
 					failed = false
-					options.Logger.ShortInfo("Project Validation failed, but Schematics Workspace did not fail. Continuing with deployment.")
+					options.Logger.ShortInfo("Project Validation failed, but Schematics Workspace does not report failure. Continuing with deployment.")
 				}
-
 			case project.ProjectConfig_State_Draft:
 				if stateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite || (stateCode == project.ProjectConfig_StateCode_AwaitingMemberDeployment && strings.HasSuffix(memberName, " Container")) {
 					currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
