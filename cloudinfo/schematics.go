@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"net/url"
 	"os"
@@ -1072,9 +1073,8 @@ func (infoSvc *CloudInfoService) WaitForSchematicsJobCompletion(
 
 	for {
 		// check for timeout and throw error
-		runMinutes := time.Since(start).Minutes()
-		lastLog := float64(0)
-		if runMinutes > float64(timeoutMinutes) {
+		runTime := time.Since(start).Minutes()
+		if runTime > float64(timeoutMinutes) {
 			return "", fmt.Errorf("time exceeded waiting for schematic job to finish")
 		}
 
@@ -1083,10 +1083,10 @@ func (infoSvc *CloudInfoService) WaitForSchematicsJobCompletion(
 		if jobErr != nil {
 			return "", jobErr
 		}
+		runMinutes := int(math.Round(runTime))
 		// only log this once a minute or so
-		if runMinutes > lastLog && infoSvc.Logger != nil {
+		if runMinutes > 0 && infoSvc.Logger != nil {
 			infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] ... still waiting for job %s to complete: %d minutes", *job.Name, runMinutes))
-			lastLog = runMinutes
 		}
 
 		// check if it is finished
