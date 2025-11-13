@@ -170,7 +170,7 @@ func (infoSvc *CloudInfoService) GetSchematicsJobPlanJson(jobID string, location
 // returns a random selected region that is valid for Schematics Workspace creation
 func GetRandomSchematicsLocation() string {
 	validLocations := GetSchematicsLocations()
-	randomIndex := rand.Intn(len(validLocations))
+	randomIndex := rand.Intn(len(validLocations)) // #nosec G404 - random location is not security-sensitive
 	return validLocations[randomIndex]
 }
 
@@ -281,7 +281,7 @@ func CreateSchematicsTar(projectPath string, includePatterns []string) (string, 
 					if dirHdrErr != nil {
 						return "", dirHdrErr
 					}
-					dirHdr.Name = filepath.Join(parentDirInfo.Name(), relFileDir) // use full realative path
+					dirHdr.Name = filepath.Join(parentDirInfo.Name(), relFileDir) // use full relative path
 					if tarWriteDirErr := tw.WriteHeader(dirHdr); tarWriteDirErr != nil {
 						return "", tarWriteDirErr
 					}
@@ -1069,13 +1069,12 @@ func (infoSvc *CloudInfoService) WaitForSchematicsJobCompletion(
 
 	// Wait for the job to be complete
 	start := time.Now()
-	lastLog := int16(0)
-	runMinutes := int16(0)
 
 	for {
 		// check for timeout and throw error
-		runMinutes = int16(time.Since(start).Minutes())
-		if runMinutes > int16(timeoutMinutes) {
+		runMinutes := time.Since(start).Minutes()
+		lastLog := float64(0)
+		if runMinutes > float64(timeoutMinutes) {
 			return "", fmt.Errorf("time exceeded waiting for schematic job to finish")
 		}
 

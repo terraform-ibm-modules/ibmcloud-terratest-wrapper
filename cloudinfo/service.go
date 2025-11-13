@@ -652,7 +652,6 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.projectsService = projectsClient
-
 	}
 
 	if options.CatalogService != nil {
