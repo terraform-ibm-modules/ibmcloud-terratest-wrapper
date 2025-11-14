@@ -22,13 +22,13 @@ func UniqueId(length ...int) string {
 	var out bytes.Buffer
 
 	for i := 0; i < idLength; i++ {
-		out.WriteByte(base36chars[cryptoIntn(len(base36chars))])
+		out.WriteByte(base36chars[CryptoIntn(len(base36chars))])
 	}
 
 	return out.String()
 }
 
-func cryptoIntn(max int) int {
+func CryptoIntn(max int) int {
 	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
 	if err != nil {
 		panic(err)

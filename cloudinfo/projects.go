@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"math/rand"
 	"os"
 	"reflect"
 	"regexp"
@@ -26,7 +25,7 @@ func (infoSvc *CloudInfoService) CreateProjectFromConfig(config *ProjectsConfig)
 	// Use defaults if not provided
 	if config.Location == "" {
 		validRegions := []string{"us-south", "us-east", "eu-gb", "eu-de"}
-		randomIndex := rand.Intn(len(validRegions)) // #nosec G404 - random index is not security-sensitive
+		randomIndex := common.CryptoIntn(len(validRegions))
 		config.Location = validRegions[randomIndex]
 	}
 	if config.ProjectName == "" {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -171,7 +170,7 @@ func (infoSvc *CloudInfoService) GetSchematicsJobPlanJson(jobID string, location
 // returns a random selected region that is valid for Schematics Workspace creation
 func GetRandomSchematicsLocation() string {
 	validLocations := GetSchematicsLocations()
-	randomIndex := rand.Intn(len(validLocations)) // #nosec G404 - random location is not security-sensitive
+	randomIndex := commonpkg.CryptoIntn(len(validLocations))
 	return validLocations[randomIndex]
 }
 
