@@ -4,7 +4,7 @@ import (
 	"archive/tar"
 	"fmt"
 	"io"
-	"math/rand"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -170,7 +170,7 @@ func (infoSvc *CloudInfoService) GetSchematicsJobPlanJson(jobID string, location
 // returns a random selected region that is valid for Schematics Workspace creation
 func GetRandomSchematicsLocation() string {
 	validLocations := GetSchematicsLocations()
-	randomIndex := rand.Intn(len(validLocations))
+	randomIndex := commonpkg.CryptoIntn(len(validLocations))
 	return validLocations[randomIndex]
 }
 
@@ -281,7 +281,7 @@ func CreateSchematicsTar(projectPath string, includePatterns []string) (string, 
 					if dirHdrErr != nil {
 						return "", dirHdrErr
 					}
-					dirHdr.Name = filepath.Join(parentDirInfo.Name(), relFileDir) // use full realative path
+					dirHdr.Name = filepath.Join(parentDirInfo.Name(), relFileDir) // use full relative path
 					if tarWriteDirErr := tw.WriteHeader(dirHdr); tarWriteDirErr != nil {
 						return "", tarWriteDirErr
 					}
@@ -1069,13 +1069,11 @@ func (infoSvc *CloudInfoService) WaitForSchematicsJobCompletion(
 
 	// Wait for the job to be complete
 	start := time.Now()
-	lastLog := int16(0)
-	runMinutes := int16(0)
 
 	for {
 		// check for timeout and throw error
-		runMinutes = int16(time.Since(start).Minutes())
-		if runMinutes > int16(timeoutMinutes) {
+		runTime := time.Since(start).Minutes()
+		if runTime > float64(timeoutMinutes) {
 			return "", fmt.Errorf("time exceeded waiting for schematic job to finish")
 		}
 
@@ -1084,10 +1082,10 @@ func (infoSvc *CloudInfoService) WaitForSchematicsJobCompletion(
 		if jobErr != nil {
 			return "", jobErr
 		}
+		runMinutes := int(math.Round(runTime))
 		// only log this once a minute or so
-		if runMinutes > lastLog && infoSvc.Logger != nil {
+		if runMinutes > 0 && infoSvc.Logger != nil {
 			infoSvc.Logger.Info(fmt.Sprintf("[SCHEMATICS] ... still waiting for job %s to complete: %d minutes", *job.Name, runMinutes))
-			lastLog = runMinutes
 		}
 
 		// check if it is finished

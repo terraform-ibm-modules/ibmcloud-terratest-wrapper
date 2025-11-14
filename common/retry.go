@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"time"
@@ -154,7 +155,7 @@ func calculateDelay(config RetryConfig, attempt int) time.Duration {
 	switch config.Strategy {
 	case ExponentialBackoff:
 		// 2^attempt * initialDelay
-		multiplier := 1 << uint(attempt) // 2^attempt
+		multiplier := int(math.Pow(2, float64(attempt)))
 		delay = time.Duration(multiplier) * config.InitialDelay
 
 	case LinearBackoff:
@@ -166,7 +167,7 @@ func calculateDelay(config RetryConfig, attempt int) time.Duration {
 
 	default:
 		// Default to exponential backoff
-		multiplier := 1 << uint(attempt)
+		multiplier := int(math.Pow(2, float64(attempt)))
 		delay = time.Duration(multiplier) * config.InitialDelay
 	}
 
@@ -177,10 +178,9 @@ func calculateDelay(config RetryConfig, attempt int) time.Duration {
 
 	// Add jitter to avoid thundering herd problem
 	if config.Jitter && config.Strategy != FixedDelay {
-		jitterRange := float64(delay) * 0.30 // ±30% jitter
-		jitter := time.Duration(jitterRange * (rand.Float64()*2 - 1))
+		jitterRange := float64(delay) * 0.30                          // ±30% jitter
+		jitter := time.Duration(jitterRange * (rand.Float64()*2 - 1)) // #nosec G404 - jitter is not security-sensitive
 		delay += jitter
-
 		// Ensure we don't go negative
 		if delay < 0 {
 			delay = config.InitialDelay / 2
