@@ -259,8 +259,8 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				}
 				// plan passed if string exists in logs
 				if strings.Contains(rawJobLogs, "Terraform will perform the following actions:") {
-					deployableState = false
-					failed = true
+					deployableState = true
+					failed = false
 					options.Logger.ShortInfo("Project Validation failed, but Schematics Workspace Plan succeeded. Continuing with deployment.")
 				} else {
 					deployableState = false
