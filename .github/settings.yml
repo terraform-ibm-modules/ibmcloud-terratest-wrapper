@@ -35,5 +35,5 @@ branches:
       # Restrict who can merge to this branch
       restrictions:
         apps: []
-        users: [whoffler@ie.ibm.com]
+        users: [whoffler]
         teams: [github-mergers]
