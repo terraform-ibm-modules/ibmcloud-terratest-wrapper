@@ -603,7 +603,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 
 					options.Logger.ShortInfo(fmt.Sprintf("%s   %s", common.ColorizeString(common.Colors.Green, "✔"), ref.Reference))
 					options.Logger.ShortInfo(fmt.Sprintf("      State: %s", ref.State))
-					if ref.Value != "" {
+					if ref.Value != "" && ref.Value != nil {
 						options.Logger.ShortInfo(fmt.Sprintf("      Value: %s", ref.Value))
 					}
 				}
