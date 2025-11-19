@@ -97,6 +97,13 @@ func SetOfferingDetails(options *TestAddonOptions) error {
 
 	// set dependency offerings required inputs
 	for i, dependency := range options.AddonConfig.Dependencies {
+		if dependency.VersionLocator == "" {
+			options.Logger.ShortError(fmt.Sprintf("Error, could not find version for offering: %s %s", dependency.OfferingName, dependency.OfferingFlavor))
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
+			options.Testing.Fail()
+			return fmt.Errorf("could not find version for offering: %s %s", dependency.OfferingName, dependency.OfferingFlavor)
+		}
 		offeringDependencyVersionLocator := strings.Split(dependency.VersionLocator, ".")
 		dependencyCatalogID := offeringDependencyVersionLocator[0]
 		dependencyVersionID := offeringDependencyVersionLocator[1]
