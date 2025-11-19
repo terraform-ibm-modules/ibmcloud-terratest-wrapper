@@ -80,6 +80,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	// Helper function to set test result before returning
 	setFailureResult := func(err error, stage string) error {
 		testResult = fmt.Sprintf("FAILED_AT_%s", stage)
+		options.SkipTestTearDown = true
 		testError = err
 		return err
 	}
@@ -1463,7 +1464,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return fmt.Errorf("errors occurred during infrastructure deployment")
+			return setFailureResult(fmt.Errorf("Errors occurred during infrastructure deployment"), "DEPLOY")
 		}
 		if options.QuietMode {
 			options.Logger.ProgressSuccess("Infrastructure deployment completed")
