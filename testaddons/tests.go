@@ -383,6 +383,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		Testing:              options.Testing,
 		DeployTimeoutMinutes: options.DeployTimeoutMinutes,
 		StackPollTimeSeconds: 60,
+		SkipTestTearDown:     options.SkipTestTearDown,
 	}
 
 	deployOptions.SetCurrentStackConfig(&configDetails)
