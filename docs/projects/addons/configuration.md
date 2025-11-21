@@ -991,7 +991,7 @@ options.RequiredEnvironmentVars = map[string]string{
 }
 ```
 
-### Optional Variables
+### Optional Environment Variables
 
 ```golang
 // Automatically checked by framework - Keeps resources after test failure
