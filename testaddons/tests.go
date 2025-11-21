@@ -80,7 +80,6 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	// Helper function to set test result before returning
 	setFailureResult := func(err error, stage string) error {
 		testResult = fmt.Sprintf("FAILED_AT_%s", stage)
-		options.SkipTestTearDown = true
 		testError = err
 		return err
 	}
@@ -383,7 +382,6 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		Testing:              options.Testing,
 		DeployTimeoutMinutes: options.DeployTimeoutMinutes,
 		StackPollTimeSeconds: 60,
-		SkipTestTearDown:     options.SkipTestTearDown,
 	}
 
 	deployOptions.SetCurrentStackConfig(&configDetails)
