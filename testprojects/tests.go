@@ -244,30 +244,33 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				currentDeployStatus = fmt.Sprintf("%s%s%s is %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
 			case project.ProjectConfig_State_ValidatingFailed, project.ProjectConfig_State_DeployingFailed:
 				re := regexp.MustCompile(`workspace:(.+)$`)
-				matches := re.FindStringSubmatch(*member.Schematics.WorkspaceCrn)
-				if len(matches) != 2 {
-					options.Logger.ShortWarn(fmt.Sprintf("Could not parse workspace CRN: %s", *member.Schematics.WorkspaceCrn))
+				if member.Schematics != nil && member.Schematics.WorkspaceCrn != nil {
+					matches := re.FindStringSubmatch(*member.Schematics.WorkspaceCrn)
+					if len(matches) != 2 {
+						options.Logger.ShortWarn(fmt.Sprintf("Could not parse workspace CRN: %s", *member.Schematics.WorkspaceCrn))
+					} else {
+						workspaceID := matches[1]
+						location := strings.SplitN(workspaceID, "-", 2)[0]
+						options.CloudInfoService.WaitForSchematicsJobCompletion(workspaceID, *member.LastValidated.Job.ID, location, 10)
+						rawJobLogs, err := options.CloudInfoService.GetSchematicsJobLogsText(*member.LastValidated.Job.ID, location)
+						if err != nil {
+							options.Logger.ShortWarn(fmt.Sprintf("Could not get job logs for job: %s", *member.LastValidated.Job.ID))
+						}
+						// plan passed if string exists in logs
+						if strings.Contains(rawJobLogs, "Terraform will perform the following actions:") {
+							deployableState = true
+							failed = false
+							options.Logger.ShortInfo("Project Validation failed, but Schematics Workspace Plan succeeded. Continuing with deployment.")
+							continue
+						}
+					}
 				}
-				workspaceID := matches[1]
-				location := strings.SplitN(workspaceID, "-", 2)[0]
-				options.CloudInfoService.WaitForSchematicsJobCompletion(workspaceID, *member.LastValidated.Job.ID, location, 10)
-
 				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location, options.currentStackConfig.ProjectID, *member.ID)
-				rawJobLogs, err := options.CloudInfoService.GetSchematicsJobLogsText(*member.LastValidated.Job.ID, location)
-				if err != nil {
-					options.Logger.ShortWarn(fmt.Sprintf("Could not get job logs for job: %s", *member.LastValidated.Job.ID))
-				}
-				// plan passed if string exists in logs
-				if strings.Contains(rawJobLogs, "Terraform will perform the following actions:") {
-					deployableState = true
-					failed = false
-					options.Logger.ShortInfo("Project Validation failed, but Schematics Workspace Plan succeeded. Continuing with deployment.")
-				} else {
-					deployableState = false
-					failed = true
-					options.Logger.ShortError(terraLogs)
-					errorList = append(errorList, fmt.Errorf("%s", logMessage))
-				}
+				deployableState = false
+				failed = true
+				options.Logger.ShortError(terraLogs)
+				errorList = append(errorList, fmt.Errorf("%s", logMessage))
+
 			case project.ProjectConfig_State_Draft:
 				if stateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite || (stateCode == project.ProjectConfig_StateCode_AwaitingMemberDeployment && strings.HasSuffix(memberName, " Container")) {
 					currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
