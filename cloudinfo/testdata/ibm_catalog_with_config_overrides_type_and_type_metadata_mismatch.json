@@ -89,6 +89,29 @@
               "default_value": false,
               "required": true,
               "display_name": "Input 4"
+            },
+            {
+              "key": "input5",
+              "type_metadata": "string",
+              "description": "Description for input5",
+              "default_value": "default_value_5",
+              "required": false,
+              "display_name": "Input 5"
+            },
+            {
+              "key": "input6",
+              "type_metadata": "string",
+              "description": "Description for input6",
+              "default_value": "",
+              "required": false,
+              "display_name": "Input 6"
+            },
+            {
+              "key": "input7",
+              "description": "Description for input7",
+              "default_value": "some_value",
+              "required": false,
+              "display_name": "Input 7"
             }
           ],
           "outputs": [

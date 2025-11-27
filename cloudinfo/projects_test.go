@@ -1008,7 +1008,7 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 				ConfigID:  "54321",
 			},
 			stackConfigPath: "testdata/stack_definition_stack_inputs_extended.json",
-			catalogJsonPath: "testdata/ibm_catalog_with_config_overrides_type_mismatch.json",
+			catalogJsonPath: "testdata/ibm_catalog_with_config_overrides_type_and_type_metadata_mismatch.json",
 			expectedConfig:  nil,
 			expectedError: fmt.Errorf("catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input1 expected type: string, got: array\n" +
 				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input2 expected type: int, got: string\n" +
