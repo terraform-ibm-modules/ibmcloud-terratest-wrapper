@@ -63,7 +63,7 @@ func GetBestVpcRegionO(apiKey string, prefsFilePath string, defaultRegion string
 		bestregion, getErr = cloudSvc.GetLeastVpcTestRegion()
 	}
 	if getErr != nil {
-		log.Println("Error getting least vpc region")
+		log.Println("Error getting best region")
 		return defaultRegion, getErr
 	}
 
