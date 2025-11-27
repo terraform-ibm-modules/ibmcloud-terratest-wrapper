@@ -510,7 +510,7 @@ func (infoSvc *CloudInfoService) GetConfigAndDependenciesStates(configDetails *C
 	return states, nil
 }
 
-// IsDeployable checks if a config and all its members are deployable. If any one memeber is deployable, return true.
+// IsDeployable checks if a config and all its members are deployable. If any one member is deployable, return true.
 // trackStackInputs tracks inputs that should not be overridden.
 // This function initializes a map of inputs that should be preserved in the stack configuration.
 func trackStackInputs(stackConfig *ConfigDetails) map[string]map[string]interface{} {
@@ -874,8 +874,11 @@ func validateCatalogInputsInStackDefinition(stackJson Stack, catalogConfig Catal
 			if catalogInput.Key == stackInput.Name {
 				found = true
 				expectedType := convertGoTypeToExpectedType(stackInput.Type)
-				if !isValidType(catalogInput.Type, expectedType) {
+				if catalogInput.Type != "" && !isValidType(catalogInput.Type, expectedType) {
 					typeMismatches = append(typeMismatches, fmt.Sprintf("catalog configuration type mismatch in product '%s', flavor '%s': %s expected type: %s, got: %s", productName, flavorName, catalogInput.Key, expectedType, catalogInput.Type))
+				}
+				if catalogInput.TypeMetadata != "" && !isValidType(catalogInput.TypeMetadata, expectedType) {
+					typeMismatches = append(typeMismatches, fmt.Sprintf("catalog configuration type_metadata mismatch in product '%s', flavor '%s': %s expected type: %s, got: %s", productName, flavorName, catalogInput.Key, expectedType, catalogInput.TypeMetadata))
 				}
 				// Check if the default value type matches the expected type
 				if catalogInput.DefaultValue != nil {
