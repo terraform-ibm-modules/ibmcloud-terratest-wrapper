@@ -4,6 +4,31 @@ This guide covers common issues and solutions when using the addon testing frame
 
 ## Known Issues
 
+GIT authentication failures while importing offering:
+
+```text
+error: test setup has failed:error preparing offering import: failed to get repository info for offering import: fetch failed: ssh: handshake failed: ssh: unable to authenticate, attempted methods [none publickey], no supported methods remain)
+```
+
+**Cause**: Your SSH identity does not exist on your SSH agent.
+
+**Solutions:**
+
+1. **Add your GIT SSH key to your SSH agent** (recommended):
+
+    Verify that your SSH agent is running
+    ```
+    eval "$(ssh-agent -s)"
+    ```
+
+    Add your SSH identity to the SSH agent
+    ```
+    ssh-add ~/.ssh/<YOUR_SSH_KEY>
+    ```
+
+2. **Use https authentication**: Use https authentication using a token. Update your remote to use https in place of ssh.
+
+
 ### API Key Validation Failures
 
 These are intermittent issues with IBM Cloud's reference resolution service that can occur occasionally.
