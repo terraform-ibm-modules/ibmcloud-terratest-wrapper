@@ -234,6 +234,8 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 			if member.StateCode != nil && (*member.StateCode == project.ProjectConfig_StateCode_AwaitingMemberDeployment ||
 				*member.StateCode == project.ProjectConfig_StateCode_AwaitingValidation) {
 				deployableState = true
+				currentDeployStatus = fmt.Sprintf("%s%s%s is still %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
+				continue
 			}
 
 			switch *member.State {
