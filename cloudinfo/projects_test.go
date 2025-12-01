@@ -1008,13 +1008,23 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 				ConfigID:  "54321",
 			},
 			stackConfigPath: "testdata/stack_definition_stack_inputs_extended.json",
-			catalogJsonPath: "testdata/ibm_catalog_with_config_overrides_type_and_type_metadata_mismatch.json",
+			catalogJsonPath: "testdata/ibm_catalog_with_config_overrides_type_mismatch.json",
 			expectedConfig:  nil,
 			expectedError: fmt.Errorf("catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input1 expected type: string, got: array\n" +
 				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input2 expected type: int, got: string\n" +
 				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input3 expected type: array, got: bool\n" +
-				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input4 expected type: bool, got: array\n" +
-				"catalog configuration type_metadata mismatch in product 'Product Name', flavor 'Flavor Name': input5 expected type: string, got: int\n" +
+				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input4 expected type: bool, got: array"),
+		},
+		{
+			name: "catalog input type_metadata mismatch, should return an error",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_with_type_metadata_only.json",
+			catalogJsonPath: "testdata/ibm_catalog_with_type_metadata_only.json",
+			expectedConfig:  nil,
+			expectedError: fmt.Errorf("catalog configuration type_metadata mismatch in product 'Product Name', flavor 'Flavor Name': input5 expected type: string, got: int\n" +
 				"catalog configuration type_metadata mismatch in product 'Product Name', flavor 'Flavor Name': input6 expected type: string, got: bool"),
 		},
 		{

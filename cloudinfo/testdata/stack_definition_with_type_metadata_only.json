@@ -1,0 +1,43 @@
+{
+  "inputs": [
+    {
+      "name": "input5",
+      "required": false,
+      "type": "string",
+      "hidden": false,
+      "default": "stack_value_5"
+    },
+    {
+      "name": "input6",
+      "required": false,
+      "type": "string",
+      "hidden": false,
+      "default": "stack_value_6"
+    },
+    {
+      "name": "input7",
+      "required": false,
+      "type": "string",
+      "hidden": false,
+      "default": "stack_value_7"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output1",
+      "value": "ref:../members/member1/outputs/output1"
+    }
+  ],
+  "members": [
+    {
+      "inputs": [
+        {
+          "name": "input5",
+          "value": "ref:../../inputs/input5"
+        }
+      ],
+      "name": "member1",
+      "version_locator": "version1"
+    }
+  ]
+}
