@@ -1013,7 +1013,9 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			expectedError: fmt.Errorf("catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input1 expected type: string, got: array\n" +
 				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input2 expected type: int, got: string\n" +
 				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input3 expected type: array, got: bool\n" +
-				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input4 expected type: bool, got: array"),
+				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input4 expected type: bool, got: array\n" +
+				"catalog configuration type_metadata mismatch in product 'Product Name', flavor 'Flavor Name': input5 expected type: string, got: int\n" +
+				"catalog configuration type_metadata mismatch in product 'Product Name', flavor 'Flavor Name': input6 expected type: string, got: bool"),
 		},
 		{
 			// This is checking the type of the actual default value

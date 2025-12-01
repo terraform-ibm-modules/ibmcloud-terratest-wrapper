@@ -92,7 +92,7 @@
             },
             {
               "key": "input5",
-              "type_metadata": "string",
+              "type_metadata": "int",
               "description": "Description for input5",
               "default_value": "default_value_5",
               "required": false,
@@ -100,7 +100,7 @@
             },
             {
               "key": "input6",
-              "type_metadata": "string",
+              "type_metadata": "bool",
               "description": "Description for input6",
               "default_value": "",
               "required": false,

@@ -27,6 +27,27 @@
       "type": "bool",
       "hidden": false,
       "default": false
+    },
+    {
+      "name": "input5",
+      "required": false,
+      "type": "string",
+      "hidden": false,
+      "default": "stack_value_5"
+    },
+    {
+      "name": "input6",
+      "required": false,
+      "type": "string",
+      "hidden": false,
+      "default": "stack_value_6"
+    },
+    {
+      "name": "input7",
+      "required": false,
+      "type": "string",
+      "hidden": false,
+      "default": "stack_value_7"
     }
   ],
   "outputs": [
