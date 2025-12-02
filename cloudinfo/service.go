@@ -506,6 +506,7 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 			ClientSecret: "bx", // pragma: allowlist secret
 		}
 	}
+
 	infoSvc.ApiKey = options.ApiKey
 	// if IamIdentity is not supplied, use default external service
 	if options.IamIdentityService != nil {

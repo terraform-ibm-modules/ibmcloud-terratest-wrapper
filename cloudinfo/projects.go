@@ -978,15 +978,28 @@ func (infoSvc *CloudInfoService) GetStackMembers(stackConfig *ConfigDetails) (me
 	if stackConfig.Members == nil {
 		return members, nil
 	}
+
+	totalCount := len(stackConfig.MemberConfigs)
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.Debug(fmt.Sprintf("Fetching %d stack members", totalCount))
+	}
+
 	for _, member := range stackConfig.MemberConfigs {
 		config, _, err := infoSvc.GetConfig(&ConfigDetails{
 			ProjectID: stackConfig.ProjectID,
 			ConfigID:  *member.ConfigID,
 		})
 		if err != nil {
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Error(fmt.Sprintf("Failed to fetch member (ID: %s): %v", *member.ConfigID, err))
+			}
 			return nil, err
 		}
 		members = append(members, config)
+	}
+
+	if infoSvc.Logger != nil {
+		infoSvc.Logger.Debug(fmt.Sprintf("Successfully fetched %d/%d members", len(members), totalCount))
 	}
 	return members, nil
 }

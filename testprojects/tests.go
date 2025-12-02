@@ -166,6 +166,31 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 	}
 	totalMembers := len(stackMembers)
 
+	// Get initial stack details to lookup member names
+	stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
+	if err != nil {
+		return []error{err}
+	}
+	if stackDetails == nil {
+		return []error{fmt.Errorf("stackDetails is nil")}
+	}
+
+	// Create map of expected members (ID -> name) from initial fetch
+	expectedMemberIDs := make(map[string]string)
+	for _, member := range stackMembers {
+		if member.ID != nil {
+			name, nameErr := options.CloudInfoService.LookupMemberNameByID(stackDetails, *member.ID)
+			if nameErr != nil {
+				name = fmt.Sprintf("Unknown (ID: %s)", *member.ID)
+			}
+			expectedMemberIDs[*member.ID] = name
+		}
+	}
+	options.Logger.Info(fmt.Sprintf("Tracking %d members for stack deployment", len(expectedMemberIDs)))
+
+	// Add counter for consecutive polls with missing members
+	consecutiveMissingMemberPolls := 0
+
 	for !deployComplete && time.Now().Before(deployEndTime) && !failed {
 		options.Logger.ShortInfo("Checking Stack Deploy Status")
 		stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
@@ -178,15 +203,69 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 
 		currentMemberCount := 0
 		attempt := 0
+		var missingMemberNames []string
+
 		// Sometimes not all members are returned by the api, so we need to retry. This is intermittent and infrequent
 		for currentMemberCount != totalMembers && attempt < 5 {
 			attempt++
+			if attempt > 1 {
+				options.Logger.Warn(fmt.Sprintf("Member count mismatch - retry attempt %d/5: expected %d members, received %d",
+					attempt, totalMembers, currentMemberCount))
+				time.Sleep(2 * time.Second)
+			}
+
 			stackMembers, memErr = options.CloudInfoService.GetStackMembers(options.currentStackConfig)
 			if memErr != nil {
 				return []error{memErr}
 			}
 			currentMemberCount = len(stackMembers)
+
+			// Build list of missing members
+			if currentMemberCount != totalMembers {
+				receivedIDs := make(map[string]bool)
+				for _, m := range stackMembers {
+					if m.ID != nil {
+						receivedIDs[*m.ID] = true
+					}
+				}
+				missingMemberNames = []string{}
+				for id, name := range expectedMemberIDs {
+					if !receivedIDs[id] {
+						missingMemberNames = append(missingMemberNames, fmt.Sprintf("%s (%s)", name, id))
+					}
+				}
+				if attempt >= 5 {
+					options.Logger.Error(fmt.Sprintf("Missing members after %d retry attempts: %v", attempt, missingMemberNames))
+				}
+			}
 		}
+
+		// Track missing members and fail fast after 5 consecutive polls
+		if currentMemberCount != totalMembers {
+			consecutiveMissingMemberPolls++
+			options.Logger.Warn(fmt.Sprintf(
+				"WARNING: API returning incomplete member list (%d/%d polls with missing members). Missing: %v",
+				consecutiveMissingMemberPolls, 5, missingMemberNames))
+
+			// Fail after 5 consecutive polls with missing members
+			if consecutiveMissingMemberPolls >= 5 {
+				errorMsg := fmt.Sprintf(
+					"API consistently returning incomplete member list after %d consecutive polls.\n"+
+						"Expected %d members but received %d.\n"+
+						"Missing members: %v\n"+
+						"This indicates an IBM Cloud Projects API issue. "+
+						"Please check the IBM Cloud console to verify actual member states.",
+					consecutiveMissingMemberPolls, totalMembers, currentMemberCount, missingMemberNames)
+				return []error{fmt.Errorf("%s", errorMsg)}
+			}
+		} else {
+			// Reset counter when all members are present
+			if consecutiveMissingMemberPolls > 0 {
+				options.Logger.Info("All members now present in API response, resetting missing member counter")
+				consecutiveMissingMemberPolls = 0
+			}
+		}
+
 		// If the stack is not fully deployed and no members are in a state that can be deployed then we have an error
 		deployableState := false
 		var memberStates []string
@@ -415,7 +494,9 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 	}
 
 	// print final state of the stack
-	stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
+	var finalResponse interface{}
+	stackDetails, finalResponse, err = options.CloudInfoService.GetConfig(options.currentStackConfig)
+	_ = finalResponse // suppress unused variable warning
 	if err != nil {
 		return []error{err}
 	}
@@ -525,10 +606,38 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 				return []error{memErr}
 			}
 			totalMembers := len(stackMembers)
+
+			// Get initial stack details to lookup member names
+			stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
+			if err != nil {
+				return []error{err}
+			}
+			if stackDetails == nil {
+				return []error{fmt.Errorf("stackDetails is nil")}
+			}
+
+			// Create map of expected members (ID -> name) from initial fetch
+			expectedMemberIDs := make(map[string]string)
+			for _, member := range stackMembers {
+				if member.ID != nil {
+					name, nameErr := options.CloudInfoService.LookupMemberNameByID(stackDetails, *member.ID)
+					if nameErr != nil {
+						name = fmt.Sprintf("Unknown (ID: %s)", *member.ID)
+					}
+					expectedMemberIDs[*member.ID] = name
+				}
+			}
+			options.Logger.Info(fmt.Sprintf("Tracking %d members for stack undeploy", len(expectedMemberIDs)))
+
+			// Add counter for consecutive polls with missing members
+			consecutiveMissingMemberPolls := 0
+
 			var undeployedCount int
 			for !undeployComplete && time.Now().Before(undeployEndTime) && !failed {
 				options.Logger.ShortInfo("Checking Stack Undeploy Status")
-				stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
+				var response interface{}
+				stackDetails, response, err = options.CloudInfoService.GetConfig(options.currentStackConfig)
+				_ = response // suppress unused variable warning
 				if err != nil {
 					return []error{err}
 				}
@@ -538,18 +647,67 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 
 				currentMemberCount := 0
 				attempt := 0
+				var missingMemberNames []string
+
 				// Sometimes not all members are returned by the API, so we need to retry. This is intermittent and infrequent
 				for currentMemberCount != totalMembers && attempt < 5 {
 					attempt++
+					if attempt > 1 {
+						options.Logger.Warn(fmt.Sprintf("Member count mismatch - retry attempt %d/5: expected %d members, received %d",
+							attempt, totalMembers, currentMemberCount))
+						time.Sleep(2 * time.Second)
+					}
+
 					stackMembers, memErr = options.CloudInfoService.GetStackMembers(options.currentStackConfig)
 					if memErr != nil {
 						return []error{memErr}
 					}
 					currentMemberCount = len(stackMembers)
+
+					// Build list of missing members
+					if currentMemberCount != totalMembers {
+						receivedIDs := make(map[string]bool)
+						for _, m := range stackMembers {
+							if m.ID != nil {
+								receivedIDs[*m.ID] = true
+							}
+						}
+						missingMemberNames = []string{}
+						for id, name := range expectedMemberIDs {
+							if !receivedIDs[id] {
+								missingMemberNames = append(missingMemberNames, fmt.Sprintf("%s (%s)", name, id))
+							}
+						}
+						if attempt >= 5 {
+							options.Logger.Error(fmt.Sprintf("Missing members after %d retry attempts: %v", attempt, missingMemberNames))
+						}
+					}
 				}
 
+				// Track missing members and fail fast after 5 consecutive polls
 				if currentMemberCount != totalMembers {
-					return []error{fmt.Errorf("expected %d members, but got %d", totalMembers, currentMemberCount)}
+					consecutiveMissingMemberPolls++
+					options.Logger.Warn(fmt.Sprintf(
+						"WARNING: API returning incomplete member list (%d/%d polls with missing members). Missing: %v",
+						consecutiveMissingMemberPolls, 5, missingMemberNames))
+
+					// Fail after 5 consecutive polls with missing members
+					if consecutiveMissingMemberPolls >= 5 {
+						errorMsg := fmt.Sprintf(
+							"API consistently returning incomplete member list after %d consecutive polls.\n"+
+								"Expected %d members but received %d.\n"+
+								"Missing members: %v\n"+
+								"This indicates an IBM Cloud Projects API issue. "+
+								"Please check the IBM Cloud console to verify actual member states.",
+							consecutiveMissingMemberPolls, totalMembers, currentMemberCount, missingMemberNames)
+						return []error{fmt.Errorf("%s", errorMsg)}
+					}
+				} else {
+					// Reset counter when all members are present
+					if consecutiveMissingMemberPolls > 0 {
+						options.Logger.Info("All members now present in API response, resetting missing member counter")
+						consecutiveMissingMemberPolls = 0
+					}
 				}
 
 				syncErrs := TrackAndResyncState(options, stackDetails, stackMembers, memberStateStartTime, &mu)
