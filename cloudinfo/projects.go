@@ -873,7 +873,11 @@ func validateCatalogInputsInStackDefinition(stackJson Stack, catalogConfig Catal
 		for _, stackInput := range stackJson.Inputs {
 			if catalogInput.Key == stackInput.Name {
 				found = true
-				expectedType := convertGoTypeToExpectedType(stackInput.Type)
+				expectedType := stackInput.Type
+				if expectedType == "" {
+					expectedType = stackInput.TypeMetadata
+				}
+				expectedType = convertGoTypeToExpectedType(expectedType)
 				if catalogInput.Type != "" && !isValidType(catalogInput.Type, expectedType) {
 					typeMismatches = append(typeMismatches, fmt.Sprintf("catalog configuration type mismatch in product '%s', flavor '%s': %s expected type: %s, got: %s", productName, flavorName, catalogInput.Key, expectedType, catalogInput.Type))
 				}

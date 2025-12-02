@@ -3,21 +3,21 @@
     {
       "name": "input5",
       "required": false,
-      "type": "string",
+      "type_metadata": "string",
       "hidden": false,
       "default": "stack_value_5"
     },
     {
       "name": "input6",
       "required": false,
-      "type": "string",
+      "type_metadata": "string",
       "hidden": false,
       "default": "stack_value_6"
     },
     {
       "name": "input7",
       "required": false,
-      "type": "string",
+      "type_metadata": "string",
       "hidden": false,
       "default": "stack_value_7"
     }

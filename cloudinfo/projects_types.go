@@ -7,12 +7,13 @@ import (
 
 type Stack struct {
 	Inputs []struct {
-		Name        string      `json:"name"`
-		Description string      `json:"description"`
-		Required    bool        `json:"required"`
-		Type        string      `json:"type"`
-		Hidden      bool        `json:"hidden"`
-		Default     interface{} `json:"default"`
+		Name         string      `json:"name"`
+		Description  string      `json:"description"`
+		Required     bool        `json:"required"`
+		Type         string      `json:"type"`
+		TypeMetadata string      `json:"type_metadata"`
+		Hidden       bool        `json:"hidden"`
+		Default      interface{} `json:"default"`
 	} `json:"inputs"`
 	Outputs []struct {
 		Name  string `json:"name"`
