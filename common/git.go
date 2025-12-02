@@ -480,16 +480,14 @@ func SkipUpgradeTest(testing *testing.T, source_repo string, source_branch strin
 
 func CloneAndCheckoutBranch(testing *testing.T, repoURL string, branch string, cloneDir string) error {
 	authMethod, _ := GitAutoAuth(repoURL)
-	if authMethod != nil {
-		_, errClone := git.PlainClone(cloneDir, false, &git.CloneOptions{
-			URL:           repoURL,
-			ReferenceName: plumbing.NewBranchReferenceName(branch),
-			SingleBranch:  true,
-			Auth:          authMethod,
-		})
-		if errClone != nil {
-			return fmt.Errorf("failed to clone base repo and branch: %v", errClone)
-		}
+	_, errClone := git.PlainClone(cloneDir, false, &git.CloneOptions{
+		URL:           repoURL,
+		ReferenceName: plumbing.NewBranchReferenceName(branch),
+		SingleBranch:  true,
+		Auth:          authMethod,
+	})
+	if errClone != nil {
+		return fmt.Errorf("failed to clone base repo and branch: %v", errClone)
 	}
 
 	return nil
