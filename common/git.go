@@ -480,12 +480,24 @@ func SkipUpgradeTest(testing *testing.T, source_repo string, source_branch strin
 
 func CloneAndCheckoutBranch(testing *testing.T, repoURL string, branch string, cloneDir string) error {
 	authMethod, _ := GitAutoAuth(repoURL)
-	_, errClone := git.PlainClone(cloneDir, false, &git.CloneOptions{
+	repo, errClone := git.PlainClone(cloneDir, false, &git.CloneOptions{
 		URL:           repoURL,
 		ReferenceName: plumbing.NewBranchReferenceName(branch),
 		SingleBranch:  true,
 		Auth:          authMethod,
 	})
+	println("Found repo:")
+	remotes, _ := repo.Remotes()
+	for _, r := range remotes {
+		fmt.Println("Remote:", r.Config().Name, r.Config().URLs)
+	}
+	entries, err := os.ReadDir(cloneDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, e := range entries {
+		fmt.Println(e.Name())
+	}
 	if errClone != nil {
 		return fmt.Errorf("failed to clone base repo and branch: %v", errClone)
 	}
@@ -647,6 +659,7 @@ func sshAuth() (transport.AuthMethod, error) {
 	// 1. Try SSH agent
 	auth, err := gitssh.NewSSHAgentAuth("git")
 	if err == nil {
+		println("auth with ssh agent")
 		return auth, nil
 	}
 
@@ -655,6 +668,7 @@ func sshAuth() (transport.AuthMethod, error) {
 	if keyData != "" {
 		auth, err := gitssh.NewPublicKeys("git", []byte(keyData), "")
 		if err == nil {
+			println("auth with ssh env var")
 			return auth, nil
 		}
 	}
@@ -666,10 +680,12 @@ func sshAuth() (transport.AuthMethod, error) {
 		if _, err := os.Stat(defaultKey); err == nil {
 			auth, err := gitssh.NewPublicKeysFromFile("git", defaultKey, "")
 			if err == nil {
+				println("auth with ssh default")
 				return auth, nil
 			}
 		}
 	}
+	println("auth with ssh anonymous")
 	return nil, errors.New(
 		"SSH authentication failed: no keys found. " +
 			"Please start ssh-agent with loaded keys, set SSH_PRIVATE_KEY, or ensure ~/.ssh/id_rsa exists.",
@@ -685,11 +701,13 @@ func isSSHURL(raw string) bool {
 func httpsAuth(remoteURL string) (transport.AuthMethod, error) {
 	// Try .netrc first
 	if auth := loadNetrcAuth(remoteURL); auth != nil {
+		println("auth with https netrc")
 		return auth, nil
 	}
 
 	// Try common environment tokens
 	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		println("auth with https token")
 		return &gitHttp.BasicAuth{Username: "token", Password: tok}, nil
 	}
 	if tok := os.Getenv("GITLAB_TOKEN"); tok != "" {
@@ -699,6 +717,7 @@ func httpsAuth(remoteURL string) (transport.AuthMethod, error) {
 		return &gitHttp.BasicAuth{Username: "token", Password: tok}, nil
 	}
 
+	println("auth with https anonymous")
 	// Fallback: anonymous HTTPS
 	return nil, nil
 }
