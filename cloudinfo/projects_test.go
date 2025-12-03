@@ -1028,6 +1028,70 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 				"catalog configuration type_metadata mismatch in product 'Product Name', flavor 'Flavor Name': input6 expected type: string, got: bool"),
 		},
 		{
+			name: "catalog input with both type and type_metadata matching, should succeed",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_with_both_type_fields.json",
+			catalogJsonPath: "testdata/ibm_catalog_with_both_type_fields_matching.json",
+			expectedConfig: &projects.StackDefinition{
+				ID: core.StringPtr("mockProjectID"),
+				StackDefinition: &projects.StackDefinitionBlock{
+					Inputs: []projects.StackDefinitionInputVariable{
+						{
+							Name:        core.StringPtr("input1"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(false),
+							Default:     core.StringPtr("default_value_1"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("input2"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(false),
+							Default:     core.StringPtr("default_value_2"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("input3"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(false),
+							Default:     core.StringPtr("default_value_3"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+					},
+					Outputs: []projects.StackDefinitionOutputVariable{
+						{Name: core.StringPtr("output1"), Value: core.StringPtr("ref:../members/member1/outputs/output1")},
+					},
+					Members: []projects.StackDefinitionMember{
+						{
+							Name:           core.StringPtr("member1"),
+							VersionLocator: core.StringPtr("version1"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("input1"), Value: core.StringPtr("ref:../../inputs/input1")},
+							},
+						},
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			name: "catalog input with both type and type_metadata conflicting, should return error",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_with_both_type_fields.json",
+			catalogJsonPath: "testdata/ibm_catalog_with_both_type_fields.json",
+			expectedConfig:  nil,
+			expectedError:   fmt.Errorf("catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input2 expected type: string, got: int"),
+		},
+		{
 			// This is checking the type of the actual default value
 			name: "catalog input default type mismatch, should return an error",
 			stackConfig: &ConfigDetails{

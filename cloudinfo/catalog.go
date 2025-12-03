@@ -1284,6 +1284,12 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 					}
 				}
 
+				// Extract type_metadata if present
+				var typeMetadata string
+				if configuration.TypeMetadata != nil {
+					typeMetadata = *configuration.TypeMetadata
+				}
+
 				// Handle optional fields with safe defaults
 				required := false
 				if configuration.Required != nil {
@@ -1294,10 +1300,10 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 				if configuration.Description != nil {
 					description = *configuration.Description
 				}
-
 				input := CatalogInput{
 					Key:          *configuration.Key,
 					Type:         configType,
+					TypeMetadata: typeMetadata,
 					DefaultValue: configuration.DefaultValue,
 					Required:     required,
 					Description:  description,
