@@ -710,6 +710,10 @@ func httpsAuth(remoteURL string) (transport.AuthMethod, error) {
 		println("auth with https token")
 		return &gitHttp.BasicAuth{Username: "token", Password: tok}, nil
 	}
+	if tok := os.Getenv("GIT_TOKEN"); tok != "" {
+		println("auth with https token")
+		return &gitHttp.BasicAuth{Username: "token", Password: tok}, nil
+	}
 	if tok := os.Getenv("GITLAB_TOKEN"); tok != "" {
 		return &gitHttp.BasicAuth{Username: "token", Password: tok}, nil
 	}
