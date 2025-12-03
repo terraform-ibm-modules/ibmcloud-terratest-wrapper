@@ -51,6 +51,7 @@ type CatalogJson struct {
 			Configuration []struct {
 				Key          string      `json:"key"`
 				Type         string      `json:"type"`
+				TypeMetadata string      `json:"type_metadata"`
 				Description  string      `json:"description"`
 				DefaultValue interface{} `json:"default_value"`
 				Required     bool        `json:"required"`
@@ -86,6 +87,7 @@ type CatalogJson struct {
 type CatalogInput struct {
 	Key          string      `json:"key"`
 	Type         string      `json:"type"`
+	TypeMetadata string      `json:"type_metadata"`
 	DefaultValue interface{} `json:"default_value"`
 	Required     bool        `json:"required"`
 	Description  string      `json:"description"`
