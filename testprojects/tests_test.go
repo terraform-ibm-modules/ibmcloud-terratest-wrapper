@@ -51,7 +51,7 @@ func TestCorrectResourceTeardownFlag(t *testing.T) {
 			SkipUndeploy:       false,
 			SkipProjectDelete:  false,
 			currentStackConfig: &cloudinfo.ConfigDetails{ConfigID: "1234"},
-			Logger:             &common.TestLogger{},
+			Logger:             common.NewTestLogger(t.Name()),
 		}
 		o.Testing.Fail()
 		assert.Equal(t, true, o.executeResourceTearDown())

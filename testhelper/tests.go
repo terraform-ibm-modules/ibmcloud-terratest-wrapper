@@ -144,7 +144,7 @@ func (options *TestOptions) testTearDown() {
 		} else {
 			logger.Log(options.Testing, "Destroying test resources")
 			logger.Log(options.Testing, fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
-			terraform.Destroy(options.Testing, options.TerraformOptions)
+
 			for _, address := range options.ImplicitDestroy {
 				// TODO: is this the correct path to the state file? and/or does it need to be updated upstream to a relative path(temp dir)?
 				statefile := fmt.Sprintf("%s/terraform.tfstate", options.WorkspacePath)
