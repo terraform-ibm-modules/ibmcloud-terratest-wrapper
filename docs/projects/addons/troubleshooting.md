@@ -400,6 +400,65 @@ options.PreDeployHook = func(options *testaddons.TestAddonOptions) error {
 options.DeployTimeoutMinutes = 480
 ```
 
+## Understanding Test Failure Handling
+
+When a test fails, the framework uses three different mechanisms to track and report the failure. Understanding these helps when debugging issues like resources being cleaned up when they shouldn't be.
+
+### The Three Failure Mechanisms
+
+| Mechanism | What it does | What it affects |
+|-----------|--------------|-----------------|
+| `options.Testing.Fail()` | Marks the Go test as failed | Controls `DO_NOT_DESTROY_ON_FAILURE` behavior and actual test pass/fail |
+| `options.Logger.MarkFailed()` | Marks the logger as failed | Controls whether buffered logs are flushed to output |
+| `setFailureResult()` | Sets internal result string | Controls the "TEST EXECUTION END: RESULT" message |
+
+### How They Work Together
+
+When an error occurs, the framework calls all three:
+
+```go
+options.Logger.MarkFailed()       // 1. Prepare to flush buffered logs
+options.Logger.FlushOnFailure()   // 2. Output the buffered logs
+options.Testing.Fail()            // 3. Mark Go test as failed
+return setFailureResult(err, "STAGE")  // 4. Set result for logging
+```
+
+### DO_NOT_DESTROY_ON_FAILURE Behavior
+
+The `DO_NOT_DESTROY_ON_FAILURE` environment variable prevents resource cleanup when tests fail, allowing you to debug in the IBM Cloud console.
+
+```bash
+export DO_NOT_DESTROY_ON_FAILURE=true
+```
+
+**How it works:** During teardown, the framework checks:
+
+```go
+if options.Testing.Failed() && DO_NOT_DESTROY_ON_FAILURE == "true" {
+    // Skip cleanup - resources are preserved for debugging
+}
+```
+
+**Important:** This only works if `options.Testing.Fail()` was called before teardown runs. If you see resources being deleted despite this setting, check that the error path properly calls `Testing.Fail()`.
+
+### Troubleshooting Resource Cleanup Issues
+
+If resources are deleted when `DO_NOT_DESTROY_ON_FAILURE=true`:
+
+1. **Verify the environment variable is set:**
+   ```bash
+   echo $DO_NOT_DESTROY_ON_FAILURE  # Should print: true
+   ```
+
+2. **Check the test result log:** Look for `TEST EXECUTION END`:
+   - `RESULT: PASSED` - The test didn't register as failed (missing `Testing.Fail()` call)
+   - `RESULT: FAILED_AT_<STAGE>` - Test failed correctly at that stage
+
+3. **Check for the skip message:** When working correctly, you should see:
+   ```
+   Terratest failed. Debug the Test and delete resources manually.
+   ```
+
 ## Debugging Techniques
 
 ### Enable Verbose Logging
