@@ -1143,6 +1143,13 @@ func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.P
 					} else {
 						terraformLogMessage.WriteString(fmt.Sprintf("\nJob logs for Job ID: %s member: %s\n%s", jobID, memberName, logs))
 					}
+				} else {
+					// Job ID not available - provide manual debugging guidance
+					logMessage.WriteString(fmt.Sprintf("\n\t(%s) Unable to retrieve Terraform logs automatically (Job ID not available from Projects API)", memberName))
+					logMessage.WriteString("\n\tTo view logs manually:")
+					logMessage.WriteString("\n\t\t1. Go to the Schematics workspace URL above")
+					logMessage.WriteString("\n\t\t2. Click on 'Jobs' tab and find the most recent failed 'destroy' job")
+					logMessage.WriteString("\n\t\t3. Click on the job to view the Terraform destroy logs")
 				}
 			}
 			if member.LastUndeployed.Result != nil {
@@ -1155,18 +1162,18 @@ func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.P
 					logMessage.WriteString(fmt.Sprintf("\n\t(%s) Failed resource: %s", memberName, failedResource))
 				}
 			} else {
-				logMessage.WriteString(fmt.Sprintf("\n\t(%s) failed Deployment, no failed resources returned", memberName))
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) failed Undeployment, no failed resources returned", memberName))
 			}
 
 			if member.LastUndeployed.Job.Summary != nil && member.LastUndeployed.Job.Summary.DestroyMessages != nil && member.LastUndeployed.Job.Summary.DestroyMessages.ErrorMessages != nil {
 				for _, applyError := range member.LastUndeployed.Job.Summary.DestroyMessages.ErrorMessages {
-					logMessage.WriteString(fmt.Sprintf("\n\t(%s) Deployment error:\n", memberName))
+					logMessage.WriteString(fmt.Sprintf("\n\t(%s) Undeployment error:\n", memberName))
 					for key, value := range applyError.GetProperties() {
 						logMessage.WriteString(fmt.Sprintf("\t\t%s: %v\n", key, value))
 					}
 				}
 			} else {
-				logMessage.WriteString(fmt.Sprintf("\n\t(%s) failed Deployment, no failed plan messages returned", memberName))
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) failed Undeployment, no destroy messages returned", memberName))
 			}
 		}
 	} else if member.LastDeployed != nil {
@@ -1196,6 +1203,13 @@ func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.P
 				} else {
 					terraformLogMessage.WriteString(fmt.Sprintf("\nJob logs for Job ID: %s member: %s\n%s", jobID, memberName, logs))
 				}
+			} else {
+				// Job ID not available - provide manual debugging guidance
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) Unable to retrieve Terraform logs automatically (Job ID not available from Projects API)", memberName))
+				logMessage.WriteString("\n\tTo view logs manually:")
+				logMessage.WriteString("\n\t\t1. Go to the Schematics workspace URL above")
+				logMessage.WriteString("\n\t\t2. Click on 'Jobs' tab and find the most recent failed 'apply' job")
+				logMessage.WriteString("\n\t\t3. Click on the job to view the Terraform apply logs")
 			}
 		}
 		if member.LastDeployed.Result != nil {
@@ -1248,6 +1262,13 @@ func (infoSvc *CloudInfoService) GetSchematicsJobLogsForMember(member *project.P
 				} else {
 					terraformLogMessage.WriteString(fmt.Sprintf("\nJob logs for Job ID: %s member: %s\n%s", jobID, memberName, logs))
 				}
+			} else {
+				// Job ID not available - provide manual debugging guidance
+				logMessage.WriteString(fmt.Sprintf("\n\t(%s) Unable to retrieve Terraform logs automatically (Job ID not available from Projects API)", memberName))
+				logMessage.WriteString("\n\tTo view logs manually:")
+				logMessage.WriteString("\n\t\t1. Go to the Schematics workspace URL above")
+				logMessage.WriteString("\n\t\t2. Click on 'Jobs' tab and find the most recent failed 'plan' job")
+				logMessage.WriteString("\n\t\t3. Click on the job to view the Terraform plan logs")
 			}
 		}
 
