@@ -1,0 +1,45 @@
+{
+  "inputs": [
+    {
+      "name": "input1",
+      "required": false,
+      "type": "string",
+      "type_metadata": "string",
+      "hidden": false,
+      "default": "stack_value_1"
+    },
+    {
+      "name": "input2",
+      "required": false,
+      "type": "string",
+      "type_metadata": "string",
+      "hidden": false,
+      "default": "stack_value_2"
+    },
+    {
+      "name": "input3",
+      "required": false,
+      "type": "string",
+      "hidden": false,
+      "default": "stack_value_3"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "output1",
+      "value": "ref:../members/member1/outputs/output1"
+    }
+  ],
+  "members": [
+    {
+      "inputs": [
+        {
+          "name": "input1",
+          "value": "ref:../../inputs/input1"
+        }
+      ],
+      "name": "member1",
+      "version_locator": "version1"
+    }
+  ]
+}
