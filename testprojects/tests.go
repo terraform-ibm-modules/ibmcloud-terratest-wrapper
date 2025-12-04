@@ -3,7 +3,6 @@ package testprojects
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path"
 	"regexp"
 	"runtime"
@@ -835,7 +834,6 @@ func (options *TestProjectsOptions) TestTearDown() {
 	}
 	if !options.SkipTestTearDown {
 		if options.executeResourceTearDown() {
-
 			// Trigger undeploy and wait for completion
 			options.Logger.ShortInfo("Triggering Undeploy and waiting for completion")
 			undeployErrors := options.TriggerUnDeployAndWait()
@@ -943,17 +941,19 @@ func (options *TestProjectsOptions) executeResourceTearDown() bool {
 
 	// if skipundeploy is true, short circuit we are done
 	if options.SkipUndeploy {
+		options.Logger.ShortInfo("SkipUndeploy is set")
 		execute = false
 	}
 
 	// dont teardown if there is nothing to teardown
 	if options.currentStackConfig == nil || options.currentStackConfig.ConfigID == "" {
+		options.Logger.ShortInfo("No resources to delete")
 		execute = false
 	}
 
-	envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
-
-	if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+	if options.Testing.Failed() && common.DoNotDestroyOnFailure() {
+		options.Logger.ShortInfo("DO_NOT_DESTROY_ON_FAILURE is set")
+		options.Logger.ShortInfo(fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
 		execute = false
 	}
 
@@ -966,6 +966,10 @@ func (options *TestProjectsOptions) executeResourceTearDown() bool {
 		}
 	}
 
+	if execute {
+		options.Logger.ShortInfo("Executing resource teardown")
+
+	}
 	return execute
 }
 

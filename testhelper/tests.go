@@ -138,14 +138,13 @@ func (options *TestOptions) testTearDown() {
 	}
 
 	if !options.SkipTestTearDown {
-		// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
-		envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
-
-		// Do not destroy if tests failed and "DO_NOT_DESTROY_ON_FAILURE" is true
-		if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+		// Check if destroy should be skipped due to test failure
+		if options.Testing.Failed() && common.DoNotDestroyOnFailure() {
 			fmt.Println("Terratest failed. Debug the Test and delete resources manually.")
 		} else {
-
+			logger.Log(options.Testing, "Destroying test resources")
+			logger.Log(options.Testing, fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
+			terraform.Destroy(options.Testing, options.TerraformOptions)
 			for _, address := range options.ImplicitDestroy {
 				// TODO: is this the correct path to the state file? and/or does it need to be updated upstream to a relative path(temp dir)?
 				statefile := fmt.Sprintf("%s/terraform.tfstate", options.WorkspacePath)
@@ -200,6 +199,8 @@ func (options *TestOptions) testTearDown() {
 					logger.Log(options.Testing, "END: PreDestroyHook")
 				}
 			}
+			logger.Log(options.Testing, "Destroying test resources")
+			logger.Log(options.Testing, fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
 			logger.Log(options.Testing, "START: Destroy")
 			destroyOutput, destroyError := terraform.DestroyE(options.Testing, options.TerraformOptions)
 			if !assert.NoError(options.Testing, destroyError) {

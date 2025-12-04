@@ -2,7 +2,6 @@ package testaddons
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -468,10 +467,7 @@ func (options *TestAddonOptions) testTearDown() {
 	}
 
 	// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
-	envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
-
-	// Do not destroy if tests failed and "DO_NOT_DESTROY_ON_FAILURE" is true
-	if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+	if options.Testing.Failed() && common.DoNotDestroyOnFailure() {
 		if options.currentProject == nil || options.currentProject.ID == nil {
 			options.Logger.ShortError("Terratest failed. No project to delete.")
 		} else {
@@ -479,6 +475,9 @@ func (options *TestAddonOptions) testTearDown() {
 		}
 		return
 	}
+
+	options.Logger.ShortInfo("Destroying test resources")
+	options.Logger.ShortInfo(fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
 
 	// Project cleanup logic: always clean up projects since we're not sharing them
 	if options.currentProject != nil && options.currentProject.ID != nil {
