@@ -393,7 +393,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.MarkFailed()
 		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
-		return fmt.Errorf("error getting the configuration: %w", err)
+		return setFailureResult(fmt.Errorf("error getting the configuration: %w", err), "GET_CONFIGURATION")
 	}
 	options.Logger.ShortInfo(fmt.Sprintf("All Configurations in Project ID: %s", options.currentProjectConfig.ProjectID))
 	options.Logger.ShortInfo("Configurations:")
@@ -578,7 +578,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 					options.Logger.MarkFailed()
 					options.Logger.FlushOnFailure()
 					options.Testing.Fail()
-					return fmt.Errorf("error resolving references: %w", err)
+					return setFailureResult(fmt.Errorf("error resolving references: %w", err), "RESOLVE_REFERENCES")
 				}
 				options.Logger.ShortInfo("  Resolved References:")
 				for _, ref := range res_resp.References {
@@ -1209,7 +1209,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.MarkFailed()
 		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
-		return fmt.Errorf("missing required inputs: %s", strings.Join(inputValidationIssues, "; "))
+		return setFailureResult(fmt.Errorf("missing required inputs: %s", strings.Join(inputValidationIssues, "; ")), "MISSING_INPUTS")
 	}
 
 	// Now evaluate waiting input issues after dependency validation has provided context
@@ -1516,7 +1516,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return fmt.Errorf("errors occurred during undeploy")
+			return setFailureResult(fmt.Errorf("errors occurred during undeploy"), "UNDEPLOY")
 		}
 		options.Logger.ShortInfo("Undeploy completed successfully")
 	} else {
