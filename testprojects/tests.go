@@ -9,9 +9,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
@@ -852,100 +854,45 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		return fmt.Errorf("test setup has failed:%w", setupErr)
 	}
 
-	// Create a new project
-	options.Logger.ShortInfo("Creating Test Project")
-	if options.ProjectDestroyOnDelete == nil {
-		options.ProjectDestroyOnDelete = core.BoolPtr(true)
+	// First, validate that the branch exists in the remote repository BEFORE creating any resources
+	// Use the new cloudinfo helper for offering import preparation
+	branchUrl, repo, branch, prepErr := options.CloudInfoService.PrepareOfferingImport()
+	if prepErr != nil {
+		options.Logger.ShortError(fmt.Sprintf("Failed to prepare offering import: %v", prepErr))
+		return fmt.Errorf("failed to prepare offering import")
 	}
-	if options.ProjectAutoDeploy == nil {
-		options.ProjectAutoDeploy = core.BoolPtr(false)
-	}
-	if options.ProjectAutoDeployMode == "" {
-		options.ProjectAutoDeployMode = project.ProjectDefinition_AutoDeployMode_AutoApproval
-	}
-	if options.ProjectMonitoringEnabled == nil {
-		options.ProjectMonitoringEnabled = core.BoolPtr(false)
-	}
-	options.currentProjectConfig = &cloudinfo.ProjectsConfig{
-		Location:           options.ProjectLocation,
-		ProjectName:        options.ProjectName,
-		ProjectDescription: options.ProjectDescription,
-		ResourceGroup:      options.ResourceGroup,
-		DestroyOnDelete:    *options.ProjectDestroyOnDelete,
-		MonitoringEnabled:  *options.ProjectMonitoringEnabled,
-		AutoDeploy:         *options.ProjectAutoDeploy,
-		AutoDeployMode:     options.ProjectAutoDeployMode,
-		Environments:       options.ProjectEnvironments,
-	}
-	// Create project with retry logic to handle transient database errors
-	retryConfig := common.ProjectOperationRetryConfig()
-	retryConfig.Logger = options.Logger
-	retryConfig.OperationName = "project creation"
+	options.currentBranch = &branch
+	options.currentBranchUrl = core.StringPtr(branchUrl)
+	options.Logger.ShortInfo(fmt.Sprintf("Current repo: %s", repo))
+	options.Logger.ShortInfo(fmt.Sprintf("Current branch URL: %s", *options.currentBranchUrl))
 
-	prj, err := common.RetryWithConfig(retryConfig, func() (*project.Project, error) {
-		prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
-		if err != nil {
-			options.Logger.ShortWarn(fmt.Sprintf("Project creation attempt failed: %v (will retry if retryable)", err))
+	catalog, err := SetupCatalog(
+		options.CatalogUseExisting,
+		options.catalog,
+		options.CatalogName,
+		options.SharedCatalog,
+		options.CloudInfoService,
+		options.Logger,
+		options.Testing,
+		options.PostCreateDelay,
+	)
 
-			// Check if project was actually created despite the error
-			if common.StringContainsIgnoreCase(err.Error(), "already exists") {
-				options.Logger.ShortInfo("Project creation returned 'already exists' error - this indicates the project was successfully created on a previous attempt")
-
-				// The "already exists" error means the operation succeeded - the project exists
-				// We need to extract the project information from the error or response
-				// Since the error confirms creation succeeded, we'll return success
-				// The project ID should be available in the response even on "already exists" error
-				if resp != nil && resp.StatusCode == 409 { // 409 Conflict for "already exists"
-					options.Logger.ShortInfo("Treating 'already exists' response as successful project creation")
-
-					// For "already exists", the project was created successfully
-					// We'll return the prj even if there was an error, as the operation succeeded
-					if prj != nil {
-						return prj, nil
-					}
-
-					// If prj is nil but we got 409, create a minimal project reference
-					// This case handles when IBM Cloud returns an error but the project exists
-					options.Logger.ShortInfo("Project created successfully despite API error response")
-					return &project.Project{
-						ID: core.StringPtr(""), // Will be populated later if needed
-					}, nil
-				}
-			}
-
-			return nil, err
-		}
-
-		// Check for successful creation (HTTP 201)
-		if resp.StatusCode != 201 {
-			options.Logger.ShortWarn(fmt.Sprintf("Project creation returned unexpected status code: %d", resp.StatusCode))
-			return nil, fmt.Errorf("unexpected response code: %d", resp.StatusCode)
-		}
-
-		return prj, nil
-	})
-
-	if assert.NoError(options.Testing, err) {
-		options.Logger.ShortInfo(fmt.Sprintf("Created Test Project - %s", *prj.Definition.Name))
-		// https://cloud.ibm.com/projects/a1316ed6-76de-418e-bb9a-e7ed05aa7834
-		// print link to project
-		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", fmt.Sprintf("https://cloud.ibm.com/projects/%s", *prj.ID)))
-		options.currentProject = prj
-		options.currentProjectConfig.ProjectID = *prj.ID
-
-		// Add post-creation delay for eventual consistency
-		if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
-			options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for project to be available...", *options.PostCreateDelay))
-			time.Sleep(*options.PostCreateDelay)
-		}
+	if err != nil {
+		return err
 	} else {
-		projectURL := fmt.Sprintf("https://cloud.ibm.com/projects")
-		options.Logger.ShortError(fmt.Sprintf("Project creation failed after retries - Console: %s", projectURL))
-		return fmt.Errorf("project creation failed after retries")
+		options.catalog = catalog
+	}
+
+	if err := options.setupOffering(); err != nil {
+		return err
+	}
+
+	if err := options.setupProject(); err != nil {
+		return err
 	}
 
 	if assert.NoError(options.Testing, options.ConfigureTestStack()) {
-		options.Logger.ShortInfo(fmt.Sprintf("Configured Test Stack - %s \n- %s %s \n- %s %s", *prj.Definition.Name, common.ColorizeString(common.Colors.Blue, "Project ID:"), *prj.ID, common.ColorizeString(common.Colors.Blue, "Config ID:"), *options.currentStack.Configuration.ID))
+		options.Logger.ShortInfo(fmt.Sprintf("Configured Test Stack - %s \n- %s %s \n- %s %s", *options.currentProject.Definition.Name, common.ColorizeString(common.Colors.Blue, "Project ID:"), *options.currentProject.ID, common.ColorizeString(common.Colors.Blue, "Config ID:"), *options.currentStack.Configuration.ID))
 		if options.PreDeployHook != nil {
 			options.Logger.ShortInfo("Running PreDeployHook")
 			hookErr := options.PreDeployHook(options)
@@ -1092,6 +1039,145 @@ func (options *TestProjectsOptions) TestTearDown() {
 	} else {
 		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", fmt.Sprintf("https://cloud.ibm.com/projects/%s", *options.currentProject.ID)))
 	}
+}
+
+// setupProject handles project creation
+func (options *TestProjectsOptions) setupProject() error {
+	// Create a new project (only if not already created)
+	if options.currentProject == nil {
+		options.Logger.ShortInfo("Creating project for test")
+		if options.ProjectDestroyOnDelete == nil {
+			options.ProjectDestroyOnDelete = core.BoolPtr(true)
+		}
+		if options.ProjectAutoDeploy == nil {
+			options.ProjectAutoDeploy = core.BoolPtr(false)
+		}
+		if options.ProjectMonitoringEnabled == nil {
+			options.ProjectMonitoringEnabled = core.BoolPtr(false)
+		}
+		options.currentProjectConfig = &cloudinfo.ProjectsConfig{
+			Location:           options.ProjectLocation,
+			ProjectName:        options.ProjectName,
+			ProjectDescription: options.ProjectDescription,
+			ResourceGroup:      options.ResourceGroup,
+			DestroyOnDelete:    *options.ProjectDestroyOnDelete,
+			MonitoringEnabled:  *options.ProjectMonitoringEnabled,
+			AutoDeploy:         *options.ProjectAutoDeploy,
+			AutoDeployMode:     options.ProjectAutoDeployMode,
+			Environments:       options.ProjectEnvironments,
+		}
+
+		// Create project with retry logic to handle transient database errors
+		retryConfig := common.ProjectOperationRetryConfig()
+		if options.ProjectRetryConfig != nil {
+			retryConfig = *options.ProjectRetryConfig
+		}
+		retryConfig.Logger = options.Logger
+		retryConfig.OperationName = "project creation"
+
+		prj, err := common.RetryWithConfig(retryConfig, func() (*project.Project, error) {
+			prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
+			if err != nil {
+				options.Logger.ShortWarn(fmt.Sprintf("Project creation attempt failed: %v (will retry if retryable)", err))
+
+				// Check if project was actually created despite the error
+				if common.StringContainsIgnoreCase(err.Error(), "already exists") {
+					options.Logger.ShortInfo("Project creation returned 'already exists' error - this indicates the project was successfully created on a previous attempt")
+
+					// The "already exists" error means the operation succeeded - the project exists
+					// We need to extract the project information from the error or response
+					// Since the error confirms creation succeeded, we'll return success
+					// The project ID should be available in the response even on "already exists" error
+					if resp != nil && resp.StatusCode == 409 { // 409 Conflict for "already exists"
+						options.Logger.ShortInfo("Treating 'already exists' response as successful project creation")
+
+						// For "already exists", the project was created successfully
+						// We'll return the prj even if there was an error, as the operation succeeded
+						if prj != nil {
+							return prj, nil
+						}
+
+						// If prj is nil but we got 409, create a minimal project reference
+						// This case handles when IBM Cloud returns an error but the project exists
+						options.Logger.ShortInfo("Project created successfully despite API error response")
+						return &project.Project{
+							ID: core.StringPtr(""), // Will be populated later if needed
+						}, nil
+					}
+				}
+
+				return nil, err
+			}
+			return prj, nil
+		})
+
+		if err != nil {
+			projectURL := fmt.Sprintf("https://cloud.ibm.com/projects")
+			errorMsg := fmt.Sprintf("Error creating a new project after retries: %v\nProject Console: %s", err, projectURL)
+
+			// Always show project console link on critical failures, even in quiet mode
+			if options.QuietMode {
+				options.Logger.ShortError(fmt.Sprintf("Project creation failed - Console: %s", projectURL))
+			}
+
+			options.Logger.CriticalError(errorMsg)
+			options.Testing.Fail()
+			return fmt.Errorf("error creating a new project: %w", err)
+		}
+		options.currentProject = prj
+		options.currentProjectConfig.ProjectID = *options.currentProject.ID
+
+		// Add post-creation delay for eventual consistency
+		if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
+			options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for project to be available...", *options.PostCreateDelay))
+			time.Sleep(*options.PostCreateDelay)
+		}
+
+		options.Logger.ShortInfo(fmt.Sprintf("Created a new project: %s with ID %s", options.ProjectName, options.currentProjectConfig.ProjectID))
+		projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", options.currentProjectConfig.ProjectID)
+		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
+		region := options.currentProjectConfig.Location
+		if region == "" {
+			region = "unknown"
+		}
+		options.Logger.ShortInfo(fmt.Sprintf("Project Region: %s", region))
+	} else {
+		// Using existing project
+		options.Logger.ShortInfo(fmt.Sprintf("Using existing project: %s with ID %s", options.ProjectName, *options.currentProject.ID))
+		// Ensure currentProjectConfig is set up properly for existing projects
+		if options.currentProjectConfig == nil {
+			options.currentProjectConfig = &cloudinfo.ProjectsConfig{
+				ProjectID: *options.currentProject.ID,
+			}
+		}
+	}
+	return nil
+}
+
+// setupOffering handles offering import based on configuration
+func (options *TestProjectsOptions) setupOffering() error {
+	// import the offering
+	// Import the offering - check sharing settings
+	if options.SharedCatalog != nil && *options.SharedCatalog && options.offering != nil &&
+		options.offering.Label != nil && options.offering.ID != nil && options.offering.Name != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Using existing shared offering: %s with ID %s", *options.offering.Label, *options.offering.ID))
+	} else if options.SharedCatalog != nil && *options.SharedCatalog && options.offering != nil {
+		// Shared offering is incomplete - log warning and fall back to creating new offering
+		options.Logger.ShortWarn("Shared offering is nil or incomplete - offering import may have failed")
+	} else {
+		// Create new offering if sharing is disabled or no existing offering
+		version := fmt.Sprintf("v0.0.1-dev-stack-%s", options.Prefix)
+		options.Logger.ShortInfo(fmt.Sprintf("Importing the stack from branch: %s as version: %s", *options.currentBranchUrl, version))
+		offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, "", "click-and-go", version, "")
+		if err != nil {
+			options.Logger.CriticalError(fmt.Sprintf("Error importing the offering: %v", err))
+			options.Testing.Fail()
+			return fmt.Errorf("error importing the offering: %w", err)
+		}
+		options.offering = offering
+		options.Logger.ShortInfo(fmt.Sprintf("Imported flavor: %s with version: %s to %s", *options.offering.Label, version, *options.catalog.Label))
+	}
+	return nil
 }
 
 // Function to determine if test resources should be destroyed
@@ -1280,4 +1366,77 @@ func TrackAndResyncState(
 		return errors
 	}
 	return errors
+}
+
+// setupCatalog handles catalog creation or reuse based on configuration
+func SetupCatalog(
+	useExisting bool,
+	catalog *catalogmanagementv1.Catalog,
+	catalogName string,
+	sharedCatalog *bool,
+	infoSvc cloudinfo.CloudInfoServiceI,
+	logger common.Logger,
+	testing *testing.T,
+	postCreateDelay *time.Duration) (*catalogmanagementv1.Catalog, error) {
+	if !useExisting {
+		// Check if catalog sharing is enabled and if catalog already exists
+		if catalog != nil {
+			if catalog.Label != nil && catalog.ID != nil {
+				logger.ShortInfo(fmt.Sprintf("Using existing catalog: %s with ID %s", *catalog.Label, *catalog.ID))
+			} else {
+				logger.ShortWarn("Using existing catalog but catalog details are incomplete")
+			}
+		} else if sharedCatalog != nil && *sharedCatalog {
+			// For shared catalogs, only create if no shared catalog exists yet
+			// Individual tests with SharedCatalog=true should not create new catalogs
+			logger.ShortInfo("SharedCatalog=true but no existing shared catalog available - this may indicate a setup issue")
+			logger.ShortInfo("Creating catalog anyway to avoid test failure, but consider using matrix tests for proper catalog sharing")
+			catalog, err := infoSvc.CreateCatalog(catalogName)
+			if err != nil {
+				logger.CriticalError(fmt.Sprintf("Error creating catalog for shared use: %v", err))
+				testing.Fail()
+				return nil, fmt.Errorf("error creating catalog for shared use: %w", err)
+			}
+
+			// Add post-creation delay for eventual consistency
+			if postCreateDelay != nil && *postCreateDelay > 0 {
+				logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *postCreateDelay))
+				time.Sleep(*postCreateDelay)
+			}
+
+			if catalog != nil && catalog.Label != nil && catalog.ID != nil {
+				logger.ShortInfo(fmt.Sprintf("Created catalog for shared use: %s with ID %s", *catalog.Label, *catalog.ID))
+			} else {
+				logger.ShortWarn("Created catalog for shared use but catalog details are incomplete")
+			}
+			return catalog, nil
+		} else {
+			// Create new catalog only for non-shared usage
+			logger.ShortInfo(fmt.Sprintf("Creating a new catalog: %s", catalogName))
+			catalog, err := infoSvc.CreateCatalog(catalogName)
+			if err != nil {
+				logger.CriticalError(fmt.Sprintf("Error creating a new catalog: %v", err))
+				testing.Fail()
+				return nil, fmt.Errorf("error creating a new catalog: %w", err)
+			}
+
+			// Add post-creation delay for eventual consistency
+			if postCreateDelay != nil && *postCreateDelay > 0 {
+				logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *postCreateDelay))
+				time.Sleep(*postCreateDelay)
+			}
+
+			if catalog != nil && catalog.Label != nil && catalog.ID != nil {
+				logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *catalog.Label, *catalog.ID))
+			} else {
+				logger.ShortWarn("Created catalog but catalog details are incomplete")
+			}
+			return catalog, nil
+		}
+	} else {
+		logger.ShortInfo("Using existing catalog")
+		logger.ShortWarn("Not implemented yet")
+		// TODO: lookup the catalog ID no api for this
+	}
+	return nil, nil
 }

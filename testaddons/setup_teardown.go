@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
+	testprojects "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
 )
 
 // TestSetup performs the initial setup for addon tests
@@ -164,10 +165,22 @@ func (options *TestAddonOptions) testSetup() error {
 	options.Logger.ShortInfo(fmt.Sprintf("Current repo: %s", repo))
 	options.Logger.ShortInfo(fmt.Sprintf("Current branch URL: %s", *options.currentBranchUrl))
 
-	if err := options.setupCatalog(); err != nil {
-		return err
-	}
+	catalog, err := testprojects.SetupCatalog(
+		options.CatalogUseExisting,
+		options.catalog,
+		options.CatalogName,
+		options.SharedCatalog,
+		options.CloudInfoService,
+		options.Logger,
+		options.Testing,
+		options.PostCreateDelay,
+	)
 
+	if err != nil {
+		return err
+	} else {
+		options.catalog = catalog
+	}
 	if err := options.setupOffering(); err != nil {
 		return err
 	}
@@ -176,87 +189,6 @@ func (options *TestAddonOptions) testSetup() error {
 		return err
 	}
 
-	return nil
-}
-
-// setupCatalog handles catalog creation or reuse based on configuration
-func (options *TestAddonOptions) setupCatalog() error {
-	if !options.CatalogUseExisting {
-		// Check if catalog sharing is enabled and if catalog already exists
-		if options.catalog != nil {
-			if options.catalog.Label != nil && options.catalog.ID != nil {
-				options.Logger.ShortInfo(fmt.Sprintf("Using existing catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
-				// Seed root AddonConfig CatalogID from the shared/ existing catalog to avoid later
-				// recovery paths that depend on network calls (helps under 429 rate limits)
-				if options.AddonConfig.CatalogID == "" {
-					options.AddonConfig.CatalogID = *options.catalog.ID
-					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from existing catalog: %s", options.AddonConfig.CatalogID))
-				}
-			} else {
-				options.Logger.ShortWarn("Using existing catalog but catalog details are incomplete")
-			}
-		} else if options.SharedCatalog != nil && *options.SharedCatalog {
-			// For shared catalogs, only create if no shared catalog exists yet
-			// Individual tests with SharedCatalog=true should not create new catalogs
-			options.Logger.ShortInfo("SharedCatalog=true but no existing shared catalog available - this may indicate a setup issue")
-			options.Logger.ShortInfo("Creating catalog anyway to avoid test failure, but consider using matrix tests for proper catalog sharing")
-			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
-			if err != nil {
-				options.Logger.CriticalError(fmt.Sprintf("Error creating catalog for shared use: %v", err))
-				options.Testing.Fail()
-				return fmt.Errorf("error creating catalog for shared use: %w", err)
-			}
-			options.catalog = catalog
-
-			// Add post-creation delay for eventual consistency
-			if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
-				options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *options.PostCreateDelay))
-				time.Sleep(*options.PostCreateDelay)
-			}
-
-			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
-				options.Logger.ShortInfo(fmt.Sprintf("Created catalog for shared use: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
-				// Seed root AddonConfig CatalogID immediately after creation
-				if options.AddonConfig.CatalogID == "" {
-					options.AddonConfig.CatalogID = *options.catalog.ID
-					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from newly created shared catalog: %s", options.AddonConfig.CatalogID))
-				}
-			} else {
-				options.Logger.ShortWarn("Created catalog for shared use but catalog details are incomplete")
-			}
-		} else {
-			// Create new catalog only for non-shared usage
-			options.Logger.ShortInfo(fmt.Sprintf("Creating a new catalog: %s", options.CatalogName))
-			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
-			if err != nil {
-				options.Logger.CriticalError(fmt.Sprintf("Error creating a new catalog: %v", err))
-				options.Testing.Fail()
-				return fmt.Errorf("error creating a new catalog: %w", err)
-			}
-			options.catalog = catalog
-
-			// Add post-creation delay for eventual consistency
-			if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
-				options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *options.PostCreateDelay))
-				time.Sleep(*options.PostCreateDelay)
-			}
-
-			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
-				options.Logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
-				// Seed root AddonConfig CatalogID immediately after creation
-				if options.AddonConfig.CatalogID == "" {
-					options.AddonConfig.CatalogID = *options.catalog.ID
-					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from newly created catalog: %s", options.AddonConfig.CatalogID))
-				}
-			} else {
-				options.Logger.ShortWarn("Created catalog but catalog details are incomplete")
-			}
-		}
-	} else {
-		options.Logger.ShortInfo("Using existing catalog")
-		options.Logger.ShortWarn("Not implemented yet")
-		// TODO: lookup the catalog ID no api for this
-	}
 	return nil
 }
 

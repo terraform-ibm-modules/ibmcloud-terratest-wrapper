@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/jinzhu/copier"
@@ -124,6 +125,35 @@ type TestProjectsOptions struct {
 	currentStack       *project.StackDefinition
 	currentStackConfig *cloudinfo.ConfigDetails
 
+	currentBranch    *string
+	currentBranchUrl *string
+
+	// CatalogUseExisting If set to true, the test will use an existing catalog.
+	CatalogUseExisting bool
+	// CatalogName The name of the catalog to create and deploy to.
+	CatalogName string
+
+	// SharedCatalog If set to true (default), catalogs and offerings will be shared across tests using the same TestOptions object.
+	// When false, each test will create its own catalog and offering, which is useful for isolation but less efficient.
+	// This applies to both individual tests and matrix tests.
+	SharedCatalog *bool
+
+	// Internal Use
+	// catalog the catalog instance in use.
+	catalog *catalogmanagementv1.Catalog
+
+	// internal use
+	// offering the offering created in the catalog.
+	offering *catalogmanagementv1.Offering
+
+	// ProjectRetryConfig Configuration for project creation/deletion retry behavior (optional)
+	// When nil, uses common.ProjectOperationRetryConfig() defaults (5 retries, 3s initial delay, 45s max, exponential backoff)
+	ProjectRetryConfig *common.RetryConfig
+
+	// QuietMode If set to true, detailed logs are buffered and only shown on test failure.
+	// When false, all logs are shown immediately. Default is false.
+	QuietMode bool
+
 	// Hooks These allow us to inject custom code into the test process
 	// example to set a hook:
 	// options.PreDeployHook = func(options *TestProjectsOptions) error {
@@ -135,7 +165,7 @@ type TestProjectsOptions struct {
 	PreUndeployHook  func(options *TestProjectsOptions) error // If this fails, the undeploy will continue
 	PostUndeployHook func(options *TestProjectsOptions) error
 
-	Logger *common.TestLogger
+	Logger common.Logger
 
 	// CacheEnabled enables API response caching for catalog operations to reduce API calls by 70-80%
 	// When enabled, static catalog metadata (offerings, versions, dependencies) will be cached
@@ -174,6 +204,10 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 
 	if newOptions.ResourceGroup == "" {
 		newOptions.ResourceGroup = "Default"
+	}
+
+	if newOptions.CatalogName == "" {
+		newOptions.CatalogName = fmt.Sprintf("stack-test-catalog-%s", newOptions.Prefix)
 	}
 
 	if newOptions.StackConfigurationPath == "" {
