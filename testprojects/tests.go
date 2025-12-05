@@ -9,11 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"testing"
 	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
-	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
@@ -866,16 +864,16 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 	options.Logger.ShortInfo(fmt.Sprintf("Current repo: %s", repo))
 	options.Logger.ShortInfo(fmt.Sprintf("Current branch URL: %s", *options.currentBranchUrl))
 
-	catalog, err := SetupCatalog(
-		options.CatalogUseExisting,
-		options.catalog,
-		options.CatalogName,
-		options.SharedCatalog,
-		options.CloudInfoService,
-		options.Logger,
-		options.Testing,
-		options.PostCreateDelay,
-	)
+	catalog, err := cloudinfo.SetupCatalog(cloudinfo.SetupCatalogOptions{
+		CatalogUseExisting: options.CatalogUseExisting,
+		Catalog:            options.catalog,
+		CatalogName:        options.CatalogName,
+		SharedCatalog:      options.SharedCatalog,
+		CloudInfoService:   options.CloudInfoService,
+		Logger:             options.Logger,
+		Testing:            options.Testing,
+		PostCreateDelay:    options.PostCreateDelay,
+	})
 
 	if err != nil {
 		return err
@@ -1366,77 +1364,4 @@ func TrackAndResyncState(
 		return errors
 	}
 	return errors
-}
-
-// setupCatalog handles catalog creation or reuse based on configuration
-func SetupCatalog(
-	useExisting bool,
-	catalog *catalogmanagementv1.Catalog,
-	catalogName string,
-	sharedCatalog *bool,
-	infoSvc cloudinfo.CloudInfoServiceI,
-	logger common.Logger,
-	testing *testing.T,
-	postCreateDelay *time.Duration) (*catalogmanagementv1.Catalog, error) {
-	if !useExisting {
-		// Check if catalog sharing is enabled and if catalog already exists
-		if catalog != nil {
-			if catalog.Label != nil && catalog.ID != nil {
-				logger.ShortInfo(fmt.Sprintf("Using existing catalog: %s with ID %s", *catalog.Label, *catalog.ID))
-			} else {
-				logger.ShortWarn("Using existing catalog but catalog details are incomplete")
-			}
-		} else if sharedCatalog != nil && *sharedCatalog {
-			// For shared catalogs, only create if no shared catalog exists yet
-			// Individual tests with SharedCatalog=true should not create new catalogs
-			logger.ShortInfo("SharedCatalog=true but no existing shared catalog available - this may indicate a setup issue")
-			logger.ShortInfo("Creating catalog anyway to avoid test failure, but consider using matrix tests for proper catalog sharing")
-			catalog, err := infoSvc.CreateCatalog(catalogName)
-			if err != nil {
-				logger.CriticalError(fmt.Sprintf("Error creating catalog for shared use: %v", err))
-				testing.Fail()
-				return nil, fmt.Errorf("error creating catalog for shared use: %w", err)
-			}
-
-			// Add post-creation delay for eventual consistency
-			if postCreateDelay != nil && *postCreateDelay > 0 {
-				logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *postCreateDelay))
-				time.Sleep(*postCreateDelay)
-			}
-
-			if catalog != nil && catalog.Label != nil && catalog.ID != nil {
-				logger.ShortInfo(fmt.Sprintf("Created catalog for shared use: %s with ID %s", *catalog.Label, *catalog.ID))
-			} else {
-				logger.ShortWarn("Created catalog for shared use but catalog details are incomplete")
-			}
-			return catalog, nil
-		} else {
-			// Create new catalog only for non-shared usage
-			logger.ShortInfo(fmt.Sprintf("Creating a new catalog: %s", catalogName))
-			catalog, err := infoSvc.CreateCatalog(catalogName)
-			if err != nil {
-				logger.CriticalError(fmt.Sprintf("Error creating a new catalog: %v", err))
-				testing.Fail()
-				return nil, fmt.Errorf("error creating a new catalog: %w", err)
-			}
-
-			// Add post-creation delay for eventual consistency
-			if postCreateDelay != nil && *postCreateDelay > 0 {
-				logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *postCreateDelay))
-				time.Sleep(*postCreateDelay)
-			}
-
-			if catalog != nil && catalog.Label != nil && catalog.ID != nil {
-				logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *catalog.Label, *catalog.ID))
-			} else {
-				logger.ShortWarn("Created catalog but catalog details are incomplete")
-			}
-			return catalog, nil
-		}
-	} else {
-		logger.ShortInfo("Using existing catalog")
-		logger.ShortWarn("Not implemented yet")
-		// TODO: lookup the catalog ID no api for this
-	}
-	return nil, nil
 }

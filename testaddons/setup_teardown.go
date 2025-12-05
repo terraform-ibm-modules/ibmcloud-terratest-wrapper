@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
-	testprojects "github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
 )
 
 // TestSetup performs the initial setup for addon tests
@@ -165,16 +164,16 @@ func (options *TestAddonOptions) testSetup() error {
 	options.Logger.ShortInfo(fmt.Sprintf("Current repo: %s", repo))
 	options.Logger.ShortInfo(fmt.Sprintf("Current branch URL: %s", *options.currentBranchUrl))
 
-	catalog, err := testprojects.SetupCatalog(
-		options.CatalogUseExisting,
-		options.catalog,
-		options.CatalogName,
-		options.SharedCatalog,
-		options.CloudInfoService,
-		options.Logger,
-		options.Testing,
-		options.PostCreateDelay,
-	)
+	catalog, err := cloudinfo.SetupCatalog(cloudinfo.SetupCatalogOptions{
+		CatalogUseExisting: options.CatalogUseExisting,
+		Catalog:            options.catalog,
+		CatalogName:        options.CatalogName,
+		SharedCatalog:      options.SharedCatalog,
+		CloudInfoService:   options.CloudInfoService,
+		Logger:             options.Logger,
+		Testing:            options.Testing,
+		PostCreateDelay:    options.PostCreateDelay,
+	})
 
 	if err != nil {
 		return err
