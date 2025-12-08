@@ -173,6 +173,7 @@ func (options *TestAddonOptions) testSetup() error {
 		Logger:             options.Logger,
 		Testing:            options.Testing,
 		PostCreateDelay:    options.PostCreateDelay,
+		TestType:           "addons",
 	})
 
 	if err != nil {
@@ -184,9 +185,29 @@ func (options *TestAddonOptions) testSetup() error {
 		return err
 	}
 
-	if err := options.setupProject(); err != nil {
+	project, projectConfig, err := cloudinfo.SetupProject(cloudinfo.SetupProjectOptions{
+		CurrentProject:           options.currentProject,
+		CurrentProjectConfig:     options.currentProjectConfig,
+		ProjectDestroyOnDelete:   options.ProjectDestroyOnDelete,
+		ProjectAutoDeploy:        options.ProjectAutoDeploy,
+		ProjectAutoDeployMode:    options.ProjectAutoDeployMode,
+		ProjectMonitoringEnabled: options.ProjectMonitoringEnabled,
+		ProjectEnvironments:      options.ProjectEnvironments,
+		ProjectName:              options.ProjectName,
+		ProjectDescription:       options.ProjectDescription,
+		ProjectRetryConfig:       options.ProjectRetryConfig,
+		ResourceGroup:            options.ResourceGroup,
+		QuietMode:                options.QuietMode,
+		PostCreateDelay:          options.PostCreateDelay,
+		CloudInfoService:         options.CloudInfoService,
+		Logger:                   options.Logger,
+		Testing:                  options.Testing,
+	})
+	if err != nil {
 		return err
 	}
+	options.currentProject = project
+	options.currentProjectConfig = projectConfig
 
 	return nil
 }
