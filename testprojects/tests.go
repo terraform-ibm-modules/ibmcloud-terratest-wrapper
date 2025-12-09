@@ -320,7 +320,7 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				deployableState = true
 			case project.ProjectConfig_State_Deployed, project.ProjectConfig_State_Approved:
 				currentDeployStatus = fmt.Sprintf("%s%s%s is %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
-			case project.ProjectConfig_State_ValidatingFailed, project.ProjectConfig_State_DeployingFailed:
+			case project.ProjectConfig_State_ValidatingFailed:
 				re := regexp.MustCompile(`workspace:(.+)$`)
 				if member.Schematics != nil && member.Schematics.WorkspaceCrn != nil {
 					matches := re.FindStringSubmatch(*member.Schematics.WorkspaceCrn)
@@ -339,16 +339,24 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 							deployableState = true
 							failed = false
 							options.Logger.ShortInfo("Project Validation failed, but Schematics Workspace Plan succeeded. Continuing with deployment.")
+							currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
 							continue
 						}
 					}
 				}
+				currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
 				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location, options.currentStackConfig.ProjectID, *member.ID)
 				deployableState = false
 				failed = true
 				options.Logger.ShortError(terraLogs)
 				errorList = append(errorList, fmt.Errorf("%s", logMessage))
-
+			case project.ProjectConfig_State_DeployingFailed:
+				currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
+				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location, options.currentStackConfig.ProjectID, *member.ID)
+				deployableState = false
+				failed = true
+				options.Logger.ShortError(terraLogs)
+				errorList = append(errorList, fmt.Errorf("%s", logMessage))
 			case project.ProjectConfig_State_Draft:
 				if stateCode == project.ProjectConfig_StateCode_AwaitingPrerequisite || (stateCode == project.ProjectConfig_StateCode_AwaitingMemberDeployment && strings.HasSuffix(memberName, " Container")) {
 					currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
