@@ -1463,7 +1463,7 @@ type SetupCatalogOptions struct {
 	Testing            *testing.T
 	PostCreateDelay    *time.Duration
 	AddonConfig        AddonConfig
-	TestType           string
+	IsAddonTest        bool
 }
 
 // setupCatalog handles catalog creation or reuse based on configuration
@@ -1485,7 +1485,7 @@ func SetupCatalog(options SetupCatalogOptions) (*catalogmanagementv1.Catalog, er
 		if options.Catalog != nil && options.Catalog.Label != nil && options.Catalog.ID != nil {
 			options.Logger.ShortInfo(fmt.Sprintf("Created catalog: %s with ID %s", *options.Catalog.Label, *options.Catalog.ID))
 			// Seed root AddonConfig CatalogID immediately after creation
-			if options.TestType == "addons" && options.AddonConfig.CatalogID == "" {
+			if options.IsAddonTest && options.AddonConfig.CatalogID == "" {
 				options.AddonConfig.CatalogID = *options.Catalog.ID
 				options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from newly created catalog: %s", options.AddonConfig.CatalogID))
 			}
@@ -1503,7 +1503,7 @@ func SetupCatalog(options SetupCatalogOptions) (*catalogmanagementv1.Catalog, er
 				// Seed root AddonConfig CatalogID from the shared/existing catalog to avoid later
 				// recovery paths that depend on network calls (helps under 429 rate limits)
 
-				if options.TestType == "addons" && options.AddonConfig.CatalogID == "" {
+				if options.IsAddonTest && options.AddonConfig.CatalogID == "" {
 					options.AddonConfig.CatalogID = *options.Catalog.ID
 					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from existing catalog: %s", options.AddonConfig.CatalogID))
 				}

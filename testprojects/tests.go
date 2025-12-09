@@ -873,7 +873,7 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		Logger:             options.Logger,
 		Testing:            options.Testing,
 		PostCreateDelay:    options.PostCreateDelay,
-		TestType:           "projects",
+		IsAddonTest:        false,
 	})
 
 	if err != nil {

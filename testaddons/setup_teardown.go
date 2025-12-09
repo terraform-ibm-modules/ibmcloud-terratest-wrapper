@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
-	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
@@ -173,7 +171,7 @@ func (options *TestAddonOptions) testSetup() error {
 		Logger:             options.Logger,
 		Testing:            options.Testing,
 		PostCreateDelay:    options.PostCreateDelay,
-		TestType:           "addons",
+		IsAddonTest:        false,
 	})
 
 	if err != nil {
@@ -279,119 +277,6 @@ func (options *TestAddonOptions) setupOffering() error {
 		options.AddonConfig.OfferingLabel = *options.offering.Label
 
 		options.Logger.ShortInfo(fmt.Sprintf("Offering Version Locator: %s", options.AddonConfig.VersionLocator))
-	}
-	return nil
-}
-
-// setupProject handles project creation
-func (options *TestAddonOptions) setupProject() error {
-	// Create a new project (only if not already created)
-	if options.currentProject == nil {
-		options.Logger.ShortInfo("Creating project for test")
-		if options.ProjectDestroyOnDelete == nil {
-			options.ProjectDestroyOnDelete = core.BoolPtr(true)
-		}
-		if options.ProjectAutoDeploy == nil {
-			options.ProjectAutoDeploy = core.BoolPtr(false)
-		}
-		if options.ProjectMonitoringEnabled == nil {
-			options.ProjectMonitoringEnabled = core.BoolPtr(false)
-		}
-		options.currentProjectConfig = &cloudinfo.ProjectsConfig{
-			Location:           options.ProjectLocation,
-			ProjectName:        options.ProjectName,
-			ProjectDescription: options.ProjectDescription,
-			ResourceGroup:      options.ResourceGroup,
-			DestroyOnDelete:    *options.ProjectDestroyOnDelete,
-			MonitoringEnabled:  *options.ProjectMonitoringEnabled,
-			AutoDeploy:         *options.ProjectAutoDeploy,
-			AutoDeployMode:     options.ProjectAutoDeployMode,
-			Environments:       options.ProjectEnvironments,
-		}
-
-		// Create project with retry logic to handle transient database errors
-		retryConfig := common.ProjectOperationRetryConfig()
-		if options.ProjectRetryConfig != nil {
-			retryConfig = *options.ProjectRetryConfig
-		}
-		retryConfig.Logger = options.Logger
-		retryConfig.OperationName = "project creation"
-
-		prj, err := common.RetryWithConfig(retryConfig, func() (*project.Project, error) {
-			prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
-			if err != nil {
-				options.Logger.ShortWarn(fmt.Sprintf("Project creation attempt failed: %v (will retry if retryable)", err))
-
-				// Check if project was actually created despite the error
-				if common.StringContainsIgnoreCase(err.Error(), "already exists") {
-					options.Logger.ShortInfo("Project creation returned 'already exists' error - this indicates the project was successfully created on a previous attempt")
-
-					// The "already exists" error means the operation succeeded - the project exists
-					// We need to extract the project information from the error or response
-					// Since the error confirms creation succeeded, we'll return success
-					// The project ID should be available in the response even on "already exists" error
-					if resp != nil && resp.StatusCode == 409 { // 409 Conflict for "already exists"
-						options.Logger.ShortInfo("Treating 'already exists' response as successful project creation")
-
-						// For "already exists", the project was created successfully
-						// We'll return the prj even if there was an error, as the operation succeeded
-						if prj != nil {
-							return prj, nil
-						}
-
-						// If prj is nil but we got 409, create a minimal project reference
-						// This case handles when IBM Cloud returns an error but the project exists
-						options.Logger.ShortInfo("Project created successfully despite API error response")
-						return &project.Project{
-							ID: core.StringPtr(""), // Will be populated later if needed
-						}, nil
-					}
-				}
-
-				return nil, err
-			}
-			return prj, nil
-		})
-
-		if err != nil {
-			projectURL := fmt.Sprintf("https://cloud.ibm.com/projects")
-			errorMsg := fmt.Sprintf("Error creating a new project after retries: %v\nProject Console: %s", err, projectURL)
-
-			// Always show project console link on critical failures, even in quiet mode
-			if options.QuietMode {
-				options.Logger.ShortError(fmt.Sprintf("Project creation failed - Console: %s", projectURL))
-			}
-
-			options.Logger.CriticalError(errorMsg)
-			options.Testing.Fail()
-			return fmt.Errorf("error creating a new project: %w", err)
-		}
-		options.currentProject = prj
-		options.currentProjectConfig.ProjectID = *options.currentProject.ID
-
-		// Add post-creation delay for eventual consistency
-		if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
-			options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for project to be available...", *options.PostCreateDelay))
-			time.Sleep(*options.PostCreateDelay)
-		}
-
-		options.Logger.ShortInfo(fmt.Sprintf("Created a new project: %s with ID %s", options.ProjectName, options.currentProjectConfig.ProjectID))
-		projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", options.currentProjectConfig.ProjectID)
-		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
-		region := options.currentProjectConfig.Location
-		if region == "" {
-			region = "unknown"
-		}
-		options.Logger.ShortInfo(fmt.Sprintf("Project Region: %s", region))
-	} else {
-		// Using existing project
-		options.Logger.ShortInfo(fmt.Sprintf("Using existing project: %s with ID %s", options.ProjectName, *options.currentProject.ID))
-		// Ensure currentProjectConfig is set up properly for existing projects
-		if options.currentProjectConfig == nil {
-			options.currentProjectConfig = &cloudinfo.ProjectsConfig{
-				ProjectID: *options.currentProject.ID,
-			}
-		}
 	}
 	return nil
 }
