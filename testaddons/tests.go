@@ -374,7 +374,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	updateProjectConfiguration(options, configDetails)
 
 	// create TestProjectsOptions to use with the projects package
-	deployOptions := testprojects.TestProjectsOptions{
+	options.deployOptions = testprojects.TestProjectsOptions{
 		Prefix:               options.Prefix,
 		ProjectName:          options.ProjectName,
 		CloudInfoService:     options.CloudInfoService,
@@ -384,8 +384,8 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		StackPollTimeSeconds: 60,
 	}
 
-	deployOptions.SetCurrentStackConfig(&configDetails)
-	deployOptions.SetCurrentProjectConfig(options.currentProjectConfig)
+	options.deployOptions.SetCurrentStackConfig(&configDetails)
+	options.deployOptions.SetCurrentProjectConfig(options.currentProjectConfig)
 
 	allConfigs, err := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
 	if err != nil {
@@ -1452,7 +1452,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		if options.QuietMode {
 			options.Logger.ProgressStage("Deploying infrastructure")
 		}
-		errorList := deployOptions.TriggerDeployAndWait()
+		errorList := options.deployOptions.TriggerDeployAndWait()
 		if len(errorList) > 0 {
 			options.Logger.ShortError("Errors occurred during infrastructure deployment")
 			options.Logger.ShortError("Note: IBM Cloud Projects workflow requires successful validation (terraform plan) before deployment (terraform apply)")
@@ -1548,23 +1548,12 @@ func (options *TestAddonOptions) RunPreUndeployHook() error {
 }
 
 func (options *TestAddonOptions) Undeploy() error {
-	// create TestProjectsOptions to use with the projects package
-	deployOptions := testprojects.TestProjectsOptions{
-		Prefix:               options.Prefix,
-		ProjectName:          options.ProjectName,
-		CloudInfoService:     options.CloudInfoService,
-		Logger:               options.Logger.GetUnderlyingLogger(),
-		Testing:              options.Testing,
-		DeployTimeoutMinutes: options.DeployTimeoutMinutes,
-		StackPollTimeSeconds: 60,
-	}
-
 	// Trigger Undeploy
 	if !options.SkipInfrastructureDeployment {
 		if options.QuietMode {
 			options.Logger.ProgressStage("Cleaning up infrastructure")
 		}
-		undeployErrs := deployOptions.TriggerUnDeployAndWait()
+		undeployErrs := options.deployOptions.TriggerUnDeployAndWait()
 		if len(undeployErrs) > 0 {
 			options.Logger.ShortError("Errors occurred during undeploy")
 			for _, err := range undeployErrs {

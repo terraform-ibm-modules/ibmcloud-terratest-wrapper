@@ -373,9 +373,19 @@ func (options *TestAddonOptions) testTearDown() {
 	}
 
 	if options.executeResourceTearDown() {
-		options.RunPreUndeployHook()
-		options.Undeploy()
-		options.RunPostUndeployHook()
+		err := options.RunPreUndeployHook()
+		if err != nil {
+			options.Logger.ShortWarn(fmt.Sprintf("Pre Undeploy hook failed: %s", err))
+		}
+
+		err = options.Undeploy()
+		if err != nil {
+			options.Logger.ShortWarn(fmt.Sprintf("Undeploy resources failed: %s", err))
+			postHookErr := options.RunPostUndeployHook()
+			if postHookErr != nil {
+				options.Logger.ShortWarn(fmt.Sprintf("Post Undeploy hook failed: %s", postHookErr))
+			}
+		}
 	}
 
 	if options.executeProjectTearDown() {
