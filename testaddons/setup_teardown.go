@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
-	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
@@ -164,99 +162,51 @@ func (options *TestAddonOptions) testSetup() error {
 	options.Logger.ShortInfo(fmt.Sprintf("Current repo: %s", repo))
 	options.Logger.ShortInfo(fmt.Sprintf("Current branch URL: %s", *options.currentBranchUrl))
 
-	if err := options.setupCatalog(); err != nil {
-		return err
-	}
+	catalog, err := cloudinfo.SetupCatalog(cloudinfo.SetupCatalogOptions{
+		CatalogUseExisting: options.CatalogUseExisting,
+		Catalog:            options.catalog,
+		CatalogName:        options.CatalogName,
+		SharedCatalog:      options.SharedCatalog,
+		CloudInfoService:   options.CloudInfoService,
+		Logger:             options.Logger,
+		Testing:            options.Testing,
+		PostCreateDelay:    options.PostCreateDelay,
+		IsAddonTest:        false,
+	})
 
+	if err != nil {
+		return err
+	} else {
+		options.catalog = catalog
+	}
 	if err := options.setupOffering(); err != nil {
 		return err
 	}
 
-	if err := options.setupProject(); err != nil {
+	project, projectConfig, err := cloudinfo.SetupProject(cloudinfo.SetupProjectOptions{
+		CurrentProject:           options.currentProject,
+		CurrentProjectConfig:     options.currentProjectConfig,
+		ProjectDestroyOnDelete:   options.ProjectDestroyOnDelete,
+		ProjectAutoDeploy:        options.ProjectAutoDeploy,
+		ProjectAutoDeployMode:    options.ProjectAutoDeployMode,
+		ProjectMonitoringEnabled: options.ProjectMonitoringEnabled,
+		ProjectEnvironments:      options.ProjectEnvironments,
+		ProjectName:              options.ProjectName,
+		ProjectDescription:       options.ProjectDescription,
+		ProjectRetryConfig:       options.ProjectRetryConfig,
+		ResourceGroup:            options.ResourceGroup,
+		QuietMode:                options.QuietMode,
+		PostCreateDelay:          options.PostCreateDelay,
+		CloudInfoService:         options.CloudInfoService,
+		Logger:                   options.Logger,
+		Testing:                  options.Testing,
+	})
+	if err != nil {
 		return err
 	}
+	options.currentProject = project
+	options.currentProjectConfig = projectConfig
 
-	return nil
-}
-
-// setupCatalog handles catalog creation or reuse based on configuration
-func (options *TestAddonOptions) setupCatalog() error {
-	if !options.CatalogUseExisting {
-		// Check if catalog sharing is enabled and if catalog already exists
-		if options.catalog != nil {
-			if options.catalog.Label != nil && options.catalog.ID != nil {
-				options.Logger.ShortInfo(fmt.Sprintf("Using existing catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
-				// Seed root AddonConfig CatalogID from the shared/ existing catalog to avoid later
-				// recovery paths that depend on network calls (helps under 429 rate limits)
-				if options.AddonConfig.CatalogID == "" {
-					options.AddonConfig.CatalogID = *options.catalog.ID
-					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from existing catalog: %s", options.AddonConfig.CatalogID))
-				}
-			} else {
-				options.Logger.ShortWarn("Using existing catalog but catalog details are incomplete")
-			}
-		} else if options.SharedCatalog != nil && *options.SharedCatalog {
-			// For shared catalogs, only create if no shared catalog exists yet
-			// Individual tests with SharedCatalog=true should not create new catalogs
-			options.Logger.ShortInfo("SharedCatalog=true but no existing shared catalog available - this may indicate a setup issue")
-			options.Logger.ShortInfo("Creating catalog anyway to avoid test failure, but consider using matrix tests for proper catalog sharing")
-			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
-			if err != nil {
-				options.Logger.CriticalError(fmt.Sprintf("Error creating catalog for shared use: %v", err))
-				options.Testing.Fail()
-				return fmt.Errorf("error creating catalog for shared use: %w", err)
-			}
-			options.catalog = catalog
-
-			// Add post-creation delay for eventual consistency
-			if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
-				options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *options.PostCreateDelay))
-				time.Sleep(*options.PostCreateDelay)
-			}
-
-			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
-				options.Logger.ShortInfo(fmt.Sprintf("Created catalog for shared use: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
-				// Seed root AddonConfig CatalogID immediately after creation
-				if options.AddonConfig.CatalogID == "" {
-					options.AddonConfig.CatalogID = *options.catalog.ID
-					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from newly created shared catalog: %s", options.AddonConfig.CatalogID))
-				}
-			} else {
-				options.Logger.ShortWarn("Created catalog for shared use but catalog details are incomplete")
-			}
-		} else {
-			// Create new catalog only for non-shared usage
-			options.Logger.ShortInfo(fmt.Sprintf("Creating a new catalog: %s", options.CatalogName))
-			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
-			if err != nil {
-				options.Logger.CriticalError(fmt.Sprintf("Error creating a new catalog: %v", err))
-				options.Testing.Fail()
-				return fmt.Errorf("error creating a new catalog: %w", err)
-			}
-			options.catalog = catalog
-
-			// Add post-creation delay for eventual consistency
-			if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
-				options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *options.PostCreateDelay))
-				time.Sleep(*options.PostCreateDelay)
-			}
-
-			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
-				options.Logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
-				// Seed root AddonConfig CatalogID immediately after creation
-				if options.AddonConfig.CatalogID == "" {
-					options.AddonConfig.CatalogID = *options.catalog.ID
-					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from newly created catalog: %s", options.AddonConfig.CatalogID))
-				}
-			} else {
-				options.Logger.ShortWarn("Created catalog but catalog details are incomplete")
-			}
-		}
-	} else {
-		options.Logger.ShortInfo("Using existing catalog")
-		options.Logger.ShortWarn("Not implemented yet")
-		// TODO: lookup the catalog ID no api for this
-	}
 	return nil
 }
 
@@ -327,119 +277,6 @@ func (options *TestAddonOptions) setupOffering() error {
 		options.AddonConfig.OfferingLabel = *options.offering.Label
 
 		options.Logger.ShortInfo(fmt.Sprintf("Offering Version Locator: %s", options.AddonConfig.VersionLocator))
-	}
-	return nil
-}
-
-// setupProject handles project creation
-func (options *TestAddonOptions) setupProject() error {
-	// Create a new project (only if not already created)
-	if options.currentProject == nil {
-		options.Logger.ShortInfo("Creating project for test")
-		if options.ProjectDestroyOnDelete == nil {
-			options.ProjectDestroyOnDelete = core.BoolPtr(true)
-		}
-		if options.ProjectAutoDeploy == nil {
-			options.ProjectAutoDeploy = core.BoolPtr(false)
-		}
-		if options.ProjectMonitoringEnabled == nil {
-			options.ProjectMonitoringEnabled = core.BoolPtr(false)
-		}
-		options.currentProjectConfig = &cloudinfo.ProjectsConfig{
-			Location:           options.ProjectLocation,
-			ProjectName:        options.ProjectName,
-			ProjectDescription: options.ProjectDescription,
-			ResourceGroup:      options.ResourceGroup,
-			DestroyOnDelete:    *options.ProjectDestroyOnDelete,
-			MonitoringEnabled:  *options.ProjectMonitoringEnabled,
-			AutoDeploy:         *options.ProjectAutoDeploy,
-			AutoDeployMode:     options.ProjectAutoDeployMode,
-			Environments:       options.ProjectEnvironments,
-		}
-
-		// Create project with retry logic to handle transient database errors
-		retryConfig := common.ProjectOperationRetryConfig()
-		if options.ProjectRetryConfig != nil {
-			retryConfig = *options.ProjectRetryConfig
-		}
-		retryConfig.Logger = options.Logger
-		retryConfig.OperationName = "project creation"
-
-		prj, err := common.RetryWithConfig(retryConfig, func() (*project.Project, error) {
-			prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
-			if err != nil {
-				options.Logger.ShortWarn(fmt.Sprintf("Project creation attempt failed: %v (will retry if retryable)", err))
-
-				// Check if project was actually created despite the error
-				if common.StringContainsIgnoreCase(err.Error(), "already exists") {
-					options.Logger.ShortInfo("Project creation returned 'already exists' error - this indicates the project was successfully created on a previous attempt")
-
-					// The "already exists" error means the operation succeeded - the project exists
-					// We need to extract the project information from the error or response
-					// Since the error confirms creation succeeded, we'll return success
-					// The project ID should be available in the response even on "already exists" error
-					if resp != nil && resp.StatusCode == 409 { // 409 Conflict for "already exists"
-						options.Logger.ShortInfo("Treating 'already exists' response as successful project creation")
-
-						// For "already exists", the project was created successfully
-						// We'll return the prj even if there was an error, as the operation succeeded
-						if prj != nil {
-							return prj, nil
-						}
-
-						// If prj is nil but we got 409, create a minimal project reference
-						// This case handles when IBM Cloud returns an error but the project exists
-						options.Logger.ShortInfo("Project created successfully despite API error response")
-						return &project.Project{
-							ID: core.StringPtr(""), // Will be populated later if needed
-						}, nil
-					}
-				}
-
-				return nil, err
-			}
-			return prj, nil
-		})
-
-		if err != nil {
-			projectURL := fmt.Sprintf("https://cloud.ibm.com/projects")
-			errorMsg := fmt.Sprintf("Error creating a new project after retries: %v\nProject Console: %s", err, projectURL)
-
-			// Always show project console link on critical failures, even in quiet mode
-			if options.QuietMode {
-				options.Logger.ShortError(fmt.Sprintf("Project creation failed - Console: %s", projectURL))
-			}
-
-			options.Logger.CriticalError(errorMsg)
-			options.Testing.Fail()
-			return fmt.Errorf("error creating a new project: %w", err)
-		}
-		options.currentProject = prj
-		options.currentProjectConfig.ProjectID = *options.currentProject.ID
-
-		// Add post-creation delay for eventual consistency
-		if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
-			options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for project to be available...", *options.PostCreateDelay))
-			time.Sleep(*options.PostCreateDelay)
-		}
-
-		options.Logger.ShortInfo(fmt.Sprintf("Created a new project: %s with ID %s", options.ProjectName, options.currentProjectConfig.ProjectID))
-		projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", options.currentProjectConfig.ProjectID)
-		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
-		region := options.currentProjectConfig.Location
-		if region == "" {
-			region = "unknown"
-		}
-		options.Logger.ShortInfo(fmt.Sprintf("Project Region: %s", region))
-	} else {
-		// Using existing project
-		options.Logger.ShortInfo(fmt.Sprintf("Using existing project: %s with ID %s", options.ProjectName, *options.currentProject.ID))
-		// Ensure currentProjectConfig is set up properly for existing projects
-		if options.currentProjectConfig == nil {
-			options.currentProjectConfig = &cloudinfo.ProjectsConfig{
-				ProjectID: *options.currentProject.ID,
-			}
-		}
 	}
 	return nil
 }
