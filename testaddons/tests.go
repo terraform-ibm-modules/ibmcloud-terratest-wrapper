@@ -1488,6 +1488,51 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.ShortInfo("Finished PostDeployHook")
 	}
 
+	err = options.RunPreUndeployHook()
+	if err != nil {
+		return setFailureResult(err, "PRE_UNDEPLOY_HOOK")
+	}
+
+	options.Logger.ShortInfo("Testing undeployed addons")
+	err = options.Undeploy()
+	if err != nil {
+		return setFailureResult(err, "UNDEPLOY")
+	}
+
+	err = options.RunPostUndeployHook()
+	if err != nil {
+		return setFailureResult(err, "POST_UNDEPLOY_HOOK")
+	}
+
+	// Enhanced reporting: show success message for direct test execution
+	if enhancedReporting {
+		options.Logger.ProgressSuccess("✅ All tests passed - no actions required")
+
+		// Display strict mode warnings if running in permissive mode and warnings exist
+		if options.StrictMode != nil && !*options.StrictMode && options.lastValidationResult != nil && len(options.lastValidationResult.Warnings) > 0 {
+			options.displaySingleTestStrictModeWarnings()
+		}
+	}
+
+	return nil
+}
+
+func (options *TestAddonOptions) RunPostUndeployHook() error {
+	if options.PostUndeployHook != nil {
+		options.Logger.ShortInfo("Running PostUndeployHook")
+		hookErr := options.PostUndeployHook(options)
+		if hookErr != nil {
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
+			options.Testing.Fail()
+			return hookErr
+		}
+		options.Logger.ShortInfo("Finished PostUndeployHook")
+	}
+	return nil
+}
+
+func (options *TestAddonOptions) RunPreUndeployHook() error {
 	if options.PreUndeployHook != nil {
 		options.Logger.ShortInfo("Running PreUndeployHook")
 		hookErr := options.PreUndeployHook(options)
@@ -1495,12 +1540,24 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return setFailureResult(hookErr, "PRE_UNDEPLOY_HOOK")
+			return hookErr
 		}
 		options.Logger.ShortInfo("Finished PreUndeployHook")
 	}
+	return nil
+}
 
-	options.Logger.ShortInfo("Testing undeployed addons")
+func (options *TestAddonOptions) Undeploy() error {
+	// create TestProjectsOptions to use with the projects package
+	deployOptions := testprojects.TestProjectsOptions{
+		Prefix:               options.Prefix,
+		ProjectName:          options.ProjectName,
+		CloudInfoService:     options.CloudInfoService,
+		Logger:               options.Logger.GetUnderlyingLogger(),
+		Testing:              options.Testing,
+		DeployTimeoutMinutes: options.DeployTimeoutMinutes,
+		StackPollTimeSeconds: 60,
+	}
 
 	// Trigger Undeploy
 	if !options.SkipInfrastructureDeployment {
@@ -1516,36 +1573,13 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return setFailureResult(fmt.Errorf("errors occurred during undeploy"), "UNDEPLOY")
+			return fmt.Errorf("errors occurred during undeploy")
 		}
 		options.Logger.ShortInfo("Undeploy completed successfully")
 	} else {
 		options.Logger.ShortInfo("Infrastructure undeploy skipped")
 		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Yellow, "skip ⚠"))
 	}
-
-	if options.PostUndeployHook != nil {
-		options.Logger.ShortInfo("Running PostUndeployHook")
-		hookErr := options.PostUndeployHook(options)
-		if hookErr != nil {
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return setFailureResult(hookErr, "POST_UNDEPLOY_HOOK")
-		}
-		options.Logger.ShortInfo("Finished PostUndeployHook")
-	}
-
-	// Enhanced reporting: show success message for direct test execution
-	if enhancedReporting {
-		options.Logger.ProgressSuccess("✅ All tests passed - no actions required")
-
-		// Display strict mode warnings if running in permissive mode and warnings exist
-		if options.StrictMode != nil && !*options.StrictMode && options.lastValidationResult != nil && len(options.lastValidationResult.Warnings) > 0 {
-			options.displaySingleTestStrictModeWarnings()
-		}
-	}
-
 	return nil
 }
 

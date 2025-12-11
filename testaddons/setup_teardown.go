@@ -281,6 +281,75 @@ func (options *TestAddonOptions) setupOffering() error {
 	return nil
 }
 
+// Function to determine if test resources should be destroyed
+//
+// Conditions for teardown:
+// - The `SkipUndeploy` option is false (if true will override everything else)
+// - Test failed and DO_NOT_DESTROY_ON_FAILURE was not set or false
+// - Test completed with success (and `SkipUndeploy` was false)
+func (options *TestAddonOptions) executeResourceTearDown() bool {
+
+	// assume we will execute
+	execute := true
+
+	// if skipundeploy is true, short circuit we are done
+	if options.SkipUndeploy {
+		options.Logger.ShortInfo("SkipUndeploy is set")
+		execute = false
+	}
+
+	if options.Testing.Failed() && common.DoNotDestroyOnFailure() {
+		options.Logger.ShortInfo("DO_NOT_DESTROY_ON_FAILURE is set")
+		options.Logger.ShortInfo(fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
+		execute = false
+	}
+
+	// if test failed and we are not executing, add a log line stating this
+	if options.Testing.Failed() && !execute {
+		options.Logger.ShortError("Terratest failed. Debug the Test and delete resources manually.")
+	}
+
+	if execute {
+		options.Logger.ShortInfo("Executing resource teardown")
+
+	}
+	return execute
+}
+
+// Function to determine if the project or stack steps (and their schematics workspaces) should be destroyed
+//
+// Conditions for teardown:
+// - Test completed with success and `SkipProjectDelete` is false
+func (options *TestAddonOptions) executeProjectTearDown() bool {
+
+	// assume we will execute
+	execute := true
+
+	// if SkipProjectDelete then short circuit we are done
+	if options.SkipProjectDelete {
+		execute = false
+	}
+
+	if options.Testing.Failed() {
+		execute = false
+	}
+	// skip teardown if no project was created
+	if options.currentProject == nil {
+		execute = false
+	}
+
+	// if test failed and we are not executing, add a log line stating this
+	if options.Testing.Failed() && !execute {
+		if options.currentProject == nil {
+			options.Logger.ShortError("Terratest failed. No project to delete.")
+		} else {
+			options.Logger.ShortError("Terratest failed. Debug the Test and delete the project manually.")
+		}
+	}
+
+	return execute
+}
+
 // TestTearDown performs cleanup after addon tests
 func (options *TestAddonOptions) TestTearDown() {
 	if !options.SkipTestTearDown {
@@ -303,74 +372,69 @@ func (options *TestAddonOptions) testTearDown() {
 		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
 	}
 
-	// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
-	if options.Testing.Failed() && common.DoNotDestroyOnFailure() {
-		if options.currentProject == nil || options.currentProject.ID == nil {
-			options.Logger.ShortError("Terratest failed. No project to delete.")
-		} else {
-			options.Logger.ShortError("Terratest failed. Debug the Test and delete resources manually.")
-		}
-		return
+	if options.executeResourceTearDown() {
+		options.RunPreUndeployHook()
+		options.Undeploy()
+		options.RunPostUndeployHook()
 	}
 
-	options.Logger.ShortInfo("Destroying test resources")
-	options.Logger.ShortInfo(fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
+	if options.executeProjectTearDown() {
+		// Project cleanup logic: always clean up projects since we're not sharing them
+		if options.currentProject != nil && options.currentProject.ID != nil {
+			options.Logger.ShortInfo(fmt.Sprintf("Deleting the project %s with ID %s", options.ProjectName, *options.currentProject.ID))
 
-	// Project cleanup logic: always clean up projects since we're not sharing them
-	if options.currentProject != nil && options.currentProject.ID != nil {
-		options.Logger.ShortInfo(fmt.Sprintf("Deleting the project %s with ID %s", options.ProjectName, *options.currentProject.ID))
+			// Delete project with retry logic to handle transient database errors
+			retryConfig := common.ProjectOperationRetryConfig()
+			if options.ProjectRetryConfig != nil {
+				retryConfig = *options.ProjectRetryConfig
+			}
+			retryConfig.Logger = options.Logger
+			retryConfig.OperationName = "project deletion"
 
-		// Delete project with retry logic to handle transient database errors
-		retryConfig := common.ProjectOperationRetryConfig()
-		if options.ProjectRetryConfig != nil {
-			retryConfig = *options.ProjectRetryConfig
-		}
-		retryConfig.Logger = options.Logger
-		retryConfig.OperationName = "project deletion"
+			_, err := common.RetryWithConfig(retryConfig, func() (*project.ProjectDeleteResponse, error) {
+				result, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
+				if err != nil {
+					options.Logger.ShortWarn(fmt.Sprintf("Project deletion attempt failed: %v (will retry if retryable)", err))
 
-		_, err := common.RetryWithConfig(retryConfig, func() (*project.ProjectDeleteResponse, error) {
-			result, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
-			if err != nil {
-				options.Logger.ShortWarn(fmt.Sprintf("Project deletion attempt failed: %v (will retry if retryable)", err))
+					// Check if project was actually deleted despite the error
+					if common.StringContainsIgnoreCase(err.Error(), "not found") || common.StringContainsIgnoreCase(err.Error(), "does not exist") {
+						options.Logger.ShortInfo("Project deletion returned 'not found' error - this indicates the project was successfully deleted on a previous attempt")
 
-				// Check if project was actually deleted despite the error
-				if common.StringContainsIgnoreCase(err.Error(), "not found") || common.StringContainsIgnoreCase(err.Error(), "does not exist") {
-					options.Logger.ShortInfo("Project deletion returned 'not found' error - this indicates the project was successfully deleted on a previous attempt")
+						// The "not found" error means the deletion succeeded - the project doesn't exist
+						// This is the desired end state for deletion
+						if resp != nil && resp.StatusCode == 404 { // 404 Not Found
+							options.Logger.ShortInfo("Treating 'not found' response as successful project deletion")
+							return &project.ProjectDeleteResponse{}, nil
+						}
 
-					// The "not found" error means the deletion succeeded - the project doesn't exist
-					// This is the desired end state for deletion
-					if resp != nil && resp.StatusCode == 404 { // 404 Not Found
-						options.Logger.ShortInfo("Treating 'not found' response as successful project deletion")
+						// Even without a 404 response, "not found" in error message indicates successful deletion
+						options.Logger.ShortInfo("Project deleted successfully despite API error response")
 						return &project.ProjectDeleteResponse{}, nil
 					}
 
-					// Even without a 404 response, "not found" in error message indicates successful deletion
-					options.Logger.ShortInfo("Project deleted successfully despite API error response")
-					return &project.ProjectDeleteResponse{}, nil
+					return nil, err
 				}
 
-				return nil, err
+				// Check for successful deletion (HTTP 202)
+				if resp.StatusCode != 202 {
+					options.Logger.ShortWarn(fmt.Sprintf("Project deletion returned unexpected status code: %d", resp.StatusCode))
+					return nil, fmt.Errorf("unexpected response code: %d", resp.StatusCode)
+				}
+
+				return result, nil
+			})
+
+			if assert.NoError(options.Testing, err) {
+				options.Logger.ShortInfo(fmt.Sprintf("Deleted Test Project: %s", options.currentProjectConfig.ProjectName))
+			} else {
+				errorMsg := fmt.Sprintf("Project deletion failed: %v", err)
+				options.lastTeardownErrors = append(options.lastTeardownErrors, errorMsg)
+				projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", *options.currentProject.ID)
+				options.Logger.ShortWarn(fmt.Sprintf("Error deleting Test Project: %s\nProject Console: %s", err, projectURL))
 			}
-
-			// Check for successful deletion (HTTP 202)
-			if resp.StatusCode != 202 {
-				options.Logger.ShortWarn(fmt.Sprintf("Project deletion returned unexpected status code: %d", resp.StatusCode))
-				return nil, fmt.Errorf("unexpected response code: %d", resp.StatusCode)
-			}
-
-			return result, nil
-		})
-
-		if assert.NoError(options.Testing, err) {
-			options.Logger.ShortInfo(fmt.Sprintf("Deleted Test Project: %s", options.currentProjectConfig.ProjectName))
 		} else {
-			errorMsg := fmt.Sprintf("Project deletion failed: %v", err)
-			options.lastTeardownErrors = append(options.lastTeardownErrors, errorMsg)
-			projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", *options.currentProject.ID)
-			options.Logger.ShortWarn(fmt.Sprintf("Error deleting Test Project: %s\nProject Console: %s", err, projectURL))
+			options.Logger.ShortInfo("No project ID found to delete")
 		}
-	} else {
-		options.Logger.ShortInfo("No project ID found to delete")
 	}
 
 	// Catalog cleanup logic:
