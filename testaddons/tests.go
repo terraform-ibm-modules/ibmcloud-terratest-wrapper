@@ -374,7 +374,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	updateProjectConfiguration(options, configDetails)
 
 	// create TestProjectsOptions to use with the projects package
-	deployOptions := testprojects.TestProjectsOptions{
+	options.deployOptions = testprojects.TestProjectsOptions{
 		Prefix:               options.Prefix,
 		ProjectName:          options.ProjectName,
 		CloudInfoService:     options.CloudInfoService,
@@ -384,8 +384,8 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		StackPollTimeSeconds: 60,
 	}
 
-	deployOptions.SetCurrentStackConfig(&configDetails)
-	deployOptions.SetCurrentProjectConfig(options.currentProjectConfig)
+	options.deployOptions.SetCurrentStackConfig(&configDetails)
+	options.deployOptions.SetCurrentProjectConfig(options.currentProjectConfig)
 
 	allConfigs, err := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
 	if err != nil {
@@ -1452,7 +1452,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		if options.QuietMode {
 			options.Logger.ProgressStage("Deploying infrastructure")
 		}
-		errorList := deployOptions.TriggerDeployAndWait()
+		errorList := options.deployOptions.TriggerDeployAndWait()
 		if len(errorList) > 0 {
 			options.Logger.ShortError("Errors occurred during infrastructure deployment")
 			options.Logger.ShortError("Note: IBM Cloud Projects workflow requires successful validation (terraform plan) before deployment (terraform apply)")
@@ -1488,52 +1488,20 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.ShortInfo("Finished PostDeployHook")
 	}
 
-	if options.PreUndeployHook != nil {
-		options.Logger.ShortInfo("Running PreUndeployHook")
-		hookErr := options.PreUndeployHook(options)
-		if hookErr != nil {
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return setFailureResult(hookErr, "PRE_UNDEPLOY_HOOK")
-		}
-		options.Logger.ShortInfo("Finished PreUndeployHook")
+	err = options.RunPreUndeployHook()
+	if err != nil {
+		return setFailureResult(err, "PRE_UNDEPLOY_HOOK")
 	}
 
 	options.Logger.ShortInfo("Testing undeployed addons")
-
-	// Trigger Undeploy
-	if !options.SkipInfrastructureDeployment {
-		if options.QuietMode {
-			options.Logger.ProgressStage("Cleaning up infrastructure")
-		}
-		undeployErrs := deployOptions.TriggerUnDeployAndWait()
-		if len(undeployErrs) > 0 {
-			options.Logger.ShortError("Errors occurred during undeploy")
-			for _, err := range undeployErrs {
-				options.Logger.ShortError(fmt.Sprintf("  %v", err))
-			}
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return setFailureResult(fmt.Errorf("errors occurred during undeploy"), "UNDEPLOY")
-		}
-		options.Logger.ShortInfo("Undeploy completed successfully")
-	} else {
-		options.Logger.ShortInfo("Infrastructure undeploy skipped")
-		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Yellow, "skip ⚠"))
+	err = options.Undeploy()
+	if err != nil {
+		return setFailureResult(err, "UNDEPLOY")
 	}
 
-	if options.PostUndeployHook != nil {
-		options.Logger.ShortInfo("Running PostUndeployHook")
-		hookErr := options.PostUndeployHook(options)
-		if hookErr != nil {
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return setFailureResult(hookErr, "POST_UNDEPLOY_HOOK")
-		}
-		options.Logger.ShortInfo("Finished PostUndeployHook")
+	err = options.RunPostUndeployHook()
+	if err != nil {
+		return setFailureResult(err, "POST_UNDEPLOY_HOOK")
 	}
 
 	// Enhanced reporting: show success message for direct test execution
@@ -1546,6 +1514,61 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		}
 	}
 
+	return nil
+}
+
+func (options *TestAddonOptions) RunPostUndeployHook() error {
+	if options.PostUndeployHook != nil {
+		options.Logger.ShortInfo("Running PostUndeployHook")
+		hookErr := options.PostUndeployHook(options)
+		if hookErr != nil {
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
+			options.Testing.Fail()
+			return hookErr
+		}
+		options.Logger.ShortInfo("Finished PostUndeployHook")
+	}
+	return nil
+}
+
+func (options *TestAddonOptions) RunPreUndeployHook() error {
+	if options.PreUndeployHook != nil {
+		options.Logger.ShortInfo("Running PreUndeployHook")
+		hookErr := options.PreUndeployHook(options)
+		if hookErr != nil {
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
+			options.Testing.Fail()
+			return hookErr
+		}
+		options.Logger.ShortInfo("Finished PreUndeployHook")
+	}
+	return nil
+}
+
+func (options *TestAddonOptions) Undeploy() error {
+	// Trigger Undeploy
+	if !options.SkipInfrastructureDeployment {
+		if options.QuietMode {
+			options.Logger.ProgressStage("Cleaning up infrastructure")
+		}
+		undeployErrs := options.deployOptions.TriggerUnDeployAndWait()
+		if len(undeployErrs) > 0 {
+			options.Logger.ShortError("Errors occurred during undeploy")
+			for _, err := range undeployErrs {
+				options.Logger.ShortError(fmt.Sprintf("  %v", err))
+			}
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
+			options.Testing.Fail()
+			return fmt.Errorf("errors occurred during undeploy")
+		}
+		options.Logger.ShortInfo("Undeploy completed successfully")
+	} else {
+		options.Logger.ShortInfo("Infrastructure undeploy skipped")
+		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Yellow, "skip ⚠"))
+	}
 	return nil
 }
 

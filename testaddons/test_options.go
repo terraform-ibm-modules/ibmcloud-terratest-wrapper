@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
 )
 
 const defaultRegion = "us-south"
@@ -430,6 +431,8 @@ type TestAddonOptions struct {
 	// Internal Use
 	// catalog the catalog instance in use.
 	catalog *catalogmanagementv1.Catalog
+
+	deployOptions testprojects.TestProjectsOptions
 
 	// internal use
 	// offering the offering created in the catalog.
