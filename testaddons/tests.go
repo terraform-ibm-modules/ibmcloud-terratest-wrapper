@@ -1539,7 +1539,7 @@ func (options *TestAddonOptions) Undeploy() error {
 		}
 		var undeployErrs []error
 		if options.Testing.Failed() {
-			_, undeployErrs = options.TriggerUnDeploy()
+			undeployErrs = options.TriggerUnDeploy()
 		} else {
 			undeployErrs = options.deployOptions.TriggerUnDeployAndWait()
 		}
@@ -1561,7 +1561,7 @@ func (options *TestAddonOptions) Undeploy() error {
 	return nil
 }
 
-func (options *TestAddonOptions) TriggerUnDeploy() (bool, []error) {
+func (options *TestAddonOptions) TriggerUnDeploy() []error {
 	if !options.SkipUndeploy {
 		readyForUndeploy := false
 		timeoutEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
@@ -1576,10 +1576,10 @@ func (options *TestAddonOptions) TriggerUnDeploy() (bool, []error) {
 
 			addonDetails, _, err := options.CloudInfoService.GetConfig(configDetails)
 			if err != nil {
-				return false, []error{err}
+				return []error{err}
 			}
 			if addonDetails == nil {
-				return false, []error{fmt.Errorf("stackDetails is nil")}
+				return []error{fmt.Errorf("stackDetails is nil")}
 			}
 
 			stateCode := "Unknown"
@@ -1598,18 +1598,18 @@ func (options *TestAddonOptions) TriggerUnDeploy() (bool, []error) {
 		}
 
 		if !readyForUndeploy {
-			return false, []error{fmt.Errorf("timeout waiting top level config to complete, could not trigger undeploy")}
+			return []error{fmt.Errorf("timeout waiting top level config to complete, could not trigger undeploy")}
 		}
 		_, _, errUndep := options.CloudInfoService.UndeployConfig(configDetails)
 		if errUndep != nil {
 			if errUndep.Error() == "Not Modified" {
 				options.Logger.ShortInfo("Nothing to undeploy")
-				return false, nil
+				return nil
 			}
-			return false, []error{errUndep}
+			return []error{errUndep}
 		}
 	}
-	return true, nil
+	return nil
 }
 
 // RunAddonTest : Run the test for addons with enhanced error reporting
