@@ -1488,22 +1488,6 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.ShortInfo("Finished PostDeployHook")
 	}
 
-	err = options.RunPreUndeployHook()
-	if err != nil {
-		return setFailureResult(err, "PRE_UNDEPLOY_HOOK")
-	}
-
-	options.Logger.ShortInfo("Testing undeployed addons")
-	err = options.Undeploy()
-	if err != nil {
-		return setFailureResult(err, "UNDEPLOY")
-	}
-
-	err = options.RunPostUndeployHook()
-	if err != nil {
-		return setFailureResult(err, "POST_UNDEPLOY_HOOK")
-	}
-
 	// Enhanced reporting: show success message for direct test execution
 	if enhancedReporting {
 		options.Logger.ProgressSuccess("✅ All tests passed - no actions required")
@@ -1553,7 +1537,12 @@ func (options *TestAddonOptions) Undeploy() error {
 		if options.QuietMode {
 			options.Logger.ProgressStage("Cleaning up infrastructure")
 		}
-		undeployErrs := options.deployOptions.TriggerUnDeployAndWait()
+		var undeployErrs []error
+		if options.Testing.Failed() {
+			_, undeployErrs = options.TriggerUnDeploy()
+		} else {
+			undeployErrs = options.deployOptions.TriggerUnDeployAndWait()
+		}
 		if len(undeployErrs) > 0 {
 			options.Logger.ShortError("Errors occurred during undeploy")
 			for _, err := range undeployErrs {
@@ -1570,6 +1559,57 @@ func (options *TestAddonOptions) Undeploy() error {
 		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Yellow, "skip ⚠"))
 	}
 	return nil
+}
+
+func (options *TestAddonOptions) TriggerUnDeploy() (bool, []error) {
+	if !options.SkipUndeploy {
+		readyForUndeploy := false
+		timeoutEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
+
+		configDetails := &cloudinfo.ConfigDetails{
+			ProjectID: *options.currentProject.ID,
+			ConfigID:  options.AddonConfig.ConfigID,
+		}
+		// while not ready for undeploy and timeout not reached, keep checking
+		for !readyForUndeploy && time.Now().Before(timeoutEndTime) {
+			readyForUndeploy = true
+
+			addonDetails, _, err := options.CloudInfoService.GetConfig(configDetails)
+			if err != nil {
+				return false, []error{err}
+			}
+			if addonDetails == nil {
+				return false, []error{fmt.Errorf("stackDetails is nil")}
+			}
+
+			stateCode := "Unknown"
+			if addonDetails.StateCode != nil {
+				stateCode = *addonDetails.StateCode
+			}
+			// first check the stack state if it is not in a deploying or undeploying state then we can trigger undeploy
+			if stateCode != projectv1.ProjectConfig_StateCode_AwaitingMemberDeployment &&
+				*addonDetails.State != projectv1.ProjectConfig_State_Deploying &&
+				*addonDetails.State != projectv1.ProjectConfig_State_Undeploying {
+				readyForUndeploy = true
+				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, ready for undeploy", testprojects.Statuses[*addonDetails.State], testprojects.Statuses[stateCode]))
+			} else {
+				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, waiting for all members to complete", testprojects.Statuses[*addonDetails.State], testprojects.Statuses[stateCode]))
+			}
+		}
+
+		if !readyForUndeploy {
+			return false, []error{fmt.Errorf("timeout waiting top level config to complete, could not trigger undeploy")}
+		}
+		_, _, errUndep := options.CloudInfoService.UndeployConfig(configDetails)
+		if errUndep != nil {
+			if errUndep.Error() == "Not Modified" {
+				options.Logger.ShortInfo("Nothing to undeploy")
+				return false, nil
+			}
+			return false, []error{errUndep}
+		}
+	}
+	return true, nil
 }
 
 // RunAddonTest : Run the test for addons with enhanced error reporting
