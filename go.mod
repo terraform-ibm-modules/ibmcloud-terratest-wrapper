@@ -4,10 +4,10 @@ go 1.25.5
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240719075425-078fcb3a55be
-	github.com/IBM-Cloud/power-go-client v1.14.3
+	github.com/IBM-Cloud/power-go-client v1.14.4
 	github.com/IBM/cloud-databases-go-sdk v0.8.1
 	github.com/IBM/go-sdk-core/v5 v5.21.2
-	github.com/IBM/platform-services-go-sdk v0.90.4
+	github.com/IBM/platform-services-go-sdk v0.91.0
 	github.com/IBM/project-go-sdk v0.4.0
 	github.com/IBM/schematics-go-sdk v0.4.0
 	github.com/IBM/vpc-go-sdk v1.0.2
@@ -19,8 +19,8 @@ require (
 	github.com/hashicorp/terraform-json v0.27.2
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.45.0
-	golang.org/x/sync v0.18.0
+	golang.org/x/crypto v0.46.0
+	golang.org/x/sync v0.19.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -90,11 +90,11 @@ require (
 	go.opentelemetry.io/otel/metric v1.35.0 // indirect
 	go.opentelemetry.io/otel/trace v1.35.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
-	golang.org/x/mod v0.29.0 // indirect
+	golang.org/x/mod v0.30.0 // indirect
 	golang.org/x/net v0.47.0 // indirect
-	golang.org/x/sys v0.38.0 // indirect
-	golang.org/x/text v0.31.0 // indirect
-	golang.org/x/tools v0.38.0 // indirect
+	golang.org/x/sys v0.39.0 // indirect
+	golang.org/x/text v0.32.0 // indirect
+	golang.org/x/tools v0.39.0 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
