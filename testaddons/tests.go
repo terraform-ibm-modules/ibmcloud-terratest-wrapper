@@ -233,6 +233,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		}
 		options.Logger.MarkFailed()
 		options.Logger.FlushOnFailure()
+		options.Testing.Fail()
 		if bufferedLogger, ok := options.Logger.(*common.BufferedTestLogger); ok {
 			bufferedLogger.ImmediateShortError("REQUIRED_DEPENDENCY_FAILURE: Buffer flush completed")
 		}
@@ -1562,45 +1563,62 @@ func (options *TestAddonOptions) Undeploy() error {
 }
 
 func (options *TestAddonOptions) TriggerUnDeploy() []error {
+	currentConfig := &cloudinfo.ConfigDetails{
+		ProjectID: *options.currentProject.ID,
+		ConfigID:  *&options.AddonConfig.ConfigID,
+	}
 	if !options.SkipUndeploy {
 		readyForUndeploy := false
 		timeoutEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
 
-		configDetails := &cloudinfo.ConfigDetails{
-			ProjectID: *options.currentProject.ID,
-			ConfigID:  options.AddonConfig.ConfigID,
-		}
 		// while not ready for undeploy and timeout not reached, keep checking
 		for !readyForUndeploy && time.Now().Before(timeoutEndTime) {
 			readyForUndeploy = true
 
-			addonDetails, _, err := options.CloudInfoService.GetConfig(configDetails)
+			// Fetch the latest state of the members
+			configDetails, _, err := options.CloudInfoService.GetConfig(currentConfig)
 			if err != nil {
 				return []error{err}
 			}
-			if addonDetails == nil {
+			if configDetails == nil {
 				return []error{fmt.Errorf("stackDetails is nil")}
 			}
 
 			stateCode := "Unknown"
-			if addonDetails.StateCode != nil {
-				stateCode = *addonDetails.StateCode
+			if configDetails.StateCode != nil {
+				stateCode = *configDetails.StateCode
 			}
 			// first check the stack state if it is not in a deploying or undeploying state then we can trigger undeploy
 			if stateCode != projectv1.ProjectConfig_StateCode_AwaitingMemberDeployment &&
-				*addonDetails.State != projectv1.ProjectConfig_State_Deploying &&
-				*addonDetails.State != projectv1.ProjectConfig_State_Undeploying {
+				*configDetails.State != projectv1.ProjectConfig_State_Deploying &&
+				*configDetails.State != projectv1.ProjectConfig_State_Undeploying {
 				readyForUndeploy = true
-				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, ready for undeploy", testprojects.Statuses[*addonDetails.State], testprojects.Statuses[stateCode]))
+				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, ready for undeploy", testprojects.Statuses[*configDetails.State], testprojects.Statuses[stateCode]))
 			} else {
-				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, waiting for all members to complete", testprojects.Statuses[*addonDetails.State], testprojects.Statuses[stateCode]))
+				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, waiting for all members to complete", testprojects.Statuses[*configDetails.State], testprojects.Statuses[stateCode]))
+			}
+			allConfigs, _ := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
+			// then double check if any configuration is still in VALIDATING, DEPLOYING, or UNDEPLOYING state
+			for _, dependencyDetails := range allConfigs {
+				if err != nil {
+					return []error{fmt.Errorf("failed to check dependency configuration states")}
+				}
+				if *dependencyDetails.State == projectv1.ProjectConfig_State_Validating || *dependencyDetails.State == projectv1.ProjectConfig_State_Deploying || *dependencyDetails.State == projectv1.ProjectConfig_State_Undeploying {
+					readyForUndeploy = false
+					memberName, err := options.CloudInfoService.LookupMemberNameByID(configDetails, *dependencyDetails.ID)
+					if err != nil {
+						memberName = fmt.Sprintf("Unknown name, ID: %s", *dependencyDetails.ID)
+					}
+					options.Logger.ShortInfo(fmt.Sprintf("Member %s is still in state %s, waiting for all members to complete", memberName, testprojects.Statuses[*dependencyDetails.State]))
+					time.Sleep(time.Duration(5) * time.Second)
+				}
 			}
 		}
 
 		if !readyForUndeploy {
 			return []error{fmt.Errorf("timeout waiting top level config to complete, could not trigger undeploy")}
 		}
-		_, _, errUndep := options.CloudInfoService.UndeployConfig(configDetails)
+		_, _, errUndep := options.CloudInfoService.UndeployConfig(currentConfig)
 		if errUndep != nil {
 			if errUndep.Error() == "Not Modified" {
 				options.Logger.ShortInfo("Nothing to undeploy")
