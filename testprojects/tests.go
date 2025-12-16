@@ -592,6 +592,7 @@ func (options *TestProjectsOptions) TriggerUnDeploy() (bool, []error) {
 	}
 	return true, nil
 }
+
 func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error) {
 	if !options.SkipUndeploy {
 		triggered, err := options.TriggerUnDeploy()
