@@ -2,9 +2,11 @@ package common
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 	"os"
+	"regexp"
 	"time"
 )
 
@@ -203,42 +205,48 @@ func IsRetryableError(err error) bool {
 	// Default behavior: RETRY ALL OTHER ERRORS (including transient 404s, network errors, etc.)
 	nonRetryablePatterns := []string{
 		// Authentication and authorization errors
-		"401",
-		"unauthorized",
-		"403",
-		"forbidden",
-		"invalid token",
-		"authentication failed",
-		"access denied",
+		`\b401\b`,
+		`unauthorized`,
+		`\b403\b`,
+		`forbidden`,
+		`invalid token`,
+		`authentication failed`,
+		`access denied`,
 
 		// Validation and permanent client errors
-		"400",
-		"bad request",
-		"invalid parameter",
-		"validation error",
-		"malformed request",
+		`\b400\b`,
+		`bad request`,
+		`invalid parameter`,
+		`validation error`,
+		`malformed request`,
 
 		// Permanent conflicts and duplicates
-		"ISB064E",                   // Config already exists
-		"already exists in project", // Config already exists
-		"409",
-		"conflict",
-		"duplicate",
+		`ISB064E`,
+		`already exists in project`,
+		`\b409\b`,
+		`conflict`,
+		`duplicate`,
 
 		// Permanent not found errors (specific cases only)
-		"resource permanently deleted",
-		"catalog not found",
-		"offering not found",
-		"permanently removed",
+		`resource permanently deleted`,
+		`catalog not found`,
+		`offering not found`,
+		`permanently removed`,
 
 		// Quota and limit exceeded (non-temporary)
-		"quota exceeded",
-		"limit exceeded permanently",
-		"subscription expired",
+		`quota exceeded`,
+		`limit exceeded permanently`,
+		`subscription expired`,
 	}
 
 	for _, pattern := range nonRetryablePatterns {
-		if StringContainsIgnoreCase(errStr, pattern) {
+		re, errCompile := regexp.Compile(`(?i)` + pattern)
+		if errCompile != nil {
+			continue
+		}
+
+		if re.MatchString(errStr) {
+			log.Printf("[retry-check] Non-retryable error matched. pattern=%q error=%q", pattern, errStr)
 			return false
 		}
 	}

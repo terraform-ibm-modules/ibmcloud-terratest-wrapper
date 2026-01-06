@@ -263,6 +263,16 @@ func TestIsRetryableError(t *testing.T) {
 			error:     "ISB064E Configuration already exists",
 			retryable: false,
 		},
+		{
+			name:      "403 inside identifier",
+			error:     "version locator 123899128-403552-3232",
+			retryable: true,
+		},
+		{
+			name:      "403 with colon",
+			error:     "403: access denied",
+			retryable: false,
+		},
 	}
 
 	for _, tt := range tests {
