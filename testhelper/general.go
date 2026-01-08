@@ -2,7 +2,6 @@
 package testhelper
 
 import (
-	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -232,7 +231,6 @@ func GetTarIncludePatterns(dir string, dirsToExclude []string, fileTypesToInclud
 		return walk(&r, path, entry, err)
 	})
 	if err != nil {
-		fmt.Println("error")
 		return r.includeDirs, err
 	}
 	return r.includeDirs, nil
