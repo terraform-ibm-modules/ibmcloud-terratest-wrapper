@@ -197,7 +197,36 @@ type tarIncludePatterns struct {
 	includeDirs []string
 }
 
-func GetTarIncludePatternsRecursively(dir string, dirsToExclude []string, fileTypesToInclude []string) ([]string, error) {
+// GetTarIncludeDirsWithDefaults returns a list of tar include patterns by scanning the directory tree rooted at dir. It applies a set of default
+// directories to exclude and file-types to include, and merges any additional exclusions or file types provided as arguments.
+//
+// Defaults:
+//   - Excluded directories: ".terraform", ".docs", ".github", ".git", ".idea", "common-dev-assets", "examples", "tests", "reference-architectures"
+//   - Included file types: ".tf", ".py", ".yaml", ".tpl"
+//
+// You can pass extra directories to exclude and extra file types to include through the function arguments.
+//
+// The result is a slice of include patterns (e.g., "examples/basic/*.tf", "scripts/*.sh") suitable for use in tar operations. Returns an error if
+// the filesystem walk fails.
+func GetTarIncludeDirsWithDefaults(dir string, extraDirsToExclude, extraFileTypesToInclude []string) ([]string, error) {
+	dirsToExclude := append([]string{".terraform", ".docs", ".github", ".git", ".idea", "common-dev-assets", "examples", "tests", "reference-architectures"}, extraDirsToExclude...)
+	fileTypesToInclude := append([]string{".tf", ".py", ".yaml", ".tpl"}, extraFileTypesToInclude...)
+	return GetTarIncludePatterns(dir, dirsToExclude, fileTypesToInclude)
+}
+
+// GetTarIncludePatterns builds a list of tar include patterns by walking the directory tree rooted at dir and applying the provided include
+// and exclude rules.
+//
+// The function visits each subdirectory and:
+//   - Skips any directory whose path contains one of the entries in dirsToExclude.
+//   - For all other directories, adds patterns of the form "<dir>/*<ext>" for
+//     each extension in fileTypesToInclude (e.g., ".tf", ".sh").
+//   - Special-cases the root path ".." by adding "*.tf" (to include top-level
+//     Terraform files).
+//
+// It returns the accumulated list of include patterns (e.g., "examples/basic/*.tf", "scripts/*.sh") suitable for use as the input to a tar operation, along with
+// any error encountered during the filesystem walk.
+func GetTarIncludePatterns(dir string, dirsToExclude []string, fileTypesToInclude []string) ([]string, error) {
 	r := tarIncludePatterns{dirsToExclude, fileTypesToInclude, nil}
 	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
 		return walk(&r, path, entry, err)
@@ -209,6 +238,19 @@ func GetTarIncludePatternsRecursively(dir string, dirsToExclude []string, fileTy
 	return r.includeDirs, nil
 }
 
+// walk is the internal directory visitor used by GetTarIncludePatterns.
+// It applies exclusion rules and, for eligible directories, appends include patterns for each requested file type.
+//
+// Behavior:
+//   - If err is non-nil, the error is propagated to abort the walk.
+//   - If the current entry is a directory:
+//   - The directory is skipped if its path contains any string in r.excludeDirs.
+//   - If the path equals "..", "*.tf" is appended to include top-level Terraform files.
+//   - Otherwise, for each extension in r.includeFiletypes, a pattern of the form
+//     "<dir>/*<ext>" (with any "../" removed) is appended.
+//
+// Note: walk mutates r.includeDirs in place and returns nil to continue walking
+// unless an error is provided by the filesystem traversal.
 func walk(r *tarIncludePatterns, s string, d fs.DirEntry, err error) error {
 	if err != nil {
 		return err

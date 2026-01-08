@@ -288,3 +288,46 @@ func TestBasicScenario1(t *testing.T) {
     assert.NoError(t, err)
 }
 ```
+
+### Recursively collects file paths
+
+This function recursively collects file paths from a given root directory, applying include file type filters and exclude directory rules. It returns a list of tar include patterns for use in packaging or deployment:
+
+```golang
+excludeDirs := [
+    "tests/important",
+    "tests/do-not-delete",
+]
+includeFiletypes = [".py", ".txt", ".json"]
+
+tarIncludePatterns, recurseErr := testhelper.GetTarIncludeDirsWithDefaults(".", excludeDirs, includeFiletypes)
+```
+
+Example running schematics test with `GetTarIncludeDirsWithDefaults`
+
+```golang
+func TestRunRegionalFullyConfigurableSchematics(t *testing.T) {
+	t.Parallel()
+
+	tarIncludePatterns, recurseErr := testhelper.GetTarIncludeDirsWithDefaults("..", excludeDirs, includeFiletypes)
+
+	// if error producing tar patterns (very unexpected) fail test immediately
+	require.NoError(t, recurseErr, "Schematic Test had unexpected error traversing directory tree")
+
+	options := testschematic.TestSchematicOptionsDefault(&testschematic.TestSchematicOptions{
+		Testing:                t,
+		Prefix:                 "example",
+		Region:                 region,
+		TarIncludePatterns:     tarIncludePatterns,
+		ResourceGroup:          resourceGroup,
+		TemplateFolder:         RegionalfullyConfigurableDir,
+		Tags:                   []string{"ex-1"},
+		DeleteWorkspaceOnFail:  false,
+		WaitJobCompleteMinutes: 80,
+		TerraformVersion:       terraformVersion,
+	})
+
+	err := options.RunSchematicTest()
+	assert.Nil(t, err, "This should not have errored")
+}
+```
