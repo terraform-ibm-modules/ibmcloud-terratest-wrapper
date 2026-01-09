@@ -45,6 +45,7 @@ func (options *TestOptions) testSetup() {
 			os.Setenv("API_DATA_IS_SENSITIVE", strconv.FormatBool(*options.ApiDataIsSensitive))
 		}
 		// If calling test had not provided its own TerraformOptions, use the default settings
+
 		if options.TerraformOptions == nil {
 			// Construct the terraform options with default retryable errors to handle the most common
 			// retryable errors in terraform testing.
@@ -57,56 +58,66 @@ func (options *TestOptions) testSetup() {
 				// This is the same as setting the -upgrade=true flag with terraform.
 				Upgrade: true,
 			})
+		} else {
+			// 🔑 ALWAYS refresh vars for re-apply / re-plan
+			options.TerraformOptions.Vars = options.TerraformVars
 		}
 
 		if !options.DisableTempWorkingDir {
-			// Ensure always running from git root
-			gitRoot, err := common.GitRootPath(".")
 
-			if err != nil {
-				require.Nil(options.Testing, err, "Error getting git root path")
-			}
-
-			// Create a temporary directory
-			tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
-			if err != nil {
-				logger.Log(options.Testing, err)
+			// NEW LOGIC: reuse temp dir for re-apply
+			if options.ReuseTempWorkingDir && options.TempWorkingDir != "" {
+				logger.Log(options.Testing, "Reusing TEMP DIR: ", options.TempWorkingDir)
+				return
 			} else {
-				logger.Log(options.Testing, "TEMP CREATED: ", tempDir)
-
-				// To avoid workspace collisions when running in parallel, ignoring any temp terraform files
-				// NOTE: if it is an upgrade test, we need hidden .git files
-				tempDirFilter := func(path string) bool {
-					if !options.IsUpgradeTest && files.PathContainsHiddenFileOrFolder(path) {
-						return false
-					}
-					if files.PathContainsTerraformStateOrVars(path) || files.PathIsTerraformLockFile(path) {
-						return false
-					}
-
-					return true
-				}
-
-				// Define the source and destination directories for the directory copy
-				srcDir := gitRoot
-				dstDir := tempDir
-
-				// Use CopyDirectory to copy the source directory to the destination directory with the filter
-				err := common.CopyDirectory(srcDir, dstDir, tempDirFilter)
+				// Existing behavior (first apply)
+				gitRoot, err := common.GitRootPath(".")
 				if err != nil {
-					require.Nil(options.Testing, err, "Error copying directory")
+					require.Nil(options.Testing, err, "Error getting git root path")
 				}
 
-				// Update Terraform options with the full path of the new temp location
-				options.setTerraformDir(path.Join(dstDir, options.TerraformDir))
+				tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
+				if err != nil {
+					logger.Log(options.Testing, err)
+				} else {
+					logger.Log(options.Testing, "TEMP CREATED: ", tempDir)
+
+					options.TempWorkingDir = tempDir // ✅ SAVE IT
+
+					tempDirFilter := func(path string) bool {
+						if !options.IsUpgradeTest && files.PathContainsHiddenFileOrFolder(path) {
+							return false
+						}
+						if files.PathContainsTerraformStateOrVars(path) ||
+							files.PathIsTerraformLockFile(path) {
+							return false
+						}
+						return true
+					}
+
+					err := common.CopyDirectory(gitRoot, tempDir, tempDirFilter)
+					require.Nil(options.Testing, err, "Error copying directory")
+
+					options.setTerraformDir(
+						path.Join(tempDir, options.TerraformDir),
+					)
+				}
 			}
 		}
 
 		options.WorkspacePath = options.TerraformOptions.TerraformDir
 		if options.UseTerraformWorkspace {
-			// Always run in a new clean workspace to avoid reusing existing state files
-			options.WorkspaceName = terraform.WorkspaceSelectOrNew(options.Testing, options.TerraformOptions, options.Prefix)
-			options.WorkspacePath = fmt.Sprintf("%s/terraform.tfstate.d/%s", options.WorkspacePath, options.Prefix)
+			options.WorkspaceName =
+				terraform.WorkspaceSelectOrNew(
+					options.Testing,
+					options.TerraformOptions,
+					options.Prefix,
+				)
+			options.WorkspacePath =
+				fmt.Sprintf("%s/terraform.tfstate.d/%s",
+					options.WorkspacePath,
+					options.Prefix,
+				)
 		}
 	} else {
 		logger.Log(options.Testing, "Skipping automatic Test Setup")
@@ -582,12 +593,16 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 	logger.Log(options.Testing, "START: Init / Apply / Consistency Check")
 	_, err := options.runTest()
 	if err != nil {
-		options.testTearDown()
+		if !options.SkipTestTearDown {
+			options.testTearDown()
+		}
 		return nil, err
 	}
 	result, err := options.runTestPlan()
 	if err != nil {
-		options.testTearDown()
+		if !options.SkipTestTearDown {
+			options.testTearDown()
+		}
 		return result, err
 	}
 	hasConsistencyChanges := CheckConsistency(result, options)
@@ -598,7 +613,9 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 
 	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
 
-	options.testTearDown()
+	if !options.SkipTestTearDown {
+		options.testTearDown()
+	}
 
 	return result, err
 }
@@ -628,6 +645,7 @@ func (options *TestOptions) runTestPlan() (*terraform.PlanStruct, error) {
 	// The "show" command will produce a very large JSON to stdout which is printed by the logger.
 	// We are temporarily turning the terratest logger OFF (discard) while running "show" to prevent large JSON stdout.
 	options.TerraformOptions.Logger = logger.Discard
+
 	outputStruct, err := terraform.InitAndPlanAndShowWithStructE(options.Testing, options.TerraformOptions)
 
 	options.TerraformOptions.Logger = logger.Default // turn log back on
@@ -642,7 +660,9 @@ func (options *TestOptions) runTestPlan() (*terraform.PlanStruct, error) {
 func (options *TestOptions) RunTest() (string, error) {
 	options.testSetup()
 	output, err := options.runTest()
-	options.testTearDown()
+	if !options.SkipTestTearDown {
+		options.testTearDown()
+	}
 
 	return output, err
 }

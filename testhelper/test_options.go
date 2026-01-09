@@ -66,7 +66,9 @@ type TestOptions struct {
 	//
 	// Example: if you are testing a module source, and the execution is located in the subdirectory `examples/basic`, then set this
 	// to that value.
-	TerraformDir string
+	TerraformDir        string
+	ReuseTempWorkingDir bool
+	TempWorkingDir      string
 
 	// Specify additional Terraform Options for Terratest using this variable.
 	// see: https://pkg.go.dev/github.com/gruntwork-io/terratest/modules/terraform#Options
