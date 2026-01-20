@@ -184,7 +184,10 @@ func (g *realGitOps) commitExistsInRemote(remoteURL, commitID string) (bool, err
 		config.RefSpec(fmt.Sprintf("+refs/heads/*:refs/remotes/%s/*", tempRemoteName)),
 		config.RefSpec(fmt.Sprintf("+refs/pull/*/head:refs/remotes/%s/pr/*", tempRemoteName)),
 	}
-	auth, _ := GitAutoAuth(remoteURL)
+	auth, err := GitAutoAuth(remoteURL)
+	if err != nil {
+		return false, err
+	}
 	err = tempRemote.Fetch(&git.FetchOptions{
 		RemoteName: tempRemoteName,
 		RefSpecs:   refSpecs,
@@ -637,16 +640,17 @@ func getFileDiff(repoDir string, fileName string, git gitOps) (string, error) {
 // GitAutoAuth returns transport.AuthMethod for a remote URL (SSH or HTTPS)
 func GitAutoAuth(remoteURL string) (transport.AuthMethod, error) {
 	if isSSHURL(remoteURL) {
-		return sshAuth()
+		return sshAuth(remoteURL)
 	}
 	return httpsAuth(remoteURL)
 }
 
 // SSH auth
-func sshAuth() (transport.AuthMethod, error) {
+func sshAuth(remoteURL string) (transport.AuthMethod, error) {
 	// 1. Try SSH agent
 	auth, err := gitssh.NewSSHAgentAuth("git")
-	if err == nil {
+	authValidationErr := validateAuth(auth, remoteURL)
+	if err == nil && authValidationErr == nil {
 		return auth, nil
 	}
 
@@ -654,7 +658,8 @@ func sshAuth() (transport.AuthMethod, error) {
 	keyData := os.Getenv("SSH_PRIVATE_KEY")
 	if keyData != "" {
 		auth, err := gitssh.NewPublicKeys("git", []byte(keyData), "")
-		if err == nil {
+		authValidationErr := validateAuth(auth, remoteURL)
+		if err == nil && authValidationErr == nil {
 			return auth, nil
 		}
 	}
@@ -665,17 +670,28 @@ func sshAuth() (transport.AuthMethod, error) {
 		defaultKey := filepath.Join(home, ".ssh", "id_rsa")
 		if _, err := os.Stat(defaultKey); err == nil {
 			auth, err := gitssh.NewPublicKeysFromFile("git", defaultKey, "")
-			if err == nil {
-				println("auth with ssh default")
+			authValidationErr := validateAuth(auth, remoteURL)
+			if err == nil && authValidationErr == nil {
 				return auth, nil
 			}
 		}
 	}
-	println("auth with ssh anonymous")
 	return nil, errors.New(
 		"SSH authentication failed: no keys found. " +
 			"Please start ssh-agent with loaded keys, set SSH_PRIVATE_KEY, or ensure ~/.ssh/id_rsa exists.",
 	)
+}
+
+func validateAuth(auth transport.AuthMethod, remoteURL string) error {
+	remote := git.NewRemote(nil, &config.RemoteConfig{
+		Name: "origin",
+		URLs: []string{remoteURL},
+	})
+
+	_, err := remote.List(&git.ListOptions{
+		Auth: auth,
+	})
+	return err
 }
 
 func isSSHURL(raw string) bool {
