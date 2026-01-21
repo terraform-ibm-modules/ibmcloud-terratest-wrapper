@@ -3,7 +3,11 @@ package common
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"math/big"
+	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 const base36chars = "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -34,4 +38,16 @@ func CryptoIntn(max int) int {
 		panic(err)
 	}
 	return int(n.Int64())
+}
+
+// GetRandomAdminPassword generates a random admin password for use in tests
+func GetRandomAdminPassword(t *testing.T) string {
+	// Generate a 15 char long random string for the admin_pass
+	randomBytes := make([]byte, 13)
+	_, randErr := rand.Read(randomBytes)
+	require.Nil(t, randErr) // do not proceed if we can't gen a random password
+
+	randomPass := "A1a" + base64.URLEncoding.EncodeToString(randomBytes)[:12]
+
+	return randomPass
 }
