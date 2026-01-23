@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -286,6 +287,7 @@ type CloudInfoServiceOptions struct {
 	ContainerV1Client         containerV1Client
 	RegionPrefs               []RegionData
 	IcdService                icdService
+	IcdRegion                 string
 	ProjectsService           projectsService
 	CatalogService            catalogService
 	SchematicsServices        map[string]schematicsService
@@ -661,9 +663,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 	if options.IcdService != nil {
 		infoSvc.icdService = options.IcdService
 	} else {
+
+		serviceURL := clouddatabasesv5.DefaultServiceURL
+		if options.IcdRegion != "" {
+			ParameterizedServiceURL := clouddatabasesv5.ParameterizedServiceURL
+			replacer := strings.NewReplacer(
+				"{region}", options.IcdRegion,
+				"{platform}", "ibm",
+			)
+			serviceURL = replacer.Replace(ParameterizedServiceURL)
+		}
 		icdClient, icdMgrErr := clouddatabasesv5.NewCloudDatabasesV5(&clouddatabasesv5.CloudDatabasesV5Options{
 			Authenticator: infoSvc.authenticator,
+			URL:           serviceURL,
 		})
+
 		if icdMgrErr != nil {
 			log.Println("Error creating clouddatabasesv5 client:", icdMgrErr)
 			return nil, icdMgrErr
