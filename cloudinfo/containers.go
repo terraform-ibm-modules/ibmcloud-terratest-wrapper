@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 )
@@ -60,4 +61,31 @@ func (infoSvc *CloudInfoService) GetClusterIngressStatus(clusterId string) (stri
 		return "", fmt.Errorf("failed to get cluster ingress status: %v", err)
 	}
 	return ingressDetails.Status, nil
+}
+
+// 
+func (infoSvc *CloudInfoService) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutMinutes int, clusterCheckDelayMinutes int, logf func(string)) bool {
+	startTime := time.Now()
+	healthy := false
+	for {
+		ingressStatus, err := infoSvc.GetClusterIngressStatus(clusterId)
+		if ingressStatus == "healthy" {
+			healthy = true
+			break
+		} else if ingressStatus == "critical" || err != nil {
+			if time.Since(startTime) > time.Duration(clusterCheckTimeoutMinutes)*time.Minute {
+				break
+			}
+			logf("Cluster Ingress is critical, retrying after delay...")
+			time.Sleep(time.Duration(clusterCheckDelayMinutes) * time.Minute)
+		}
+	}
+	if !healthy {
+		logf("Cluster Ingress failed to become healthy")
+	}
+	return healthy
+}
+
+func (infoSvc *CloudInfoService) CheckClusterIngressHealthyDefaultTimeout(clusterId string, logf func(string)){
+	infoSvc.CheckClusterIngressHealthy(clusterId, 10, 1, logf)
 }
