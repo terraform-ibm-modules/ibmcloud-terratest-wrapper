@@ -371,7 +371,14 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	} // End of nil check for deployedConfigs
 
 	// update main addon configuration with user defined inputs
-	mergeInputs(options, options.AddonConfig.Inputs, configDetails, addonID)
+	err = mergeInputs(options, options.AddonConfig.Inputs, configDetails, addonID)
+	if err != nil {
+		options.Logger.ShortError(fmt.Sprintf("Error merging inputs: %v", err))
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
+		options.Testing.Fail()
+		return setFailureResult(fmt.Errorf("error setting main addon configuration inputs: %w", err), "SETTING_INPUTS")
+	}
 	updateProjectConfiguration(options, configDetails)
 
 	// create TestProjectsOptions to use with the projects package
@@ -460,7 +467,14 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			// match dependency containing user inputs with project configuration returned by API
 			// so we know which inputs need to be updated for the current configuration
 			if dep.VersionLocator == *config.Definition.LocatorID {
-				mergeInputs(options, dep.Inputs, addonConfigDetails, *config.ID)
+				err = mergeInputs(options, dep.Inputs, addonConfigDetails, *config.ID)
+				if err != nil {
+					options.Logger.ShortError(fmt.Sprintf("Error merging inputs: %v", err))
+					options.Logger.MarkFailed()
+					options.Logger.FlushOnFailure()
+					options.Testing.Fail()
+					return setFailureResult(fmt.Errorf("error setting dependency configuration inputs: %w", err), "SETTING_INPUTS")
+				}
 				updateProjectConfiguration(options, addonConfigDetails)
 			}
 		}
@@ -3668,7 +3682,7 @@ func (options *TestAddonOptions) displaySingleTestStrictModeWarnings() {
 	}
 }
 
-func mergeInputs(options *TestAddonOptions, inputs map[string]interface{}, configDetails cloudinfo.ConfigDetails, addonID string) {
+func mergeInputs(options *TestAddonOptions, inputs map[string]interface{}, configDetails cloudinfo.ConfigDetails, addonID string) error {
 	// Process AddonConfig.Inputs with OverrideInputMappings logic for regular (non-matrix) tests
 	// This ensures input override logging and reference preservation works for both matrix and regular tests
 	if inputs != nil && len(inputs) > 0 {
@@ -3676,17 +3690,11 @@ func mergeInputs(options *TestAddonOptions, inputs map[string]interface{}, confi
 		if options.OverrideInputMappings != nil && !*options.OverrideInputMappings {
 			// Reference preservation mode (default)
 			configReferences := options.configInputReferences[addonID]
-			preservedCount := 0
 			overriddenCount := 0
 
 			for inputKey, inputValue := range inputs {
-				if referenceValue, isReference := configReferences[inputKey]; isReference {
-					// Preserve reference value
-					if !options.QuietMode {
-						options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': preserving reference value '%s' (ignoring test override)", inputKey, referenceValue))
-					}
-					configDetails.Inputs[inputKey] = referenceValue
-					preservedCount++
+				if _, isReference := configReferences[inputKey]; isReference {
+					return fmt.Errorf("error user defined input %s on dependency %s is already set by a reference to another addon. If you wish to override this reference please set OverrideInputMappings in the test options.", inputKey, configDetails.Name)
 				} else {
 					// Override with new value
 					if !options.QuietMode {
@@ -3699,8 +3707,8 @@ func mergeInputs(options *TestAddonOptions, inputs map[string]interface{}, confi
 			}
 
 			// Summary logging
-			if !options.QuietMode && (preservedCount > 0 || overriddenCount > 0) {
-				options.Logger.ShortInfo(fmt.Sprintf("Input merging complete: %d reference(s) preserved, %d input(s) overridden (OverrideInputMappings=false)", preservedCount, overriddenCount))
+			if !options.QuietMode && overriddenCount > 0 {
+				options.Logger.ShortInfo(fmt.Sprintf("Input merging complete: %d input(s) overridden (OverrideInputMappings=false)", overriddenCount))
 			}
 		} else {
 			// Override all mode (legacy behavior)
@@ -3723,6 +3731,7 @@ func mergeInputs(options *TestAddonOptions, inputs map[string]interface{}, confi
 			}
 		}
 	}
+	return nil
 }
 
 func updateProjectConfiguration(options *TestAddonOptions, configDetails cloudinfo.ConfigDetails) error {
