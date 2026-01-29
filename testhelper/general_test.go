@@ -3,6 +3,8 @@ package testhelper
 import (
 	"errors"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -28,7 +30,7 @@ type cloudInfoServiceMock struct {
 	lock                              sync.Mutex
 }
 
-func (mock *cloudInfoServiceMock) CreateStackDefinitionWrapper(stackDefOptions *projects.CreateStackDefinitionOptions, members []projects.StackConfigMember) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
+func (mock *cloudInfoServiceMock) CreateStackDefinitionWrapper(stackDefOptions *projects.CreateStackDefinitionOptions, members []projects.StackMember) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
 	return nil, nil, nil
 }
 
@@ -205,7 +207,7 @@ func (mock *cloudInfoServiceMock) ArePipelineActionsRunning(stackConfig *cloudin
 	return false, nil
 }
 
-func (mock *cloudInfoServiceMock) GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string) (string, string) {
+func (mock *cloudInfoServiceMock) GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string, projectID string, configID string) (string, string) {
 	return "", ""
 }
 
@@ -214,7 +216,7 @@ func (mock *cloudInfoServiceMock) GetSchematicsJobLogsForMember(member *projects
 // to get around this we create a wrapper that can take in the missing list of members that can be used in the mock
 // to return a valid response
 
-func (mock *cloudInfoServiceMock) CreateStackDefinition(stackDefOptions *projects.CreateStackDefinitionOptions, members []projects.StackConfigMember) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
+func (mock *cloudInfoServiceMock) CreateStackDefinition(stackDefOptions *projects.CreateStackDefinitionOptions, members []projects.StackMember) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
 	args := mock.Called(stackDefOptions, members)
 	return args.Get(0).(*projects.StackDefinition), args.Get(1).(*core.DetailedResponse), args.Error(2)
 }
@@ -352,4 +354,221 @@ func TestLeastPowerConnectionZoneForced(t *testing.T) {
 	assert.False(t, infoSvc.getLeastPowerConnectionZoneCalled, "GetLeastPowerConnectionZone() should NOT have been called")
 	assert.Nil(t, err, "Must not return error")
 	assert.Equal(t, "forced-region", bestregion, "Should return FORCED region")
+}
+
+// Common directories to exclude and file types to include in tests
+var (
+	dirsToExclude = []string{
+		".terraform", ".docs", ".github", ".git", ".idea",
+		"common-dev-assets", "examples", "tests", "reference-architectures",
+	}
+	fileTypesToInclude = []string{".tf", ".yaml", ".py", ".tpl"}
+)
+
+// mkdirAll creates multiple directories under a base directory
+func mkdirAll(t *testing.T, base string, relPaths ...string) {
+	t.Helper()
+	for _, p := range relPaths {
+		if err := os.MkdirAll(filepath.Join(base, p), 0o755); err != nil {
+			t.Fatalf("failed to create dir %q: %v", p, err)
+		}
+	}
+}
+
+// mustChdir changes the current working directory to dir
+// It returns a function to restore the previous working directory
+// If any operation fails, it calls t.Fatalf
+func mustChdir(t *testing.T, dir string) func() {
+	t.Helper()
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir %q: %v", dir, err)
+	}
+	return func() { _ = os.Chdir(prev) }
+}
+
+// assertAllPresent checks that all wanted strings are present in got slice
+func assertAllPresent(t *testing.T, got []string, wants ...string) {
+	t.Helper()
+	set := make(map[string]struct{}, len(got))
+	for _, g := range got {
+		set[g] = struct{}{}
+	}
+	for _, w := range wants {
+		if _, ok := set[w]; !ok {
+			t.Fatalf("missing %q in %v", w, got)
+		}
+	}
+}
+
+// assertNoneContains checks that no entry in got slice contains the given substring
+func assertNoneContains(t *testing.T, got []string, substr string) {
+	t.Helper()
+	for _, g := range got {
+		if strings.Contains(g, substr) {
+			t.Fatalf("expected no entry containing %q, but found %q in %v", substr, g, got)
+		}
+	}
+}
+
+// assertNoPrefix checks that no entry in got slice has the given prefix
+func assertNoPrefix(t *testing.T, got []string, prefix string) {
+	t.Helper()
+	for _, g := range got {
+		if strings.HasPrefix(g, prefix) {
+			t.Fatalf("expected no entry with prefix %q, but found %q in %v", prefix, g, got)
+		}
+	}
+}
+
+func TestGetTarIncludePatterns(t *testing.T) {
+	tests := []struct {
+		name       string
+		setup      func(t *testing.T) (walkRoot string, cleanup func())
+		excludes   []string
+		filetypes  []string
+		assertions func(t *testing.T, got []string, err error, walkRoot string)
+	}{
+		{
+			name: "recursively collects include patterns for multiple file types while excluding specified directories",
+			setup: func(t *testing.T) (string, func()) {
+				dir := t.TempDir()
+				mkdirAll(t, dir, "a/b")                // included
+				mkdirAll(t, dir, ".terraform/modules") // excluded
+				return dir, func() {}
+			},
+			excludes:  dirsToExclude,
+			filetypes: fileTypesToInclude,
+			assertions: func(t *testing.T, got []string, err error, walkRoot string) {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				// included dirs visited: walkRoot, walkRoot/a, walkRoot/a/b => 3 dirs
+				// patterns per dir = 4 filetypes => 12 patterns total
+				if len(got) != 12 {
+					t.Fatalf("expected 12 patterns, got %d: %v", len(got), got)
+				}
+
+				// ensures that all wanted strings are present in got slice
+				a := filepath.Join(walkRoot, "a")
+				assertAllPresent(t, got,
+					a+"/*.tf",
+					a+"/*.yaml",
+					a+"/*.py",
+					a+"/*.tpl",
+				)
+
+				// ensures that no entry in got slice contains the given substring
+				assertNoneContains(t, got, ".terraform")
+			},
+		},
+		{
+			name: "returns no patterns when no file types are provided",
+			setup: func(t *testing.T) (string, func()) {
+				dir := t.TempDir()
+				mkdirAll(t, dir, "x")
+				return dir, func() {}
+			},
+			excludes:  dirsToExclude,
+			filetypes: nil,
+			assertions: func(t *testing.T, got []string, err error, walkRoot string) {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				// expect no patterns when no file types are provided
+				if len(got) != 0 {
+					t.Fatalf("expected 0 patterns, got %d: %v", len(got), got)
+				}
+			},
+		},
+		{
+			name: "returns an error when the root directory does not exist",
+			setup: func(t *testing.T) (string, func()) {
+				nonExistent := filepath.Join(t.TempDir(), "does-not-exist")
+				return nonExistent, func() {}
+			},
+			excludes:  dirsToExclude,
+			filetypes: []string{".tf"},
+			assertions: func(t *testing.T, got []string, err error, walkRoot string) {
+				if err == nil {
+					t.Fatalf("expected error, got nil (patterns=%v)", got)
+				}
+				// on error, expect no patterns
+				if len(got) != 0 {
+					t.Fatalf("expected 0 patterns on error, got %d: %v", len(got), got)
+				}
+			},
+		},
+		{
+			// Special case: walking the parent directory
+			name: "adds a literal include pattern when walking the parent directory",
+			setup: func(t *testing.T) (string, func()) {
+				root := t.TempDir()
+				child := filepath.Join(root, "child")
+				mkdirAll(t, root, "child")
+				return "..", mustChdir(t, child)
+			},
+			excludes:  dirsToExclude,
+			filetypes: []string{".tf"},
+			assertions: func(t *testing.T, got []string, err error, walkRoot string) {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				// expect to find the literal pattern "*.tf"
+				found := false
+				for _, p := range got {
+					if p == "*.tf" {
+						found = true
+						break
+					}
+				}
+				// fail if the literal pattern "*.tf" is not found
+				if !found {
+					t.Fatalf("expected to find '*.tf' when walking '..', got: %v", got)
+				}
+			},
+		},
+		{
+			name: "strips parent directory prefixes from generated include patterns",
+			setup: func(t *testing.T) (string, func()) {
+				root := t.TempDir()
+				child := filepath.Join(root, "child")
+				sibling := filepath.Join(root, "sibling")
+				mkdirAll(t, root, "child", "sibling/x")
+				_ = sibling
+				return "../sibling", mustChdir(t, child)
+			},
+			excludes:  dirsToExclude,
+			filetypes: []string{".tf"},
+			assertions: func(t *testing.T, got []string, err error, walkRoot string) {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				// ensure no entry in got slice has the given prefix "../"
+				assertNoPrefix(t, got, "../")
+
+				// ensure all wanted strings are present in got slice
+				assertAllPresent(t, got,
+					filepath.Join("sibling")+"/*.tf",
+					filepath.Join("sibling", "x")+"/*.tf",
+				)
+			},
+		},
+	}
+
+	for i := range tests {
+		tc := tests[i]
+		t.Run(tc.name, func(t *testing.T) {
+			walkRoot, cleanup := tc.setup(t)
+			defer cleanup()
+
+			got, err := GetTarIncludePatterns(walkRoot, tc.excludes, tc.filetypes)
+			tc.assertions(t, got, err, walkRoot)
+		})
+	}
 }

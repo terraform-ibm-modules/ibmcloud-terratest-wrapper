@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/IBM/go-sdk-core/v5/core"
 	Core "github.com/IBM/go-sdk-core/v5/core"
+	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
@@ -30,17 +30,8 @@ func (options *TestAddonOptions) testSetup() error {
 		options.Logger = common.CreateSmartAutoBufferingLogger(options.Testing.Name(), false)
 	}
 
-	// Set logger prefix based on available identifiers (in order of preference)
-	if options.TestCaseName != "" {
-		// Use TestCaseName for clear test identification (preferred for matrix tests and custom scenarios)
-		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.TestCaseName))
-	} else if options.ProjectName != "" {
-		// For single tests, include project name in prefix
-		options.Logger.SetPrefix(fmt.Sprintf("ADDON - %s", options.ProjectName))
-	} else {
-		// For tests without project name, use simple prefix
-		options.Logger.SetPrefix("ADDON")
-	}
+	// Set logger prefix - test context already provides test identification
+	options.Logger.SetPrefix("")
 
 	options.Logger.EnableDateTime(false)
 
@@ -138,8 +129,14 @@ func (options *TestAddonOptions) testSetup() error {
 
 	// create new CloudInfoService if not supplied
 	if options.CloudInfoService == nil {
+		cacheEnabled := true
+		if options.CacheEnabled != nil {
+			cacheEnabled = *options.CacheEnabled
+		}
 		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
-			Logger: options.Logger,
+			Logger:       options.Logger,
+			CacheEnabled: cacheEnabled,
+			CacheTTL:     options.CacheTTL,
 		})
 		if err != nil {
 			return err
@@ -165,69 +162,51 @@ func (options *TestAddonOptions) testSetup() error {
 	options.Logger.ShortInfo(fmt.Sprintf("Current repo: %s", repo))
 	options.Logger.ShortInfo(fmt.Sprintf("Current branch URL: %s", *options.currentBranchUrl))
 
-	if err := options.setupCatalog(); err != nil {
-		return err
-	}
+	catalog, err := cloudinfo.SetupCatalog(cloudinfo.SetupCatalogOptions{
+		CatalogUseExisting: options.CatalogUseExisting,
+		Catalog:            options.catalog,
+		CatalogName:        options.CatalogName,
+		SharedCatalog:      options.SharedCatalog,
+		CloudInfoService:   options.CloudInfoService,
+		Logger:             options.Logger,
+		Testing:            options.Testing,
+		PostCreateDelay:    options.PostCreateDelay,
+		IsAddonTest:        false,
+	})
 
+	if err != nil {
+		return err
+	} else {
+		options.catalog = catalog
+	}
 	if err := options.setupOffering(); err != nil {
 		return err
 	}
 
-	if err := options.setupProject(); err != nil {
+	project, projectConfig, err := cloudinfo.SetupProject(cloudinfo.SetupProjectOptions{
+		CurrentProject:           options.currentProject,
+		CurrentProjectConfig:     options.currentProjectConfig,
+		ProjectDestroyOnDelete:   options.ProjectDestroyOnDelete,
+		ProjectAutoDeploy:        options.ProjectAutoDeploy,
+		ProjectAutoDeployMode:    options.ProjectAutoDeployMode,
+		ProjectMonitoringEnabled: options.ProjectMonitoringEnabled,
+		ProjectEnvironments:      options.ProjectEnvironments,
+		ProjectName:              options.ProjectName,
+		ProjectDescription:       options.ProjectDescription,
+		ProjectRetryConfig:       options.ProjectRetryConfig,
+		ResourceGroup:            options.ResourceGroup,
+		QuietMode:                options.QuietMode,
+		PostCreateDelay:          options.PostCreateDelay,
+		CloudInfoService:         options.CloudInfoService,
+		Logger:                   options.Logger,
+		Testing:                  options.Testing,
+	})
+	if err != nil {
 		return err
 	}
+	options.currentProject = project
+	options.currentProjectConfig = projectConfig
 
-	return nil
-}
-
-// setupCatalog handles catalog creation or reuse based on configuration
-func (options *TestAddonOptions) setupCatalog() error {
-	if !options.CatalogUseExisting {
-		// Check if catalog sharing is enabled and if catalog already exists
-		if options.catalog != nil {
-			if options.catalog.Label != nil && options.catalog.ID != nil {
-				options.Logger.ShortInfo(fmt.Sprintf("Using existing catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
-			} else {
-				options.Logger.ShortWarn("Using existing catalog but catalog details are incomplete")
-			}
-		} else if options.SharedCatalog != nil && *options.SharedCatalog {
-			// For shared catalogs, only create if no shared catalog exists yet
-			// Individual tests with SharedCatalog=true should not create new catalogs
-			options.Logger.ShortInfo("SharedCatalog=true but no existing shared catalog available - this may indicate a setup issue")
-			options.Logger.ShortInfo("Creating catalog anyway to avoid test failure, but consider using matrix tests for proper catalog sharing")
-			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
-			if err != nil {
-				options.Logger.CriticalError(fmt.Sprintf("Error creating catalog for shared use: %v", err))
-				options.Testing.Fail()
-				return fmt.Errorf("error creating catalog for shared use: %w", err)
-			}
-			options.catalog = catalog
-			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
-				options.Logger.ShortInfo(fmt.Sprintf("Created catalog for shared use: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
-			} else {
-				options.Logger.ShortWarn("Created catalog for shared use but catalog details are incomplete")
-			}
-		} else {
-			// Create new catalog only for non-shared usage
-			options.Logger.ShortInfo(fmt.Sprintf("Creating a new catalog: %s", options.CatalogName))
-			catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
-			if err != nil {
-				options.Logger.CriticalError(fmt.Sprintf("Error creating a new catalog: %v", err))
-				options.Testing.Fail()
-				return fmt.Errorf("error creating a new catalog: %w", err)
-			}
-			options.catalog = catalog
-			if options.catalog != nil && options.catalog.Label != nil && options.catalog.ID != nil {
-				options.Logger.ShortInfo(fmt.Sprintf("Created a new catalog: %s with ID %s", *options.catalog.Label, *options.catalog.ID))
-			} else {
-				options.Logger.ShortWarn("Created catalog but catalog details are incomplete")
-			}
-		}
-	} else {
-		options.Logger.ShortInfo("Using existing catalog")
-		options.Logger.ShortWarn("Not implemented yet")
-		// TODO: lookup the catalog ID no api for this
-	}
 	return nil
 }
 
@@ -302,58 +281,73 @@ func (options *TestAddonOptions) setupOffering() error {
 	return nil
 }
 
-// setupProject handles project creation
-func (options *TestAddonOptions) setupProject() error {
-	// Create a new project (only if not already created)
+// Function to determine if test resources should be destroyed
+//
+// Conditions for teardown:
+// - The `SkipUndeploy` option is false (if true will override everything else)
+// - Test failed and DO_NOT_DESTROY_ON_FAILURE was not set or false
+// - Test completed with success (and `SkipUndeploy` was false)
+func (options *TestAddonOptions) executeResourceTearDown() bool {
+
+	// assume we will execute
+	execute := true
+
+	// if skipundeploy is true, short circuit we are done
+	if options.SkipUndeploy {
+		options.Logger.ShortInfo("SkipUndeploy is set")
+		execute = false
+	}
+
+	if options.Testing.Failed() && common.DoNotDestroyOnFailure() {
+		options.Logger.ShortInfo("DO_NOT_DESTROY_ON_FAILURE is set")
+		options.Logger.ShortInfo(fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
+		execute = false
+	}
+
+	// if test failed and we are not executing, add a log line stating this
+	if options.Testing.Failed() && !execute {
+		options.Logger.ShortError("Terratest failed. Debug the Test and delete resources manually.")
+	}
+
+	if execute {
+		options.Logger.ShortInfo("Executing resource teardown")
+
+	}
+	return execute
+}
+
+// Function to determine if the project or stack steps (and their schematics workspaces) should be destroyed
+//
+// Conditions for teardown:
+// - Test completed with success and `SkipProjectDelete` is false
+func (options *TestAddonOptions) executeProjectTearDown() bool {
+
+	// assume we will execute
+	execute := true
+
+	// if SkipProjectDelete then short circuit we are done
+	if options.SkipProjectDelete {
+		execute = false
+	}
+
+	if options.Testing.Failed() {
+		execute = false
+	}
+	// skip teardown if no project was created
 	if options.currentProject == nil {
-		options.Logger.ShortInfo("Creating project for test")
-		if options.ProjectDestroyOnDelete == nil {
-			options.ProjectDestroyOnDelete = core.BoolPtr(true)
-		}
-		if options.ProjectAutoDeploy == nil {
-			options.ProjectAutoDeploy = core.BoolPtr(false)
-		}
-		if options.ProjectMonitoringEnabled == nil {
-			options.ProjectMonitoringEnabled = core.BoolPtr(false)
-		}
-		options.currentProjectConfig = &cloudinfo.ProjectsConfig{
-			Location:           options.ProjectLocation,
-			ProjectName:        options.ProjectName,
-			ProjectDescription: options.ProjectDescription,
-			ResourceGroup:      options.ResourceGroup,
-			DestroyOnDelete:    *options.ProjectDestroyOnDelete,
-			MonitoringEnabled:  *options.ProjectMonitoringEnabled,
-			AutoDeploy:         *options.ProjectAutoDeploy,
-			Environments:       options.ProjectEnvironments,
-		}
-		prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
-		if err != nil {
-			errorMsg := fmt.Sprintf("Error creating a new project: %v\nResponse: %v", err, resp)
-			options.Logger.CriticalError(errorMsg)
-			options.Testing.Fail()
-			return fmt.Errorf("error creating a new project: %w", err)
-		}
-		options.currentProject = prj
-		options.currentProjectConfig.ProjectID = *options.currentProject.ID
-		options.Logger.ShortInfo(fmt.Sprintf("Created a new project: %s with ID %s", options.ProjectName, options.currentProjectConfig.ProjectID))
-		projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", options.currentProjectConfig.ProjectID)
-		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
-		region := options.currentProjectConfig.Location
-		if region == "" {
-			region = "unknown"
-		}
-		options.Logger.ShortInfo(fmt.Sprintf("Project Region: %s", region))
-	} else {
-		// Using existing project
-		options.Logger.ShortInfo(fmt.Sprintf("Using existing project: %s with ID %s", options.ProjectName, *options.currentProject.ID))
-		// Ensure currentProjectConfig is set up properly for existing projects
-		if options.currentProjectConfig == nil {
-			options.currentProjectConfig = &cloudinfo.ProjectsConfig{
-				ProjectID: *options.currentProject.ID,
-			}
+		execute = false
+	}
+
+	// if test failed and we are not executing, add a log line stating this
+	if options.Testing.Failed() && !execute {
+		if options.currentProject == nil {
+			options.Logger.ShortError("Terratest failed. No project to delete.")
+		} else {
+			options.Logger.ShortError("Terratest failed. Debug the Test and delete the project manually.")
 		}
 	}
-	return nil
+
+	return execute
 }
 
 // TestTearDown performs cleanup after addon tests
@@ -366,32 +360,91 @@ func (options *TestAddonOptions) TestTearDown() {
 
 // testTearDown performs the test teardown
 func (options *TestAddonOptions) testTearDown() {
-	// Show teardown progress in quiet mode
-	if options.QuietMode {
-		options.Logger.ProgressStage("Cleaning up resources")
-	}
-
 	// Flush buffered logs if test failed to show debug information during cleanup
 	options.Logger.FlushOnFailure()
 
 	// perform the test teardown
 	options.Logger.ShortInfo("Performing test teardown")
 
-	// Project cleanup logic: always clean up projects since we're not sharing them
+	// Always show project URL if project exists, regardless of teardown path
 	if options.currentProject != nil && options.currentProject.ID != nil {
-		options.Logger.ShortInfo(fmt.Sprintf("Deleting the project %s with ID %s", options.ProjectName, *options.currentProject.ID))
-		_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
-		if assert.NoError(options.Testing, err) {
-			if assert.Equal(options.Testing, 202, resp.StatusCode) {
+		projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", *options.currentProject.ID)
+		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", projectURL))
+	}
+
+	if options.executeResourceTearDown() {
+		err := options.RunPreUndeployHook()
+		if err != nil {
+			options.Logger.ShortWarn(fmt.Sprintf("Pre Undeploy hook failed: %s", err))
+		}
+
+		err = options.Undeploy()
+		if err != nil {
+			options.Logger.ShortWarn(fmt.Sprintf("Undeploy resources failed: %s", err))
+			postHookErr := options.RunPostUndeployHook()
+			if postHookErr != nil {
+				options.Logger.ShortWarn(fmt.Sprintf("Post Undeploy hook failed: %s", postHookErr))
+			}
+		}
+	}
+
+	if options.executeProjectTearDown() {
+		// Project cleanup logic: always clean up projects since we're not sharing them
+		if options.currentProject != nil && options.currentProject.ID != nil {
+			options.Logger.ShortInfo(fmt.Sprintf("Deleting the project %s with ID %s", options.ProjectName, *options.currentProject.ID))
+
+			// Delete project with retry logic to handle transient database errors
+			retryConfig := common.ProjectOperationRetryConfig()
+			if options.ProjectRetryConfig != nil {
+				retryConfig = *options.ProjectRetryConfig
+			}
+			retryConfig.Logger = options.Logger
+			retryConfig.OperationName = "project deletion"
+
+			_, err := common.RetryWithConfig(retryConfig, func() (*project.ProjectDeleteResponse, error) {
+				result, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
+				if err != nil {
+					options.Logger.ShortWarn(fmt.Sprintf("Project deletion attempt failed: %v (will retry if retryable)", err))
+
+					// Check if project was actually deleted despite the error
+					if common.StringContainsIgnoreCase(err.Error(), "not found") || common.StringContainsIgnoreCase(err.Error(), "does not exist") {
+						options.Logger.ShortInfo("Project deletion returned 'not found' error - this indicates the project was successfully deleted on a previous attempt")
+
+						// The "not found" error means the deletion succeeded - the project doesn't exist
+						// This is the desired end state for deletion
+						if resp != nil && resp.StatusCode == 404 { // 404 Not Found
+							options.Logger.ShortInfo("Treating 'not found' response as successful project deletion")
+							return &project.ProjectDeleteResponse{}, nil
+						}
+
+						// Even without a 404 response, "not found" in error message indicates successful deletion
+						options.Logger.ShortInfo("Project deleted successfully despite API error response")
+						return &project.ProjectDeleteResponse{}, nil
+					}
+
+					return nil, err
+				}
+
+				// Check for successful deletion (HTTP 202)
+				if resp.StatusCode != 202 {
+					options.Logger.ShortWarn(fmt.Sprintf("Project deletion returned unexpected status code: %d", resp.StatusCode))
+					return nil, fmt.Errorf("unexpected response code: %d", resp.StatusCode)
+				}
+
+				return result, nil
+			})
+
+			if assert.NoError(options.Testing, err) {
 				options.Logger.ShortInfo(fmt.Sprintf("Deleted Test Project: %s", options.currentProjectConfig.ProjectName))
 			} else {
-				options.Logger.ShortWarn(fmt.Sprintf("Failed to delete Test Project, response code: %d", resp.StatusCode))
+				errorMsg := fmt.Sprintf("Project deletion failed: %v", err)
+				options.lastTeardownErrors = append(options.lastTeardownErrors, errorMsg)
+				projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s/configurations", *options.currentProject.ID)
+				options.Logger.ShortWarn(fmt.Sprintf("Error deleting Test Project: %s\nProject Console: %s", err, projectURL))
 			}
 		} else {
-			options.Logger.ShortWarn(fmt.Sprintf("Error deleting Test Project: %s", err))
+			options.Logger.ShortInfo("No project ID found to delete")
 		}
-	} else {
-		options.Logger.ShortInfo("No project ID found to delete")
 	}
 
 	// Catalog cleanup logic:
@@ -401,6 +454,8 @@ func (options *TestAddonOptions) testTearDown() {
 		options.Logger.ShortInfo(fmt.Sprintf("Deleting the catalog %s with ID %s (SharedCatalog=false)", *options.catalog.Label, *options.catalog.ID))
 		err := options.CloudInfoService.DeleteCatalog(*options.catalog.ID)
 		if err != nil {
+			errorMsg := fmt.Sprintf("Catalog deletion failed: %v", err)
+			options.lastTeardownErrors = append(options.lastTeardownErrors, errorMsg)
 			options.Logger.ErrorWithContext(fmt.Sprintf("Error deleting the catalog: %v", err))
 			options.Testing.Fail()
 		} else {

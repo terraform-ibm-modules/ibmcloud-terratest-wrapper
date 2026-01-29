@@ -7,12 +7,13 @@ import (
 
 type Stack struct {
 	Inputs []struct {
-		Name        string      `json:"name"`
-		Description string      `json:"description"`
-		Required    bool        `json:"required"`
-		Type        string      `json:"type"`
-		Hidden      bool        `json:"hidden"`
-		Default     interface{} `json:"default"`
+		Name         string      `json:"name"`
+		Description  string      `json:"description"`
+		Required     bool        `json:"required"`
+		Type         string      `json:"type"`
+		TypeMetadata string      `json:"type_metadata"`
+		Hidden       bool        `json:"hidden"`
+		Default      interface{} `json:"default"`
 	} `json:"inputs"`
 	Outputs []struct {
 		Name  string `json:"name"`
@@ -47,7 +48,7 @@ type ConfigDetails struct {
 	// Member Config details used to override the default member inputs
 	// Only need to set the name and inputs
 	MemberConfigDetails []ConfigDetails
-	MemberConfigs       []project.StackConfigMember
+	MemberConfigs       []project.StackMember
 
 	// CatalogProductName The name of the product in the catalog. Defaults to the first product in the catalog.
 	CatalogProductName string
@@ -65,6 +66,7 @@ type ProjectsConfig struct {
 	DestroyOnDelete    bool                             `json:"destroy_on_delete"`
 	MonitoringEnabled  bool                             `json:"monitoring_enabled"`
 	AutoDeploy         bool                             `json:"auto_deploy"`
+	AutoDeployMode     string                           `json:"auto_deloy_mode"`
 	Configs            []project.ProjectConfigPrototype `json:"configs,omitempty"`
 	Environments       []project.EnvironmentPrototype   `json:"environments,omitempty"`
 	Headers            map[string]string                `json:"headers,omitempty"`

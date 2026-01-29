@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"testing"
 
@@ -1015,6 +1016,82 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 				"catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input4 expected type: bool, got: array"),
 		},
 		{
+			name: "catalog input type_metadata mismatch, should return an error",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_with_type_metadata_only.json",
+			catalogJsonPath: "testdata/ibm_catalog_with_type_metadata_only.json",
+			expectedConfig:  nil,
+			expectedError: fmt.Errorf("catalog configuration type_metadata mismatch in product 'Product Name', flavor 'Flavor Name': input5 expected type: string, got: int\n" +
+				"catalog configuration type_metadata mismatch in product 'Product Name', flavor 'Flavor Name': input6 expected type: string, got: bool"),
+		},
+		{
+			name: "catalog input with both type and type_metadata matching, should succeed",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_with_both_type_fields.json",
+			catalogJsonPath: "testdata/ibm_catalog_with_both_type_fields_matching.json",
+			expectedConfig: &projects.StackDefinition{
+				ID: core.StringPtr("mockProjectID"),
+				StackDefinition: &projects.StackDefinitionBlock{
+					Inputs: []projects.StackDefinitionInputVariable{
+						{
+							Name:        core.StringPtr("input1"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(false),
+							Default:     core.StringPtr("default_value_1"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("input2"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(false),
+							Default:     core.StringPtr("default_value_2"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("input3"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(false),
+							Default:     core.StringPtr("default_value_3"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+					},
+					Outputs: []projects.StackDefinitionOutputVariable{
+						{Name: core.StringPtr("output1"), Value: core.StringPtr("ref:../members/member1/outputs/output1")},
+					},
+					Members: []projects.StackDefinitionMember{
+						{
+							Name:           core.StringPtr("member1"),
+							VersionLocator: core.StringPtr("version1"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("input1"), Value: core.StringPtr("ref:../../inputs/input1")},
+							},
+						},
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			name: "catalog input with both type and type_metadata conflicting, should return error",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_with_both_type_fields.json",
+			catalogJsonPath: "testdata/ibm_catalog_with_both_type_fields.json",
+			expectedConfig:  nil,
+			expectedError:   fmt.Errorf("catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': input2 expected type: string, got: int"),
+		},
+		{
 			// This is checking the type of the actual default value
 			name: "catalog input default type mismatch, should return an error",
 			stackConfig: &ConfigDetails{
@@ -1046,6 +1123,59 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 					"duplicate catalog input variable found in product 'Product Name', flavor 'Flavor Name': input1\n" +
 					"catalog configuration default value type mismatch in product 'Product Name', flavor 'Flavor Name': input2 expected type: int, got: string\n" +
 					"extra catalog input variable not found in stack definition in product 'Product Name', flavor 'Flavor Name': input5"),
+		},
+		{
+			name: "catalog with HCL string defaults for array/object types, should pass validation",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_hcl_string_default.json",
+			catalogJsonPath: "testdata/ibm_catalog_hcl_string_default.json",
+			expectedConfig: &projects.StackDefinition{
+				ID: core.StringPtr("mockProjectID"),
+				StackDefinition: &projects.StackDefinitionBlock{
+					Inputs: []projects.StackDefinitionInputVariable{
+						{
+							Name:        core.StringPtr("config_object"),
+							Type:        core.StringPtr("object"),
+							Required:    core.BoolPtr(false),
+							Default:     core.StringPtr("{\n    setting1 = \"value1\"\n    setting2 = 42\n    nested   = {\n      key = \"value\"\n    }\n  }"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("us-south"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("secret_groups"),
+							Type:        core.StringPtr("array"),
+							Required:    core.BoolPtr(false),
+							Default:     core.StringPtr("[\n    {\n      secret_group_name        = \"General\"\n      secret_group_description = \"A general purpose secrets group with an associated access group which has a secrets reader role\"\n      create_access_group      = true\n      access_group_name        = \"general-secrets-group-access-group\"\n      access_group_roles       = [\"SecretsReader\"]\n    }\n  ]"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+					},
+					Outputs: []projects.StackDefinitionOutputVariable{
+						{Name: core.StringPtr("output1"), Value: core.StringPtr("ref:../members/member1/outputs/output1")},
+					},
+					Members: []projects.StackDefinitionMember{
+						{
+							Name:           core.StringPtr("member1"),
+							VersionLocator: core.StringPtr("version1"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("region"), Value: core.StringPtr("ref:../../inputs/region")},
+							},
+						},
+					},
+				},
+			},
+			expectedError: nil,
 		},
 	}
 
@@ -1083,6 +1213,104 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 
 		})
 	}
+}
+
+func (suite *ProjectsServiceTestSuite) TestGetMemberWithWorkspaceInfo_Success() {
+	projectID := "test-project-id"
+	configID := "test-config-id"
+
+	// Mock member config with workspace info and job ID populated
+	mockMember := &projects.ProjectConfig{
+		ID: core.StringPtr(configID),
+		Schematics: &projects.SchematicsMetadata{
+			WorkspaceCrn: core.StringPtr("crn:v1:bluemix:public:schematics:us-south:a/abc123::workspace:ws-123"),
+		},
+		LastValidated: &projects.LastValidatedActionWithSummary{
+			Href: core.StringPtr("https://example.com"),
+			Job: &projects.ActionJobWithIdAndSummary{
+				ID:      core.StringPtr("job-123"),
+				Summary: &projects.ActionJobSummary{},
+			},
+		},
+	}
+
+	mockResponse := &core.DetailedResponse{StatusCode: 200}
+
+	// Mock GetConfig to return member with workspace info on first try
+	suite.mockService.On("GetConfig", mock.MatchedBy(func(opts *projects.GetConfigOptions) bool {
+		return *opts.ProjectID == projectID && *opts.ID == configID
+	})).Return(mockMember, mockResponse, nil)
+
+	// Call the function
+	result, err := suite.infoSvc.GetMemberWithWorkspaceInfo(projectID, configID)
+
+	// Verify
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), configID, *result.ID)
+	assert.NotNil(suite.T(), result.Schematics)
+	assert.NotNil(suite.T(), result.Schematics.WorkspaceCrn)
+	assert.NotNil(suite.T(), result.LastValidated)
+	assert.NotNil(suite.T(), result.LastValidated.Job)
+	assert.NotNil(suite.T(), result.LastValidated.Job.ID)
+}
+
+func (suite *ProjectsServiceTestSuite) TestGetMemberWithWorkspaceInfo_EventualConsistency() {
+	// Set environment variable to skip retry delays for faster testing
+	originalSkipDelays := os.Getenv("SKIP_RETRY_DELAYS")
+	os.Setenv("SKIP_RETRY_DELAYS", "true")
+	defer os.Setenv("SKIP_RETRY_DELAYS", originalSkipDelays)
+
+	projectID := "test-project-id"
+	configID := "test-config-id"
+
+	// First call: Member without workspace info (eventual consistency)
+	memberWithoutInfo := &projects.ProjectConfig{
+		ID:         core.StringPtr(configID),
+		Schematics: nil, // No workspace info yet
+	}
+
+	// Second call: Member with workspace info populated
+	memberWithInfo := &projects.ProjectConfig{
+		ID: core.StringPtr(configID),
+		Schematics: &projects.SchematicsMetadata{
+			WorkspaceCrn: core.StringPtr("crn:v1:bluemix:public:schematics:us-south:a/abc123::workspace:ws-123"),
+		},
+		LastDeployed: &projects.LastActionWithSummary{
+			Href: core.StringPtr("https://example.com"),
+			Job: &projects.ActionJobWithIdAndSummary{
+				ID:      core.StringPtr("job-456"),
+				Summary: &projects.ActionJobSummary{},
+			},
+		},
+	}
+
+	mockResponse := &core.DetailedResponse{StatusCode: 200}
+
+	// Mock GetConfig to return different results on sequential calls
+	suite.mockService.On("GetConfig", mock.MatchedBy(func(opts *projects.GetConfigOptions) bool {
+		return *opts.ProjectID == projectID && *opts.ID == configID
+	})).Return(memberWithoutInfo, mockResponse, nil).Once()
+
+	suite.mockService.On("GetConfig", mock.MatchedBy(func(opts *projects.GetConfigOptions) bool {
+		return *opts.ProjectID == projectID && *opts.ID == configID
+	})).Return(memberWithInfo, mockResponse, nil)
+
+	// Call the function - it should retry and eventually get the complete data
+	result, err := suite.infoSvc.GetMemberWithWorkspaceInfo(projectID, configID)
+
+	// Verify
+	assert.NoError(suite.T(), err)
+	assert.NotNil(suite.T(), result)
+	assert.Equal(suite.T(), configID, *result.ID)
+	assert.NotNil(suite.T(), result.Schematics)
+	assert.NotNil(suite.T(), result.Schematics.WorkspaceCrn)
+	assert.NotNil(suite.T(), result.LastDeployed)
+	assert.NotNil(suite.T(), result.LastDeployed.Job)
+	assert.NotNil(suite.T(), result.LastDeployed.Job.ID)
+
+	// Verify GetConfig was called at least twice (retry happened)
+	suite.mockService.AssertNumberOfCalls(suite.T(), "GetConfig", 2)
 }
 
 func TestProjectsServiceTestSuite(t *testing.T) {

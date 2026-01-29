@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -201,11 +202,14 @@ func replaceConfigIDWithName(reference, configID, configName string) string {
 }
 
 // ResolveReferences resolves a list of references using the ref-resolver API with region failover
+// ResolveReferences resolves project references to their actual values
+// NOT CACHED: Reference values are dynamic and must always be resolved fresh
 func (infoSvc *CloudInfoService) ResolveReferences(region string, references []Reference) (*ResolveResponse, error) {
 	return infoSvc.ResolveReferencesWithContext(region, references, false)
 }
 
 // ResolveReferencesWithContext resolves references with optional batch context to reduce logging verbosity
+// NOT CACHED: Reference values are dynamic and must always be resolved fresh
 func (infoSvc *CloudInfoService) ResolveReferencesWithContext(region string, references []Reference, batchMode bool) (*ResolveResponse, error) {
 	// Check if we have an active region from previous failover
 	infoSvc.refResolverLock.Lock()
@@ -292,7 +296,10 @@ func (infoSvc *CloudInfoService) resolveReferencesWithRetryContext(region string
 					}
 				}
 
-				time.Sleep(waitTime)
+				// Skip wait in unit tests when SKIP_RETRY_DELAYS=true
+				if os.Getenv("SKIP_RETRY_DELAYS") != "true" {
+					time.Sleep(waitTime)
+				}
 				continue
 			} else if infoSvc.Logger != nil {
 				// Only log non-retryable errors at error level during the final attempt

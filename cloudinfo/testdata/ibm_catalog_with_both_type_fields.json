@@ -61,34 +61,28 @@
             {
               "key": "input1",
               "type": "string",
-              "description": "Description for input1",
-              "default_value": false,
-              "required": true,
+              "type_metadata": "string",
+              "description": "Both fields matching",
+              "default_value": "default_value_1",
+              "required": false,
               "display_name": "Input 1"
             },
             {
               "key": "input2",
               "type": "int",
-              "description": "Description for input2",
-              "default_value": "80",
-              "required": true,
+              "type_metadata": "string",
+              "description": "Both fields conflicting",
+              "default_value": "default_value_2",
+              "required": false,
               "display_name": "Input 2"
             },
             {
               "key": "input3",
-              "type": "array",
-              "description": "Description for input3",
-              "default_value": "not_an_array_just_a_string",
-              "required": true,
+              "type": "string",
+              "description": "Only type field",
+              "default_value": "default_value_3",
+              "required": false,
               "display_name": "Input 3"
-            },
-            {
-              "key": "input4",
-              "type": "bool",
-              "description": "Description for input4",
-              "default_value": "true",
-              "required": true,
-              "display_name": "Input 4"
             }
           ],
           "outputs": [

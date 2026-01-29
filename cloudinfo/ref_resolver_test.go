@@ -45,6 +45,10 @@ func (suite *RefResolverTestSuite) SetupTest() {
 			Logger: common.NewTestLogger("RefResolverTest"),
 		},
 	}
+
+	// Ensure retrying unit tests set SKIP_RETRY_DELAYS explicitly
+	// common.calculateDelay skips when SKIP_RETRY_DELAYS == "true"
+	suite.T().Setenv("SKIP_RETRY_DELAYS", "true")
 }
 
 func (suite *RefResolverTestSuite) TearDownTest() {
@@ -749,7 +753,7 @@ func (suite *RefResolverTestSuite) TestResolveReferencesFromStrings() {
 	// Create mock responses
 	mockProjectResponse := &projects.Project{
 		ID: core.StringPtr(mockProjectID),
-		Definition: &projects.ProjectDefinitionProperties{
+		Definition: &projects.ProjectDefinition{
 			Name: core.StringPtr(mockProjectName),
 		},
 	}
@@ -931,6 +935,8 @@ func (suite *RefResolverTestSuite) TestResolveReferencesFromStrings() {
 
 // Tests for retry logic
 func TestResolveReferencesRetry(t *testing.T) {
+	// Ensure unit tests that exercise retry logic do not incur real delays
+	t.Setenv("SKIP_RETRY_DELAYS", "true")
 	mockReferences := []Reference{
 		{Reference: "ref://project.myproject/configs/config1/inputs/var1"},
 	}
@@ -1177,6 +1183,8 @@ func TestResolveReferencesRetry(t *testing.T) {
 // TestResolveReferencesRetryWithTokenRefresh tests that the retry logic correctly
 // forces a token refresh when encountering API key validation failures
 func TestResolveReferencesRetryWithTokenRefresh(t *testing.T) {
+	// Ensure unit tests that exercise retry logic do not incur real delays
+	t.Setenv("SKIP_RETRY_DELAYS", "true")
 	mockReferences := []Reference{
 		{Reference: "ref://project.myproject/configs/config1/inputs/var1"},
 	}
@@ -1286,6 +1294,19 @@ func (m *MockTokenTrackingAuthenticator) Authenticate(request *http.Request) err
 
 func (m *MockTokenTrackingAuthenticator) Validate() error {
 	return nil
+}
+
+func (m *MockTokenTrackingAuthenticator) RequestToken() (*core.IamTokenServerResponse, error) {
+	if m.TokenRefreshCallback != nil {
+		m.TokenRefreshCallback()
+	}
+	return &core.IamTokenServerResponse{
+		AccessToken:  "mock-token-" + m.ApiKey,
+		RefreshToken: "mock-refresh-token",
+		TokenType:    "Bearer",
+		ExpiresIn:    3600,
+		Expiration:   0,
+	}, nil
 }
 
 // Tests for transformStackStyleReference

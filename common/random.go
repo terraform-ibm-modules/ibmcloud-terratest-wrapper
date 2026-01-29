@@ -2,8 +2,8 @@ package common
 
 import (
 	"bytes"
-	"math/rand"
-	"time"
+	"crypto/rand"
+	"math/big"
 )
 
 const base36chars = "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -21,15 +21,17 @@ func UniqueId(length ...int) string {
 	}
 	var out bytes.Buffer
 
-	generator := newRand()
 	for i := 0; i < idLength; i++ {
-		out.WriteByte(base36chars[generator.Intn(len(base36chars))])
+		out.WriteByte(base36chars[CryptoIntn(len(base36chars))])
 	}
 
 	return out.String()
 }
 
-// newRand creates a new random number generator, seeding it with the current system time.
-func newRand() *rand.Rand {
-	return rand.New(rand.NewSource(time.Now().UnixNano()))
+func CryptoIntn(max int) int {
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		panic(err)
+	}
+	return int(n.Int64())
 }

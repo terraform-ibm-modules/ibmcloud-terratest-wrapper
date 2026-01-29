@@ -10,9 +10,12 @@ import (
 // printConsolidatedValidationSummary prints a clean, consolidated summary of dependency validation errors
 // instead of scattered individual error messages throughout the output
 func (options *TestAddonOptions) printConsolidatedValidationSummary(validationResult ValidationResult) {
-	options.Logger.ShortError("═══════════════════════════════════════════════════════════════")
-	options.Logger.ShortError("                  DEPENDENCY VALIDATION FAILED")
-	options.Logger.ShortError("═══════════════════════════════════════════════════════════════")
+	// Build the entire summary as a single string to prevent log interleaving
+	var builder strings.Builder
+
+	builder.WriteString("\n═══════════════════════════════════════════════════════════════\n")
+	builder.WriteString("                  DEPENDENCY VALIDATION FAILED\n")
+	builder.WriteString("═══════════════════════════════════════════════════════════════\n")
 
 	// Summary counts
 	dependencyCount := len(validationResult.DependencyErrors)
@@ -21,104 +24,115 @@ func (options *TestAddonOptions) printConsolidatedValidationSummary(validationRe
 	warningsCount := len(validationResult.Warnings)
 
 	if warningsCount > 0 {
-		options.Logger.ShortError(fmt.Sprintf("Summary: %d dependency errors, %d unexpected configs, %d missing configs, %d warnings",
+		builder.WriteString(fmt.Sprintf("Summary: %d dependency errors, %d unexpected configs, %d missing configs, %d warnings\n",
 			dependencyCount, unexpectedCount, missingCount, warningsCount))
 	} else {
-		options.Logger.ShortError(fmt.Sprintf("Summary: %d dependency errors, %d unexpected configs, %d missing configs",
+		builder.WriteString(fmt.Sprintf("Summary: %d dependency errors, %d unexpected configs, %d missing configs\n",
 			dependencyCount, unexpectedCount, missingCount))
 	}
-	options.Logger.ShortError("")
+	builder.WriteString("\n")
 
 	// Dependency Errors Section
 	if dependencyCount > 0 {
-		options.Logger.ShortError("🔗 DEPENDENCY ERRORS:")
+		builder.WriteString("🔗 DEPENDENCY ERRORS:\n")
 		for i, depErr := range validationResult.DependencyErrors {
 			// Show the dependency relationship in tree format
-			options.Logger.ShortError(fmt.Sprintf("  %d. %s (%s, %s)", i+1, depErr.Addon.Name, depErr.Addon.Version, depErr.Addon.Flavor.Name))
-			options.Logger.ShortError(fmt.Sprintf("     └── requires: %s (%s, %s) - ❌ NOT AVAILABLE",
+			builder.WriteString(fmt.Sprintf("  %d. %s (%s, %s)\n", i+1, depErr.Addon.Name, depErr.Addon.Version, depErr.Addon.Flavor.Name))
+			builder.WriteString(fmt.Sprintf("     └── requires: %s (%s, %s) - ❌ NOT AVAILABLE\n",
 				depErr.DependencyRequired.Name, depErr.DependencyRequired.Version, depErr.DependencyRequired.Flavor.Name))
 
 			if len(depErr.DependenciesAvailable) > 0 {
-				options.Logger.ShortInfo("     └── Available alternatives:")
+				builder.WriteString("     └── Available alternatives:\n")
 				for j, available := range depErr.DependenciesAvailable {
 					symbol := "├──"
 					if j == len(depErr.DependenciesAvailable)-1 {
 						symbol = "└──"
 					}
-					options.Logger.ShortInfo(fmt.Sprintf("         %s %s (%s, %s)", symbol, available.Name, available.Version, available.Flavor.Name))
+					builder.WriteString(fmt.Sprintf("         %s %s (%s, %s)\n", symbol, available.Name, available.Version, available.Flavor.Name))
 				}
 			} else {
-				options.Logger.ShortError("     └── ❌ No alternatives available")
+				builder.WriteString("     └── ❌ No alternatives available\n")
 			}
 		}
-		options.Logger.ShortError("")
+		builder.WriteString("\n")
 	}
 
 	// Unexpected Configs Section - show in tree format
 	if unexpectedCount > 0 {
-		options.Logger.ShortError("❌ UNEXPECTED CONFIGS DEPLOYED:")
+		builder.WriteString("❌ UNEXPECTED CONFIGS ADDED TO PROJECT:\n")
 		for i, unexpectedConfig := range validationResult.UnexpectedConfigs {
-			options.Logger.ShortError(fmt.Sprintf("  %d. %s (%s, %s) - should not be deployed",
+			builder.WriteString(fmt.Sprintf("  %d. %s (%s, %s) - should not be added to project\n",
 				i+1, unexpectedConfig.Name, unexpectedConfig.Version, unexpectedConfig.Flavor.Name))
 		}
-		options.Logger.ShortError("")
+		builder.WriteString("\n")
 	}
 
 	// Missing Configs Section - show in tree format
 	if missingCount > 0 {
-		options.Logger.ShortError("📋 MISSING EXPECTED CONFIGS:")
+		builder.WriteString("📋 MISSING EXPECTED CONFIGS:\n")
 		for i, missingConfig := range validationResult.MissingConfigs {
-			options.Logger.ShortError(fmt.Sprintf("  %d. %s (%s, %s) - expected but not deployed",
+			builder.WriteString(fmt.Sprintf("  %d. %s (%s, %s) - expected but not deployed\n",
 				i+1, missingConfig.Name, missingConfig.Version, missingConfig.Flavor.Name))
 		}
-		options.Logger.ShortError("")
+		builder.WriteString("\n")
 	}
 
 	// Warnings Section
 	if warningsCount > 0 {
-		options.Logger.ShortWarn("⚠️ WARNINGS:")
+		builder.WriteString("⚠️ WARNINGS:\n")
 		for i, warning := range validationResult.Warnings {
-			options.Logger.ShortWarn(fmt.Sprintf("  %d. %s", i+1, warning))
+			builder.WriteString(fmt.Sprintf("  %d. %s\n", i+1, warning))
 		}
-		options.Logger.ShortError("")
+		builder.WriteString("\n")
 	}
 
-	options.Logger.ShortError("═══════════════════════════════════════════════════════════════")
+	builder.WriteString("═══════════════════════════════════════════════════════════════\n")
 	if warningsCount > 0 && dependencyCount == 0 && unexpectedCount == 0 && missingCount == 0 {
-		options.Logger.ShortWarn("Review the warnings above but test will continue.")
+		builder.WriteString("Review the warnings above but test will continue.\n")
 	} else {
-		options.Logger.ShortError("Fix the above issues and retry the deployment.")
+		builder.WriteString("Fix the above issues and retry the deployment.\n")
 	}
-	options.Logger.ShortError("═══════════════════════════════════════════════════════════════")
+	builder.WriteString("═══════════════════════════════════════════════════════════════")
+
+	// Log the complete summary as a single entry
+	options.Logger.ShortError(builder.String())
 }
 
 // printDetailedValidationErrors prints detailed individual validation error messages
 // This is the original verbose behavior for backward compatibility
 func (options *TestAddonOptions) printDetailedValidationErrors(validationResult ValidationResult) {
+	var builder strings.Builder
+	builder.WriteString("\n") // Add newline at start for proper alignment
+
 	for _, depErr := range validationResult.DependencyErrors {
 		errormsg := fmt.Sprintf(
-			"Addon %s (version %s, flavor %s) requires %s (version %s, flavor %s), but it's not available.",
+			"Addon %s (version %s, flavor %s) requires %s (version %s, flavor %s), but it's not available.\n",
 			depErr.Addon.Name, depErr.Addon.Version, depErr.Addon.Flavor.Name,
 			depErr.DependencyRequired.Name, depErr.DependencyRequired.Version, depErr.DependencyRequired.Flavor.Name,
 		)
-		options.Logger.Error(errormsg)
+		builder.WriteString(errormsg)
 
 		if len(depErr.DependenciesAvailable) > 0 {
-			options.Logger.ShortInfo("Available alternatives:")
+			builder.WriteString("Available alternatives:\n")
 			for _, available := range depErr.DependenciesAvailable {
-				options.Logger.ShortInfo(fmt.Sprintf("  - %s (version %s, flavor %s)", available.Name, available.Version, available.Flavor.Name))
+				builder.WriteString(fmt.Sprintf("  - %s (version %s, flavor %s)\n", available.Name, available.Version, available.Flavor.Name))
 			}
 		} else {
-			options.Logger.ShortError("No alternatives are available")
+			builder.WriteString("No alternatives are available\n")
 		}
+		builder.WriteString("\n")
 	}
 
 	for _, unexpectedConfig := range validationResult.UnexpectedConfigs {
-		options.Logger.ShortError(fmt.Sprintf("Unexpected config deployed: %s (version %s, flavor %s)", unexpectedConfig.Name, unexpectedConfig.Version, unexpectedConfig.Flavor.Name))
+		builder.WriteString(fmt.Sprintf("Unexpected config deployed: %s (version %s, flavor %s)\n", unexpectedConfig.Name, unexpectedConfig.Version, unexpectedConfig.Flavor.Name))
 	}
 
 	for _, missingConfig := range validationResult.MissingConfigs {
-		options.Logger.ShortError(fmt.Sprintf("Missing expected config: %s (version %s, flavor %s)", missingConfig.Name, missingConfig.Version, missingConfig.Flavor.Name))
+		builder.WriteString(fmt.Sprintf("Missing expected config: %s (version %s, flavor %s)\n", missingConfig.Name, missingConfig.Version, missingConfig.Flavor.Name))
+	}
+
+	if output := strings.TrimSuffix(builder.String(), "\n"); output != "" {
+		options.Logger.Error(output)
 	}
 }
 
@@ -153,23 +167,30 @@ func (options *TestAddonOptions) PrintDependencyTree(graph map[string][]cloudinf
 	}
 
 	if rootAddon != nil {
-		options.printAddonTree(*rootAddon, graph, "", true, make(map[string]bool))
+		// Build entire tree as string to prevent log interleaving
+		var builder strings.Builder
+		builder.WriteString("\n") // Add newline at start for proper alignment
+		options.printAddonTree(*rootAddon, graph, "", true, make(map[string]bool), &builder)
+		// Log the complete tree as a single entry
+		if treeStr := builder.String(); treeStr != "" {
+			options.Logger.ShortInfo(strings.TrimSuffix(treeStr, "\n"))
+		}
 	}
 }
 
 // printAddonTree recursively prints an addon and its dependencies in tree format
-func (options *TestAddonOptions) printAddonTree(addon cloudinfo.OfferingReferenceDetail, graph map[string][]cloudinfo.OfferingReferenceDetail, indent string, isLast bool, visited map[string]bool) {
+func (options *TestAddonOptions) printAddonTree(addon cloudinfo.OfferingReferenceDetail, graph map[string][]cloudinfo.OfferingReferenceDetail, indent string, isLast bool, visited map[string]bool, builder *strings.Builder) {
 	// Create a unique key for this addon
 	addonKey := generateAddonKeyFromDetail(addon)
 
 	// Print the current addon
 	symbol := options.getTreeSymbol(isLast)
-	options.Logger.ShortInfo(fmt.Sprintf("%s%s %s (%s, %s)", indent, symbol, addon.Name, addon.Version, addon.Flavor.Name))
+	builder.WriteString(fmt.Sprintf("%s%s %s (%s, %s)\n", indent, symbol, addon.Name, addon.Version, addon.Flavor.Name))
 
 	// Check if we've already visited this addon to avoid infinite loops
 	if visited[addonKey] {
 		nextIndent := options.getIndentString(indent, isLast)
-		options.Logger.ShortInfo(fmt.Sprintf("%s%s (already shown above)", nextIndent, "└── [circular reference]"))
+		builder.WriteString(fmt.Sprintf("%s%s (already shown above)\n", nextIndent, "└── [circular reference]"))
 		return
 	}
 
@@ -188,7 +209,7 @@ func (options *TestAddonOptions) printAddonTree(addon cloudinfo.OfferingReferenc
 	nextIndent := options.getIndentString(indent, isLast)
 	for i, dep := range dependencies {
 		isLastDep := i == len(dependencies)-1
-		options.printAddonTree(dep, graph, nextIndent, isLastDep, visited)
+		options.printAddonTree(dep, graph, nextIndent, isLastDep, visited, builder)
 	}
 
 	// Remove from visited when we're done with this branch
@@ -264,41 +285,82 @@ func (options *TestAddonOptions) printDependencyTreeWithValidationStatus(graph m
 		rootAddon = &expectedDeployedList[0]
 	}
 
-	options.Logger.ShortError("═══════════════════════════════════════════════════════════════")
-	options.Logger.ShortError("                  DEPENDENCY VALIDATION FAILED")
-	options.Logger.ShortError("═══════════════════════════════════════════════════════════════")
+	// Build consolidated output to prevent log interleaving
+	var builder strings.Builder
+
+	builder.WriteString("\n═══════════════════════════════════════════════════════════════\n")
+	builder.WriteString("                  DEPENDENCY VALIDATION FAILED\n")
+	builder.WriteString("═══════════════════════════════════════════════════════════════\n")
 
 	// Show expected tree first
-	options.Logger.ShortInfo("Expected dependency tree:")
+	builder.WriteString("Expected dependency tree:\n")
 	if rootAddon != nil {
-		options.printAddonTree(*rootAddon, graph, "", true, make(map[string]bool))
+		options.printAddonTree(*rootAddon, graph, "", true, make(map[string]bool), &builder)
 	}
-	options.Logger.ShortInfo("")
+	builder.WriteString("\n")
 
-	// Show actual deployment status tree
-	options.Logger.ShortError("Actual deployment status:")
-	if rootAddon != nil {
-		options.printAddonTreeWithStatus(*rootAddon, graph, "", true, make(map[string]bool), deployedMap, errorMap, missingMap)
+	// Show actual deployment status tree (comprehensive: expected + unexpected)
+	builder.WriteString("Actual deployment status:\n")
+	// Build a comprehensive tree that includes unexpected configurations to show where they fit
+	allDeployedTree := options.buildComprehensiveDeploymentTree(actuallyDeployedList, graph, validationResult)
+	if len(allDeployedTree) > 0 {
+		// Find a suitable root among all deployed configs (one that isn't a dependency of another)
+		var rootConfig *cloudinfo.OfferingReferenceDetail
+		for _, cfg := range allDeployedTree {
+			isRoot := true
+			for _, other := range allDeployedTree {
+				if deps, exists := graph[generateAddonKeyFromDetail(other)]; exists {
+					for _, dep := range deps {
+						if dep.Name == cfg.Name && dep.Version == cfg.Version && dep.Flavor.Name == cfg.Flavor.Name {
+							isRoot = false
+							break
+						}
+					}
+				}
+				if !isRoot {
+					break
+				}
+			}
+			if isRoot {
+				rootConfig = &cfg
+				break
+			}
+		}
+		if rootConfig == nil {
+			// Fallback: use first config if we couldn't determine a clear root
+			rootConfig = &allDeployedTree[0]
+		}
+		options.printComprehensiveTreeWithStatus(*rootConfig, allDeployedTree, graph, "", true, make(map[string]bool), validationResult, &builder)
+	} else if rootAddon != nil {
+		// Fallback to expected-only tree if no comprehensive data available
+		options.printAddonTreeWithStatus(*rootAddon, graph, "", true, make(map[string]bool), deployedMap, errorMap, missingMap, &builder)
 	}
-	options.Logger.ShortError("")
+	builder.WriteString("\n")
 
 	// Short error summary
 	dependencyCount := len(validationResult.DependencyErrors)
 	unexpectedCount := len(validationResult.UnexpectedConfigs)
 	missingCount := len(validationResult.MissingConfigs)
 
-	options.Logger.ShortError("Summary:")
+	builder.WriteString("Summary:\n")
 	if dependencyCount > 0 {
-		options.Logger.ShortError(fmt.Sprintf("  ❌ %d dependency version mismatches", dependencyCount))
+		builder.WriteString(fmt.Sprintf("  ❌ %d dependency version mismatches\n", dependencyCount))
 	}
 	if missingCount > 0 {
-		options.Logger.ShortError(fmt.Sprintf("  📋 %d missing expected components", missingCount))
+		builder.WriteString(fmt.Sprintf("  📋 %d missing expected components\n", missingCount))
 	}
 	if unexpectedCount > 0 {
-		options.Logger.ShortError(fmt.Sprintf("  ⚠️  %d unexpected components deployed", unexpectedCount))
+		builder.WriteString(fmt.Sprintf("  ⚠️  %d unexpected components deployed\n", unexpectedCount))
+		// List unexpected components explicitly for clarity
+		for _, u := range validationResult.UnexpectedConfigs {
+			builder.WriteString(fmt.Sprintf("    • Unexpected: %s (%s, %s)\n", u.Name, u.Version, u.Flavor.Name))
+		}
 	}
 
-	options.Logger.ShortError("═══════════════════════════════════════════════════════════════")
+	builder.WriteString("═══════════════════════════════════════════════════════════════")
+
+	// Log the complete output as a single entry
+	options.Logger.ShortError(builder.String())
 }
 
 // printAddonTreeWithStatus recursively prints an addon and its dependencies with validation status
@@ -307,9 +369,10 @@ func (options *TestAddonOptions) printAddonTreeWithStatus(addon cloudinfo.Offeri
 	indent string, isLast bool, visited map[string]bool,
 	deployedMap map[string]bool,
 	errorMap map[string]cloudinfo.DependencyError,
-	missingMap map[string]bool) {
+	missingMap map[string]bool,
+	builder *strings.Builder) {
 
-	options.printAddonTreeWithStatusAndPath(addon, graph, indent, isLast, visited, deployedMap, errorMap, missingMap, []string{})
+	options.printAddonTreeWithStatusAndPath(addon, graph, indent, isLast, visited, deployedMap, errorMap, missingMap, []string{}, builder)
 }
 
 // printAddonTreeWithStatusAndPath recursively prints an addon and its dependencies with validation status and circular reference detection
@@ -319,34 +382,30 @@ func (options *TestAddonOptions) printAddonTreeWithStatusAndPath(addon cloudinfo
 	deployedMap map[string]bool,
 	errorMap map[string]cloudinfo.DependencyError,
 	missingMap map[string]bool,
-	path []string) {
+	path []string,
+	builder *strings.Builder) {
 
 	// Create a unique key for this addon
 	addonKey := generateAddonKeyFromDetail(addon)
 
 	// Determine status symbol and log method
 	statusSymbol := ""
-	logMethod := options.Logger.ShortInfo
 
 	if missingMap[addonKey] {
 		statusSymbol = " ❌ MISSING" // Missing completely
-		logMethod = options.Logger.ShortError
 	} else if deployedMap[addonKey] {
 		if _, hasError := errorMap[addonKey]; hasError {
-			statusSymbol = " ✅ DEPLOYED (dependency issue)" // Deployed but with dependency issues
-			logMethod = options.Logger.ShortWarn
+			statusSymbol = " ✅ ADDED_TO_PROJECT (dependency issue)" // Added to project but with dependency issues
 		} else {
-			statusSymbol = " ✅ DEPLOYED" // Deployed correctly
-			logMethod = options.Logger.ShortInfo
+			statusSymbol = " ✅ ADDED_TO_PROJECT" // Added to project correctly
 		}
 	} else {
 		statusSymbol = " ❓ UNKNOWN STATUS" // Status unclear
-		logMethod = options.Logger.ShortWarn
 	}
 
 	// Print the current addon with status
 	symbol := options.getTreeSymbol(isLast)
-	logMethod(fmt.Sprintf("%s%s %s (%s, %s)%s", indent, symbol, addon.Name, addon.Version, addon.Flavor.Name, statusSymbol))
+	builder.WriteString(fmt.Sprintf("%s%s %s (%s, %s)%s\n", indent, symbol, addon.Name, addon.Version, addon.Flavor.Name, statusSymbol))
 
 	// Check if we've already visited this addon to avoid infinite loops
 	if visited[addonKey] {
@@ -354,9 +413,9 @@ func (options *TestAddonOptions) printAddonTreeWithStatusAndPath(addon cloudinfo
 		// Show the circular reference with the path
 		cycle := options.findCycleInPath(path, addonKey)
 		if len(cycle) > 0 {
-			options.Logger.ShortWarn(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s", nextIndent, strings.Join(cycle, " → ")))
+			builder.WriteString(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s\n", nextIndent, strings.Join(cycle, " → ")))
 		} else {
-			options.Logger.ShortWarn(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s (already shown above)", nextIndent, addon.Name))
+			builder.WriteString(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s (already shown above)\n", nextIndent, addon.Name))
 		}
 		return
 	}
@@ -377,7 +436,7 @@ func (options *TestAddonOptions) printAddonTreeWithStatusAndPath(addon cloudinfo
 	nextIndent := options.getIndentString(indent, isLast)
 	for i, dep := range dependencies {
 		isLastDep := i == len(dependencies)-1
-		options.printAddonTreeWithStatusAndPath(dep, graph, nextIndent, isLastDep, visited, deployedMap, errorMap, missingMap, newPath)
+		options.printAddonTreeWithStatusAndPath(dep, graph, nextIndent, isLastDep, visited, deployedMap, errorMap, missingMap, newPath, builder)
 	}
 
 	// Remove from visited when we're done with this branch
@@ -428,9 +487,10 @@ func (options *TestAddonOptions) printComprehensiveTreeWithStatus(rootConfig clo
 	allDeployedConfigs []cloudinfo.OfferingReferenceDetail,
 	graph map[string][]cloudinfo.OfferingReferenceDetail,
 	indent string, isLast bool, visited map[string]bool,
-	validationResult ValidationResult) {
+	validationResult ValidationResult,
+	builder *strings.Builder) {
 
-	options.printComprehensiveTreeWithStatusAndPath(rootConfig, allDeployedConfigs, graph, indent, isLast, visited, validationResult, []string{})
+	options.printComprehensiveTreeWithStatusAndPath(rootConfig, allDeployedConfigs, graph, indent, isLast, visited, validationResult, []string{}, builder)
 }
 
 // printComprehensiveTreeWithStatusAndPath prints a comprehensive tree with circular reference detection
@@ -439,7 +499,8 @@ func (options *TestAddonOptions) printComprehensiveTreeWithStatusAndPath(rootCon
 	graph map[string][]cloudinfo.OfferingReferenceDetail,
 	indent string, isLast bool, visited map[string]bool,
 	validationResult ValidationResult,
-	path []string) {
+	path []string,
+	builder *strings.Builder) {
 
 	// Create a unique key for this config
 	configKey := generateAddonKeyFromDetail(rootConfig)
@@ -450,9 +511,9 @@ func (options *TestAddonOptions) printComprehensiveTreeWithStatusAndPath(rootCon
 		// Show the circular reference with the path
 		cycle := options.findCycleInPath(path, configKey)
 		if len(cycle) > 0 {
-			options.Logger.ShortWarn(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s", nextIndent, strings.Join(cycle, " → ")))
+			builder.WriteString(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s\n", nextIndent, strings.Join(cycle, " → ")))
 		} else {
-			options.Logger.ShortWarn(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s (already shown above)", nextIndent, rootConfig.Name))
+			builder.WriteString(fmt.Sprintf("%s└── 🔄 CIRCULAR REFERENCE: %s (already shown above)\n", nextIndent, rootConfig.Name))
 		}
 		return
 	}
@@ -461,12 +522,12 @@ func (options *TestAddonOptions) printComprehensiveTreeWithStatusAndPath(rootCon
 	visited[configKey] = true
 	newPath := append(path, rootConfig.Name)
 
-	// Determine status symbol and log method
-	statusSymbol, logMethod := options.getConfigStatus(rootConfig, validationResult)
+	// Determine status symbol
+	statusSymbol, _ := options.getConfigStatus(rootConfig, validationResult)
 
 	// Print the current config with status
 	symbol := options.getTreeSymbol(isLast)
-	logMethod(fmt.Sprintf("%s%s %s (%s, %s)%s", indent, symbol, rootConfig.Name, rootConfig.Version, rootConfig.Flavor.Name, statusSymbol))
+	builder.WriteString(fmt.Sprintf("%s%s %s (%s, %s)%s\n", indent, symbol, rootConfig.Name, rootConfig.Version, rootConfig.Flavor.Name, statusSymbol))
 
 	// Get dependencies for this config
 	dependencies, hasDeps := graph[configKey]
@@ -480,7 +541,7 @@ func (options *TestAddonOptions) printComprehensiveTreeWithStatusAndPath(rootCon
 			nextIndent := options.getIndentString(indent, isLast)
 			for i, dep := range deployedDependencies {
 				isLastDep := i == len(deployedDependencies)-1
-				options.printComprehensiveTreeWithStatusAndPath(dep, allDeployedConfigs, graph, nextIndent, isLastDep, visited, validationResult, newPath)
+				options.printComprehensiveTreeWithStatusAndPath(dep, allDeployedConfigs, graph, nextIndent, isLastDep, visited, validationResult, newPath, builder)
 			}
 		}
 		// Remove from visited when we're done with this branch
@@ -492,7 +553,7 @@ func (options *TestAddonOptions) printComprehensiveTreeWithStatusAndPath(rootCon
 	nextIndent := options.getIndentString(indent, isLast)
 	for i, dep := range dependencies {
 		isLastDep := i == len(dependencies)-1
-		options.printComprehensiveTreeWithStatusAndPath(dep, allDeployedConfigs, graph, nextIndent, isLastDep, visited, validationResult, newPath)
+		options.printComprehensiveTreeWithStatusAndPath(dep, allDeployedConfigs, graph, nextIndent, isLastDep, visited, validationResult, newPath, builder)
 	}
 
 	// Remove from visited when we're done with this branch
@@ -523,12 +584,12 @@ func (options *TestAddonOptions) getConfigStatus(config cloudinfo.OfferingRefere
 	for _, depErr := range validationResult.DependencyErrors {
 		errorKey := generateAddonKeyFromDependencyError(depErr)
 		if configKey == errorKey {
-			return " ✅ DEPLOYED (dependency issue)", options.Logger.ShortWarn
+			return " ✅ ADDED_TO_PROJECT (dependency issue)", options.Logger.ShortWarn
 		}
 	}
 
-	// Default - deployed correctly
-	return " ✅ DEPLOYED", options.Logger.ShortInfo
+	// Default - added to project correctly
+	return " ✅ ADDED_TO_PROJECT", options.Logger.ShortInfo
 }
 
 // findDeployedDependencies finds any deployed configurations that might be dependencies

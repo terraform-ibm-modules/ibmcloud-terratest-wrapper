@@ -1,6 +1,6 @@
 # Dependency Permutation Testing
 
-The `RunAddonPermutationTest()` method provides automated testing of all dependency permutations for an addon without manual configuration. This feature automatically discovers dependencies from the catalog and generates all enabled/disabled combinations for comprehensive validation testing.
+The `RunAddonPermutationTest()` method provides automated testing of all dependency permutations for an addon without manual configuration. This feature discovers direct dependencies (and their flavors) from the local `ibm_catalog.json` and generates enabled/disabled subsets with flavor combinations for comprehensive validation testing.
 
 ## Overview
 
@@ -8,8 +8,8 @@ Dependency permutation testing solves the problem of manually creating test case
 
 ## Key Features
 
-- **Automatic Dependency Discovery**: Discovers all direct dependencies from the catalog metadata
-- **Algorithmic Permutation Generation**: Generates all 2^n combinations of dependencies (where n = number of dependencies)
+- **Automatic Dependency Discovery**: Discovers all direct dependencies from catalog metadata in the local `ibm_catalog.json`
+- **Algorithmic Permutation Generation**: For each enabled/disabled subset of direct dependencies, enumerates the Cartesian product of available flavors for the enabled ones (excludes the default “all enabled” case)
 - **Validation-Only Testing**: All permutations use validation-only mode for efficiency and cost savings
 - **Comprehensive Final Report**: Automatically generates a detailed summary report with error details and failure patterns
 - **Reliable Execution**: Runs all permutations in parallel while guaranteeing final report generation even when individual tests fail
@@ -46,6 +46,7 @@ import (
 )
 
 func TestSecretsManagerDependencyPermutations(t *testing.T) {
+    t.Parallel()
 
     options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
@@ -67,6 +68,47 @@ func TestSecretsManagerDependencyPermutations(t *testing.T) {
     assert.NoError(t, err, "Dependency permutation test should not fail")
 }
 ```
+
+### Skipping Specific Permutations
+
+You can temporarily exclude known-problematic combinations by specifying the exact set of enabled dependencies to skip.
+Use full offering and flavor names; order does not matter; any dependencies not listed are treated as disabled in that permutation.
+
+```golang
+options := &testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix:  "apprapp-perm",
+    AddonConfig: cloudinfo.AddonConfig{
+        OfferingName:   "deploy-arch-ibm-apprapp",
+        OfferingFlavor: "fully-configurable",
+        Inputs: map[string]interface{}{
+            "prefix": "apprapp-perm",
+            "region": "us-south",
+        },
+    },
+    // Skip permutations where only these dependencies are enabled:
+    SkipPermutations: [][]cloudinfo.AddonConfig{
+        {
+            // Enable IBM Cloud Logs (resource-group-only) + KMS (instance), all others disabled
+            {OfferingName: "deploy-arch-ibm-cloud-logs", OfferingFlavor: "resource-group-only"},
+            {OfferingName: "deploy-arch-ibm-kms",        OfferingFlavor: "instance"},
+        },
+        {
+            // Enable Activity Tracker with any flavor (wildcard), all others disabled
+            {OfferingName: "deploy-arch-ibm-activity-tracker", OfferingFlavor: ""},
+        },
+    },
+}
+
+err := options.RunAddonPermutationTest()
+assert.NoError(t, err)
+```
+
+Rules:
+- The inner slice lists the enabled dependencies for that skip entry.
+- `OfferingFlavor` empty string matches any flavor of that dependency.
+- Order does not matter; the comparison is set-based.
+- If a generated permutation’s enabled set matches any skip entry (including flavor constraints), that permutation is not executed.
 
 ## Configuration Requirements
 
@@ -91,19 +133,15 @@ The framework automatically configures the following settings for permutation te
 
 ### 1. Dependency Discovery
 
-The method automatically queries the IBM Cloud catalog to discover all direct dependencies of the specified addon using the addon's metadata.
+Dependency discovery is performed by parsing the local `ibm_catalog.json` at the repository root to find direct dependencies and their available flavors for the specified product/flavor.
 
 ### 2. Permutation Generation
 
-Creates all 2^n combinations of discovered dependencies being enabled/disabled:
-
-- **Root addon**: Always present (doesn't participate in permutation)
-- **Dependencies**: Each dependency can be enabled or disabled
-- **Combinations**: For n dependencies, generates 2^n total combinations
+For n direct dependencies, the framework generates all enabled/disabled subsets (2^n subsets). For each subset, it enumerates all flavor combinations across the enabled dependencies (Cartesian product of their available flavors). The root addon is always present and does not participate in permutation.
 
 ### 3. Default Filtering
 
-Excludes the "on by default" case since this is typically covered by existing default configuration tests.
+Excludes the default case where all direct dependencies are enabled. For all other subsets, all valid flavor combinations are tested.
 
 ### 4. Parallel Execution
 
@@ -143,10 +181,7 @@ This eliminates the need to dig through individual test logs when debugging fail
 
 ### Example: Addon with 3 Dependencies
 
-For an addon with 3 dependencies (KMS, Observability, EventNotifications):
-
-**Structure**: 1 root addon (always present) + 3 dependencies = 2^3 = 8 total combinations
-**Generated**: 8 - 1 = 7 test cases (excluding "on by default" case)
+For an addon with 3 direct dependencies, there are 2^3 = 8 subsets of enabled/disabled states. For each subset, the number of test cases equals the product of the available flavors for the enabled dependencies. The example below assumes each dependency has a single flavor; the “all enabled” subset is excluded:
 
 1. `abc123-sm-01-disable-k-o-e` - All dependencies disabled
 2. `abc123-sm-02-disable-k-o` - Only EventNotifications enabled
@@ -158,7 +193,7 @@ For an addon with 3 dependencies (KMS, Observability, EventNotifications):
 
 The "all dependencies enabled" case is excluded as it represents the default configuration.
 
-Test names use abbreviated forms to stay within project name limits and include random prefixes for uniqueness.
+Test names use abbreviated forms to stay within project name limits and include random prefixes for uniqueness. When a dependency has multiple flavors, the test name includes a concise flavor annotation for enabled dependencies.
 
 ## Benefits
 
@@ -190,7 +225,7 @@ Test names use abbreviated forms to stay within project name limits and include 
 
 ### Quiet Mode with Final Report (Default)
 
-With quiet mode enabled by default, you'll see clean progress indicators during execution followed by a comprehensive final report:
+Permutation runs keep the suite-level logger verbose to show staggered batching and high-level progress, while each individual permutation test runs in quiet mode. You'll see clean progress indicators during execution followed by a comprehensive final report:
 
 ```
 [CloudInfoService] Importing offering: fully-configurable from branch URL...
@@ -321,6 +356,8 @@ When permutations fail validation, you'll see detailed error information:
 ```golang
 // Single method call tests all permutations
 func TestAddonPermutations(t *testing.T) {
+    t.Parallel()
+
     options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
         Testing: t,
         Prefix:  "addon-perm",
@@ -346,6 +383,8 @@ func TestAddonPermutations(t *testing.T) {
 ```golang
 // Manual control over each test case
 func TestAddonMatrix(t *testing.T) {
+    t.Parallel()
+
     testCases := []testaddons.AddonTestCase{
         {
             Name:   "PrimaryDeployment",

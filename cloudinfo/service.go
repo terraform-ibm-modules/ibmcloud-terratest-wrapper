@@ -6,15 +6,19 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
+	"time"
 
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 	projects "github.com/IBM/project-go-sdk/projectv1"
 
 	"github.com/IBM-Cloud/bluemix-go"
+	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
@@ -29,6 +33,114 @@ import (
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 )
 
+// APICache provides in-memory caching for expensive API operations
+type APICache struct {
+	mutex                    sync.RWMutex
+	offeringCache            map[string]*CachedOffering
+	versionLocatorCache      map[string]*CachedVersionLocator
+	catalogVersionCache      map[string]*CachedCatalogVersion
+	componentReferencesCache map[string]*CachedComponentReferences
+	stats                    CacheStats
+	ttl                      time.Duration
+}
+
+// CachedOffering represents a cached GetOffering response
+type CachedOffering struct {
+	Offering  *catalogmanagementv1.Offering
+	Response  *core.DetailedResponse
+	Error     error
+	Timestamp time.Time
+}
+
+// CachedVersionLocator represents a cached GetOfferingVersionLocatorByConstraint response
+type CachedVersionLocator struct {
+	Version   string
+	Locator   string
+	Error     error
+	Timestamp time.Time
+}
+
+// CachedCatalogVersion represents a cached GetCatalogVersionByLocator response
+type CachedCatalogVersion struct {
+	Version   *catalogmanagementv1.Version
+	Error     error
+	Timestamp time.Time
+}
+
+// CachedComponentReferences represents a cached GetComponentReferences response
+type CachedComponentReferences struct {
+	References *OfferingReferenceResponse
+	Error      error
+	Timestamp  time.Time
+}
+
+// CacheStats tracks cache performance metrics
+type CacheStats struct {
+	OfferingHits              int64
+	OfferingMisses            int64
+	VersionLocatorHits        int64
+	VersionLocatorMisses      int64
+	CatalogVersionHits        int64
+	CatalogVersionMisses      int64
+	ComponentReferencesHits   int64
+	ComponentReferencesMisses int64
+	Evictions                 int64
+}
+
+// NewAPICache creates a new API cache with specified TTL
+func NewAPICache(ttl time.Duration) *APICache {
+	return &APICache{
+		offeringCache:            make(map[string]*CachedOffering),
+		versionLocatorCache:      make(map[string]*CachedVersionLocator),
+		catalogVersionCache:      make(map[string]*CachedCatalogVersion),
+		componentReferencesCache: make(map[string]*CachedComponentReferences),
+		ttl:                      ttl,
+	}
+}
+
+// generateOfferingKey creates a cache key for offering lookups
+func (c *APICache) generateOfferingKey(catalogID, offeringID string) string {
+	return fmt.Sprintf("offering:%s:%s", catalogID, offeringID)
+}
+
+// generateVersionLocatorKey creates a cache key for version locator lookups
+func (c *APICache) generateVersionLocatorKey(catalogID, offeringID, constraint, flavor string) string {
+	return fmt.Sprintf("version_locator:%s:%s:%s:%s", catalogID, offeringID, constraint, flavor)
+}
+
+// generateCatalogVersionKey creates a cache key for catalog version lookups
+func (c *APICache) generateCatalogVersionKey(versionLocator string) string {
+	return fmt.Sprintf("catalog_version:%s", versionLocator)
+}
+
+// generateComponentReferencesKey creates a cache key for component references
+func (c *APICache) generateComponentReferencesKey(versionLocator string) string {
+	return fmt.Sprintf("component_refs:%s", versionLocator)
+}
+
+// isExpired checks if a cached entry has expired
+func (c *APICache) isExpired(timestamp time.Time) bool {
+	return time.Since(timestamp) > c.ttl
+}
+
+// GetCacheStats returns current cache statistics
+func (c *APICache) GetCacheStats() CacheStats {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return c.stats
+}
+
+// ClearCache clears all cached entries
+func (c *APICache) ClearCache() {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	c.offeringCache = make(map[string]*CachedOffering)
+	c.versionLocatorCache = make(map[string]*CachedVersionLocator)
+	c.catalogVersionCache = make(map[string]*CachedCatalogVersion)
+	c.componentReferencesCache = make(map[string]*CachedComponentReferences)
+	c.stats = CacheStats{} // Reset stats
+}
+
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
 // It contains references to other important services and data structures needed to perform these methods.
 type CloudInfoService struct {
@@ -41,6 +153,7 @@ type CloudInfoService struct {
 	resourceManagerService    resourceManagerService
 	cbrService                cbrService
 	containerClient           containerClient
+	containerV1Client         containerV1Client
 	catalogService            catalogService
 	// stackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	stackDefinitionCreator StackDefinitionCreator
@@ -55,6 +168,10 @@ type CloudInfoService struct {
 	// activeRefResolverRegion tracks the currently active region for ref resolution after failover
 	activeRefResolverRegion string
 	refResolverLock         sync.Mutex
+	// apiCache provides in-memory caching for expensive API operations
+	apiCache *APICache
+	// offeringSingleflight prevents duplicate concurrent GetOffering requests
+	offeringSingleflight singleflight.Group
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -102,10 +219,25 @@ type CloudInfoServiceI interface {
 	GetSchematicsJobLogs(jobID string, location string) (result *schematics.JobLog, response *core.DetailedResponse, err error)
 	GetSchematicsJobLogsText(jobID string, location string) (logs string, err error)
 	ArePipelineActionsRunning(stackConfig *ConfigDetails) (bool, error)
-	GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string) (string, string)
+	GetSchematicsJobLogsForMember(member *projects.ProjectConfig, memberName string, projectRegion string, projectID string, configID string) (string, string)
 	GetSchematicsJobFileData(jobID string, fileType string, location string) (*schematics.JobFileData, error)
 	GetSchematicsJobPlanJson(jobID string, location string) (string, error)
 	GetSchematicsServiceByLocation(location string) (schematicsService, error)
+
+	// New Schematics workspace operations
+	CreateSchematicsWorkspace(name, resourceGroup, region, templateFolder, terraformVersion string, tags []string, envVars []map[string]interface{}, envMetadata []schematics.EnvironmentValuesMetadata) (*schematics.WorkspaceResponse, error)
+	DeleteSchematicsWorkspace(workspaceID, location string, destroyResources bool) (string, error)
+	UploadTarToSchematicsWorkspace(workspaceID, templateID, tarPath, location string) error
+	UpdateSchematicsWorkspaceVariables(workspaceID, templateID string, variables []schematics.WorkspaceVariableRequest, location string) error
+	GetSchematicsWorkspaceOutputs(workspaceID, location string) (map[string]interface{}, error)
+
+	// New Schematics job operations
+	CreateSchematicsPlanJob(workspaceID, location string) (*schematics.WorkspaceActivityPlanResult, error)
+	CreateSchematicsApplyJob(workspaceID, location string) (*schematics.WorkspaceActivityApplyResult, error)
+	CreateSchematicsDestroyJob(workspaceID, location string) (*schematics.WorkspaceActivityDestroyResult, error)
+	GetSchematicsWorkspaceJobDetail(workspaceID, jobID, location string) (*schematics.WorkspaceActivity, error)
+	FindLatestSchematicsJobByName(workspaceID, jobName, location string) (*schematics.WorkspaceActivity, error)
+	WaitForSchematicsJobCompletion(workspaceID, jobID, location string, timeoutMinutes int) (string, error)
 	GetReclamationIdFromCRN(CRN string) (string, error)
 	DeleteInstanceFromReclamationId(reclamationID string) error
 	DeleteInstanceFromReclamationByCRN(CRN string) error
@@ -116,6 +248,26 @@ type CloudInfoServiceI interface {
 	ResolveReferencesWithContext(region string, references []Reference, batchMode bool) (*ResolveResponse, error)
 	ResolveReferencesFromStrings(region string, refStrings []string, projectNameOrID string) (*ResolveResponse, error)
 	ResolveReferencesFromStringsWithContext(region string, refStrings []string, projectNameOrID string, batchMode bool) (*ResolveResponse, error)
+	// Cache management methods
+	GetCacheStats() CacheStats
+	ClearCache()
+	IsCacheEnabled() bool
+
+	// ===== CACHED OPERATIONS (Static catalog metadata) =====
+	// GetOffering - CACHED: Offering metadata doesn't change
+	// GetOfferingVersionLocatorByConstraint - CACHED: Version resolution is deterministic
+	// GetCatalogVersionByLocator - CACHED: Version metadata is static (bypass with BYPASS_CACHE_FOR_VALIDATION=true)
+	// GetComponentReferences - CACHED: Dependency tree metadata is static
+
+	// ===== NOT CACHED OPERATIONS (Dynamic state and validation) =====
+	// GetProject - NOT CACHED: Project state can change
+	// GetConfig - NOT CACHED: Critical for test validation, must always be fresh
+	// ValidateProjectConfig - NOT CACHED: Validation results must always be fresh
+	// DeployConfig/UndeployConfig - NOT CACHED: Deployment operations
+	// IsConfigDeployed - NOT CACHED: Deployment status changes
+	// GetProjectConfigVersion - NOT CACHED: Configuration state changes
+	// ResolveReferences - NOT CACHED: Reference values are dynamic
+	// CreateProject/DeleteProject - NOT CACHED: Lifecycle operations
 	// TODO: Implement these methods
 	// GetInputs(projectID, configID string) ([]InputDetail, error)
 	// GetOutputs(projectID, configID string) ([]projects.OutputValue, error)
@@ -132,14 +284,22 @@ type CloudInfoServiceOptions struct {
 	IamPolicyService          iamPolicyService
 	CbrService                cbrService
 	ContainerClient           containerClient
+	ContainerV1Client         containerV1Client
 	RegionPrefs               []RegionData
 	IcdService                icdService
+	IcdRegion                 string
 	ProjectsService           projectsService
 	CatalogService            catalogService
 	SchematicsServices        map[string]schematicsService
 	// StackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	StackDefinitionCreator StackDefinitionCreator
 	Logger                 common.Logger // Logger option for CloudInfoService
+	// CacheEnabled enables API response caching
+	CacheEnabled bool
+	// CacheTTL sets the time-to-live for cached entries (default: 10 minutes)
+	CacheTTL time.Duration
+	// BypassCacheForValidation forces cache bypass for critical validation operations
+	BypassCacheForValidation bool
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -202,6 +362,11 @@ type containerClient interface {
 	Albs() containerv2.Alb
 }
 
+// containerV1Client interface for external Kubernetes Versions Service API. Used for mocking.
+type containerV1Client interface {
+	KubeVersions() containerv1.KubeVersions
+}
+
 // cbrService interface for external Context Based Restrictions Service API. Used for mocking.
 type cbrService interface {
 	GetRule(*contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
@@ -255,10 +420,26 @@ type catalogService interface {
 
 // schematicsService for external Schematics V1 Service API. Used for mocking.
 type schematicsService interface {
+	// Existing methods
 	ListJobLogs(listJobLogsOptions *schematics.ListJobLogsOptions) (result *schematics.JobLog, response *core.DetailedResponse, err error)
 	GetJobFiles(getJobFilesOptions *schematics.GetJobFilesOptions) (result *schematics.JobFileData, response *core.DetailedResponse, err error)
 	GetEnableGzipCompression() bool
 	GetServiceURL() string
+
+	// Workspace operations
+	CreateWorkspace(*schematics.CreateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
+	UpdateWorkspace(*schematics.UpdateWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
+	DeleteWorkspace(*schematics.DeleteWorkspaceOptions) (*string, *core.DetailedResponse, error)
+	TemplateRepoUpload(*schematics.TemplateRepoUploadOptions) (*schematics.TemplateRepoTarUploadResponse, *core.DetailedResponse, error)
+	ReplaceWorkspaceInputs(*schematics.ReplaceWorkspaceInputsOptions) (*schematics.UserValues, *core.DetailedResponse, error)
+	GetWorkspaceOutputs(*schematics.GetWorkspaceOutputsOptions) ([]schematics.OutputValuesInner, *core.DetailedResponse, error)
+
+	// Job operations
+	ListWorkspaceActivities(*schematics.ListWorkspaceActivitiesOptions) (*schematics.WorkspaceActivities, *core.DetailedResponse, error)
+	GetWorkspaceActivity(*schematics.GetWorkspaceActivityOptions) (*schematics.WorkspaceActivity, *core.DetailedResponse, error)
+	PlanWorkspaceCommand(*schematics.PlanWorkspaceCommandOptions) (*schematics.WorkspaceActivityPlanResult, *core.DetailedResponse, error)
+	ApplyWorkspaceCommand(*schematics.ApplyWorkspaceCommandOptions) (*schematics.WorkspaceActivityApplyResult, *core.DetailedResponse, error)
+	DestroyWorkspaceCommand(*schematics.DestroyWorkspaceCommandOptions) (*schematics.WorkspaceActivityDestroyResult, *core.DetailedResponse, error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -330,9 +511,12 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.authenticator = options.Authenticator
 	} else {
 		infoSvc.authenticator = &core.IamAuthenticator{
-			ApiKey: options.ApiKey,
+			ApiKey:       options.ApiKey,
+			ClientId:     "bx", // Required for refresh_token in Schematics operations
+			ClientSecret: "bx", // pragma: allowlist secret
 		}
 	}
+
 	infoSvc.ApiKey = options.ApiKey
 	// if IamIdentity is not supplied, use default external service
 	if options.IamIdentityService != nil {
@@ -346,6 +530,11 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 			return nil, iamErr
 		}
 		infoSvc.iamIdentityService = iamService
+	}
+
+	_, err := infoSvc.getApiKeyDetail()
+	if err != nil {
+		infoSvc.Logger.Error(fmt.Sprintf("Could not get Apikey details: %v", err))
 	}
 
 	// if IamPolicyService is not supplied, use default external service
@@ -417,6 +606,29 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 		infoSvc.containerClient = containerClient
 	}
+
+	// if containerV1Client is not supplied, use default external service
+	if options.ContainerV1Client != nil {
+		infoSvc.containerV1Client = options.ContainerV1Client
+	} else {
+		// Create a new Bluemix session
+		sess, sessErr := session.New(&bluemix.Config{
+			BluemixAPIKey: infoSvc.ApiKey, // pragma: allowlist secret
+		})
+		if sessErr != nil {
+			log.Println("ERROR: Could not create Bluemix session:", sessErr)
+			return nil, sessErr
+		}
+
+		// Initialize the containerv1 service client with the session
+		containerV1Client, containerErr := containerv1.New(sess)
+		if containerErr != nil {
+			log.Println("ERROR: Could not create containerv1 service client:", containerErr)
+			return nil, containerErr
+		}
+		infoSvc.containerV1Client = containerV1Client
+	}
+
 	// if resourceControllerService is not supplied use new external
 	if options.ResourceControllerService != nil {
 		infoSvc.resourceControllerService = options.ResourceControllerService
@@ -451,9 +663,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 	if options.IcdService != nil {
 		infoSvc.icdService = options.IcdService
 	} else {
+
+		serviceURL := clouddatabasesv5.DefaultServiceURL
+		if options.IcdRegion != "" {
+			ParameterizedServiceURL := clouddatabasesv5.ParameterizedServiceURL
+			replacer := strings.NewReplacer(
+				"{region}", options.IcdRegion,
+				"{platform}", "ibm",
+			)
+			serviceURL = replacer.Replace(ParameterizedServiceURL)
+		}
 		icdClient, icdMgrErr := clouddatabasesv5.NewCloudDatabasesV5(&clouddatabasesv5.CloudDatabasesV5Options{
 			Authenticator: infoSvc.authenticator,
+			URL:           serviceURL,
 		})
+
 		if icdMgrErr != nil {
 			log.Println("Error creating clouddatabasesv5 client:", icdMgrErr)
 			return nil, icdMgrErr
@@ -474,7 +698,6 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.projectsService = projectsClient
-
 	}
 
 	if options.CatalogService != nil {
@@ -522,6 +745,23 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.stackDefinitionCreator = infoSvc
 	}
 
+	// Initialize API cache if enabled
+	if options.CacheEnabled {
+		cacheTTL := options.CacheTTL
+		if cacheTTL == 0 {
+			cacheTTL = 10 * time.Minute // Default TTL
+		}
+		infoSvc.apiCache = NewAPICache(cacheTTL)
+		infoSvc.Logger.Info(fmt.Sprintf("API cache enabled with TTL: %v", cacheTTL))
+
+		// Check environment variable for cache bypass
+		if os.Getenv("BYPASS_CACHE_FOR_VALIDATION") == "true" || options.BypassCacheForValidation {
+			infoSvc.Logger.Info("Cache bypass enabled for validation operations - critical operations will skip cache")
+		}
+	} else {
+		infoSvc.Logger.Info("API cache disabled")
+	}
+
 	return infoSvc, nil
 }
 
@@ -565,4 +805,83 @@ func (infoSvc *CloudInfoService) SetLogger(logger common.Logger) {
 // GetApiKey returns the current API key
 func (infoSvc *CloudInfoService) GetApiKey() string {
 	return infoSvc.ApiKey
+}
+
+// GetCacheStats returns current cache statistics
+func (infoSvc *CloudInfoService) GetCacheStats() CacheStats {
+	if infoSvc.apiCache == nil {
+		return CacheStats{}
+	}
+	return infoSvc.apiCache.GetCacheStats()
+}
+
+// ClearCache clears all cached entries
+func (infoSvc *CloudInfoService) ClearCache() {
+	if infoSvc.apiCache != nil {
+		infoSvc.apiCache.ClearCache()
+		infoSvc.Logger.Info("API cache cleared")
+	}
+}
+
+// IsCacheEnabled returns whether caching is enabled
+func (infoSvc *CloudInfoService) IsCacheEnabled() bool {
+	return infoSvc.apiCache != nil
+}
+
+// shouldBypassCache checks if cache should be bypassed for validation operations
+func (infoSvc *CloudInfoService) shouldBypassCache() bool {
+	return os.Getenv("BYPASS_CACHE_FOR_VALIDATION") == "true"
+}
+
+// LogCacheStats logs detailed cache performance statistics
+func (infoSvc *CloudInfoService) LogCacheStats() {
+	if infoSvc.apiCache == nil {
+		infoSvc.Logger.Info("API cache is disabled")
+		return
+	}
+
+	stats := infoSvc.apiCache.GetCacheStats()
+
+	// Calculate hit rates
+	var offeringHitRate, versionHitRate, catalogHitRate, componentHitRate float64
+
+	if stats.OfferingHits+stats.OfferingMisses > 0 {
+		offeringHitRate = float64(stats.OfferingHits) / float64(stats.OfferingHits+stats.OfferingMisses) * 100
+	}
+	if stats.VersionLocatorHits+stats.VersionLocatorMisses > 0 {
+		versionHitRate = float64(stats.VersionLocatorHits) / float64(stats.VersionLocatorHits+stats.VersionLocatorMisses) * 100
+	}
+	if stats.CatalogVersionHits+stats.CatalogVersionMisses > 0 {
+		catalogHitRate = float64(stats.CatalogVersionHits) / float64(stats.CatalogVersionHits+stats.CatalogVersionMisses) * 100
+	}
+	if stats.ComponentReferencesHits+stats.ComponentReferencesMisses > 0 {
+		componentHitRate = float64(stats.ComponentReferencesHits) / float64(stats.ComponentReferencesHits+stats.ComponentReferencesMisses) * 100
+	}
+
+	infoSvc.Logger.Info("=== API Cache Performance Statistics ===")
+	infoSvc.Logger.Info(fmt.Sprintf("Offering Cache: %d hits, %d misses (%.1f%% hit rate)",
+		stats.OfferingHits, stats.OfferingMisses, offeringHitRate))
+	infoSvc.Logger.Info(fmt.Sprintf("Version Locator Cache: %d hits, %d misses (%.1f%% hit rate)",
+		stats.VersionLocatorHits, stats.VersionLocatorMisses, versionHitRate))
+	infoSvc.Logger.Info(fmt.Sprintf("Catalog Version Cache: %d hits, %d misses (%.1f%% hit rate)",
+		stats.CatalogVersionHits, stats.CatalogVersionMisses, catalogHitRate))
+	infoSvc.Logger.Info(fmt.Sprintf("Component References Cache: %d hits, %d misses (%.1f%% hit rate)",
+		stats.ComponentReferencesHits, stats.ComponentReferencesMisses, componentHitRate))
+	infoSvc.Logger.Info(fmt.Sprintf("Total evictions: %d", stats.Evictions))
+
+	totalHits := stats.OfferingHits + stats.VersionLocatorHits + stats.CatalogVersionHits + stats.ComponentReferencesHits
+	totalMisses := stats.OfferingMisses + stats.VersionLocatorMisses + stats.CatalogVersionMisses + stats.ComponentReferencesMisses
+	totalRequests := totalHits + totalMisses
+
+	if totalRequests > 0 {
+		overallHitRate := float64(totalHits) / float64(totalRequests) * 100
+		infoSvc.Logger.Info(fmt.Sprintf("Overall Cache Performance: %d hits, %d misses (%.1f%% hit rate)",
+			totalHits, totalMisses, overallHitRate))
+
+		// Estimate API call reduction
+		apiCallsAvoided := totalHits
+		infoSvc.Logger.Info(fmt.Sprintf("API Calls Avoided: %d (%.1f%% reduction)",
+			apiCallsAvoided, float64(apiCallsAvoided)/float64(totalRequests)*100))
+	}
+	infoSvc.Logger.Info("========================================")
 }

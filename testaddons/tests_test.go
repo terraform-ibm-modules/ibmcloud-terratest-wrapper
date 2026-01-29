@@ -454,7 +454,14 @@ func (m *MockCloudInfoService) GetOffering(catalogID, offeringID string) (result
 				VersionLocator: core.StringPtr("test-catalog.main-version"),
 				Version:        core.StringPtr("v1.0.0"),
 				SolutionInfo: &catalogmanagementv1.SolutionInfo{
-					Dependencies: []catalogmanagementv1.OfferingReference{},
+					Dependencies: []catalogmanagementv1.OfferingReference{
+						{
+							Name:      core.StringPtr("deploy-arch-ibm-account-infra-base"),
+							ID:        core.StringPtr("account-base-offering-id"),
+							CatalogID: core.StringPtr("dependency-catalog"),
+							Version:   core.StringPtr("v3.0.11"),
+						},
+					},
 				},
 			},
 		}
@@ -465,7 +472,26 @@ func (m *MockCloudInfoService) GetOffering(catalogID, offeringID string) (result
 				VersionLocator: core.StringPtr("test-catalog.observability-version"),
 				Version:        core.StringPtr("v0.0.1-dev-tf-an-zl3h3r"),
 				SolutionInfo: &catalogmanagementv1.SolutionInfo{
-					Dependencies: []catalogmanagementv1.OfferingReference{},
+					Dependencies: []catalogmanagementv1.OfferingReference{
+						{
+							Name:      core.StringPtr("deploy-arch-ibm-cos"),
+							ID:        core.StringPtr("cos-offering-id"),
+							CatalogID: core.StringPtr("dependency-catalog"),
+							Version:   core.StringPtr("v7.12.0"),
+						},
+						{
+							Name:      core.StringPtr("deploy-arch-ibm-kms"),
+							ID:        core.StringPtr("kms-offering-id"),
+							CatalogID: core.StringPtr("dependency-catalog"),
+							Version:   core.StringPtr("v1.6.0"),
+						},
+						{
+							Name:      core.StringPtr("deploy-arch-ibm-account-infra-base"),
+							ID:        core.StringPtr("account-base-offering-id"),
+							CatalogID: core.StringPtr("dependency-catalog"),
+							Version:   core.StringPtr("v3.0.11"),
+						},
+					},
 				},
 			},
 		}
@@ -476,7 +502,14 @@ func (m *MockCloudInfoService) GetOffering(catalogID, offeringID string) (result
 				VersionLocator: core.StringPtr("dependency-catalog.kms-version"),
 				Version:        core.StringPtr("v5.1.4"),
 				SolutionInfo: &catalogmanagementv1.SolutionInfo{
-					Dependencies: []catalogmanagementv1.OfferingReference{},
+					Dependencies: []catalogmanagementv1.OfferingReference{
+						{
+							Name:      core.StringPtr("deploy-arch-ibm-account-infra-base"),
+							ID:        core.StringPtr("account-base-offering-id"),
+							CatalogID: core.StringPtr("dependency-catalog"),
+							Version:   core.StringPtr("v3.0.7"),
+						},
+					},
 				},
 			},
 		}
@@ -494,6 +527,17 @@ func (m *MockCloudInfoService) GetOffering(catalogID, offeringID string) (result
 			{
 				VersionLocator: core.StringPtr("dependency-catalog.account-base-nested-version"),
 				Version:        core.StringPtr("v3.0.7"),
+				SolutionInfo: &catalogmanagementv1.SolutionInfo{
+					Dependencies: []catalogmanagementv1.OfferingReference{},
+				},
+			},
+		}
+	case "cos-offering-id":
+		name = "deploy-arch-ibm-cos"
+		versions = []catalogmanagementv1.Version{
+			{
+				VersionLocator: core.StringPtr("dependency-catalog.cos-version"),
+				Version:        core.StringPtr("v7.12.0"),
 				SolutionInfo: &catalogmanagementv1.SolutionInfo{
 					Dependencies: []catalogmanagementv1.OfferingReference{},
 				},
@@ -525,7 +569,25 @@ func (m *MockCloudInfoService) GetOffering(catalogID, offeringID string) (result
 }
 
 func (m *MockCloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID, offeringID, versionConstraint, flavor string) (version, versionLocator string, err error) {
-	return "v1.0.0", "test-catalog.dependency-version", nil
+	// Return appropriate version locator based on offering ID
+	switch offeringID {
+	case "main-offering-id":
+		return "v1.0.0", "test-catalog.main-version", nil
+	case "account-base-offering-id":
+		// Return the right version based on the constraint
+		if versionConstraint == "v3.0.7" {
+			return "v3.0.7", "dependency-catalog.account-base-nested-version", nil
+		}
+		return "v3.0.11", "dependency-catalog.account-base-version", nil
+	case "cos-offering-id":
+		return "v7.12.0", "dependency-catalog.cos-version", nil
+	case "kms-offering-id":
+		return "v1.6.0", "dependency-catalog.kms-version", nil
+	case "observability-offering-id":
+		return "v0.0.1-dev-tf-an-zl3h3r", "test-catalog.observability-version", nil
+	default:
+		return "v1.0.0", "test-catalog.dependency-version", nil
+	}
 }
 
 // MockCloudInfoServiceWithCatalogDeps is a mock that returns catalog dependencies
@@ -1497,190 +1559,6 @@ func TestReferenceErrorDetectorCustom(t *testing.T) {
 	}
 }
 
-// TestAPIErrorDetector tests the new structured API error detection system
-// replacing complex multi-condition string matching with classified error types
-// TestConfigurationMatcher tests the new structured configuration matching system
-// replacing fragile strings.Contains() checks with configurable matching strategies
-func TestConfigurationMatcher(t *testing.T) {
-	// Test configuration for main addon
-	mainAddon := cloudinfo.AddonConfig{
-		OfferingName: "deploy-arch-ibm-event-notifications",
-		ConfigName:   "event-notifications-config",
-	}
-
-	// Test configuration for dependency
-	dependency := cloudinfo.AddonConfig{
-		OfferingName: "deploy-arch-ibm-kms",
-		ConfigName:   "kms-config",
-	}
-
-	testCases := []struct {
-		name         string
-		addonConfig  cloudinfo.AddonConfig
-		configName   string
-		shouldMatch  bool
-		expectedRule string
-	}{
-		{
-			name:         "Exact config name match",
-			addonConfig:  mainAddon,
-			configName:   "event-notifications-config",
-			shouldMatch:  true,
-			expectedRule: "ExactNameMatch",
-		},
-		{
-			name:         "Contains config name match",
-			addonConfig:  mainAddon,
-			configName:   "my-event-notifications-config-abc123",
-			shouldMatch:  true,
-			expectedRule: "ContainsNameMatch",
-		},
-		{
-			name:         "Exact offering name match",
-			addonConfig:  dependency,
-			configName:   "deploy-arch-ibm-kms",
-			shouldMatch:  true,
-			expectedRule: "ExactNameMatch",
-		},
-		{
-			name:         "Contains offering name match",
-			addonConfig:  dependency,
-			configName:   "deploy-arch-ibm-kms-xyz789",
-			shouldMatch:  true,
-			expectedRule: "ContainsNameMatch",
-		},
-		{
-			name:         "Base offering name match",
-			addonConfig:  cloudinfo.AddonConfig{OfferingName: "deploy-arch-ibm-kms:flavor"},
-			configName:   "deploy-arch-ibm-kms-instance",
-			shouldMatch:  true,
-			expectedRule: "BaseNameMatch",
-		},
-		{
-			name:         "No match",
-			addonConfig:  mainAddon,
-			configName:   "completely-different-config",
-			shouldMatch:  false,
-			expectedRule: "",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			matcher := NewConfigurationMatcherForAddon(tc.addonConfig)
-			matched, rule := matcher.IsMatch(tc.configName)
-
-			assert.Equal(t, tc.shouldMatch, matched,
-				"Configuration matching should be %v for config '%s'", tc.shouldMatch, tc.configName)
-
-			if tc.shouldMatch {
-				assert.NotNil(t, rule, "Matching rule should be returned when match is found")
-				assert.Equal(t, tc.expectedRule, rule.Strategy.String(),
-					"Expected strategy %s but got %s", tc.expectedRule, rule.Strategy.String())
-			} else {
-				assert.Nil(t, rule, "No rule should be returned when no match is found")
-			}
-		})
-	}
-}
-
-// TestConfigurationMatchStrategy tests the enum string representation
-func TestConfigurationMatchStrategy(t *testing.T) {
-	testCases := []struct {
-		strategy ConfigurationMatchStrategy
-		expected string
-	}{
-		{ExactNameMatch, "ExactNameMatch"},
-		{ContainsNameMatch, "ContainsNameMatch"},
-		{BaseNameMatch, "BaseNameMatch"},
-		{PrefixNameMatch, "PrefixNameMatch"},
-		{ConfigurationMatchStrategy(999), "UnknownStrategy"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.expected, func(t *testing.T) {
-			actual := tc.strategy.String()
-			assert.Equal(t, tc.expected, actual,
-				"Strategy(%d).String() should return %s but got %s",
-				tc.strategy, tc.expected, actual)
-		})
-	}
-}
-
-// TestConfigurationMatchRule tests individual rule matching logic
-func TestConfigurationMatchRule(t *testing.T) {
-	testCases := []struct {
-		name        string
-		rule        ConfigurationMatchRule
-		configName  string
-		shouldMatch bool
-	}{
-		{
-			name: "Exact match rule",
-			rule: ConfigurationMatchRule{
-				Strategy: ExactNameMatch,
-				Pattern:  "exact-config-name",
-			},
-			configName:  "exact-config-name",
-			shouldMatch: true,
-		},
-		{
-			name: "Exact match rule - no match",
-			rule: ConfigurationMatchRule{
-				Strategy: ExactNameMatch,
-				Pattern:  "exact-config-name",
-			},
-			configName:  "different-config-name",
-			shouldMatch: false,
-		},
-		{
-			name: "Contains match rule",
-			rule: ConfigurationMatchRule{
-				Strategy: ContainsNameMatch,
-				Pattern:  "kms",
-			},
-			configName:  "deploy-arch-ibm-kms-advanced",
-			shouldMatch: true,
-		},
-		{
-			name: "Base name match rule",
-			rule: ConfigurationMatchRule{
-				Strategy: BaseNameMatch,
-				Pattern:  "deploy-arch-ibm-kms:advanced",
-			},
-			configName:  "deploy-arch-ibm-kms-instance",
-			shouldMatch: true,
-		},
-		{
-			name: "Prefix match rule",
-			rule: ConfigurationMatchRule{
-				Strategy: PrefixNameMatch,
-				Pattern:  "deploy-arch",
-			},
-			configName:  "deploy-arch-ibm-event-notifications",
-			shouldMatch: true,
-		},
-		{
-			name: "Prefix match rule - no match",
-			rule: ConfigurationMatchRule{
-				Strategy: PrefixNameMatch,
-				Pattern:  "deploy-arch",
-			},
-			configName:  "custom-deploy-arch-config",
-			shouldMatch: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			actual := tc.rule.IsMatch(tc.configName)
-			assert.Equal(t, tc.shouldMatch, actual,
-				"Rule with strategy %s and pattern '%s' should %v match config '%s'",
-				tc.rule.Strategy.String(), tc.rule.Pattern, tc.shouldMatch, tc.configName)
-		})
-	}
-}
-
 // TestSensitiveDataDetector tests the new structured sensitive data detection system
 // replacing fragile strings.Contains() checks with configurable pattern matching
 func TestSensitiveDataDetector(t *testing.T) {
@@ -1927,6 +1805,8 @@ func TestLegacyErrorClassificationUpdated(t *testing.T) {
 	}
 }
 
+// TestAPIErrorDetector tests the new structured API error detection system
+// replacing complex multi-condition string matching with classified error types
 func TestAPIErrorDetector(t *testing.T) {
 	testCases := []struct {
 		name         string

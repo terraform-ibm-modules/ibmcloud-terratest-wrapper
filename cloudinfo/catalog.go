@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
+	"testing"
+	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
@@ -17,13 +19,38 @@ import (
 )
 
 // GetCatalogVersionByLocator gets a version by its locator using the Catalog Management service
+// CACHED: Static catalog metadata - safe to cache as version locator data doesn't change
+// NOTE: Cache can be bypassed with BYPASS_CACHE_FOR_VALIDATION=true for critical validation scenarios
 func (infoSvc *CloudInfoService) GetCatalogVersionByLocator(versionLocator string) (*catalogmanagementv1.Version, error) {
+	// Check cache first if caching is enabled and not bypassed for validation
+	if infoSvc.apiCache != nil && !infoSvc.shouldBypassCache() {
+		cacheKey := infoSvc.apiCache.generateCatalogVersionKey(versionLocator)
+
+		infoSvc.apiCache.mutex.RLock()
+		cached, exists := infoSvc.apiCache.catalogVersionCache[cacheKey]
+		infoSvc.apiCache.mutex.RUnlock()
+
+		if exists && !infoSvc.apiCache.isExpired(cached.Timestamp) {
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.stats.CatalogVersionHits++
+			infoSvc.apiCache.mutex.Unlock()
+
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Cache HIT for catalog version: versionLocator='%s'", versionLocator))
+			return cached.Version, cached.Error
+		}
+
+		// Cache miss
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.stats.CatalogVersionMisses++
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
 	// Use new retry utility for catalog operations
 	config := common.CatalogOperationRetryConfig()
 	config.Logger = infoSvc.Logger
 	config.OperationName = fmt.Sprintf("GetCatalogVersionByLocator '%s'", versionLocator)
 
-	return common.RetryWithConfig(config, func() (*catalogmanagementv1.Version, error) {
+	version, err := common.RetryWithConfig(config, func() (*catalogmanagementv1.Version, error) {
 		// Call the GetCatalogVersionByLocator method with the version locator and the context
 		getVersionOptions := &catalogmanagementv1.GetVersionOptions{
 			VersionLocID: &versionLocator,
@@ -36,9 +63,9 @@ func (infoSvc *CloudInfoService) GetCatalogVersionByLocator(versionLocator strin
 
 		// Handle rate limiting (429) and other temporary failures
 		if response.StatusCode == 429 {
-			return nil, fmt.Errorf("rate limited (status: %d)", response.StatusCode)
+			return nil, fmt.Errorf("rate limited on GetVersion for versionLocator='%s' (status: %d) - this indicates high API load, retrying with backoff", versionLocator, response.StatusCode)
 		} else if response.StatusCode >= 500 {
-			return nil, fmt.Errorf("server error (status: %d)", response.StatusCode)
+			return nil, fmt.Errorf("server error on GetVersion for versionLocator='%s' (status: %d)", versionLocator, response.StatusCode)
 		}
 
 		// Check if the response status code is 200 (success)
@@ -50,9 +77,25 @@ func (infoSvc *CloudInfoService) GetCatalogVersionByLocator(versionLocator strin
 			}
 			return nil, fmt.Errorf("version not found")
 		} else {
-			return nil, fmt.Errorf("failed to get version: %s", response.RawResult)
+			return nil, fmt.Errorf("failed to get version (status %d): %s", response.StatusCode, response.RawResult)
 		}
 	})
+
+	// Cache the result if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateCatalogVersionKey(versionLocator)
+		cachedResult := &CachedCatalogVersion{
+			Version:   version,
+			Error:     err,
+			Timestamp: time.Now(),
+		}
+
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.catalogVersionCache[cacheKey] = cachedResult
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
+	return version, err
 }
 
 // CreateCatalog creates a new private catalog using the Catalog Management service
@@ -74,8 +117,10 @@ func (infoSvc *CloudInfoService) CreateCatalog(catalogName string) (*catalogmana
 		}
 
 		// Handle rate limiting (429) and other temporary failures
-		if response.StatusCode == 429 || response.StatusCode >= 500 {
-			return nil, fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
+		if response.StatusCode == 429 {
+			return nil, fmt.Errorf("rate limited on CreateCatalog for catalogName='%s' (status: %d) - this indicates high API load, retrying with backoff", catalogName, response.StatusCode)
+		} else if response.StatusCode >= 500 {
+			return nil, fmt.Errorf("server error on CreateCatalog for catalogName='%s' (status: %d)", catalogName, response.StatusCode)
 		}
 
 		// Check if the response status code is 201 (created)
@@ -83,7 +128,7 @@ func (infoSvc *CloudInfoService) CreateCatalog(catalogName string) (*catalogmana
 			return catalog, nil
 		}
 
-		return nil, fmt.Errorf("failed to create catalog: %s", response.RawResult)
+		return nil, fmt.Errorf("failed to create catalog (status %d): %s", response.StatusCode, response.RawResult)
 	})
 }
 
@@ -104,7 +149,7 @@ func (infoSvc *CloudInfoService) DeleteCatalog(catalogID string) error {
 		return nil
 	}
 
-	return fmt.Errorf("failed to delete catalog: %s", response.RawResult)
+	return fmt.Errorf("failed to delete catalog (status %d): %s", response.StatusCode, response.RawResult)
 }
 
 // ImportOffering Import a new offering using the Catalog Management service
@@ -144,8 +189,10 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 		}
 
 		// Handle rate limiting (429) and other temporary failures
-		if response.StatusCode == 429 || response.StatusCode >= 500 {
-			return nil, fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
+		if response.StatusCode == 429 {
+			return nil, fmt.Errorf("rate limited on ImportOffering for catalogID='%s', offeringName='%s' (status: %d) - this indicates high API load, retrying with backoff", catalogID, offeringName, response.StatusCode)
+		} else if response.StatusCode >= 500 {
+			return nil, fmt.Errorf("server error on ImportOffering for catalogID='%s', offeringName='%s' (status: %d)", catalogID, offeringName, response.StatusCode)
 		}
 
 		// Check if the response status code is 201 (created)
@@ -153,7 +200,7 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 			return offering, nil
 		}
 
-		return nil, fmt.Errorf("failed to import offering: %s", response.RawResult)
+		return nil, fmt.Errorf("failed to import offering (status %d): %s", response.StatusCode, response.RawResult)
 	})
 }
 
@@ -162,17 +209,29 @@ func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string,
 // branch validation and repository URL conversion that's needed for catalog operations.
 //
 // Returns:
-// - branchUrl: The formatted branch URL ready for catalog import
+// - commitUrl: The commit URL ready for catalog import
 // - repo: The normalized repository URL
 // - branch: The resolved branch name
 // - error: Any error that occurred during preparation
-func (infoSvc *CloudInfoService) PrepareOfferingImport() (branchUrl, repo, branch string, err error) {
+func (infoSvc *CloudInfoService) PrepareOfferingImport() (commitUrl, repo, branch string, err error) {
 	// Get repository info
-	repo, branch, err = common.GetCurrentPrRepoAndBranch()
+	gitRoot, _ := common.GitRootPath(".")
+	commitID, _ := common.GetLatestCommitID(gitRoot)
+	repoName := filepath.Base(gitRoot)
+	repoUrl, branch := common.GetBaseRepoAndBranch(repoName, "")
+	doesCommitExistInRemote, err := common.CommitExistsInRemote(repoUrl, commitID)
 	if err != nil {
-		infoSvc.Logger.ShortWarn("Error getting current branch and repo for offering import validation")
+		infoSvc.Logger.ShortWarn("Error getting current branch for offering import validation")
 		return "", "", "", fmt.Errorf("failed to get repository info for offering import: %w", err)
 	}
+	if !doesCommitExistInRemote {
+		infoSvc.Logger.ShortError(fmt.Sprintf("Required commit '%s' does not exist in repository '%s'.", commitID, repo))
+		infoSvc.Logger.ShortError("Please ensure a PR has been opened against the remote repository before running the test.")
+		return "", "", "", fmt.Errorf("failed to validate PR commit exists for offering import: %w", err)
+	}
+
+	// Convert repository URL to HTTPS format for branch validation and catalog import
+	repo = normalizeRepositoryURL(repoUrl)
 
 	// Resolve actual branch name in CI environments where git returns "HEAD"
 	resolvedBranch := resolveCIBranchName(branch)
@@ -181,35 +240,9 @@ func (infoSvc *CloudInfoService) PrepareOfferingImport() (branchUrl, repo, branc
 		branch = resolvedBranch
 	}
 
-	// Convert repository URL to HTTPS format for branch validation and catalog import
-	repo = normalizeRepositoryURL(repo)
+	commitUrl = fmt.Sprintf("%s/commit/%s", repo, commitID)
 
-	// Validate that the branch exists in the remote repository (required for offering import)
-	// Skip validation only if we're in a detached HEAD state and can't determine the actual branch
-	if branch == "HEAD" {
-		infoSvc.Logger.ShortInfo("Skipping branch validation as running in detached HEAD mode and unable to resolve actual branch name")
-		infoSvc.Logger.ShortInfo("This is common in CI environments - catalog operations will use the commit hash instead")
-	} else {
-		infoSvc.Logger.ShortInfo(fmt.Sprintf("Validating that branch '%s' exists in remote repository before creating any resources", branch))
-		branchExists, err := common.CheckRemoteBranchExists(repo, branch)
-		if err != nil {
-			infoSvc.Logger.ShortWarn(fmt.Sprintf("Error checking if branch exists in remote repository: %v", err))
-			return "", "", "", fmt.Errorf("failed to validate branch exists for offering import: %w", err)
-		}
-		if !branchExists {
-			infoSvc.Logger.ShortError(fmt.Sprintf("Required branch '%s' does not exist in repository '%s'", branch, repo))
-			infoSvc.Logger.ShortError("This branch is required for offering import/catalog tests to work properly.")
-			infoSvc.Logger.ShortError("Please ensure the branch exists in the remote repository before running the test.")
-			return "", "", "", fmt.Errorf("required branch '%s' does not exist in repository '%s' (required for offering import)", branch, repo)
-		}
-		infoSvc.Logger.ShortInfo(fmt.Sprintf("Branch '%s' confirmed to exist in remote repository", branch))
-	}
-
-	// Format the branch URL for catalog import
-	// URL encode only the branch name, not the entire URL
-	branchUrl = fmt.Sprintf("%s/tree/%s", repo, url.PathEscape(branch))
-
-	return branchUrl, repo, branch, nil
+	return commitUrl, repo, branch, nil
 }
 
 // ImportOfferingWithValidation performs the complete offering import workflow including
@@ -336,177 +369,244 @@ type ComponentReferenceGetter interface {
 //  2. Framework auto-discovers dependency from component references
 //     → Framework sets all fields including Enabled, OnByDefault from component reference
 func (infoSvc *CloudInfoService) processComponentReferences(addonConfig *AddonConfig, processedLocators map[string]bool) error {
-	return infoSvc.processComponentReferencesWithGetter(addonConfig, processedLocators, infoSvc)
+	// Collect disabled offerings from the root addon config to respect user disable choices
+	disabledOfferings := make(map[string]bool)
+	for _, dep := range addonConfig.Dependencies {
+		if dep.Enabled != nil && !*dep.Enabled {
+			disabledOfferings[dep.OfferingName] = true
+		}
+	}
+	return infoSvc.processComponentReferencesWithGetter(addonConfig, processedLocators, disabledOfferings, infoSvc)
 }
 
 // processComponentReferencesWithGetter is the internal implementation that accepts a ComponentReferenceGetter
-func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfig *AddonConfig, processedLocators map[string]bool, getter ComponentReferenceGetter) error {
-	// If we've already processed this version locator, skip recursive processing to avoid circular dependencies
-	// IMPORTANT: We still need to populate metadata for dependencies that were already processed elsewhere
-	// in the tree, so we don't return early here - we continue to update existing dependency metadata
+// This function uses a correct tree-building approach:
+// 1. Start with user's direct dependencies in AddonConfig.Dependencies
+// 2. Use API flat list to fill in metadata (version locators, IDs) for direct dependencies
+// 3. Recursively build sub-trees for each enabled dependency
+func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfig *AddonConfig, processedLocators map[string]bool, disabledOfferings map[string]bool, getter ComponentReferenceGetter) error {
+	// If we've already processed this version locator, skip processing to avoid circular dependencies
 	if processedLocators[addonConfig.VersionLocator] {
 		return nil
 	}
-	// Mark this locator as processed to prevent infinite recursion
+	// Mark this locator as processed
 	processedLocators[addonConfig.VersionLocator] = true
 
-	// Get component references for this addon
-
+	// PHASE 1: Get API flat list and fill in metadata for user's direct dependencies
 	componentsReferences, err := getter.GetComponentReferences(addonConfig.VersionLocator)
 	if err != nil {
 		return fmt.Errorf("error getting component references for %s: %w", addonConfig.VersionLocator, err)
 	}
 
-	// Update existing dependencies and collect components to add
-	var componentsToAdd []OfferingReferenceItem
-	processedInThisCall := make(map[string]bool) // Track dependencies processed in this function call
+	// Build a lookup map of all API results by name (handling multiple flavors)
+	apiDependencies := make(map[string][]*OfferingReferenceItem) // name -> list of flavors
 
-	// Process required references first (they take precedence)
+	// Add required dependencies
 	for _, component := range componentsReferences.Required.OfferingReferences {
-		found := false
-		for i := range addonConfig.Dependencies {
-			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
-				// Update metadata fields - these should always be populated from component references
-				// even if the dependency was already processed elsewhere to avoid empty version locators
-				addonConfig.Dependencies[i].VersionLocator = component.OfferingReference.VersionLocator
-				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
-				addonConfig.Dependencies[i].CatalogID = component.OfferingReference.CatalogID
-				addonConfig.Dependencies[i].OfferingID = component.OfferingReference.ID
-				addonConfig.Dependencies[i].Prefix = addonConfig.Prefix
-				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
-				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
+		componentCopy := component
+		apiDependencies[component.Name] = append(apiDependencies[component.Name], &componentCopy)
+	}
 
-				// Required components are always enabled (business rule - override user setting for required deps)
-				addonConfig.Dependencies[i].Enabled = core.BoolPtr(true)
+	// Add optional dependencies
+	for _, component := range componentsReferences.Optional.OfferingReferences {
+		componentCopy := component
+		apiDependencies[component.Name] = append(apiDependencies[component.Name], &componentCopy)
+	}
 
-				// Preserve user-defined inputs - only initialize if nil
-				if addonConfig.Dependencies[i].Inputs == nil {
-					addonConfig.Dependencies[i].Inputs = make(map[string]interface{})
-				}
-
-				found = true
-				processedInThisCall[component.Name] = true // Mark as processed
-
-				// Only process dependencies recursively if this version locator hasn't been processed before
-				// This prevents infinite recursion while still ensuring metadata is populated
-				if !processedLocators[component.OfferingReference.VersionLocator] {
-					// Create a copy of processedLocators for this branch to allow the same component in different branches
-					branchProcessedLocators := make(map[string]bool)
-					for k, v := range processedLocators {
-						branchProcessedLocators[k] = v
-					}
-					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], branchProcessedLocators, getter); err != nil {
-						return err
-					}
-				}
-				break
-			}
-		}
-		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
-			// Only add new components if their version locator hasn't been processed
-			if !processedLocators[component.OfferingReference.VersionLocator] {
-				componentsToAdd = append(componentsToAdd, component)
-				processedInThisCall[component.Name] = true // Mark as processed
+	// Check if any required dependencies are explicitly disabled - this is an error
+	for _, component := range componentsReferences.Required.OfferingReferences {
+		for _, dep := range addonConfig.Dependencies {
+			if dep.OfferingName == component.Name && dep.Enabled != nil && !*dep.Enabled {
+				return fmt.Errorf("required dependency %s cannot be disabled - it is required by %s",
+					component.Name, addonConfig.OfferingName)
 			}
 		}
 	}
-	// Process optional references
-	for _, component := range componentsReferences.Optional.OfferingReferences {
-		// Skip if already processed in required references within this call
-		if processedInThisCall[component.Name] {
+
+	// Fill in metadata for each user-defined dependency
+	for i := range addonConfig.Dependencies {
+		dep := &addonConfig.Dependencies[i]
+		depName := dep.OfferingName
+
+		// Find matching API result(s) for this dependency name
+		apiResults, exists := apiDependencies[depName]
+		if !exists {
 			continue
 		}
 
-		found := false
-		for i := range addonConfig.Dependencies {
-			if addonConfig.Dependencies[i].OfferingName == component.Name && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) {
-				// Update metadata fields - these should always be populated from component references
-				// even if the dependency was already processed elsewhere to avoid empty version locators
-				addonConfig.Dependencies[i].VersionLocator = component.OfferingReference.VersionLocator
-				addonConfig.Dependencies[i].OfferingID = component.OfferingReference.ID
-				addonConfig.Dependencies[i].CatalogID = component.OfferingReference.CatalogID
-				addonConfig.Dependencies[i].ResolvedVersion = component.OfferingReference.Version
-				addonConfig.Dependencies[i].Prefix = addonConfig.Prefix
-				addonConfig.Dependencies[i].OfferingFlavor = component.OfferingReference.Flavor.Name
-				addonConfig.Dependencies[i].OfferingLabel = component.OfferingReference.Label
+		// Handle multiple flavors - match by flavor if user specified one
+		var matchedAPI *OfferingReferenceItem = nil
+		if dep.OfferingFlavor != "" {
+			// User specified a flavor, find exact match
+			for _, apiResult := range apiResults {
+				if apiResult.OfferingReference.Flavor.Name == dep.OfferingFlavor {
+					matchedAPI = apiResult
+					break
+				}
+			}
+		} else {
+			// User didn't specify flavor, use first one (or default if available)
+			for _, apiResult := range apiResults {
+				if apiResult.OfferingReference.DefaultFlavor == "" ||
+					apiResult.OfferingReference.DefaultFlavor == apiResult.OfferingReference.Flavor.Name {
+					matchedAPI = apiResult
+					break
+				}
+			}
+			if matchedAPI == nil && len(apiResults) > 0 {
+				matchedAPI = apiResults[0] // Fallback to first one
+			}
+		}
 
-				// Only update OnByDefault if user hasn't explicitly set it (for optional deps)
-				if addonConfig.Dependencies[i].OnByDefault == nil {
-					addonConfig.Dependencies[i].OnByDefault = core.BoolPtr(component.OfferingReference.OnByDefault)
-				}
-				// Only update Enabled if user hasn't explicitly set it
-				// Note: For optional dependencies, respect user choice; for required, they're forced enabled
-				if addonConfig.Dependencies[i].Enabled == nil {
-					addonConfig.Dependencies[i].Enabled = core.BoolPtr(component.OfferingReference.OnByDefault)
-				}
-				// Preserve user-defined inputs - only initialize if nil
-				if addonConfig.Dependencies[i].Inputs == nil {
-					addonConfig.Dependencies[i].Inputs = make(map[string]interface{})
-				}
+		if matchedAPI == nil {
+			continue
+		}
 
-				found = true
-				// Only process dependencies recursively if this version locator hasn't been processed before
-				// This prevents infinite recursion while still ensuring metadata is populated
-				if !processedLocators[component.OfferingReference.VersionLocator] {
-					// Create a copy of processedLocators for this branch to allow the same component in different branches
-					branchProcessedLocators := make(map[string]bool)
-					for k, v := range processedLocators {
-						branchProcessedLocators[k] = v
-					}
-					if err := infoSvc.processComponentReferencesWithGetter(&addonConfig.Dependencies[i], branchProcessedLocators, getter); err != nil {
-						return err
-					}
-				}
+		// Fill in metadata from API
+		dep.VersionLocator = matchedAPI.OfferingReference.VersionLocator
+		dep.ResolvedVersion = matchedAPI.OfferingReference.Version
+		dep.CatalogID = matchedAPI.OfferingReference.CatalogID
+		dep.OfferingID = matchedAPI.OfferingReference.ID
+		dep.OfferingFlavor = matchedAPI.OfferingReference.Flavor.Name
+		dep.OfferingLabel = matchedAPI.OfferingReference.Label
+		dep.Prefix = addonConfig.Prefix
+
+		// Set OnByDefault if not already set
+		if dep.OnByDefault == nil {
+			dep.OnByDefault = core.BoolPtr(matchedAPI.OfferingReference.OnByDefault)
+		}
+
+		// Set Enabled if not already set by user (use OnByDefault)
+		if dep.Enabled == nil {
+			dep.Enabled = core.BoolPtr(matchedAPI.OfferingReference.OnByDefault)
+		}
+
+		// Initialize inputs if nil
+		if dep.Inputs == nil {
+			dep.Inputs = make(map[string]interface{})
+		}
+
+		// Check if this is a required dependency
+		for _, reqComp := range componentsReferences.Required.OfferingReferences {
+			if reqComp.Name == depName && reqComp.OfferingReference.VersionLocator == dep.VersionLocator {
+				// Required dependencies must be enabled
+				dep.Enabled = core.BoolPtr(true)
+				dep.IsRequired = core.BoolPtr(true)
+				dep.RequiredBy = []string{addonConfig.OfferingName}
 				break
 			}
 		}
-		// Handle OnByDefault components that aren't already in dependencies
-		if !found && (component.OfferingReference.DefaultFlavor == "" || component.OfferingReference.DefaultFlavor == component.OfferingReference.Flavor.Name) && (component.OfferingReference.OnByDefault) {
-			// Determine if current addon is the actual parent for this component
-			isActualParent := false
 
-			// KMS and COS are nested dependencies of activity-tracker and cloud-logs
-			if component.Name == "deploy-arch-ibm-kms" || component.Name == "deploy-arch-ibm-cos" {
-				isActualParent = (addonConfig.OfferingName == "deploy-arch-ibm-activity-tracker" || addonConfig.OfferingName == "deploy-arch-ibm-cloud-logs")
+	}
+
+	// PHASE 1.5: Add missing on_by_default dependencies that user didn't configure
+
+	// Create a map of user-configured dependencies for quick lookup
+	userConfiguredDeps := make(map[string]bool)
+	for _, dep := range addonConfig.Dependencies {
+		userConfiguredDeps[dep.OfferingName] = true
+	}
+
+	// Query the catalog to get the direct dependencies for this specific addon
+	// This replaces the hardcoded list and works programmatically for any addon
+	var catalogDirectDependencies map[string]bool
+	if addonConfig.VersionLocator != "" {
+		version, err := infoSvc.GetCatalogVersionByLocator(addonConfig.VersionLocator)
+		if err != nil {
+			catalogDirectDependencies = make(map[string]bool) // Empty map as fallback
+		} else if version != nil && version.SolutionInfo != nil && version.SolutionInfo.Dependencies != nil {
+			catalogDirectDependencies = make(map[string]bool)
+			for _, catalogDep := range version.SolutionInfo.Dependencies {
+				if catalogDep.Name != nil {
+					catalogDirectDependencies[*catalogDep.Name] = true
+				}
+			}
+		} else {
+			catalogDirectDependencies = make(map[string]bool) // Empty map as fallback
+		}
+	} else {
+		catalogDirectDependencies = make(map[string]bool) // Empty map as fallback
+	}
+
+	for _, component := range componentsReferences.Optional.OfferingReferences {
+		if component.OfferingReference.OnByDefault && !userConfiguredDeps[component.Name] {
+			// Only process if this is a direct dependency according to the catalog
+			if !catalogDirectDependencies[component.Name] {
+				continue
 			}
 
-			if isActualParent {
-				// Add to the actual parent's dependencies
-				componentsToAdd = append(componentsToAdd, component)
-			} else {
-				// Skip adding to non-parent addons
+			// Check if this dependency is globally disabled
+			if disabledOfferings[component.Name] {
+				continue
 			}
+
+			// This is an on_by_default direct dependency that the user didn't configure
+
+			newDependency := AddonConfig{
+				OfferingName:    component.Name,
+				OfferingFlavor:  component.OfferingReference.Flavor.Name,
+				VersionLocator:  component.OfferingReference.VersionLocator,
+				OfferingID:      component.OfferingReference.ID,
+				CatalogID:       component.OfferingReference.CatalogID,
+				ResolvedVersion: component.OfferingReference.Version,
+				Enabled:         core.BoolPtr(true), // on_by_default means enabled by default
+				OnByDefault:     core.BoolPtr(true),
+				Dependencies:    []AddonConfig{}, // Initialize empty dependencies slice
+			}
+
+			addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
 		}
 	}
-	// Add new dependencies that weren't found in the existing dependencies
-	for _, component := range componentsToAdd {
-		onByDefault := component.OfferingReference.OnByDefault
-		enabled := component.OfferingReference.OnByDefault // For new components, enabled follows onByDefault
-		newDependency := AddonConfig{
-			Prefix:          addonConfig.Prefix,
-			OfferingName:    component.OfferingReference.Name,
-			OfferingLabel:   component.OfferingReference.Label,
-			CatalogID:       component.OfferingReference.CatalogID,
-			OfferingFlavor:  component.OfferingReference.Flavor.Name,
-			VersionLocator:  component.OfferingReference.VersionLocator,
-			ResolvedVersion: component.OfferingReference.Version,
-			OnByDefault:     &onByDefault,
-			Enabled:         &enabled,
-			OfferingID:      component.OfferingReference.ID,
-			Inputs:          make(map[string]interface{}),
-			Dependencies:    []AddonConfig{}, // Initialize empty dependencies slice
-		}
 
-		// Process dependencies of this new dependency recursively
-		// Create a copy of processedLocators for this branch to allow the same component in different branches
-		branchProcessedLocators := make(map[string]bool)
-		for k, v := range processedLocators {
-			branchProcessedLocators[k] = v
+	for _, component := range componentsReferences.Required.OfferingReferences {
+		if !userConfiguredDeps[component.Name] {
+			// Only process if this is a direct dependency according to the catalog
+			if !catalogDirectDependencies[component.Name] {
+				continue
+			}
+
+			// Check if this dependency is globally disabled
+			if disabledOfferings[component.Name] {
+				continue
+			}
+
+			// This is a required direct dependency that the user didn't configure
+
+			newDependency := AddonConfig{
+				OfferingName:    component.Name,
+				OfferingFlavor:  component.OfferingReference.Flavor.Name,
+				VersionLocator:  component.OfferingReference.VersionLocator,
+				OfferingID:      component.OfferingReference.ID,
+				CatalogID:       component.OfferingReference.CatalogID,
+				ResolvedVersion: component.OfferingReference.Version,
+				Enabled:         core.BoolPtr(true), // on_by_default means enabled by default
+				OnByDefault:     core.BoolPtr(true),
+				Dependencies:    []AddonConfig{}, // Initialize empty dependencies slice
+			}
+
+			addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
 		}
-		if err := infoSvc.processComponentReferencesWithGetter(&newDependency, branchProcessedLocators, getter); err != nil {
-			return err
+	}
+	// PHASE 2: Recursively build sub-trees for enabled dependencies
+
+	for i := range addonConfig.Dependencies {
+		dep := &addonConfig.Dependencies[i]
+
+		if dep.Enabled != nil && *dep.Enabled {
+			// This dependency is enabled, get its children
+			if dep.VersionLocator != "" {
+
+				// Recursively process this dependency's children
+				err := infoSvc.processComponentReferencesWithGetter(dep, processedLocators, disabledOfferings, getter)
+				if err != nil {
+					return fmt.Errorf("error processing children of %s: %w", dep.OfferingName, err)
+				}
+			} else {
+			}
+		} else {
+			// Make sure Dependencies is empty for disabled deps
+			dep.Dependencies = []AddonConfig{}
 		}
-		addonConfig.Dependencies = append(addonConfig.Dependencies, newDependency)
 	}
 
 	return nil
@@ -514,6 +614,7 @@ func (infoSvc *CloudInfoService) processComponentReferencesWithGetter(addonConfi
 
 // DeployAddonToProject deploys an addon and its dependencies to a project
 // POST /api/v1-beta/deploy/projects/:projectID/container
+// NOT CACHED: Deployment operations must always be executed fresh
 
 // This function handles dependency tree hierarchy by ensuring:
 // 1. Each offering (version_locator) appears only once in the deployment list
@@ -637,11 +738,64 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 
 		// Handle rate limiting (429) with retry
 		if resp.StatusCode == 429 {
-			return nil, fmt.Errorf("rate limited")
+			return nil, fmt.Errorf("rate limited on DeployAddonToProject for projectID='%s', offeringName='%s' (status: %d) - this indicates high API load, retrying with backoff", projectConfig.ProjectID, addonConfig.OfferingName, resp.StatusCode)
 		}
 
 		// Check other error status codes
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			// Handle ISB064E "already exists" as a special case - treat as success
+			if resp.StatusCode == 409 && (strings.Contains(string(body), "ISB064E") || strings.Contains(string(body), "already exists in project")) {
+				infoSvc.Logger.ShortInfo(fmt.Sprintf("Config already exists in project %s, treating as success", projectConfig.ProjectID))
+				// For ISB064E, we need to query the current project state and return that
+				// This ensures the caller gets accurate information about existing configs
+
+				// Query the project to get actual deployed configs
+				projectConfigs, err := infoSvc.GetProjectConfigs(projectConfig.ProjectID)
+				if err != nil {
+					// If we can't get project configs, log the error but return an empty valid response
+					infoSvc.Logger.ShortWarn(fmt.Sprintf("Could not retrieve project configs after 409: %v", err))
+					// Return an empty but valid DeployedAddonsDetails structure
+					emptyResponse := &DeployedAddonsDetails{
+						ProjectID: projectConfig.ProjectID,
+						Configs: []struct {
+							Name     string `json:"name"`
+							ConfigID string `json:"config_id"`
+						}{},
+					}
+					emptyBody, _ := json.Marshal(emptyResponse)
+					return emptyBody, nil
+				}
+
+				// Build DeployedAddonsDetails from project configs
+				deployedResponse := &DeployedAddonsDetails{
+					ProjectID: projectConfig.ProjectID,
+					Configs: make([]struct {
+						Name     string `json:"name"`
+						ConfigID string `json:"config_id"`
+					}, 0, len(projectConfigs)),
+				}
+
+				for _, config := range projectConfigs {
+					if config.ID != nil && config.Definition != nil && config.Definition.Name != nil {
+						deployedResponse.Configs = append(deployedResponse.Configs, struct {
+							Name     string `json:"name"`
+							ConfigID string `json:"config_id"`
+						}{
+							Name:     *config.Definition.Name,
+							ConfigID: *config.ID,
+						})
+					}
+				}
+
+				// Marshal the response to JSON
+				responseBody, err := json.Marshal(deployedResponse)
+				if err != nil {
+					return nil, fmt.Errorf("error marshaling deployed configs response: %w", err)
+				}
+
+				return responseBody, nil
+			}
+
 			// Debug logging for failed requests - log API URL and request body
 			infoSvc.Logger.ShortError(fmt.Sprintf("API request failed - URL: %s", url))
 			infoSvc.Logger.ShortError(fmt.Sprintf("Request body: %s", string(jsonBody)))
@@ -649,7 +803,7 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 		}
 
 		// Only log success message after confirming the request succeeded
-		infoSvc.Logger.ShortInfo(fmt.Sprintf("Configuration deployed to project %s: %s", projectConfig.ProjectName, projectConfig.ProjectID))
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Configuration added to project %s: %s", projectConfig.ProjectName, projectConfig.ProjectID))
 
 		return body, nil
 	})
@@ -674,16 +828,40 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 	return deployResponse, nil
 }
 
-// GetComponentReferences gets the component references for a version locator
+// GetComponentReferences gets the component references for a version locator returns a flat list of all components(dependencies and sub-dependencies) for the given version locator including the inital component.
 // /ui/v1/versions/:version_locator/componentsReferences
+// CACHED: Static dependency tree metadata - safe to cache as component references don't change for a version
 func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error) {
+	// Check cache first if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateComponentReferencesKey(versionLocator)
+
+		infoSvc.apiCache.mutex.RLock()
+		cached, exists := infoSvc.apiCache.componentReferencesCache[cacheKey]
+		infoSvc.apiCache.mutex.RUnlock()
+
+		if exists && !infoSvc.apiCache.isExpired(cached.Timestamp) {
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.stats.ComponentReferencesHits++
+			infoSvc.apiCache.mutex.Unlock()
+
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Cache HIT for component references: versionLocator='%s'", versionLocator))
+			return cached.References, cached.Error
+		}
+
+		// Cache miss
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.stats.ComponentReferencesMisses++
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
 	// Use new retry utility for catalog operations
 	config := common.CatalogOperationRetryConfig()
 	config.Logger = infoSvc.Logger
 	config.OperationName = fmt.Sprintf("GetComponentReferences for '%s'", versionLocator)
 	config.MaxRetries = 10 // More retries for component references
 
-	return common.RetryWithConfig(config, func() (*OfferingReferenceResponse, error) {
+	result, err := common.RetryWithConfig(config, func() (*OfferingReferenceResponse, error) {
 		// Build the request URL
 		url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/ui/v1/versions/%s/componentsReferences", versionLocator)
 
@@ -729,7 +907,7 @@ func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (
 
 		// Handle rate limiting (429) with retry
 		if resp.StatusCode == 429 {
-			return nil, fmt.Errorf("rate limited")
+			return nil, fmt.Errorf("rate limited on GetComponentReferences for versionLocator='%s' (status: %d) - this indicates high API load, retrying with backoff", versionLocator, resp.StatusCode)
 		}
 
 		// Check other error status codes
@@ -745,6 +923,22 @@ func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (
 
 		return &offeringReferences, nil
 	})
+
+	// Cache the result if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateComponentReferencesKey(versionLocator)
+		cachedResult := &CachedComponentReferences{
+			References: result,
+			Error:      err,
+			Timestamp:  time.Now(),
+		}
+
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.componentReferencesCache[cacheKey] = cachedResult
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
+	return result, err
 }
 
 // buildHierarchicalDeploymentList creates a deployment list respecting dependency hierarchy.
@@ -769,27 +963,6 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	globallyDisabled := make(map[string]bool)
 	buildGlobalDisabledSet(mainAddon, globallyDisabled)
 
-	// Track which dependencies have at least one enabled parent branch
-	// This handles the multi-branch scenario where a dependency appears under multiple parents
-	dependencyEnabledParents := make(map[string]bool)
-
-	// First pass: identify all dependencies that have at least one enabled parent path
-	var scanEnabledPaths func(addon *AddonConfig, parentEnabled bool)
-	scanEnabledPaths = func(addon *AddonConfig, parentEnabled bool) {
-		for _, dep := range addon.Dependencies {
-			// If current addon is enabled, mark its dependencies as having enabled parents
-			if parentEnabled {
-				dependencyEnabledParents[dep.OfferingName] = true
-			}
-			// Recursively scan this dependency's children
-			// CRITICAL FIX: Only pass enabled status if the dependency itself is actually enabled
-			depEnabled := dep.Enabled != nil && *dep.Enabled
-			scanEnabledPaths(&dep, depEnabled)
-		}
-	}
-	// Start the scan from main addon (always considered enabled for its direct children)
-	scanEnabledPaths(mainAddon, true)
-
 	// Create offering identity key for deduplication based on catalog+offering+flavor
 	// This ensures we don't deploy the same offering multiple times even if it appears
 	// in different parts of the dependency tree
@@ -809,23 +982,12 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	// This ensures topmost instances take precedence over deeper occurrences
 	var processDependencies func(addon *AddonConfig)
 	processDependencies = func(addon *AddonConfig) {
+
 		for _, dep := range addon.Dependencies {
 			offeringKey := getOfferingKey(&dep)
 
-			// Check if this dependency is globally disabled first
-			if globallyDisabled[dep.OfferingName] {
-				continue
-			}
-
-			// Determine if this dependency should be included:
-			// 1. Explicitly enabled dependencies (Enabled=true)
-			// 2. OnByDefault dependencies that have at least one enabled parent branch
-			isExplicitlyEnabled := dep.Enabled != nil && *dep.Enabled
-			isOnByDefaultWithEnabledParent := (dep.OnByDefault != nil && *dep.OnByDefault) && dependencyEnabledParents[dep.OfferingName]
-
-			shouldInclude := (isExplicitlyEnabled || isOnByDefaultWithEnabledParent) && !processedOfferings[offeringKey]
-
-			if shouldInclude {
+			// Only process enabled dependencies that haven't been seen before (by offering identity)
+			if dep.Enabled != nil && *dep.Enabled && !processedOfferings[offeringKey] {
 				// Generate a unique config name for this dependency if not already set
 				if dep.ConfigName == "" {
 					randomPostfix := strings.ToLower(random.UniqueId())
@@ -843,6 +1005,7 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 	}
 
 	// Start processing from the main addon's dependencies
+
 	processDependencies(mainAddon)
 
 	return deploymentList
@@ -904,12 +1067,14 @@ func updateConfigInfoFromResponse(addonConfig *AddonConfig, response *DeployedAd
 	// Update the main addon config
 	if configID, exists := configMap[addonConfig.ConfigName]; exists {
 		addonConfig.ConfigID = configID
+	} else {
 	}
 
 	// Update the main addon's container config
 	if containerID, exists := containerMap[addonConfig.ConfigName]; exists {
 		addonConfig.ContainerConfigID = containerID
 		addonConfig.ContainerConfigName = addonConfig.ConfigName + " Container"
+	} else {
 	}
 
 	// Recursively update all dependencies in the original structure
@@ -934,6 +1099,7 @@ func updateDependencyConfigIDs(dependencies []AddonConfig, configMap map[string]
 }
 
 // GetOffering gets the details of an Offering from a specified Catalog
+// CACHED: Static catalog metadata - safe to cache as offering details don't change
 func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string) (result *catalogmanagementv1.Offering, response *core.DetailedResponse, err error) {
 
 	// Add validation and debugging for empty parameters
@@ -944,46 +1110,113 @@ func (infoSvc *CloudInfoService) GetOffering(catalogID string, offeringID string
 		return nil, nil, fmt.Errorf("offeringID cannot be empty - this may indicate an uninitialized offering ID")
 	}
 
+	// Check cache first if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateOfferingKey(catalogID, offeringID)
+
+		infoSvc.apiCache.mutex.RLock()
+		cached, exists := infoSvc.apiCache.offeringCache[cacheKey]
+		infoSvc.apiCache.mutex.RUnlock()
+
+		if exists && !infoSvc.apiCache.isExpired(cached.Timestamp) {
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.stats.OfferingHits++
+			infoSvc.apiCache.mutex.Unlock()
+
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Cache HIT for offering: catalogID='%s', offeringID='%s'", catalogID, offeringID))
+			return cached.Offering, cached.Response, cached.Error
+		}
+
+		// Cache miss
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.stats.OfferingMisses++
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
 	infoSvc.Logger.ShortInfo(fmt.Sprintf("Getting offering details: catalogID='%s', offeringID='%s'", catalogID, offeringID))
 
-	// Use new retry utility for catalog operations
-	config := common.CatalogOperationRetryConfig()
-	config.Logger = infoSvc.Logger
-	config.OperationName = fmt.Sprintf("GetOffering catalogID='%s', offeringID='%s'", catalogID, offeringID)
+	// Use singleflight to prevent duplicate concurrent requests for the same offering
+	singleflightKey := fmt.Sprintf("offering:%s:%s", catalogID, offeringID)
 
 	type GetOfferingResult struct {
 		offering *catalogmanagementv1.Offering
 		response *core.DetailedResponse
 	}
 
-	resultValue, err := common.RetryWithConfig(config, func() (*GetOfferingResult, error) {
-		options := &catalogmanagementv1.GetOfferingOptions{
-			CatalogIdentifier: &catalogID,
-			OfferingID:        &offeringID,
-		}
+	// Wrap the entire retry operation in singleflight to deduplicate concurrent requests
+	singleflightResult, err, shared := infoSvc.offeringSingleflight.Do(singleflightKey, func() (interface{}, error) {
+		// Use new retry utility for catalog operations
+		config := common.CatalogOperationRetryConfig()
+		config.Logger = infoSvc.Logger
+		config.OperationName = fmt.Sprintf("GetOffering catalogID='%s', offeringID='%s'", catalogID, offeringID)
 
-		offering, response, err := infoSvc.catalogService.GetOffering(options)
-		if err != nil {
-			// Provide much more detailed error information
-			return nil, fmt.Errorf("error getting offering from catalog '%s' with offering ID '%s': %w", catalogID, offeringID, err)
-		}
+		return common.RetryWithConfig(config, func() (*GetOfferingResult, error) {
+			options := &catalogmanagementv1.GetOfferingOptions{
+				CatalogIdentifier: &catalogID,
+				OfferingID:        &offeringID,
+			}
 
-		// Handle rate limiting (429) and other temporary failures
-		if response.StatusCode == 429 || response.StatusCode >= 500 {
-			return nil, fmt.Errorf("temporary failure (status: %d)", response.StatusCode)
-		}
+			offering, response, err := infoSvc.catalogService.GetOffering(options)
+			if err != nil {
+				// Provide much more detailed error information
+				return nil, fmt.Errorf("error getting offering from catalog '%s' with offering ID '%s': %w", catalogID, offeringID, err)
+			}
 
-		// Check if the response status code is not 200
-		if response.StatusCode != 200 {
-			return nil, fmt.Errorf("failed to get offering from catalog '%s' with offering ID '%s' (status: %d): %s", catalogID, offeringID, response.StatusCode, response.RawResult)
-		}
+			// Handle rate limiting (429) and other temporary failures
+			if response.StatusCode == 429 {
+				return nil, fmt.Errorf("rate limited on GetOffering for catalogID='%s', offeringID='%s' (status: %d) - this indicates high API load, retrying with backoff", catalogID, offeringID, response.StatusCode)
+			} else if response.StatusCode >= 500 {
+				return nil, fmt.Errorf("server error on GetOffering for catalogID='%s', offeringID='%s' (status: %d)", catalogID, offeringID, response.StatusCode)
+			}
 
-		// Success - return the result
-		return &GetOfferingResult{offering: offering, response: response}, nil
+			// Check if the response status code is not 200
+			if response.StatusCode != 200 {
+				return nil, fmt.Errorf("failed to get offering from catalog '%s' with offering ID '%s' (status: %d): %s", catalogID, offeringID, response.StatusCode, response.RawResult)
+			}
+
+			// Success - return the result
+			return &GetOfferingResult{offering: offering, response: response}, nil
+		})
 	})
 
+	if shared {
+		infoSvc.Logger.ShortInfo(fmt.Sprintf("Deduplication: sharing GetOffering result for catalogID='%s', offeringID='%s'", catalogID, offeringID))
+	}
+
 	if err != nil {
+		// Cache the error result if caching is enabled
+		if infoSvc.apiCache != nil {
+			cacheKey := infoSvc.apiCache.generateOfferingKey(catalogID, offeringID)
+			cachedResult := &CachedOffering{
+				Error:     err,
+				Timestamp: time.Now(),
+			}
+
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.offeringCache[cacheKey] = cachedResult
+			infoSvc.apiCache.mutex.Unlock()
+		}
 		return nil, nil, err
+	}
+
+	// Type assert the result back to our expected type
+	resultValue, ok := singleflightResult.(*GetOfferingResult)
+	if !ok {
+		return nil, nil, fmt.Errorf("internal error: unexpected result type from singleflight")
+	}
+
+	// Cache the successful result if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateOfferingKey(catalogID, offeringID)
+		cachedResult := &CachedOffering{
+			Offering:  resultValue.offering,
+			Response:  resultValue.response,
+			Timestamp: time.Now(),
+		}
+
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.offeringCache[cacheKey] = cachedResult
+		infoSvc.apiCache.mutex.Unlock()
 	}
 
 	return resultValue.offering, resultValue.response, nil
@@ -1052,6 +1285,12 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 					}
 				}
 
+				// Extract type_metadata if present
+				var typeMetadata string
+				if configuration.TypeMetadata != nil {
+					typeMetadata = *configuration.TypeMetadata
+				}
+
 				// Handle optional fields with safe defaults
 				required := false
 				if configuration.Required != nil {
@@ -1062,10 +1301,10 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 				if configuration.Description != nil {
 					description = *configuration.Description
 				}
-
 				input := CatalogInput{
 					Key:          *configuration.Key,
 					Type:         configType,
+					TypeMetadata: typeMetadata,
 					DefaultValue: configuration.DefaultValue,
 					Required:     required,
 					Description:  description,
@@ -1089,6 +1328,7 @@ func (infoSvc *CloudInfoService) GetOfferingInputs(offering *catalogmanagementv1
 // Here version_constraint could a pinned version like(v1.0.3) , unpinned version like(^v2.1.4 or ~v1.5.6)
 // range based matching is also supported >=v1.1.2,<=v4.3.1 or <=v3.1.4,>=v1.1.0
 // It uses MatchVersion function in common package to find the suitable version available in case it is not pinned
+// CACHED: Static version resolution - safe to cache as version constraints resolve to the same locator
 func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID string, offeringID string, version_constraint string, flavor string) (string, string, error) {
 
 	// Add validation and debugging for empty parameters
@@ -1099,10 +1339,45 @@ func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID
 		return "", "", fmt.Errorf("offeringID cannot be empty when getting offering version locator - this may indicate an uninitialized offering ID")
 	}
 
+	// Check cache first if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateVersionLocatorKey(catalogID, offeringID, version_constraint, flavor)
+
+		infoSvc.apiCache.mutex.RLock()
+		cached, exists := infoSvc.apiCache.versionLocatorCache[cacheKey]
+		infoSvc.apiCache.mutex.RUnlock()
+
+		if exists && !infoSvc.apiCache.isExpired(cached.Timestamp) {
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.stats.VersionLocatorHits++
+			infoSvc.apiCache.mutex.Unlock()
+
+			infoSvc.Logger.ShortInfo(fmt.Sprintf("Cache HIT for version locator: catalogID='%s', offeringID='%s', constraint='%s', flavor='%s'", catalogID, offeringID, version_constraint, flavor))
+			return cached.Version, cached.Locator, cached.Error
+		}
+
+		// Cache miss
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.stats.VersionLocatorMisses++
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
 	infoSvc.Logger.ShortInfo(fmt.Sprintf("Getting offering version locator: catalogID='%s', offeringID='%s', constraint='%s', flavor='%s'", catalogID, offeringID, version_constraint, flavor))
 
 	offering, _, err := infoSvc.GetOffering(catalogID, offeringID)
 	if err != nil {
+		// Cache the error if caching is enabled
+		if infoSvc.apiCache != nil {
+			cacheKey := infoSvc.apiCache.generateVersionLocatorKey(catalogID, offeringID, version_constraint, flavor)
+			cachedResult := &CachedVersionLocator{
+				Error:     fmt.Errorf("unable to get the dependency offering with catalogID='%s', offeringID='%s', constraint='%s', flavor='%s': %w", catalogID, offeringID, version_constraint, flavor, err),
+				Timestamp: time.Now(),
+			}
+
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.versionLocatorCache[cacheKey] = cachedResult
+			infoSvc.apiCache.mutex.Unlock()
+		}
 		return "", "", fmt.Errorf("unable to get the dependency offering with catalogID='%s', offeringID='%s', constraint='%s', flavor='%s': %w", catalogID, offeringID, version_constraint, flavor, err)
 	}
 
@@ -1124,10 +1399,40 @@ func (infoSvc *CloudInfoService) GetOfferingVersionLocatorByConstraint(catalogID
 
 	bestVersion := common.GetLatestVersionByConstraint(versionList, version_constraint)
 	if bestVersion == "" {
-		return "", "", fmt.Errorf("could not find a matching version for dependency %s ", *offering.Name)
+		err := fmt.Errorf("could not find a matching version for dependency %s ", *offering.Name)
+
+		// Cache the error if caching is enabled
+		if infoSvc.apiCache != nil {
+			cacheKey := infoSvc.apiCache.generateVersionLocatorKey(catalogID, offeringID, version_constraint, flavor)
+			cachedResult := &CachedVersionLocator{
+				Error:     err,
+				Timestamp: time.Now(),
+			}
+
+			infoSvc.apiCache.mutex.Lock()
+			infoSvc.apiCache.versionLocatorCache[cacheKey] = cachedResult
+			infoSvc.apiCache.mutex.Unlock()
+		}
+
+		return "", "", err
 	}
 
 	versionLocator := versionLocatorMap[bestVersion]
+
+	// Cache the successful result if caching is enabled
+	if infoSvc.apiCache != nil {
+		cacheKey := infoSvc.apiCache.generateVersionLocatorKey(catalogID, offeringID, version_constraint, flavor)
+		cachedResult := &CachedVersionLocator{
+			Version:   bestVersion,
+			Locator:   versionLocator,
+			Timestamp: time.Now(),
+		}
+
+		infoSvc.apiCache.mutex.Lock()
+		infoSvc.apiCache.versionLocatorCache[cacheKey] = cachedResult
+		infoSvc.apiCache.mutex.Unlock()
+	}
+
 	return bestVersion, versionLocator, nil
 
 }
@@ -1146,4 +1451,80 @@ func buildGlobalDisabledSet(addon *AddonConfig, globallyDisabled map[string]bool
 		// Recursively check sub-dependencies
 		buildGlobalDisabledSet(&dep, globallyDisabled)
 	}
+}
+
+type SetupCatalogOptions struct {
+	CatalogUseExisting bool
+	Catalog            *catalogmanagementv1.Catalog
+	CatalogName        string
+	SharedCatalog      *bool
+	CloudInfoService   CloudInfoServiceI
+	Logger             common.Logger
+	Testing            *testing.T
+	PostCreateDelay    *time.Duration
+	AddonConfig        AddonConfig
+	IsAddonTest        bool
+}
+
+// setupCatalog handles catalog creation or reuse based on configuration
+func SetupCatalog(options SetupCatalogOptions) (*catalogmanagementv1.Catalog, error) {
+	createCatalog := func() (*catalogmanagementv1.Catalog, error) {
+		catalog, err := options.CloudInfoService.CreateCatalog(options.CatalogName)
+		if err != nil {
+			options.Logger.CriticalError(fmt.Sprintf("Error creating catalog: %v", err))
+			options.Testing.Fail()
+			return nil, fmt.Errorf("error creating catalog: %w", err)
+		}
+
+		// Add post-creation delay for eventual consistency
+		if options.PostCreateDelay != nil && *options.PostCreateDelay > 0 {
+			options.Logger.ShortInfo(fmt.Sprintf("Waiting %v for catalog to be available...", *options.PostCreateDelay))
+			time.Sleep(*options.PostCreateDelay)
+		}
+
+		if options.Catalog != nil && options.Catalog.Label != nil && options.Catalog.ID != nil {
+			options.Logger.ShortInfo(fmt.Sprintf("Created catalog: %s with ID %s", *options.Catalog.Label, *options.Catalog.ID))
+			// Seed root AddonConfig CatalogID immediately after creation
+			if options.IsAddonTest && options.AddonConfig.CatalogID == "" {
+				options.AddonConfig.CatalogID = *options.Catalog.ID
+				options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from newly created catalog: %s", options.AddonConfig.CatalogID))
+			}
+		} else {
+			options.Logger.ShortWarn("Created catalog but catalog details are incomplete")
+		}
+		return catalog, nil
+	}
+
+	if !options.CatalogUseExisting {
+		// Check if catalog sharing is enabled and if catalog already exists
+		if options.Catalog != nil {
+			if options.Catalog.Label != nil && options.Catalog.ID != nil {
+				options.Logger.ShortInfo(fmt.Sprintf("Using existing catalog: %s with ID %s", *options.Catalog.Label, *options.Catalog.ID))
+				// Seed root AddonConfig CatalogID from the shared/existing catalog to avoid later
+				// recovery paths that depend on network calls (helps under 429 rate limits)
+
+				if options.IsAddonTest && options.AddonConfig.CatalogID == "" {
+					options.AddonConfig.CatalogID = *options.Catalog.ID
+					options.Logger.ShortInfo(fmt.Sprintf("Seeded AddonConfig.CatalogID from existing catalog: %s", options.AddonConfig.CatalogID))
+				}
+			} else {
+				options.Logger.ShortWarn("Using existing catalog but catalog details are incomplete")
+			}
+			return options.Catalog, nil
+		} else if options.SharedCatalog != nil && *options.SharedCatalog {
+			// For shared catalogs, only create if no shared catalog exists yet
+			// Individual tests with SharedCatalog=true should not create new catalogs
+			options.Logger.ShortInfo("SharedCatalog=true but no existing shared catalog available - this may indicate a setup issue")
+			options.Logger.ShortInfo("Creating catalog anyway to avoid test failure, but consider using matrix tests for proper catalog sharing")
+			return createCatalog()
+		} else {
+			// Create new catalog only for non-shared usage
+			return createCatalog()
+		}
+	} else {
+		options.Logger.ShortInfo("Using existing catalog")
+		options.Logger.ShortWarn("Not implemented yet")
+		// TODO: lookup the catalog ID no api for this
+	}
+	return nil, nil
 }

@@ -445,10 +445,12 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 			svc.TerraformResourcesCreated = false
 
 			// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
-			envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
-			if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+			if options.Testing.Failed() && common.DoNotDestroyOnFailure() {
 				options.Testing.Log("[SCHEMATICS] Schematics APPLY failed. Debug the Test and delete resources manually.")
 			} else {
+				options.Testing.Log("Preforming Teardown")
+				options.Testing.Log(fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
+
 				destroySuccess := false // will only flip to true if job completes
 				destroyResponse, destroyErr := svc.CreateDestroyJob()
 				if assert.NoErrorf(options.Testing, destroyErr, "error creating DESTROY - %s", svc.WorkspaceName) {

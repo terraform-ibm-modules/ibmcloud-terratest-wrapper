@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
 )
 
 const defaultRegion = "us-south"
@@ -262,144 +263,6 @@ func IsSkippableAPIError(errorMessage string) bool {
 	}
 }
 
-// ConfigurationMatchStrategy defines different approaches for matching configuration names
-type ConfigurationMatchStrategy int
-
-const (
-	ExactNameMatch    ConfigurationMatchStrategy = iota // Exact string match
-	ContainsNameMatch                                   // String contains match (current behavior)
-	BaseNameMatch                                       // Match base name without flavor/version
-	PrefixNameMatch                                     // Match by prefix pattern
-)
-
-// String returns the string representation of ConfigurationMatchStrategy
-func (cms ConfigurationMatchStrategy) String() string {
-	switch cms {
-	case ExactNameMatch:
-		return "ExactNameMatch"
-	case ContainsNameMatch:
-		return "ContainsNameMatch"
-	case BaseNameMatch:
-		return "BaseNameMatch"
-	case PrefixNameMatch:
-		return "PrefixNameMatch"
-	default:
-		return "UnknownStrategy"
-	}
-}
-
-// ConfigurationMatchRule defines a single matching rule with strategy and pattern
-type ConfigurationMatchRule struct {
-	Strategy    ConfigurationMatchStrategy
-	Pattern     string // The pattern to match against
-	Priority    int    // Higher priority rules are checked first
-	Description string // Human-readable description of the rule
-}
-
-// IsMatch determines if the given configuration name matches this rule
-func (rule *ConfigurationMatchRule) IsMatch(configName string) bool {
-	switch rule.Strategy {
-	case ExactNameMatch:
-		return configName == rule.Pattern
-	case ContainsNameMatch:
-		return strings.Contains(configName, rule.Pattern)
-	case BaseNameMatch:
-		// Extract base name by removing flavor/version info (split on ":")
-		baseName := strings.Split(rule.Pattern, ":")[0]
-		return strings.Contains(configName, baseName)
-	case PrefixNameMatch:
-		return strings.HasPrefix(configName, rule.Pattern)
-	default:
-		return false
-	}
-}
-
-// ConfigurationMatcher provides structured configuration name matching
-// replacing fragile strings.Contains() checks with configurable matching strategies
-type ConfigurationMatcher struct {
-	Rules []ConfigurationMatchRule // Ordered list of matching rules (higher priority first)
-}
-
-// NewConfigurationMatcherForAddon creates a matcher configured for an addon configuration
-// with appropriate fallback strategies for robust matching
-func NewConfigurationMatcherForAddon(addonConfig cloudinfo.AddonConfig) *ConfigurationMatcher {
-	rules := make([]ConfigurationMatchRule, 0)
-
-	// Priority 1: Exact configuration name match (if specified)
-	if addonConfig.ConfigName != "" {
-		rules = append(rules, ConfigurationMatchRule{
-			Strategy:    ExactNameMatch,
-			Pattern:     addonConfig.ConfigName,
-			Priority:    100,
-			Description: fmt.Sprintf("Exact match for config name: %s", addonConfig.ConfigName),
-		})
-	}
-
-	// Priority 2: Contains configuration name match (if specified)
-	if addonConfig.ConfigName != "" {
-		rules = append(rules, ConfigurationMatchRule{
-			Strategy:    ContainsNameMatch,
-			Pattern:     addonConfig.ConfigName,
-			Priority:    90,
-			Description: fmt.Sprintf("Contains match for config name: %s", addonConfig.ConfigName),
-		})
-	}
-
-	// Priority 3: Exact offering name match
-	if addonConfig.OfferingName != "" {
-		rules = append(rules, ConfigurationMatchRule{
-			Strategy:    ExactNameMatch,
-			Pattern:     addonConfig.OfferingName,
-			Priority:    80,
-			Description: fmt.Sprintf("Exact match for offering name: %s", addonConfig.OfferingName),
-		})
-	}
-
-	// Priority 4: Contains offering name match (current behavior)
-	if addonConfig.OfferingName != "" {
-		rules = append(rules, ConfigurationMatchRule{
-			Strategy:    ContainsNameMatch,
-			Pattern:     addonConfig.OfferingName,
-			Priority:    70,
-			Description: fmt.Sprintf("Contains match for offering name: %s", addonConfig.OfferingName),
-		})
-	}
-
-	// Priority 5: Base offering name match (without flavor)
-	if addonConfig.OfferingName != "" {
-		rules = append(rules, ConfigurationMatchRule{
-			Strategy:    BaseNameMatch,
-			Pattern:     addonConfig.OfferingName,
-			Priority:    60,
-			Description: fmt.Sprintf("Base name match for offering: %s", addonConfig.OfferingName),
-		})
-	}
-
-	return &ConfigurationMatcher{Rules: rules}
-}
-
-// IsMatch determines if a configuration name matches any of the configured rules
-// Returns the matching rule for debugging/logging purposes
-func (matcher *ConfigurationMatcher) IsMatch(configName string) (bool, *ConfigurationMatchRule) {
-	// Check rules in priority order (highest priority first)
-	for i := range matcher.Rules {
-		rule := &matcher.Rules[i]
-		if rule.IsMatch(configName) {
-			return true, rule
-		}
-	}
-	return false, nil
-}
-
-// GetBestMatch returns the highest priority matching rule for a configuration name
-func (matcher *ConfigurationMatcher) GetBestMatch(configName string) *ConfigurationMatchRule {
-	matched, rule := matcher.IsMatch(configName)
-	if matched {
-		return rule
-	}
-	return nil
-}
-
 // SensitiveFieldType defines different categories of sensitive data fields
 type SensitiveFieldType int
 
@@ -548,7 +411,10 @@ type TestAddonOptions struct {
 	ProjectDestroyOnDelete   *bool
 	ProjectMonitoringEnabled *bool
 	ProjectAutoDeploy        *bool
-	ProjectEnvironments      []project.EnvironmentPrototype
+
+	// ProjectAutoDeployMode Valid values are "manual_approval" and "auto_approval".
+	ProjectAutoDeployMode string
+	ProjectEnvironments   []project.EnvironmentPrototype
 
 	CloudInfoService cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 
@@ -565,6 +431,8 @@ type TestAddonOptions struct {
 	// Internal Use
 	// catalog the catalog instance in use.
 	catalog *catalogmanagementv1.Catalog
+
+	deployOptions testprojects.TestProjectsOptions
 
 	// internal use
 	// offering the offering created in the catalog.
@@ -597,6 +465,29 @@ type TestAddonOptions struct {
 	InputValidationRetries int
 	// InputValidationRetryDelay The delay between retry attempts for input validation (default: 2 seconds)
 	InputValidationRetryDelay time.Duration
+
+	// ProjectRetryConfig Configuration for project creation/deletion retry behavior (optional)
+	// When nil, uses common.ProjectOperationRetryConfig() defaults (5 retries, 3s initial delay, 45s max, exponential backoff)
+	ProjectRetryConfig *common.RetryConfig
+	// CatalogRetryConfig Configuration for catalog operation retry behavior (optional)
+	// When nil, uses common.CatalogOperationRetryConfig() defaults (5 retries, 3s initial delay, 30s max, linear backoff)
+	CatalogRetryConfig *common.RetryConfig
+	// DeployRetryConfig Configuration for deployment operation retry behavior (optional)
+	// When nil, uses common.DefaultRetryConfig() defaults (3 retries, 2s initial delay, 30s max, exponential backoff)
+	DeployRetryConfig *common.RetryConfig
+
+	// StaggerDelay Configuration for delay between starting batches of parallel tests (optional)
+	// When nil, uses default 10 seconds. Set to 0 to disable staggering.
+	// Recommended values: 5-15 seconds for most scenarios, 20-30 seconds for high API sensitivity.
+	StaggerDelay *time.Duration
+	// StaggerBatchSize Configuration for number of tests per batch for staggered execution (optional)
+	// When nil, uses default 8 tests per batch. Set to 0 to use linear staggering.
+	// Recommended values: 8-12 for default, 4-6 for high API sensitivity, 15-25 for low sensitivity.
+	StaggerBatchSize *int
+	// WithinBatchDelay Configuration for delay between tests within the same batch (optional)
+	// When nil, uses default 2 seconds. Only used when StaggerBatchSize > 0.
+	// Recommended values: 1-3 seconds for most scenarios, 5+ for high sensitivity.
+	WithinBatchDelay *time.Duration
 
 	// VerboseValidationErrors If set to true, shows detailed individual error messages instead of consolidated summary
 	VerboseValidationErrors bool
@@ -670,11 +561,40 @@ type TestAddonOptions struct {
 	lastValidationResult *ValidationResult
 	lastTransientErrors  []string
 	lastRuntimeErrors    []string
+	lastTeardownErrors   []string
+
+	// PostCreateDelay is the delay to wait after creating resources before attempting to read them.
+	// This helps with eventual consistency issues in IBM Cloud APIs.
+	// Default: 1 second. Set to a pointer to 0 duration to disable delays explicitly.
+	PostCreateDelay *time.Duration
 
 	// GetDirectDependencyNames allows test injection of dependency names for permutation testing
 	// When set, this function will be called instead of reading from ibm_catalog.json
 	// Used primarily for mocking dependencies in comprehensive regression tests
 	GetDirectDependencyNames func() ([]string, error)
+
+	// SkipPermutations allows temporarily skipping specific permutation test cases.
+	// Each inner slice defines the set of ENABLED dependencies for a permutation to skip.
+	// - Use full offering and flavor names (flavor optional = wildcard)
+	// - Order does not matter; comparison is set-based
+	// - Dependencies not listed are treated as DISABLED in that permutation
+	// Example: skip enabling cloud-logs[rgo] + kms[instance] only (others disabled):
+	//   []cloudinfo.AddonConfig{
+	//       {OfferingName: "deploy-arch-ibm-cloud-logs", OfferingFlavor: "resource-group-only"},
+	//       {OfferingName: "deploy-arch-ibm-kms", OfferingFlavor: "instance"},
+	//   }
+	SkipPermutations [][]cloudinfo.AddonConfig
+
+	// CacheEnabled enables API response caching for catalog operations to reduce API calls by 70-80%
+	// When enabled, static catalog metadata (offerings, versions, dependencies) will be cached
+	// Dynamic state (configs, deployments, validation) is never cached to ensure test correctness
+	// Default: true (cache enabled by default for performance benefits)
+	CacheEnabled *bool
+
+	// CacheTTL sets the time-to-live for cached API responses
+	// Default: 10 minutes if not specified when cache is enabled
+	// Recommended: 5-15 minutes for test scenarios, 10 minutes for CI/CD pipelines
+	CacheTTL time.Duration
 }
 
 // TestAddonsOptionsDefault Default constructor for TestAddonOptions
@@ -727,6 +647,9 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 	}
 	if newOptions.ProjectAutoDeploy == nil {
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
+	}
+	if newOptions.ProjectAutoDeployMode == "" {
+		newOptions.ProjectAutoDeployMode = project.ProjectDefinition_AutoDeployMode_AutoApproval
 	}
 
 	// We need to handle the bool default properly - default SharedCatalog to false for individual tests
@@ -788,6 +711,12 @@ func TestAddonsOptionsDefault(originalOptions *TestAddonOptions) *TestAddonOptio
 
 		// Use the QuietMode setting directly (defaults to false)
 		newOptions.Logger = common.CreateSmartAutoBufferingLogger(testName, newOptions.QuietMode)
+	}
+
+	// Set default post-creation delay if not already set
+	if newOptions.PostCreateDelay == nil {
+		delay := 1 * time.Second
+		newOptions.PostCreateDelay = &delay
 	}
 
 	return newOptions
@@ -883,6 +812,7 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		ProjectDestroyOnDelete:       options.ProjectDestroyOnDelete,
 		ProjectMonitoringEnabled:     options.ProjectMonitoringEnabled,
 		ProjectAutoDeploy:            options.ProjectAutoDeploy,
+		ProjectAutoDeployMode:        options.ProjectAutoDeployMode,
 		ProjectEnvironments:          options.ProjectEnvironments,
 		CloudInfoService:             options.CloudInfoService,
 		CatalogUseExisting:           options.CatalogUseExisting,
@@ -903,6 +833,13 @@ func (options *TestAddonOptions) copy() *TestAddonOptions {
 		TestCaseName:                 options.TestCaseName,
 		InputValidationRetries:       options.InputValidationRetries,
 		InputValidationRetryDelay:    options.InputValidationRetryDelay,
+		PostCreateDelay:              options.PostCreateDelay,
+		ProjectRetryConfig:           options.ProjectRetryConfig,
+		CatalogRetryConfig:           options.CatalogRetryConfig,
+		DeployRetryConfig:            options.DeployRetryConfig,
+		StaggerDelay:                 options.StaggerDelay,
+		StaggerBatchSize:             options.StaggerBatchSize,
+		WithinBatchDelay:             options.WithinBatchDelay,
 		PreDeployHook:                options.PreDeployHook,
 		PostDeployHook:               options.PostDeployHook,
 		PreUndeployHook:              options.PreUndeployHook,
@@ -968,7 +905,7 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 		Name:        testName,
 		Prefix:      testPrefix,
 		AddonConfig: []cloudinfo.AddonConfig{addonConfig}, // Preserve tree structure with nested dependencies
-		Passed:      testError == nil,
+		Passed:      testError == nil && !options.Testing.Failed(),
 		StrictMode:  options.StrictMode,
 	}
 
@@ -991,6 +928,11 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 		result.RuntimeErrors = append(result.RuntimeErrors, options.lastRuntimeErrors...)
 	}
 
+	// Add teardown errors to RuntimeErrors for reporting
+	if options.lastTeardownErrors != nil {
+		result.RuntimeErrors = append(result.RuntimeErrors, options.lastTeardownErrors...)
+	}
+
 	// If test failed, parse and categorize the main error
 	if testError != nil {
 		options.categorizeError(testError, &result)
@@ -1000,6 +942,7 @@ func (options *TestAddonOptions) collectTestResult(testName, testPrefix string, 
 	options.lastValidationResult = nil
 	options.lastTransientErrors = nil
 	options.lastRuntimeErrors = nil
+	options.lastTeardownErrors = nil
 
 	return result
 }

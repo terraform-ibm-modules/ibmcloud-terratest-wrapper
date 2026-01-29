@@ -2,7 +2,11 @@ package common
 
 import (
 	"fmt"
+	"log"
+	"math"
 	"math/rand"
+	"os"
+	"regexp"
 	"time"
 )
 
@@ -69,14 +73,28 @@ func RateLimitRetryConfig() RetryConfig {
 // CatalogOperationRetryConfig returns a retry configuration for IBM Cloud catalog operations
 func CatalogOperationRetryConfig() RetryConfig {
 	return RetryConfig{
-		MaxRetries:            5,
-		InitialDelay:          3 * time.Second,
-		MaxDelay:              30 * time.Second,
-		Strategy:              LinearBackoff,
+		MaxRetries:            10,
+		InitialDelay:          5 * time.Second,
+		MaxDelay:              120 * time.Second,
+		Strategy:              ExponentialBackoff,
 		Jitter:                true,
 		RetryableErrorChecker: IsRetryableError,
 		Logger:                nil,
 		OperationName:         "catalog operation",
+	}
+}
+
+// ProjectOperationRetryConfig returns a retry configuration optimized for IBM Cloud Projects operations
+func ProjectOperationRetryConfig() RetryConfig {
+	return RetryConfig{
+		MaxRetries:            5,
+		InitialDelay:          3 * time.Second,
+		MaxDelay:              90 * time.Second,
+		Strategy:              ExponentialBackoff,
+		Jitter:                true,
+		RetryableErrorChecker: IsProjectRetryableError,
+		Logger:                nil,
+		OperationName:         "project operation",
 	}
 }
 
@@ -127,12 +145,19 @@ func RetryForRateLimit[T any](operation func() (T, error)) (T, error) {
 
 // calculateDelay calculates the delay for the next retry attempt
 func calculateDelay(config RetryConfig, attempt int) time.Duration {
+	// Skip delays when SKIP_RETRY_DELAYS environment variable is set to "true"
+	// This allows unit tests to run quickly while preserving retry logic and counting
+	// Integration tests should NOT set this variable to allow proper rate limiting protection
+	if os.Getenv("SKIP_RETRY_DELAYS") == "true" {
+		return 0
+	}
+
 	var delay time.Duration
 
 	switch config.Strategy {
 	case ExponentialBackoff:
 		// 2^attempt * initialDelay
-		multiplier := 1 << uint(attempt) // 2^attempt
+		multiplier := int(math.Pow(2, float64(attempt)))
 		delay = time.Duration(multiplier) * config.InitialDelay
 
 	case LinearBackoff:
@@ -144,7 +169,7 @@ func calculateDelay(config RetryConfig, attempt int) time.Duration {
 
 	default:
 		// Default to exponential backoff
-		multiplier := 1 << uint(attempt)
+		multiplier := int(math.Pow(2, float64(attempt)))
 		delay = time.Duration(multiplier) * config.InitialDelay
 	}
 
@@ -155,10 +180,9 @@ func calculateDelay(config RetryConfig, attempt int) time.Duration {
 
 	// Add jitter to avoid thundering herd problem
 	if config.Jitter && config.Strategy != FixedDelay {
-		jitterRange := float64(delay) * 0.30 // ±30% jitter
-		jitter := time.Duration(jitterRange * (rand.Float64()*2 - 1))
+		jitterRange := float64(delay) * 0.30                          // ±30% jitter
+		jitter := time.Duration(jitterRange * (rand.Float64()*2 - 1)) // #nosec G404 - jitter is not security-sensitive
 		delay += jitter
-
 		// Ensure we don't go negative
 		if delay < 0 {
 			delay = config.InitialDelay / 2
@@ -168,42 +192,112 @@ func calculateDelay(config RetryConfig, attempt int) time.Duration {
 	return delay
 }
 
-// IsRetryableError determines if an error should be retried based on common patterns
+// IsRetryableError determines if an error should be retried using a deny list approach
+// DEFAULT BEHAVIOR: Retry all errors EXCEPT those in the non-retryable list
 func IsRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
 
-	// Network-related errors that are common in parallel test execution
-	retryablePatterns := []string{
-		"timeout",
-		"connection refused",
-		"connection reset",
-		"network is unreachable",
-		"temporary failure",
-		"rate limit",
-		"too many requests",
-		"service unavailable",
-		"internal server error",
-		"bad gateway",
-		"gateway timeout",
-		"deadline exceeded",
-		"context deadline exceeded",
-		"operation timed out",
-		"server error",
-		"502",
-		"503",
-		"504",
-		"429",
-		"500",
+	errStr := fmt.Sprintf("%v", err)
+
+	// Non-retryable errors - these should fail immediately without retry
+	// Default behavior: RETRY ALL OTHER ERRORS (including transient 404s, network errors, etc.)
+	nonRetryablePatterns := []string{
+		// Authentication and authorization errors
+		`\b401\b`,
+		`unauthorized`,
+		`\b403\b`,
+		`forbidden`,
+		`invalid token`,
+		`authentication failed`,
+		`access denied`,
+
+		// Validation and permanent client errors
+		`\b400\b`,
+		`bad request`,
+		`invalid parameter`,
+		`validation error`,
+		`malformed request`,
+
+		// Permanent conflicts and duplicates
+		`ISB064E`,
+		`already exists in project`,
+		`\b409\b`,
+		`conflict`,
+		`duplicate`,
+
+		// Permanent not found errors (specific cases only)
+		`resource permanently deleted`,
+		`catalog not found`,
+		`offering not found`,
+		`permanently removed`,
+
+		// Quota and limit exceeded (non-temporary)
+		`quota exceeded`,
+		`limit exceeded permanently`,
+		`subscription expired`,
 	}
 
-	errLower := fmt.Sprintf("%v", err)
-	for _, pattern := range retryablePatterns {
-		if StringContainsIgnoreCase(errLower, pattern) {
-			return true
+	for _, pattern := range nonRetryablePatterns {
+		re, errCompile := regexp.Compile(`(?i)` + pattern)
+		if errCompile != nil {
+			continue
+		}
+
+		if re.MatchString(errStr) {
+			log.Printf("[retry-check] Non-retryable error matched. pattern=%q error=%q", pattern, errStr)
+			return false
 		}
 	}
 
-	return false
+	// Default: RETRY all other errors including:
+	// - Transient 404s (like ISB143E configuration not found due to eventual consistency)
+	// - Network errors (timeouts, connection issues)
+	// - Server errors (500s, 502s, 503s, 504s)
+	// - Rate limiting (429)
+	// - Any other transient errors
+	return true
+}
+
+// IsProjectRetryableError determines if a project-related error should be retried
+// Uses the same deny list approach as IsRetryableError with additional project-specific non-retryable patterns
+func IsProjectRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check general retryable errors first (uses deny list approach - defaults to retry)
+	if !IsRetryableError(err) {
+		return false
+	}
+
+	// Project-specific non-retryable patterns
+	// These are project errors that should NOT be retried even though they might pass the general check
+	errStr := fmt.Sprintf("%v", err)
+	projectNonRetryablePatterns := []string{
+		// Project permission/authorization errors specific to Projects service
+		"project access denied",
+		"project not authorized",
+		"insufficient project permissions",
+
+		// Project validation errors
+		"invalid project configuration",
+		"project validation failed",
+		"invalid project parameters",
+
+		// Permanent project state errors
+		"project permanently deleted",
+		"project archived",
+		"project disabled permanently",
+	}
+
+	for _, pattern := range projectNonRetryablePatterns {
+		if StringContainsIgnoreCase(errStr, pattern) {
+			return false
+		}
+	}
+
+	// Default: Retry (following deny list philosophy)
+	return true
 }

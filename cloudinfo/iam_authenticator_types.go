@@ -1,6 +1,10 @@
 package cloudinfo
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/IBM/go-sdk-core/v5/core"
+)
 
 // IiamAuthenticator defines the interface for authentication that can be implemented
 // by both the real authenticator and test mocks.
@@ -17,6 +21,9 @@ type IiamAuthenticator interface {
 
 	// Validate checks if the authenticator is properly configured
 	Validate() error
+
+	// RequestToken requests a new IAM token from the token server
+	RequestToken() (*core.IamTokenServerResponse, error)
 }
 
 // Making the CoreAuthenticator an alias of the implementation from IBM SDK

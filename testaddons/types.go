@@ -103,6 +103,31 @@ type DependencyGraphResult struct {
 //      StaggerDelay: StaggerDelay(10 * time.Second),
 //      StaggerBatchSize: StaggerBatchSize(0), // Disable batching
 //  }
+//
+//  // Custom retry configurations for different environments
+//  // High-reliability environment with aggressive retries
+//  projectRetry := common.ProjectOperationRetryConfig()
+//  projectRetry.MaxRetries = 8
+//  projectRetry.InitialDelay = 5 * time.Second
+//  projectRetry.MaxDelay = 60 * time.Second
+//
+//  options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+//      Testing: t,
+//      Prefix: "high-reliability-test",
+//      ProjectRetryConfig: &projectRetry,
+//  })
+//
+//  // Fast execution environment with minimal retries
+//  fastRetry := common.DefaultRetryConfig()
+//  fastRetry.MaxRetries = 2
+//  fastRetry.InitialDelay = 1 * time.Second
+//
+//  options := testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+//      Testing: t,
+//      Prefix: "fast-test",
+//      CatalogRetryConfig: &fastRetry,
+//      DeployRetryConfig: &fastRetry,
+//  })
 
 // ConfigurationErrorPattern represents a pattern of configuration errors for aggregated analysis
 type ConfigurationErrorPattern struct {

@@ -21,6 +21,15 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/testprojects"
 )
 
+// logErrorWithRateLimitCheck logs an error, but treats rate limiting errors as warnings
+func logErrorWithRateLimitCheck(logger common.Logger, operation string, err error) {
+	if strings.Contains(err.Error(), "retrying with backoff") {
+		logger.ShortWarn(fmt.Sprintf("Warning %s: %v", operation, err))
+	} else {
+		logger.ShortError(fmt.Sprintf("Error %s: %v", operation, err))
+	}
+}
+
 // ConfigDependencyInfo holds information about a config's dependencies for circular dependency analysis
 type ConfigDependencyInfo struct {
 	ID                   string            // Config ID
@@ -61,8 +70,6 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			bufferedLogger.ImmediateShortInfo(fmt.Sprintf("TEST EXECUTION START: %s", testName))
 			bufferedLogger.ImmediateShortInfo(fmt.Sprintf("Test Configuration: Prefix='%s', OfferingName='%s', QuietMode=%v", options.Prefix, options.AddonConfig.OfferingName, options.QuietMode))
 		} else {
-			fmt.Printf("TEST EXECUTION START: %s\n", testName)
-			fmt.Printf("Test Configuration: Prefix='%s', OfferingName='%s', QuietMode=%v\n", options.Prefix, options.AddonConfig.OfferingName, options.QuietMode)
 		}
 	}
 
@@ -226,6 +233,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		}
 		options.Logger.MarkFailed()
 		options.Logger.FlushOnFailure()
+		options.Testing.Fail()
 		if bufferedLogger, ok := options.Logger.(*common.BufferedTestLogger); ok {
 			bufferedLogger.ImmediateShortError("REQUIRED_DEPENDENCY_FAILURE: Buffer flush completed")
 		}
@@ -243,7 +251,8 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	deployedConfigs, err := options.CloudInfoService.DeployAddonToProject(&options.AddonConfig, options.currentProjectConfig)
 
 	if err != nil {
-		options.Logger.ShortError(fmt.Sprintf("Error deploying the addon to project: %v", err))
+		// Check if this is a rate limiting error that was retried - log as warning instead of error
+		logErrorWithRateLimitCheck(options.Logger, "deploying the addon to project", err)
 
 		// When deployment fails, attempt to build and log the expected dependency tree for debugging
 		// This helps identify what should have been deployed when analyzing failures
@@ -275,12 +284,21 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	// Store deployed configs for later use in dependency validation
 	options.deployedConfigs = deployedConfigs
 
-	options.Logger.ShortInfo("DEPLOYMENT STEP: Deployment completed successfully")
-	options.Logger.ShortInfo(fmt.Sprintf("Deployed Configurations to Project ID: %s", options.currentProjectConfig.ProjectID))
-	for _, config := range deployedConfigs.Configs {
-		options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", config.Name, config.ConfigID))
+	options.Logger.ShortInfo("DEPLOYMENT STEP: Configurations added to project successfully")
+	options.Logger.ShortInfo("Note: Configurations are registered with IBM Cloud Projects, not yet deployed")
+	options.Logger.ShortInfo("Workflow: 1) Add to Project → 2) Validate (terraform plan) → 3) Deploy (terraform apply)")
+	options.Logger.ShortInfo(fmt.Sprintf("Added Configurations to Project ID: %s", options.currentProjectConfig.ProjectID))
+
+	// Defensive nil checks to prevent panic when deployedConfigs is nil
+	if deployedConfigs != nil && deployedConfigs.Configs != nil {
+		for _, config := range deployedConfigs.Configs {
+			options.Logger.ShortInfo(fmt.Sprintf("  %s - ID: %s", config.Name, config.ConfigID))
+		}
+	} else {
+		options.Logger.ShortWarn("No configuration details available from deployment response")
 	}
-	options.Logger.ShortInfo("Addon deployed successfully")
+
+	options.Logger.ShortInfo("Next step: IBM Cloud Projects will validate configurations using terraform plan")
 
 	// Show configuration update progress in quiet mode
 	if options.QuietMode {
@@ -303,134 +321,68 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	}
 
 	configDetails.MemberConfigs = nil
-	for _, config := range deployedConfigs.Configs {
 
-		prjCfg, _, err := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
-			ProjectID: options.currentProjectConfig.ProjectID,
-			Name:      config.Name,
-			ConfigID:  config.ConfigID,
-		})
-		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error retrieving config %s: %v", config.Name, err))
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return setFailureResult(fmt.Errorf("error retrieving config %s: %w", config.Name, err), "CONFIG_RETRIEVAL")
-		}
-		if prjCfg == nil {
-			options.Logger.ShortError(fmt.Sprintf("Retrieved config %s is nil", config.Name))
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return setFailureResult(fmt.Errorf("retrieved config %s is nil", config.Name), "CONFIG_NIL")
-		}
-		configDetails.Members = append(configDetails.Members, *prjCfg)
+	// Add defensive nil check to prevent panic when deployedConfigs is nil
+	if deployedConfigs != nil && deployedConfigs.Configs != nil {
+		for _, config := range deployedConfigs.Configs {
 
-		configDetails.MemberConfigs = append(configDetails.MemberConfigs, projectv1.StackConfigMember{
-			ConfigID: core.StringPtr(config.ConfigID),
-			Name:     core.StringPtr(config.Name),
-		})
-
-		// Collect input references for OverrideInputMappings logic (reuse existing GetConfig call)
-		if options.configInputReferences == nil {
-			options.configInputReferences = make(map[string]map[string]string)
-		}
-		if resp, ok := prjCfg.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
-			references := make(map[string]string)
-			for inputKey, inputValue := range resp.Inputs {
-				if strValue, ok := inputValue.(string); ok && strings.HasPrefix(strValue, "ref:") {
-					references[inputKey] = strValue
-				}
+			prjCfg, _, err := options.CloudInfoService.GetConfig(&cloudinfo.ConfigDetails{
+				ProjectID: options.currentProjectConfig.ProjectID,
+				Name:      config.Name,
+				ConfigID:  config.ConfigID,
+			})
+			if err != nil {
+				options.Logger.ShortError(fmt.Sprintf("Error retrieving config %s: %v", config.Name, err))
+				options.Logger.MarkFailed()
+				options.Logger.FlushOnFailure()
+				options.Testing.Fail()
+				return setFailureResult(fmt.Errorf("error retrieving config %s: %w", config.Name, err), "CONFIG_RETRIEVAL")
 			}
-			if len(references) > 0 {
-				options.configInputReferences[config.ConfigID] = references
+			if prjCfg == nil {
+				options.Logger.ShortError(fmt.Sprintf("Retrieved config %s is nil", config.Name))
+				options.Logger.MarkFailed()
+				options.Logger.FlushOnFailure()
+				options.Testing.Fail()
+				return setFailureResult(fmt.Errorf("retrieved config %s is nil", config.Name), "CONFIG_NIL")
 			}
-		}
-	}
+			configDetails.Members = append(configDetails.Members, *prjCfg)
 
-	// Process AddonConfig.Inputs with OverrideInputMappings logic for regular (non-matrix) tests
-	// This ensures input override logging and reference preservation works for both matrix and regular tests
-	if options.AddonConfig.Inputs != nil && len(options.AddonConfig.Inputs) > 0 {
-		// Apply the same reference-aware input processing logic as matrix tests
-		if options.OverrideInputMappings != nil && !*options.OverrideInputMappings {
-			// Reference preservation mode (default)
-			configReferences := options.configInputReferences[addonID]
-			preservedCount := 0
-			overriddenCount := 0
+			configDetails.MemberConfigs = append(configDetails.MemberConfigs, projectv1.StackMember{
+				ConfigID: core.StringPtr(config.ConfigID),
+				Name:     core.StringPtr(config.Name),
+			})
 
-			for inputKey, inputValue := range options.AddonConfig.Inputs {
-				if referenceValue, isReference := configReferences[inputKey]; isReference {
-					// Preserve reference value
-					if !options.QuietMode {
-						options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': preserving reference value '%s' (ignoring test override)", inputKey, referenceValue))
+			// Collect input references for OverrideInputMappings logic (reuse existing GetConfig call)
+			if options.configInputReferences == nil {
+				options.configInputReferences = make(map[string]map[string]string)
+			}
+			if resp, ok := prjCfg.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Inputs != nil {
+				references := make(map[string]string)
+				for inputKey, inputValue := range resp.Inputs {
+					if strValue, ok := inputValue.(string); ok && strings.HasPrefix(strValue, "ref:") {
+						references[inputKey] = strValue
 					}
-					configDetails.Inputs[inputKey] = referenceValue
-					preservedCount++
-				} else {
-					// Override with new value
-					if !options.QuietMode {
-						existingValue := configDetails.Inputs[inputKey]
-						options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
-					}
-					configDetails.Inputs[inputKey] = inputValue
-					overriddenCount++
 				}
-			}
-
-			// Summary logging
-			if !options.QuietMode && (preservedCount > 0 || overriddenCount > 0) {
-				options.Logger.ShortInfo(fmt.Sprintf("Input merging complete: %d reference(s) preserved, %d input(s) overridden (OverrideInputMappings=false)", preservedCount, overriddenCount))
-			}
-		} else {
-			// Override all mode (legacy behavior)
-			overriddenCount := 0
-			if !options.QuietMode {
-				options.Logger.ShortInfo("Overriding ALL inputs (OverrideInputMappings=true)")
-			}
-
-			for inputKey, inputValue := range options.AddonConfig.Inputs {
-				if !options.QuietMode {
-					existingValue := configDetails.Inputs[inputKey]
-					options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
+				if len(references) > 0 {
+					options.configInputReferences[config.ConfigID] = references
 				}
-				configDetails.Inputs[inputKey] = inputValue
-				overriddenCount++
-			}
-
-			if !options.QuietMode && overriddenCount > 0 {
-				options.Logger.ShortInfo(fmt.Sprintf("Input override complete: %d input(s) overridden (OverrideInputMappings=true)", overriddenCount))
 			}
 		}
-	}
+	} // End of nil check for deployedConfigs
 
-	confPatch := projectv1.ProjectConfigDefinitionPatch{
-		Inputs: configDetails.Inputs,
-		Authorizations: &projectv1.ProjectConfigAuth{
-			ApiKey: core.StringPtr(options.CloudInfoService.GetApiKey()),
-			Method: core.StringPtr(projectv1.ProjectConfigAuth_Method_ApiKey),
-		},
-	}
-	prjConfig, response, err := options.CloudInfoService.UpdateConfig(&configDetails, &confPatch)
+	// update main addon configuration with user defined inputs
+	err = mergeInputs(options, options.AddonConfig.Inputs, configDetails, addonID)
 	if err != nil {
-		options.Logger.ShortError(fmt.Sprintf("Error updating the configuration: %v", err))
+		options.Logger.ShortError(fmt.Sprintf("Error merging inputs: %v", err))
 		options.Logger.MarkFailed()
 		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
-		return fmt.Errorf("error updating the configuration: %w", err)
+		return setFailureResult(fmt.Errorf("error setting main addon configuration inputs: %w", err), "SETTING_INPUTS")
 	}
-	if response.RawResult != nil {
-		options.Logger.ShortInfo(fmt.Sprintf("Response: %s", string(response.RawResult)))
-	}
-	options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration: %s", *prjConfig.ID))
-	if prjConfig.StateCode != nil {
-		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration statecode: %s", *prjConfig.StateCode))
-	}
-	if prjConfig.State != nil {
-		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration state: %s", *prjConfig.State))
-	}
+	updateProjectConfiguration(options, configDetails)
 
 	// create TestProjectsOptions to use with the projects package
-	deployOptions := testprojects.TestProjectsOptions{
+	options.deployOptions = testprojects.TestProjectsOptions{
 		Prefix:               options.Prefix,
 		ProjectName:          options.ProjectName,
 		CloudInfoService:     options.CloudInfoService,
@@ -440,8 +392,8 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		StackPollTimeSeconds: 60,
 	}
 
-	deployOptions.SetCurrentStackConfig(&configDetails)
-	deployOptions.SetCurrentProjectConfig(options.currentProjectConfig)
+	options.deployOptions.SetCurrentStackConfig(&configDetails)
+	options.deployOptions.SetCurrentProjectConfig(options.currentProjectConfig)
 
 	allConfigs, err := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
 	if err != nil {
@@ -449,7 +401,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.MarkFailed()
 		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
-		return fmt.Errorf("error getting the configuration: %w", err)
+		return setFailureResult(fmt.Errorf("error getting the configuration: %w", err), "GET_CONFIGURATION")
 	}
 	options.Logger.ShortInfo(fmt.Sprintf("All Configurations in Project ID: %s", options.currentProjectConfig.ProjectID))
 	options.Logger.ShortInfo("Configurations:")
@@ -468,7 +420,10 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	// They are declared here but will only be evaluated after dependency validation
 
 	// set offering details
-	SetOfferingDetails(options)
+	err = SetOfferingDetails(options)
+	if err != nil {
+		return setFailureResult(err, "SET_OFFERING_DETAILS")
+	}
 
 	// Create a map of deployed config IDs for this test case to avoid processing configs from other test cases
 	deployedConfigIDs := make(map[string]bool)
@@ -496,13 +451,32 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			ProjectID: options.currentProjectConfig.ProjectID,
 			ConfigID:  *config.ID,
 		})
-
 		if err != nil {
-			options.Logger.ShortError(fmt.Sprintf("Error getting the configuration: %v", err))
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return fmt.Errorf("error getting the configuration: %w", err)
+			options.Logger.ShortError(fmt.Sprintf("Failed to get configuration details: %v", err))
+			return setFailureResult(fmt.Errorf("failed to get configuration details: %w", err), "UPDATE_CONFIGURATION")
+		}
+
+		addonConfigDetails := cloudinfo.ConfigDetails{
+			ProjectID: options.currentProjectConfig.ProjectID,
+			Name:      *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name,
+			Inputs:    currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Inputs,
+			ConfigID:  *config.ID,
+		}
+
+		for _, dep := range options.AddonConfig.Dependencies {
+			// match dependency containing user inputs with project configuration returned by API
+			// so we know which inputs need to be updated for the current configuration
+			if dep.VersionLocator == *config.Definition.LocatorID {
+				err = mergeInputs(options, dep.Inputs, addonConfigDetails, *config.ID)
+				if err != nil {
+					options.Logger.ShortError(fmt.Sprintf("Error merging inputs: %v", err))
+					options.Logger.MarkFailed()
+					options.Logger.FlushOnFailure()
+					options.Testing.Fail()
+					return setFailureResult(fmt.Errorf("error setting dependency configuration inputs: %w", err), "SETTING_INPUTS")
+				}
+				updateProjectConfiguration(options, addonConfigDetails)
+			}
 		}
 
 		// Initialize reference cache if needed
@@ -619,7 +593,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 					options.Logger.MarkFailed()
 					options.Logger.FlushOnFailure()
 					options.Testing.Fail()
-					return fmt.Errorf("error resolving references: %w", err)
+					return setFailureResult(fmt.Errorf("error resolving references: %w", err), "RESOLVE_REFERENCES")
 				}
 				options.Logger.ShortInfo("  Resolved References:")
 				for _, ref := range res_resp.References {
@@ -644,7 +618,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 
 					options.Logger.ShortInfo(fmt.Sprintf("%s   %s", common.ColorizeString(common.Colors.Green, "✔"), ref.Reference))
 					options.Logger.ShortInfo(fmt.Sprintf("      State: %s", ref.State))
-					if ref.Value != "" {
+					if ref.Value != "" && ref.Value != nil {
 						options.Logger.ShortInfo(fmt.Sprintf("      Value: %s", ref.Value))
 					}
 				}
@@ -674,32 +648,6 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 					targetAddon = options.AddonConfig.Dependencies[i]
 					addonFound = true
 					break
-				}
-			}
-		}
-
-		// If version-based lookup failed, try matching by offering name or configuration name
-		if !addonFound {
-			configName := *currentConfigDetails.Definition.(*projectv1.ProjectConfigDefinitionResponse).Name
-
-			// Use structured configuration matching instead of fragile string patterns
-			mainAddonMatcher := NewConfigurationMatcherForAddon(options.AddonConfig)
-			if matched, rule := mainAddonMatcher.IsMatch(configName); matched {
-				targetAddon = options.AddonConfig
-				addonFound = true
-				options.Logger.ShortInfo(fmt.Sprintf("Matched addon using %s for config: %s (rule: %s)",
-					rule.Strategy.String(), configName, rule.Description))
-			} else {
-				// Try to match dependencies using structured matching
-				for i, dependency := range options.AddonConfig.Dependencies {
-					dependencyMatcher := NewConfigurationMatcherForAddon(dependency)
-					if matched, rule := dependencyMatcher.IsMatch(configName); matched {
-						targetAddon = options.AddonConfig.Dependencies[i]
-						addonFound = true
-						options.Logger.ShortInfo(fmt.Sprintf("Matched dependency using %s for config: %s (rule: %s)",
-							rule.Strategy.String(), configName, rule.Description))
-						break
-					}
 				}
 			}
 		}
@@ -857,12 +805,48 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		rootCatalogID = options.AddonConfig.CatalogID
 		rootOfferingID = options.AddonConfig.OfferingID
 
+		// Debug logging to help track race conditions in parallel tests
+		options.Logger.ShortInfo(fmt.Sprintf("Pre-validation state: CatalogID='%s', OfferingID='%s', VersionLocator='%s' (offering_ptr=%p, catalog_ptr=%p)",
+			rootCatalogID, rootOfferingID, rootVersionLocator, options.offering, options.catalog))
+
 		// Add validation to catch the race condition/uninitialized catalog issue
 		if rootCatalogID == "" {
-			return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.CatalogID is empty - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s'", rootVersionLocator, options.AddonConfig.OfferingName), "POST_DEPLOYMENT_VALIDATION_CATALOGID")
+			options.Logger.ShortWarn("CatalogID is empty during validation - attempting to recover offering details (this may indicate a race condition in parallel test execution)")
+
+			// Attempt to refresh offering details to recover from race condition
+			err := SetOfferingDetails(options)
+			if err != nil {
+				options.Logger.ShortError(fmt.Sprintf("Failed to refresh offering details during catalog ID recovery: %v", err))
+				return setFailureResult(fmt.Errorf("failed to recover catalog ID: %w", err), "CATALOG_ID_RECOVERY")
+			}
+			rootCatalogID = options.AddonConfig.CatalogID
+
+			// Check again after attempting recovery
+			if rootCatalogID == "" {
+				options.Logger.ShortError("CatalogID is still empty after recovery attempt - this indicates a serious issue with offering setup or parallel test synchronization")
+				return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.CatalogID is empty after recovery attempt - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s'", rootVersionLocator, options.AddonConfig.OfferingName), "POST_DEPLOYMENT_VALIDATION_CATALOGID")
+			} else {
+				options.Logger.ShortInfo(fmt.Sprintf("Successfully recovered CatalogID: %s", rootCatalogID))
+			}
 		}
 		if rootOfferingID == "" {
-			return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.OfferingID is empty - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s', CatalogID='%s'", rootVersionLocator, options.AddonConfig.OfferingName, rootCatalogID), "POST_DEPLOYMENT_VALIDATION_OFFERINGID")
+			options.Logger.ShortWarn("OfferingID is empty during validation - attempting to recover offering details (this may indicate a race condition in parallel test execution)")
+
+			// Attempt to refresh offering details to recover from race condition
+			err := SetOfferingDetails(options)
+			if err != nil {
+				options.Logger.ShortError(fmt.Sprintf("Failed to refresh offering details during offering ID recovery: %v", err))
+				return setFailureResult(fmt.Errorf("failed to recover offering ID: %w", err), "OFFERING_ID_RECOVERY")
+			}
+			rootOfferingID = options.AddonConfig.OfferingID
+
+			// Check again after attempting recovery
+			if rootOfferingID == "" {
+				options.Logger.ShortError("OfferingID is still empty after recovery attempt - this indicates a serious issue with offering setup or parallel test synchronization")
+				return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.OfferingID is empty after recovery attempt - this may indicate a race condition in parallel test execution or incomplete offering setup. VersionLocator='%s', OfferingName='%s', CatalogID='%s'", rootVersionLocator, options.AddonConfig.OfferingName, rootCatalogID), "POST_DEPLOYMENT_VALIDATION_OFFERINGID")
+			} else {
+				options.Logger.ShortInfo(fmt.Sprintf("Successfully recovered OfferingID: %s", rootOfferingID))
+			}
 		}
 		if rootVersionLocator == "" {
 			return setFailureResult(fmt.Errorf("dependency validation failed: AddonConfig.VersionLocator is empty - this may indicate incomplete offering setup. OfferingName='%s', CatalogID='%s', OfferingID='%s'", options.AddonConfig.OfferingName, rootCatalogID, rootOfferingID), "POST_DEPLOYMENT_VALIDATION_VERSIONLOCATOR")
@@ -1017,11 +1001,21 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			}
 
 			if rootConfig != nil {
-				options.printComprehensiveTreeWithStatus(*rootConfig, allDeployedTree, graph, "", true, make(map[string]bool), validationResult)
+				var builder strings.Builder
+				builder.WriteString("\n") // Add newline at start for proper alignment
+				options.printComprehensiveTreeWithStatus(*rootConfig, allDeployedTree, graph, "", true, make(map[string]bool), validationResult, &builder)
+				if treeStr := builder.String(); treeStr != "" {
+					options.Logger.ShortInfo(strings.TrimSuffix(treeStr, "\n"))
+				}
 			}
 		} else if rootAddon != nil {
 			// Fallback to original tree if no comprehensive tree available
-			options.printAddonTreeWithStatus(*rootAddon, graph, "", true, make(map[string]bool), deployedMap, errorMap, missingMap)
+			var builder strings.Builder
+			builder.WriteString("\n") // Add newline at start for proper alignment
+			options.printAddonTreeWithStatus(*rootAddon, graph, "", true, make(map[string]bool), deployedMap, errorMap, missingMap, &builder)
+			if treeStr := builder.String(); treeStr != "" {
+				options.Logger.ShortInfo(strings.TrimSuffix(treeStr, "\n"))
+			}
 		}
 
 		// Print validation results
@@ -1230,7 +1224,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.MarkFailed()
 		options.Logger.FlushOnFailure()
 		options.Testing.Fail()
-		return fmt.Errorf("missing required inputs: %s", strings.Join(inputValidationIssues, "; "))
+		return setFailureResult(fmt.Errorf("missing required inputs: %s", strings.Join(inputValidationIssues, "; ")), "MISSING_INPUTS")
 	}
 
 	// Now evaluate waiting input issues after dependency validation has provided context
@@ -1462,7 +1456,7 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		hookErr := options.PreDeployHook(options)
 		if hookErr != nil {
 			options.Testing.Fail()
-			return hookErr
+			return setFailureResult(hookErr, "PRE_DEPLOY_HOOK")
 		}
 		options.Logger.ShortInfo("Finished PreDeployHook")
 	}
@@ -1473,21 +1467,24 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		if options.QuietMode {
 			options.Logger.ProgressStage("Deploying infrastructure")
 		}
-		errorList := deployOptions.TriggerDeployAndWait()
+		errorList := options.deployOptions.TriggerDeployAndWait()
 		if len(errorList) > 0 {
-			options.Logger.ShortError("Errors occurred during deploy")
+			options.Logger.ShortError("Errors occurred during infrastructure deployment")
+			options.Logger.ShortError("Note: IBM Cloud Projects workflow requires successful validation (terraform plan) before deployment (terraform apply)")
+			options.Logger.ShortError("If validation failed, infrastructure was never deployed - only configurations were added to project")
 			for _, err := range errorList {
 				options.Logger.ShortError(fmt.Sprintf("  %v", err))
 			}
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return fmt.Errorf("errors occurred during deploy")
+			return setFailureResult(fmt.Errorf("Errors occurred during infrastructure deployment"), "DEPLOY")
 		}
 		if options.QuietMode {
 			options.Logger.ProgressSuccess("Infrastructure deployment completed")
 		}
-		options.Logger.ShortInfo("Deploy completed successfully")
+		options.Logger.ShortInfo("Infrastructure deployment completed successfully")
+		options.Logger.ShortInfo("All configurations validated (terraform plan) and deployed (terraform apply)")
 		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Green, "pass ✔"))
 	} else {
 		options.Logger.ShortInfo("Infrastructure deployment skipped")
@@ -1501,11 +1498,40 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
-			return hookErr
+			return setFailureResult(hookErr, "POST_DEPLOY_HOOK")
 		}
 		options.Logger.ShortInfo("Finished PostDeployHook")
 	}
 
+	// Enhanced reporting: show success message for direct test execution
+	if enhancedReporting {
+		options.Logger.ProgressSuccess("✅ All tests passed - no actions required")
+
+		// Display strict mode warnings if running in permissive mode and warnings exist
+		if options.StrictMode != nil && !*options.StrictMode && options.lastValidationResult != nil && len(options.lastValidationResult.Warnings) > 0 {
+			options.displaySingleTestStrictModeWarnings()
+		}
+	}
+
+	return nil
+}
+
+func (options *TestAddonOptions) RunPostUndeployHook() error {
+	if options.PostUndeployHook != nil {
+		options.Logger.ShortInfo("Running PostUndeployHook")
+		hookErr := options.PostUndeployHook(options)
+		if hookErr != nil {
+			options.Logger.MarkFailed()
+			options.Logger.FlushOnFailure()
+			options.Testing.Fail()
+			return hookErr
+		}
+		options.Logger.ShortInfo("Finished PostUndeployHook")
+	}
+	return nil
+}
+
+func (options *TestAddonOptions) RunPreUndeployHook() error {
 	if options.PreUndeployHook != nil {
 		options.Logger.ShortInfo("Running PreUndeployHook")
 		hookErr := options.PreUndeployHook(options)
@@ -1517,15 +1543,21 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		}
 		options.Logger.ShortInfo("Finished PreUndeployHook")
 	}
+	return nil
+}
 
-	options.Logger.ShortInfo("Testing undeployed addons")
-
+func (options *TestAddonOptions) Undeploy() error {
 	// Trigger Undeploy
 	if !options.SkipInfrastructureDeployment {
 		if options.QuietMode {
 			options.Logger.ProgressStage("Cleaning up infrastructure")
 		}
-		undeployErrs := deployOptions.TriggerUnDeployAndWait()
+		var undeployErrs []error
+		if options.Testing.Failed() {
+			undeployErrs = options.TriggerUnDeploy()
+		} else {
+			undeployErrs = options.deployOptions.TriggerUnDeployAndWait()
+		}
 		if len(undeployErrs) > 0 {
 			options.Logger.ShortError("Errors occurred during undeploy")
 			for _, err := range undeployErrs {
@@ -1541,29 +1573,74 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 		options.Logger.ShortInfo("Infrastructure undeploy skipped")
 		options.Logger.ShortInfo(common.ColorizeString(common.Colors.Yellow, "skip ⚠"))
 	}
+	return nil
+}
 
-	if options.PostUndeployHook != nil {
-		options.Logger.ShortInfo("Running PostUndeployHook")
-		hookErr := options.PostUndeployHook(options)
-		if hookErr != nil {
-			options.Logger.MarkFailed()
-			options.Logger.FlushOnFailure()
-			options.Testing.Fail()
-			return hookErr
-		}
-		options.Logger.ShortInfo("Finished PostUndeployHook")
+func (options *TestAddonOptions) TriggerUnDeploy() []error {
+	currentConfig := &cloudinfo.ConfigDetails{
+		ProjectID: *options.currentProject.ID,
+		ConfigID:  *&options.AddonConfig.ConfigID,
 	}
+	if !options.SkipUndeploy {
+		readyForUndeploy := false
+		timeoutEndTime := time.Now().Add(time.Duration(options.DeployTimeoutMinutes) * time.Minute)
 
-	// Enhanced reporting: show success message for direct test execution
-	if enhancedReporting {
-		options.Logger.ProgressSuccess("✅ All tests passed - no actions required")
+		// while not ready for undeploy and timeout not reached, keep checking
+		for !readyForUndeploy && time.Now().Before(timeoutEndTime) {
+			readyForUndeploy = true
 
-		// Display strict mode warnings if running in permissive mode and warnings exist
-		if options.StrictMode != nil && !*options.StrictMode && options.lastValidationResult != nil && len(options.lastValidationResult.Warnings) > 0 {
-			options.displaySingleTestStrictModeWarnings()
+			// Fetch the latest state of the members
+			configDetails, _, err := options.CloudInfoService.GetConfig(currentConfig)
+			if err != nil {
+				return []error{err}
+			}
+			if configDetails == nil {
+				return []error{fmt.Errorf("stackDetails is nil")}
+			}
+
+			stateCode := "Unknown"
+			if configDetails.StateCode != nil {
+				stateCode = *configDetails.StateCode
+			}
+			// first check the stack state if it is not in a deploying or undeploying state then we can trigger undeploy
+			if stateCode != projectv1.ProjectConfig_StateCode_AwaitingMemberDeployment &&
+				*configDetails.State != projectv1.ProjectConfig_State_Deploying &&
+				*configDetails.State != projectv1.ProjectConfig_State_Undeploying {
+				readyForUndeploy = true
+				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, ready for undeploy", testprojects.Statuses[*configDetails.State], testprojects.Statuses[stateCode]))
+			} else {
+				options.Logger.ShortInfo(fmt.Sprintf("Stack is in state %s with stateCode %s, waiting for all members to complete", testprojects.Statuses[*configDetails.State], testprojects.Statuses[stateCode]))
+			}
+			allConfigs, _ := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
+			// then double check if any configuration is still in VALIDATING, DEPLOYING, or UNDEPLOYING state
+			for _, dependencyDetails := range allConfigs {
+				if err != nil {
+					return []error{fmt.Errorf("failed to check dependency configuration states")}
+				}
+				if *dependencyDetails.State == projectv1.ProjectConfig_State_Validating || *dependencyDetails.State == projectv1.ProjectConfig_State_Deploying || *dependencyDetails.State == projectv1.ProjectConfig_State_Undeploying {
+					readyForUndeploy = false
+					memberName, err := options.CloudInfoService.LookupMemberNameByID(configDetails, *dependencyDetails.ID)
+					if err != nil {
+						memberName = fmt.Sprintf("Unknown name, ID: %s", *dependencyDetails.ID)
+					}
+					options.Logger.ShortInfo(fmt.Sprintf("Member %s is still in state %s, waiting for all members to complete", memberName, testprojects.Statuses[*dependencyDetails.State]))
+					time.Sleep(time.Duration(5) * time.Second)
+				}
+			}
+		}
+
+		if !readyForUndeploy {
+			return []error{fmt.Errorf("timeout waiting top level config to complete, could not trigger undeploy")}
+		}
+		_, _, errUndep := options.CloudInfoService.UndeployConfig(currentConfig)
+		if errUndep != nil {
+			if errUndep.Error() == "Not Modified" {
+				options.Logger.ShortInfo("Nothing to undeploy")
+				return nil
+			}
+			return []error{errUndep}
 		}
 	}
-
 	return nil
 }
 
@@ -1586,7 +1663,9 @@ func (options *TestAddonOptions) RunAddonTest() error {
 // runAddonTestMatrix contains the core matrix execution logic without matrix-level error reporting
 // This private method is used by both RunAddonTestMatrix() and permutation tests
 func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
-	options.Testing.Parallel()
+	// Note: Parent test is NOT made parallel to avoid blocking other tests from starting
+	// while all subtests are being created. Subtests are still parallel with each other.
+	// options.Testing.Parallel()
 
 	// Validate that BaseOptions is provided
 	if matrix.BaseOptions == nil {
@@ -1684,6 +1763,11 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 	// Generate a random prefix once per matrix test run for UI grouping
 	randomPrefix := common.UniqueId(6)
 
+	// Track batch completion for remaining batch count
+	var batchCompletionMutex sync.Mutex
+	batchCompletedTests := make(map[int]int) // batchNum -> count of completed tests
+	batchTotalTests := make(map[int]int)     // batchNum -> total tests in batch
+
 	// Initialize TotalTests count for accurate report generation
 	if options.CollectResults && options.PermutationTestReport != nil {
 		resultMutex.Lock()
@@ -1691,421 +1775,532 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 		resultMutex.Unlock()
 	}
 
-	for i, tc := range matrix.TestCases {
-		tc := tc       // Capture loop variable for parallel execution
-		testIndex := i // Capture index for staggering
+	// Group test cases into batches for proper execution timing
+	type testItem struct {
+		index int
+		tc    AddonTestCase
+	}
 
-		// Increment WaitGroup for each subtest to ensure proper synchronization
-		// Each parallel subtest must signal completion for reliable report generation
-		if options.CollectResults && options.PermutationTestReport != nil {
-			resultWg.Add(1)
+	var batches [][]testItem
+
+	if batchSize > 0 {
+		// Group tests into batches
+		for i, tc := range matrix.TestCases {
+			batchIndex := i / batchSize
+			// Expand batches slice if needed
+			for len(batches) <= batchIndex {
+				batches = append(batches, []testItem{})
+			}
+			batches[batchIndex] = append(batches[batchIndex], testItem{
+				index: i,
+				tc:    tc,
+			})
 		}
+	} else {
+		// Linear mode - treat as one large batch
+		batch := make([]testItem, len(matrix.TestCases))
+		for i, tc := range matrix.TestCases {
+			batch[i] = testItem{index: i, tc: tc}
+		}
+		batches = [][]testItem{batch}
+	}
 
-		options.Testing.Run(tc.Name, func(t *testing.T) {
-			t.Parallel()
+	// Initialize batch tracking data
+	for batchNum, batch := range batches {
+		batchTotalTests[batchNum] = len(batch)
+		batchCompletedTests[batchNum] = 0
+	}
 
-			defer func() {
-				if r := recover(); r != nil {
-					// Don't re-panic, just log it and let test fail gracefully
-					t.Errorf("Matrix test %s failed due to unhandled panic: %v", tc.Name, r)
+	// Create all tests immediately - NO DELAYS in parent loop
+	// This allows the parent to return quickly so parallel tests can start
+	for batchNum, batch := range batches {
+		for posInBatch, item := range batch {
+			testIndex := item.index
+			tc := item.tc
+
+			// Calculate delay for this specific test based on batch and position
+			var testDelay time.Duration
+			var delayReason string
+
+			if batchSize > 0 {
+				// Batch-based delay calculation
+				if batchNum > 0 {
+					testDelay += time.Duration(batchNum) * staggerDelay
 				}
-			}()
+				if posInBatch > 0 {
+					testDelay += time.Duration(posInBatch) * withinBatchDelay
+				}
 
-			// Variable to capture any panic as an error for result collection
-			var testErr error
-			var panicOccurred bool
+				if testDelay > 0 {
+					if posInBatch == 0 {
+						delayReason = fmt.Sprintf("batch %d delay (%v)", batchNum+1, time.Duration(batchNum)*staggerDelay)
+					} else {
+						delayReason = fmt.Sprintf("batch %d delay + position delay (%v + %v)",
+							batchNum+1, time.Duration(batchNum)*staggerDelay, time.Duration(posInBatch)*withinBatchDelay)
+					}
+				} else {
+					delayReason = "no delay - first test"
+				}
+			} else {
+				// Linear mode - each test delayed by index * staggerDelay
+				if testIndex > 0 && staggerDelay > 0 {
+					testDelay = time.Duration(testIndex) * staggerDelay
+					delayReason = fmt.Sprintf("linear delay for test %d", testIndex+1)
+				} else {
+					delayReason = "no delay - first test"
+				}
+			}
 
-			// Ensure WaitGroup.Done() is called even if subtest panics
-			// This prevents the parent cleanup from hanging indefinitely
+			// Log test creation (parent is creating tests immediately)
+			if !matrix.BaseOptions.QuietMode {
+				if batchSize > 0 {
+					matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("[%s - STAGGER] Creating test (batch %d, position %d/%d, test %d/%d) - will delay %v (%s)",
+						tc.Name, batchNum+1, posInBatch+1, len(batch), testIndex+1, len(matrix.TestCases), testDelay, delayReason))
+				} else {
+					matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("[%s - STAGGER] Creating test %d/%d - will delay %v (%s)",
+						tc.Name, testIndex+1, len(matrix.TestCases), testDelay, delayReason))
+				}
+			}
+
+			// Increment WaitGroup for each subtest to ensure proper synchronization
+			// Each parallel subtest must signal completion for reliable report generation
 			if options.CollectResults && options.PermutationTestReport != nil {
+				resultWg.Add(1)
+			}
+
+			// Create and run the test immediately (no parent delays)
+			options.Testing.Run(tc.Name, func(t *testing.T) {
+				// Enable parallel execution immediately
+				t.Parallel()
+
+				// Apply the calculated delay INSIDE this subtest
+				if testDelay > 0 {
+					if !matrix.BaseOptions.QuietMode {
+						expectedStartTime := time.Now().Add(testDelay)
+						expectedStartTimeStr := expectedStartTime.Format("15:04:05")
+						if batchSize > 0 {
+							matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("[%s - STAGGER] Test sleeping for %v (%s) before starting work. Expected start time: %s", tc.Name, testDelay, delayReason, expectedStartTimeStr))
+						} else {
+							matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("[%s - STAGGER] Test sleeping for %v before starting work. Expected start time: %s", tc.Name, testDelay, expectedStartTimeStr))
+						}
+					}
+					time.Sleep(testDelay)
+				} else {
+					if !matrix.BaseOptions.QuietMode {
+						matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("[%s - STAGGER] Test starting immediately (no delay)", tc.Name))
+					}
+				}
+
+				// Log when test is ready to begin actual work (after any delays)
+				if matrix.BaseOptions.QuietMode || matrix.BaseOptions.PermutationTestReport != nil {
+					matrix.BaseOptions.Logger.ProgressStage(fmt.Sprintf("Starting test work: %s", tc.Name))
+				}
+
 				defer func() {
 					if r := recover(); r != nil {
-						// Convert panic to error for result collection
-						testErr = fmt.Errorf("panic occurred: %v", r)
-						panicOccurred = true
-						options.Logger.ShortError(fmt.Sprintf("Subtest %s panicked: %v", tc.Name, r))
-
-						// Fail the test but don't re-panic to allow graceful cleanup
-						t.Errorf("Test failed due to panic: %v", r)
+						// Don't re-panic, just log it and let test fail gracefully
+						t.Errorf("Matrix test %s failed due to unhandled panic: %v", tc.Name, r)
 					}
-					resultWg.Done() // Always signal completion
 				}()
-			}
 
-			// Implement staggered start to prevent rate limiting
-			// Use batched approach to prevent excessive delays for large test suites
-			if staggerDelay > 0 && testIndex > 0 {
-				var staggerWait time.Duration
-				var batchNumber, inBatchIndex int
+				// Variable to capture any panic as an error for result collection
+				var testErr error
+				var panicOccurred bool
 
-				if batchSize > 0 {
-					// Batched staggering: group tests into batches with smaller delays within batches
-					batchNumber = testIndex / batchSize
-					inBatchIndex = testIndex % batchSize
-					staggerWait = time.Duration(batchNumber)*staggerDelay + time.Duration(inBatchIndex)*withinBatchDelay
-				} else {
-					// Linear staggering: original behavior when batch size is 0
-					staggerWait = time.Duration(testIndex) * staggerDelay
-					batchNumber = 0
-					inBatchIndex = testIndex
+				// Ensure WaitGroup.Done() is called even if subtest panics
+				// This prevents the parent cleanup from hanging indefinitely
+				if options.CollectResults && options.PermutationTestReport != nil {
+					defer func() {
+						if r := recover(); r != nil {
+							// Convert panic to error for result collection
+							testErr = fmt.Errorf("panic occurred: %v", r)
+							panicOccurred = true
+							options.Logger.ShortError(fmt.Sprintf("Subtest %s panicked: %v", tc.Name, r))
+
+							// Fail the test but don't re-panic to allow graceful cleanup
+							t.Errorf("Test failed due to panic: %v", r)
+						}
+						resultWg.Done() // Always signal completion
+					}()
 				}
 
-				// Only log stagger messages in verbose mode
-				if !matrix.BaseOptions.QuietMode {
-					if batchSize > 0 {
-						matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("[%s - STAGGER] Delaying test start by %v to prevent rate limiting (batch %d, position %d/%d, test %d/%d)",
-							tc.Name, staggerWait, batchNumber, inBatchIndex+1, batchSize, testIndex+1, len(matrix.TestCases)))
-					} else {
-						matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("[%s - STAGGER] Delaying test start by %v to prevent rate limiting (test %d/%d)",
-							tc.Name, staggerWait, testIndex+1, len(matrix.TestCases)))
+				// Start with a copy of BaseOptions and customize for this test case
+				testOptions := matrix.BaseOptions.copy()
+				testOptions.Testing = t // Override testing context for this specific test
+
+				// Allow BaseSetupFunc to customize the copied options
+				if matrix.BaseSetupFunc != nil {
+					testOptions = matrix.BaseSetupFunc(testOptions, tc)
+				}
+
+				// Apply test case specific prefix if provided
+				if tc.Prefix != "" {
+					testOptions.Prefix = tc.Prefix
+				}
+				// Ensure prefix is unique to avoid resource name collisions
+				if testOptions.Prefix != "" {
+					uniqueID := common.UniqueId()
+					if len(uniqueID) > 4 {
+						uniqueID = uniqueID[:4]
 					}
+					testOptions.Prefix = fmt.Sprintf("%s-%s", testOptions.Prefix, uniqueID)
+				} else {
+					uniqueID := common.UniqueId()
+					if len(uniqueID) > 4 {
+						uniqueID = uniqueID[:4]
+					}
+					testOptions.Prefix = fmt.Sprintf("test-%s", uniqueID)
 				}
-				time.Sleep(staggerWait)
-			}
+				testOptions.AddonConfig.Prefix = testOptions.Prefix
 
-			// Show test start progress for permutation tests or when in quiet mode
-			if matrix.BaseOptions.QuietMode || matrix.BaseOptions.PermutationTestReport != nil {
-				matrix.BaseOptions.Logger.ProgressStage(fmt.Sprintf("Starting test: %s", tc.Name))
-			}
-
-			// Start with a copy of BaseOptions and customize for this test case
-			testOptions := matrix.BaseOptions.copy()
-			testOptions.Testing = t // Override testing context for this specific test
-
-			// Allow BaseSetupFunc to customize the copied options
-			if matrix.BaseSetupFunc != nil {
-				testOptions = matrix.BaseSetupFunc(testOptions, tc)
-			}
-
-			// Apply test case specific prefix if provided
-			if tc.Prefix != "" {
-				testOptions.Prefix = tc.Prefix
-			}
-			// Ensure prefix is unique to avoid resource name collisions
-			if testOptions.Prefix != "" {
-				uniqueID := common.UniqueId()
-				if len(uniqueID) > 4 {
-					uniqueID = uniqueID[:4]
-				}
-				testOptions.Prefix = fmt.Sprintf("%s-%s", testOptions.Prefix, uniqueID)
-			} else {
-				uniqueID := common.UniqueId()
-				if len(uniqueID) > 4 {
-					uniqueID = uniqueID[:4]
-				}
-				testOptions.Prefix = fmt.Sprintf("test-%s", uniqueID)
-			}
-			testOptions.AddonConfig.Prefix = testOptions.Prefix
-
-			// Ensure logger is initialized before using it - create unique logger per test case
-			if testOptions.Logger == nil {
-				// Use specific test case name for better identification in logs
-				testCaseName := fmt.Sprintf("%s/%s", parentTestName, tc.Name)
-				testOptions.Logger = common.CreateSmartAutoBufferingLogger(testCaseName, testOptions.QuietMode)
-			} else {
-				// Preserve existing logger (it may have buffered content) but ensure QuietMode is correct
-				testOptions.Logger.SetQuietMode(testOptions.QuietMode)
-			}
-
-			if !testOptions.QuietMode {
-				// Show individual test start messages in verbose mode
-				testOptions.Logger.ShortInfo(fmt.Sprintf("Running test: %s", tc.Name))
-			}
-
-			// Ensure CloudInfoService is initialized before using it for catalog operations
-			if testOptions.CloudInfoService == nil {
-				cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
-					Logger: testOptions.Logger,
-				})
-				if err != nil {
-					require.NoError(t, err, "Failed to initialize CloudInfoService")
-					return
-				}
-				testOptions.CloudInfoService = cloudInfoSvc
-			} else {
-				// Update the existing CloudInfoService logger with quiet mode setting
-				testOptions.CloudInfoService.SetLogger(testOptions.Logger.GetUnderlyingLogger())
-			}
-
-			// Matrix tests always use shared catalogs for efficiency, regardless of SharedCatalog setting
-			if testOptions.SharedCatalog == nil {
-				testOptions.SharedCatalog = core.BoolPtr(true)
-			} else if !*testOptions.SharedCatalog {
-				testOptions.Logger.ShortWarn("Matrix tests override SharedCatalog=false to use shared catalogs for efficiency")
-				testOptions.SharedCatalog = core.BoolPtr(true)
-			}
-
-			// Apply test case specific settings
-			if tc.SkipTearDown {
-				testOptions.SkipTestTearDown = true
-			}
-			if tc.SkipInfrastructureDeployment {
-				testOptions.SkipInfrastructureDeployment = true
-			}
-
-			// Set TestCaseName for clear logging (matrix tests automatically use test case name)
-			if tc.Name != "" {
-				testOptions.TestCaseName = tc.Name
-			}
-
-			// Create addon configuration using the provided config function
-			testOptions.AddonConfig = matrix.AddonConfigFunc(testOptions, tc)
-
-			// Set dependencies if provided in test case
-			if tc.Dependencies != nil {
-				testOptions.AddonConfig.Dependencies = tc.Dependencies
-			}
-
-			// Set project name using test case and prefix with abbreviations
-			if testOptions.Prefix != "" {
-				nameComponents := []string{randomPrefix}
-
-				if testOptions.AddonConfig.OfferingName != "" {
-					// Use abbreviation for offering name
-					offeringAbbrev := testOptions.createInitialAbbreviation(testOptions.AddonConfig.OfferingName)
-					nameComponents = append(nameComponents, offeringAbbrev)
+				// Ensure logger is initialized before using it - create unique logger per test case
+				if testOptions.Logger == nil {
+					// Use specific test case name for better identification in logs
+					testCaseName := fmt.Sprintf("%s/%s", parentTestName, tc.Name)
+					testOptions.Logger = common.CreateSmartAutoBufferingLogger(testCaseName, testOptions.QuietMode)
+				} else {
+					// Preserve existing logger (it may have buffered content) but ensure QuietMode is correct
+					testOptions.Logger.SetQuietMode(testOptions.QuietMode)
 				}
 
-				// Add abbreviated test case name for readability
+				if !testOptions.QuietMode {
+					// Show individual test start messages in verbose mode
+					testOptions.Logger.ShortInfo(fmt.Sprintf("Running test: %s", tc.Name))
+				}
+
+				// Ensure CloudInfoService is initialized before using it for catalog operations
+				if testOptions.CloudInfoService == nil {
+					cacheEnabled := true
+					if testOptions.CacheEnabled != nil {
+						cacheEnabled = *testOptions.CacheEnabled
+					}
+					cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
+						Logger:       testOptions.Logger,
+						CacheEnabled: cacheEnabled,
+						CacheTTL:     testOptions.CacheTTL,
+					})
+					if err != nil {
+						require.NoError(t, err, "Failed to initialize CloudInfoService")
+						return
+					}
+					testOptions.CloudInfoService = cloudInfoSvc
+				} else {
+					// Update the existing CloudInfoService logger with quiet mode setting
+					testOptions.CloudInfoService.SetLogger(testOptions.Logger.GetUnderlyingLogger())
+				}
+
+				// Matrix tests always use shared catalogs for efficiency, regardless of SharedCatalog setting
+				if testOptions.SharedCatalog == nil {
+					testOptions.SharedCatalog = core.BoolPtr(true)
+				} else if !*testOptions.SharedCatalog {
+					testOptions.Logger.ShortWarn("Matrix tests override SharedCatalog=false to use shared catalogs for efficiency")
+					testOptions.SharedCatalog = core.BoolPtr(true)
+				}
+
+				// Apply test case specific settings
+				if tc.SkipTearDown {
+					testOptions.SkipTestTearDown = true
+				}
+				if tc.SkipInfrastructureDeployment {
+					testOptions.SkipInfrastructureDeployment = true
+				}
+
+				// Set TestCaseName for clear logging (matrix tests automatically use test case name)
 				if tc.Name != "" {
-					testCaseAbbrev := testOptions.createInitialAbbreviation(strings.ToLower(tc.Name))
-					nameComponents = append(nameComponents, testCaseAbbrev)
+					testOptions.TestCaseName = tc.Name
 				}
 
-				nameComponents = append(nameComponents, testOptions.Prefix)
-				testOptions.ProjectName = strings.Join(nameComponents, "-")
-			}
+				// Create addon configuration using the provided config function
+				testOptions.AddonConfig = matrix.AddonConfigFunc(testOptions, tc)
 
-			// Merge any additional inputs from the test case
-			if tc.Inputs != nil && len(tc.Inputs) > 0 {
-				if testOptions.AddonConfig.Inputs == nil {
-					testOptions.AddonConfig.Inputs = make(map[string]interface{})
+				// Set dependencies if provided in test case
+				if tc.Dependencies != nil {
+					testOptions.AddonConfig.Dependencies = tc.Dependencies
 				}
 
-				// Check OverrideInputMappings flag behavior
-				if testOptions.OverrideInputMappings != nil && !*testOptions.OverrideInputMappings {
-					// Use cached reference information (zero additional API calls)
-					configReferences := testOptions.configInputReferences[testOptions.AddonConfig.ConfigID]
+				// Set project name using test case and prefix with abbreviations
+				if testOptions.Prefix != "" {
+					nameComponents := []string{randomPrefix}
 
-					for key, newValue := range tc.Inputs {
-						if referenceValue, isReference := configReferences[key]; isReference {
-							if !testOptions.QuietMode {
-								testOptions.Logger.ShortInfo(fmt.Sprintf("Preserving reference value for input '%s': %s", key, referenceValue))
+					if testOptions.AddonConfig.OfferingName != "" {
+						// Use abbreviation for offering name
+						offeringAbbrev := testOptions.createInitialAbbreviation(testOptions.AddonConfig.OfferingName)
+						nameComponents = append(nameComponents, offeringAbbrev)
+					}
+
+					// Add abbreviated test case name for readability
+					if tc.Name != "" {
+						testCaseAbbrev := testOptions.createInitialAbbreviation(strings.ToLower(tc.Name))
+						nameComponents = append(nameComponents, testCaseAbbrev)
+					}
+
+					nameComponents = append(nameComponents, testOptions.Prefix)
+					testOptions.ProjectName = strings.Join(nameComponents, "-")
+				}
+
+				// Merge any additional inputs from the test case
+				if tc.Inputs != nil && len(tc.Inputs) > 0 {
+					if testOptions.AddonConfig.Inputs == nil {
+						testOptions.AddonConfig.Inputs = make(map[string]interface{})
+					}
+
+					// Check OverrideInputMappings flag behavior
+					if testOptions.OverrideInputMappings != nil && !*testOptions.OverrideInputMappings {
+						// Use cached reference information (zero additional API calls)
+						configReferences := testOptions.configInputReferences[testOptions.AddonConfig.ConfigID]
+
+						for key, newValue := range tc.Inputs {
+							if referenceValue, isReference := configReferences[key]; isReference {
+								if !testOptions.QuietMode {
+									testOptions.Logger.ShortInfo(fmt.Sprintf("Preserving reference value for input '%s': %s", key, referenceValue))
+								}
+								// Keep the existing reference value
+								testOptions.AddonConfig.Inputs[key] = referenceValue
+							} else {
+								// Safe to override - not a reference
+								if !testOptions.QuietMode {
+									existingValue := testOptions.AddonConfig.Inputs[key]
+									testOptions.Logger.ShortInfo(fmt.Sprintf("Overriding input '%s': %v → %v", key, existingValue, newValue))
+								}
+								testOptions.AddonConfig.Inputs[key] = newValue
 							}
-							// Keep the existing reference value
-							testOptions.AddonConfig.Inputs[key] = referenceValue
-						} else {
-							// Safe to override - not a reference
+						}
+					} else {
+						// Current behavior - override all inputs
+						if !testOptions.QuietMode {
+							testOptions.Logger.ShortInfo(fmt.Sprintf("OverrideInputMappings=true: overriding %d input(s)", len(tc.Inputs)))
+						}
+						for key, value := range tc.Inputs {
 							if !testOptions.QuietMode {
 								existingValue := testOptions.AddonConfig.Inputs[key]
-								testOptions.Logger.ShortInfo(fmt.Sprintf("Overriding input '%s': %v → %v", key, existingValue, newValue))
+								testOptions.Logger.ShortInfo(fmt.Sprintf("Overriding input '%s': %v → %v", key, existingValue, value))
 							}
-							testOptions.AddonConfig.Inputs[key] = newValue
+							testOptions.AddonConfig.Inputs[key] = value
 						}
 					}
-				} else {
-					// Current behavior - override all inputs
-					if !testOptions.QuietMode {
-						testOptions.Logger.ShortInfo(fmt.Sprintf("OverrideInputMappings=true: overriding %d input(s)", len(tc.Inputs)))
-					}
-					for key, value := range tc.Inputs {
-						if !testOptions.QuietMode {
-							existingValue := testOptions.AddonConfig.Inputs[key]
-							testOptions.Logger.ShortInfo(fmt.Sprintf("Overriding input '%s': %v → %v", key, existingValue, value))
+
+					// Log summary of input merging behavior (non-quiet mode only)
+					if !testOptions.QuietMode && tc.Inputs != nil && len(tc.Inputs) > 0 {
+						preserveRefs := testOptions.OverrideInputMappings != nil && !*testOptions.OverrideInputMappings
+						if preserveRefs {
+							testOptions.Logger.ShortInfo(fmt.Sprintf("Input merging: preserve-references mode, processed %d input(s)", len(tc.Inputs)))
+						} else {
+							testOptions.Logger.ShortInfo(fmt.Sprintf("Input merging: override-all mode, processed %d input(s)", len(tc.Inputs)))
 						}
-						testOptions.AddonConfig.Inputs[key] = value
 					}
 				}
 
-				// Log summary of input merging behavior (non-quiet mode only)
-				if !testOptions.QuietMode && tc.Inputs != nil && len(tc.Inputs) > 0 {
-					preserveRefs := testOptions.OverrideInputMappings != nil && !*testOptions.OverrideInputMappings
-					if preserveRefs {
-						testOptions.Logger.ShortInfo(fmt.Sprintf("Input merging: preserve-references mode, processed %d input(s)", len(tc.Inputs)))
-					} else {
-						testOptions.Logger.ShortInfo(fmt.Sprintf("Input merging: override-all mode, processed %d input(s)", len(tc.Inputs)))
+				// Handle shared catalog creation in matrix tests
+				sharedMutex.Lock()
+				if sharedCatalogOptions == nil {
+					// This is the first test case - it will create the shared catalog and offering
+					sharedCatalogOptions = testOptions
+
+					// First, validate that the branch exists in the remote repository BEFORE creating any resources
+					// Use the new cloudinfo helper for offering import preparation
+					_, _, _, err := testOptions.CloudInfoService.PrepareOfferingImport()
+					if err != nil {
+						sharedMutex.Unlock()
+						testOptions.Logger.ShortError(fmt.Sprintf("Failed to prepare offering import: %v", err))
+						require.NoError(t, err, "Failed to prepare offering import")
+						return
 					}
-				}
-			}
 
-			// Handle shared catalog creation in matrix tests
-			sharedMutex.Lock()
-			if sharedCatalogOptions == nil {
-				// This is the first test case - it will create the shared catalog and offering
-				sharedCatalogOptions = testOptions
+					// Create the shared catalog for matrix tests
+					if !testOptions.CatalogUseExisting {
+						// Generate a descriptive catalog name for matrix tests
+						offeringShortName := "addon"
+						if testOptions.AddonConfig.OfferingName != "" {
+							offeringShortName = testOptions.AddonConfig.OfferingName
+							if strings.HasPrefix(offeringShortName, "deploy-arch-") {
+								offeringShortName = strings.TrimPrefix(offeringShortName, "deploy-arch-")
+							}
+						}
+						// Extract just the unique ID from the prefix for the catalog name
+						prefixParts := strings.Split(testOptions.Prefix, "-")
+						uniqueId := prefixParts[len(prefixParts)-1]
+						descriptiveCatalogName := fmt.Sprintf("matrix-test-%s-catalog-%s", offeringShortName, uniqueId)
 
-				// First, validate that the branch exists in the remote repository BEFORE creating any resources
-				// Use the new cloudinfo helper for offering import preparation
-				_, _, _, err := testOptions.CloudInfoService.PrepareOfferingImport()
-				if err != nil {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Creating shared catalog for matrix: %s", descriptiveCatalogName))
+						catalog, err := testOptions.CloudInfoService.CreateCatalog(descriptiveCatalogName)
+						if err != nil {
+							sharedMutex.Unlock() // Release mutex on error
+							logErrorWithRateLimitCheck(testOptions.Logger, "creating shared catalog", err)
+							require.NoError(t, err, "Failed to create shared catalog for matrix tests")
+							return
+						}
+						testOptions.catalog = catalog
+						if testOptions.catalog != nil && testOptions.catalog.Label != nil && testOptions.catalog.ID != nil {
+							testOptions.Logger.ShortInfo(fmt.Sprintf("Created shared catalog: %s with ID %s", *testOptions.catalog.Label, *testOptions.catalog.ID))
+						} else {
+							testOptions.Logger.ShortWarn("Created shared catalog but catalog details are incomplete")
+						}
+
+						// Import the offering using the new helper function
+						version := fmt.Sprintf("v0.0.1-dev-%s", testOptions.Prefix)
+						testOptions.AddonConfig.ResolvedVersion = version
+
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Importing shared offering: %s as version: %s", testOptions.AddonConfig.OfferingFlavor, version))
+
+						offering, err := testOptions.CloudInfoService.ImportOfferingWithValidation(
+							*testOptions.catalog.ID,
+							testOptions.AddonConfig.OfferingName,
+							testOptions.AddonConfig.OfferingFlavor,
+							version,
+							testOptions.AddonConfig.OfferingInstallKind,
+						)
+						if err != nil {
+							sharedMutex.Unlock() // Release mutex on error
+							logErrorWithRateLimitCheck(testOptions.Logger, "importing shared offering", err)
+							require.NoError(t, err, "Failed to import shared offering for matrix tests")
+							return
+						}
+						testOptions.offering = offering
+
+						if testOptions.offering != nil && testOptions.offering.Label != nil && testOptions.offering.ID != nil {
+							testOptions.Logger.ShortInfo(fmt.Sprintf("Imported shared offering: %s with ID %s", *testOptions.offering.Label, *testOptions.offering.ID))
+						} else {
+							testOptions.Logger.ShortWarn("Imported shared offering but offering details are incomplete")
+						}
+					}
+
 					sharedMutex.Unlock()
-					testOptions.Logger.ShortError(fmt.Sprintf("Failed to prepare offering import: %v", err))
-					require.NoError(t, err, "Failed to prepare offering import")
-					return
+				} else {
+					// Share the catalog and offering from the first instance
+					testOptions.catalog = sharedCatalogOptions.catalog
+					testOptions.offering = sharedCatalogOptions.offering
+
+					sharedMutex.Unlock()
+					if testOptions.catalog != nil && testOptions.catalog.Label != nil && testOptions.catalog.ID != nil {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared catalog: %s with ID %s", *testOptions.catalog.Label, *testOptions.catalog.ID))
+					} else {
+						testOptions.Logger.ShortWarn("Shared catalog is nil or incomplete - catalog creation may have failed")
+					}
+					if testOptions.offering != nil && testOptions.offering.Label != nil && testOptions.offering.ID != nil {
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared offering: %s with ID %s", *testOptions.offering.Label, *testOptions.offering.ID))
+					} else {
+						testOptions.Logger.ShortWarn("Shared offering is nil or incomplete - offering import may have failed")
+					}
 				}
 
-				// Create the shared catalog for matrix tests
-				if !testOptions.CatalogUseExisting {
-					// Generate a descriptive catalog name for matrix tests
-					offeringShortName := "addon"
-					if testOptions.AddonConfig.OfferingName != "" {
-						offeringShortName = testOptions.AddonConfig.OfferingName
-						if strings.HasPrefix(offeringShortName, "deploy-arch-") {
-							offeringShortName = strings.TrimPrefix(offeringShortName, "deploy-arch-")
+				// Run the test - each test creates its own project
+				// Use runAddonTest() with simple error messages for matrix execution
+				err := testOptions.runAddonTest(false)
+
+				// If a panic occurred, use the panic error instead
+				if panicOccurred {
+					err = testErr
+				}
+
+				// Force log completion to main test logger to ensure it appears in logs
+				completionStatus := "PASSED"
+				if err != nil {
+					completionStatus = fmt.Sprintf("FAILED (error: %v)", err)
+				}
+				if matrix.BaseOptions.Logger != nil {
+					if smartLogger, ok := matrix.BaseOptions.Logger.(*common.SmartLogger); ok {
+						if err != nil {
+							smartLogger.ImmediateShortError(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
+						} else {
+							smartLogger.ImmediateShortInfo(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
+						}
+					} else if bufferedLogger, ok := matrix.BaseOptions.Logger.(*common.BufferedTestLogger); ok {
+						if err != nil {
+							bufferedLogger.ImmediateShortError(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
+						} else {
+							bufferedLogger.ImmediateShortInfo(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
+						}
+					} else {
+						if err != nil {
+							matrix.BaseOptions.Logger.ShortError(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
+						} else {
+							matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
 						}
 					}
-					// Extract just the unique ID from the prefix for the catalog name
-					prefixParts := strings.Split(testOptions.Prefix, "-")
-					uniqueId := prefixParts[len(prefixParts)-1]
-					descriptiveCatalogName := fmt.Sprintf("matrix-test-%s-catalog-%s", offeringShortName, uniqueId)
+				}
 
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Creating shared catalog for matrix: %s", descriptiveCatalogName))
-					catalog, err := testOptions.CloudInfoService.CreateCatalog(descriptiveCatalogName)
-					if err != nil {
-						sharedMutex.Unlock() // Release mutex on error
-						testOptions.Logger.ShortError(fmt.Sprintf("Error creating shared catalog: %v", err))
-						require.NoError(t, err, "Failed to create shared catalog for matrix tests")
-						return
+				// Track batch completion for remaining batch count logging
+				if batchSize > 0 {
+					batchCompletionMutex.Lock()
+					batchCompletedTests[batchNum]++
+					completedInBatch := batchCompletedTests[batchNum]
+					totalInBatch := batchTotalTests[batchNum]
+					batchCompletionMutex.Unlock()
+
+					// Check if this batch is now complete
+					if completedInBatch == totalInBatch {
+						// Count how many batches are still incomplete
+						batchCompletionMutex.Lock()
+						remainingBatches := 0
+						for i := 0; i < len(batches); i++ {
+							if batchCompletedTests[i] < batchTotalTests[i] {
+								remainingBatches++
+							}
+						}
+						batchCompletionMutex.Unlock()
+
+						if matrix.BaseOptions.Logger != nil {
+							if smartLogger, ok := matrix.BaseOptions.Logger.(*common.SmartLogger); ok {
+								smartLogger.ImmediateShortInfo(fmt.Sprintf("Batch %d completed. %d batches remaining to complete", batchNum+1, remainingBatches))
+							} else if bufferedLogger, ok := matrix.BaseOptions.Logger.(*common.BufferedTestLogger); ok {
+								bufferedLogger.ImmediateShortInfo(fmt.Sprintf("Batch %d completed. %d batches remaining to complete", batchNum+1, remainingBatches))
+							} else {
+								matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("Batch %d completed. %d batches remaining to complete", batchNum+1, remainingBatches))
+							}
+						}
 					}
-					testOptions.catalog = catalog
-					if testOptions.catalog != nil && testOptions.catalog.Label != nil && testOptions.catalog.ID != nil {
-						testOptions.Logger.ShortInfo(fmt.Sprintf("Created shared catalog: %s with ID %s", *testOptions.catalog.Label, *testOptions.catalog.ID))
+				}
+
+				// Thread-safe result collection for parallel subtests
+				// Mutex protection is required because multiple parallel subtests may
+				// simultaneously append to the shared PermutationTestReport.Results slice.
+				// Go's slice operations are not thread-safe for concurrent writes.
+				if testOptions.CollectResults && testOptions.PermutationTestReport != nil {
+					// Create a clean AddonConfig for reporting that shows only the original test case dependencies
+					// This ensures the summary correctly shows 4 direct dependencies, not the 6 after processing
+					reportAddonConfig := cloudinfo.AddonConfig{
+						OfferingName:   testOptions.AddonConfig.OfferingName,
+						OfferingID:     testOptions.AddonConfig.OfferingID,
+						OfferingLabel:  testOptions.AddonConfig.OfferingLabel,
+						VersionLocator: testOptions.AddonConfig.VersionLocator,
+						Dependencies:   tc.Dependencies, // Use original test case dependencies, not processed ones
+					}
+					testResult := testOptions.collectTestResult(tc.Name, tc.Prefix, reportAddonConfig, err)
+
+					// CRITICAL: Protect concurrent access to shared report data
+					resultMutex.Lock()
+					testOptions.PermutationTestReport.Results = append(testOptions.PermutationTestReport.Results, testResult)
+					if testResult.Passed {
+						testOptions.PermutationTestReport.PassedTests++
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Collected PASSED result for: %s (total results: %d)", tc.Name, len(testOptions.PermutationTestReport.Results)))
 					} else {
-						testOptions.Logger.ShortWarn("Created shared catalog but catalog details are incomplete")
+						testOptions.PermutationTestReport.FailedTests++
+						testOptions.Logger.ShortInfo(fmt.Sprintf("Collected FAILED result for: %s (total results: %d, error: %v)", tc.Name, len(testOptions.PermutationTestReport.Results), err))
 					}
+					resultMutex.Unlock()
+				} else {
+					// Log when result collection is skipped to help debug missing results
+					if !testOptions.CollectResults {
+						testOptions.Logger.ShortWarn(fmt.Sprintf("Skipping result collection for %s: CollectResults=false", tc.Name))
+					} else if testOptions.PermutationTestReport == nil {
+						testOptions.Logger.ShortWarn(fmt.Sprintf("Skipping result collection for %s: PermutationTestReport=nil", tc.Name))
+					}
+				}
 
-					// Import the offering using the new helper function
-					version := fmt.Sprintf("v0.0.1-dev-%s", testOptions.Prefix)
-					testOptions.AddonConfig.ResolvedVersion = version
-
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Importing shared offering: %s as version: %s", testOptions.AddonConfig.OfferingFlavor, version))
-
-					offering, err := testOptions.CloudInfoService.ImportOfferingWithValidation(
-						*testOptions.catalog.ID,
-						testOptions.AddonConfig.OfferingName,
-						testOptions.AddonConfig.OfferingFlavor,
-						version,
-						testOptions.AddonConfig.OfferingInstallKind,
-					)
+				// Handle result display in quiet mode
+				if testOptions.QuietMode {
 					if err != nil {
-						sharedMutex.Unlock() // Release mutex on error
-						testOptions.Logger.ShortError(fmt.Sprintf("Error importing shared offering: %v", err))
-						require.NoError(t, err, "Failed to import shared offering for matrix tests")
-						return
-					}
-					testOptions.offering = offering
-
-					if testOptions.offering != nil && testOptions.offering.Label != nil && testOptions.offering.ID != nil {
-						testOptions.Logger.ShortInfo(fmt.Sprintf("Imported shared offering: %s with ID %s", *testOptions.offering.Label, *testOptions.offering.ID))
+						testOptions.Logger.ShortError(fmt.Sprintf("✗ Failed: %s (error: %v)", tc.Name, err))
 					} else {
-						testOptions.Logger.ShortWarn("Imported shared offering but offering details are incomplete")
+						testOptions.Logger.ProgressSuccess(fmt.Sprintf("Passed: %s", tc.Name))
 					}
 				}
 
-				sharedMutex.Unlock()
-			} else {
-				// Share the catalog and offering from the first instance
-				testOptions.catalog = sharedCatalogOptions.catalog
-				testOptions.offering = sharedCatalogOptions.offering
-
-				sharedMutex.Unlock()
-				if testOptions.catalog != nil && testOptions.catalog.Label != nil && testOptions.catalog.ID != nil {
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared catalog: %s with ID %s", *testOptions.catalog.Label, *testOptions.catalog.ID))
-				} else {
-					testOptions.Logger.ShortWarn("Shared catalog is nil or incomplete - catalog creation may have failed")
-				}
-				if testOptions.offering != nil && testOptions.offering.Label != nil && testOptions.offering.ID != nil {
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Using shared offering: %s with ID %s", *testOptions.offering.Label, *testOptions.offering.ID))
-				} else {
-					testOptions.Logger.ShortWarn("Shared offering is nil or incomplete - offering import may have failed")
-				}
-			}
-
-			// Run the test - each test creates its own project
-			// Use runAddonTest() with simple error messages for matrix execution
-			err := testOptions.runAddonTest(false)
-
-			// If a panic occurred, use the panic error instead
-			if panicOccurred {
-				err = testErr
-			}
-
-			// Force log completion to main test logger to ensure it appears in logs
-			completionStatus := "PASSED"
-			if err != nil {
-				completionStatus = fmt.Sprintf("FAILED (error: %v)", err)
-			}
-			if matrix.BaseOptions.Logger != nil {
-				if smartLogger, ok := matrix.BaseOptions.Logger.(*common.SmartLogger); ok {
-					if err != nil {
-						smartLogger.ImmediateShortError(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					} else {
-						smartLogger.ImmediateShortInfo(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					}
-				} else if bufferedLogger, ok := matrix.BaseOptions.Logger.(*common.BufferedTestLogger); ok {
-					if err != nil {
-						bufferedLogger.ImmediateShortError(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					} else {
-						bufferedLogger.ImmediateShortInfo(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					}
-				} else {
-					if err != nil {
-						matrix.BaseOptions.Logger.ShortError(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					} else {
-						matrix.BaseOptions.Logger.ShortInfo(fmt.Sprintf("MATRIX TEST COMPLETION: %s - %s", tc.Name, completionStatus))
-					}
-				}
-			}
-
-			// Thread-safe result collection for parallel subtests
-			// Mutex protection is required because multiple parallel subtests may
-			// simultaneously append to the shared PermutationTestReport.Results slice.
-			// Go's slice operations are not thread-safe for concurrent writes.
-			if testOptions.CollectResults && testOptions.PermutationTestReport != nil {
-				// Create a clean AddonConfig for reporting that shows only the original test case dependencies
-				// This ensures the summary correctly shows 4 direct dependencies, not the 6 after processing
-				reportAddonConfig := cloudinfo.AddonConfig{
-					OfferingName:   testOptions.AddonConfig.OfferingName,
-					OfferingID:     testOptions.AddonConfig.OfferingID,
-					OfferingLabel:  testOptions.AddonConfig.OfferingLabel,
-					VersionLocator: testOptions.AddonConfig.VersionLocator,
-					Dependencies:   tc.Dependencies, // Use original test case dependencies, not processed ones
-				}
-				testResult := testOptions.collectTestResult(tc.Name, tc.Prefix, reportAddonConfig, err)
-
-				// CRITICAL: Protect concurrent access to shared report data
-				resultMutex.Lock()
-				testOptions.PermutationTestReport.Results = append(testOptions.PermutationTestReport.Results, testResult)
-				if testResult.Passed {
-					testOptions.PermutationTestReport.PassedTests++
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Collected PASSED result for: %s (total results: %d)", tc.Name, len(testOptions.PermutationTestReport.Results)))
-				} else {
-					testOptions.PermutationTestReport.FailedTests++
-					testOptions.Logger.ShortInfo(fmt.Sprintf("Collected FAILED result for: %s (total results: %d, error: %v)", tc.Name, len(testOptions.PermutationTestReport.Results), err))
-				}
-				resultMutex.Unlock()
-			} else {
-				// Log when result collection is skipped to help debug missing results
-				if !testOptions.CollectResults {
-					testOptions.Logger.ShortWarn(fmt.Sprintf("Skipping result collection for %s: CollectResults=false", tc.Name))
-				} else if testOptions.PermutationTestReport == nil {
-					testOptions.Logger.ShortWarn(fmt.Sprintf("Skipping result collection for %s: PermutationTestReport=nil", tc.Name))
-				}
-			}
-
-			// Handle result display in quiet mode
-			if testOptions.QuietMode {
-				if err != nil {
-					testOptions.Logger.ShortError(fmt.Sprintf("✗ Failed: %s (error: %v)", tc.Name, err))
-				} else {
-					testOptions.Logger.ProgressSuccess(fmt.Sprintf("Passed: %s", tc.Name))
-				}
-			}
-
-			// Don't fail individual tests - we collect all results and report at the end
-			// This ensures the final comprehensive report is always generated
-		})
-	}
+				// Don't fail individual tests - we collect all results and report at the end
+				// This ensures the final comprehensive report is always generated
+			})
+		} // End of posInBatch loop
+	} // End of batchNum loop
 
 	// NOTE: Report generation is now handled by t.Cleanup() registered BEFORE subtests
 	// This was moved to ensure proper timing in Go's parallel test execution model
@@ -2168,19 +2363,19 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 	// This allows STAGGER messages and test phases to be visible
 	// while suppressing verbose details within each individual test
 
-	// Step 1: Discover dependency names from catalog
-	dependencyNames, err := options.getDirectDependencyNames()
+	// Step 1: Discover dependency names and flavors from catalog
+	dependenciesWithFlavors, err := options.getDependenciesWithFlavors()
 	if err != nil {
-		return fmt.Errorf("failed to discover dependencies: %w", err)
+		return fmt.Errorf("failed to discover dependencies with flavors: %w", err)
 	}
 
-	if len(dependencyNames) == 0 {
+	if len(dependenciesWithFlavors) == 0 {
 		options.Testing.Skip("No dependencies found to test permutations")
 		return nil
 	}
 
-	// Step 2: Generate all permutations of dependencies
-	testCases := options.generatePermutations(dependencyNames)
+	// Step 2: Generate all permutations of dependencies including flavor combinations
+	testCases := options.generatePermutationsWithFlavors(dependenciesWithFlavors)
 
 	if len(testCases) == 0 {
 		options.Testing.Skip("No permutations generated (all would be default configuration)")
@@ -2211,8 +2406,11 @@ func (options *TestAddonOptions) RunAddonPermutationTest() error {
 
 	// Step 4: Execute all permutations in parallel using matrix test infrastructure
 	matrix := AddonTestMatrix{
-		TestCases:   testCases,
-		BaseOptions: options,
+		TestCases:        testCases,
+		BaseOptions:      options,
+		StaggerDelay:     options.StaggerDelay,
+		StaggerBatchSize: options.StaggerBatchSize,
+		WithinBatchDelay: options.WithinBatchDelay,
 		BaseSetupFunc: func(baseOptions *TestAddonOptions, testCase AddonTestCase) *TestAddonOptions {
 			// Clone base options for each test case
 			testOptions := baseOptions.copy()
@@ -2326,6 +2524,79 @@ func (options *TestAddonOptions) getDirectDependencyNames() ([]string, error) {
 	}
 
 	return dependencyNames, nil
+}
+
+// DependencyWithFlavors represents a dependency with all its available flavors
+type DependencyWithFlavors struct {
+	Name    string
+	Flavors []string
+}
+
+// getDependenciesWithFlavors discovers direct dependencies and their available flavors from the local ibm_catalog.json file
+func (options *TestAddonOptions) getDependenciesWithFlavors() ([]DependencyWithFlavors, error) {
+	// Find the git root directory to locate ibm_catalog.json
+	gitRoot, err := common.GitRootPath(".")
+	if err != nil {
+		return nil, fmt.Errorf("failed to find git root: %w", err)
+	}
+
+	// Construct the path to ibm_catalog.json
+	catalogPath := filepath.Join(gitRoot, "ibm_catalog.json")
+
+	// Read the local ibm_catalog.json file
+	jsonFile, err := os.ReadFile(catalogPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ibm_catalog.json from %s: %w", catalogPath, err)
+	}
+
+	// Parse the JSON into CatalogJson struct
+	var catalogConfig cloudinfo.CatalogJson
+	err = json.Unmarshal(jsonFile, &catalogConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse ibm_catalog.json: %w", err)
+	}
+
+	// Find the matching product by OfferingName
+	var targetProductIndex = -1
+	for i := range catalogConfig.Products {
+		if catalogConfig.Products[i].Name == options.AddonConfig.OfferingName {
+			targetProductIndex = i
+			break
+		}
+	}
+
+	if targetProductIndex == -1 {
+		return nil, fmt.Errorf("product '%s' not found in ibm_catalog.json", options.AddonConfig.OfferingName)
+	}
+
+	// Find the matching flavor by OfferingFlavor
+	var targetFlavorIndex = -1
+	for i := range catalogConfig.Products[targetProductIndex].Flavors {
+		if catalogConfig.Products[targetProductIndex].Flavors[i].Name == options.AddonConfig.OfferingFlavor {
+			targetFlavorIndex = i
+			break
+		}
+	}
+
+	if targetFlavorIndex == -1 {
+		return nil, fmt.Errorf("flavor '%s' not found in product '%s' in ibm_catalog.json",
+			options.AddonConfig.OfferingFlavor, options.AddonConfig.OfferingName)
+	}
+
+	// Extract dependencies with their flavors
+	var dependenciesWithFlavors []DependencyWithFlavors
+	targetFlavor := catalogConfig.Products[targetProductIndex].Flavors[targetFlavorIndex]
+
+	for _, dependency := range targetFlavor.Dependencies {
+		if dependency.Name != "" {
+			dependenciesWithFlavors = append(dependenciesWithFlavors, DependencyWithFlavors{
+				Name:    dependency.Name,
+				Flavors: dependency.Flavors,
+			})
+		}
+	}
+
+	return dependenciesWithFlavors, nil
 }
 
 // validateAndProcessRequiredDependencies applies the required dependency business logic to manually configured dependencies
@@ -2560,7 +2831,12 @@ func (options *TestAddonOptions) generatePermutations(dependencyNames []string) 
 
 	var testCases []AddonTestCase
 
-	// Generate all 2^n permutations of dependencies (root addon is always present)
+	// Generate 2^n - 1 permutations of dependencies (skips the all-enabled case)
+	// Example: For 2 dependencies [dep1, dep2], generates 3 permutations:
+	// - dep1 disabled, dep2 disabled
+	// - dep1 enabled, dep2 disabled
+	// - dep1 disabled, dep2 enabled
+	// (skips: dep1 enabled, dep2 enabled)
 	numDeps := len(dependencyNames)
 	totalPermutations := 1 << numDeps // 2^n where n = number of dependencies
 
@@ -2613,6 +2889,25 @@ func (options *TestAddonOptions) generatePermutations(dependencyNames []string) 
 		// Generate unique prefix using random prefix and sequential counter
 		uniquePrefix := fmt.Sprintf("%s-%s%d", randomPrefix, basePrefix, permIndex)
 
+		// Build enabled deps view for skip matching (name+flavor)
+		var enabledForMatch []cloudinfo.AddonConfig
+		for _, cfg := range permutationDeps {
+			if cfg.Enabled != nil && *cfg.Enabled {
+				enabledForMatch = append(enabledForMatch, cloudinfo.AddonConfig{
+					OfferingName:   cfg.OfferingName,
+					OfferingFlavor: cfg.OfferingFlavor,
+				})
+			}
+		}
+
+		// Skip if this enabled set matches a configured skip permutation
+		if options != nil && options.shouldSkipPermutation(enabledForMatch) {
+			if options.Logger != nil {
+				options.Logger.ShortInfo(fmt.Sprintf("Skipping permutation: %s", testCaseName))
+			}
+			continue
+		}
+
 		testCase := AddonTestCase{
 			Name:                         testCaseName,
 			Prefix:                       uniquePrefix,
@@ -2625,6 +2920,213 @@ func (options *TestAddonOptions) generatePermutations(dependencyNames []string) 
 	}
 
 	return testCases
+}
+
+// generatePermutationsWithFlavors creates enabled/disabled permutations and, for enabled deps,
+// expands into all valid flavor combinations discovered from the catalog (programmatic, no hardcoding).
+func (options *TestAddonOptions) generatePermutationsWithFlavors(dependenciesWithFlavors []DependencyWithFlavors) []AddonTestCase {
+	var testCases []AddonTestCase
+
+	// Generate permutations of enabled/disabled dependencies with flavor variations
+	// For each of the 2^n - 1 enabled/disabled combinations (skips all-enabled),
+	// expand into all flavor combinations for enabled dependencies.
+	// Example: For 2 deps where dep1 has flavors [a,b] and dep2 has flavor [x]:
+	// - Both disabled: 1 test case
+	// - dep1[a] enabled, dep2 disabled: 1 test case
+	// - dep1[b] enabled, dep2 disabled: 1 test case
+	// - dep1 disabled, dep2[x] enabled: 1 test case
+	// Total: 4 test cases (not 2^2=4 by coincidence, but from flavor expansion)
+	numDeps := len(dependenciesWithFlavors)
+	totalPermutations := 1 << numDeps // 2^n where n = number of dependencies
+
+	// Group UI results per run
+	randomPrefix := common.UniqueId(6)
+	permIndex := 0
+	basePrefix := options.shortenPrefix(options.Prefix)
+
+	// Helper: ensure we always have at least one flavor to pick
+	pickDefaultFlavor := func(dep DependencyWithFlavors) string {
+		if len(dep.Flavors) > 0 {
+			return dep.Flavors[0]
+		}
+		return "fully-configurable"
+	}
+
+	for mask := 0; mask < totalPermutations; mask++ {
+		// Build enabled/disabled lists for this permutation
+		var enabledDeps []DependencyWithFlavors
+		var disabledDeps []DependencyWithFlavors
+		var disabledNames []string
+
+		for j, dep := range dependenciesWithFlavors {
+			enabled := (mask & (1 << j)) != 0
+			if enabled {
+				enabledDeps = append(enabledDeps, dep)
+			} else {
+				disabledDeps = append(disabledDeps, dep)
+				disabledNames = append(disabledNames, dep.Name)
+			}
+		}
+
+		// Skip the all-enabled case (default configuration)
+		if len(disabledNames) == 0 {
+			continue
+		}
+
+		// Compute total flavor combinations for enabled deps (Cartesian product)
+		totalComb := 1
+		for _, dep := range enabledDeps {
+			n := len(dep.Flavors)
+			if n == 0 {
+				n = 1 // treat as one implicit default flavor
+			}
+			totalComb *= n
+		}
+
+		// Enumerate all combinations of flavors for enabled deps
+		for comb := 0; comb < totalComb; comb++ {
+			var depsForCase []cloudinfo.AddonConfig
+
+			// Mixed-radix expansion over enabled deps
+			tmp := comb
+			for _, dep := range enabledDeps {
+				var flavor string
+				if len(dep.Flavors) > 0 {
+					idx := tmp % len(dep.Flavors)
+					tmp /= len(dep.Flavors)
+					flavor = dep.Flavors[idx]
+				} else {
+					flavor = pickDefaultFlavor(dep)
+				}
+				depsForCase = append(depsForCase, cloudinfo.AddonConfig{
+					OfferingName:   dep.Name,
+					OfferingFlavor: flavor,
+					Enabled:        core.BoolPtr(true),
+				})
+			}
+
+			// Add disabled deps with a deterministic flavor (first/default) so configs are complete
+			for _, dep := range disabledDeps {
+				depsForCase = append(depsForCase, cloudinfo.AddonConfig{
+					OfferingName:   dep.Name,
+					OfferingFlavor: pickDefaultFlavor(dep),
+					Enabled:        core.BoolPtr(false),
+				})
+			}
+
+			// Name: include disabled abbreviations; append concise flavor tags for enabled deps
+			mainAbbrev := options.createInitialAbbreviation(options.AddonConfig.OfferingName)
+			name := fmt.Sprintf("%s-%s-%d", randomPrefix, mainAbbrev, permIndex)
+			if len(disabledNames) > 0 {
+				disabledAbbrevs := options.abbreviateWithCollisionResolution(disabledNames)
+				name = fmt.Sprintf("%s-%s-%d-disable-%s", randomPrefix, mainAbbrev, permIndex, strings.Join(disabledAbbrevs, "-"))
+			}
+
+			// Append flavor suffix only when at least one enabled dep has >1 flavors
+			var flavorParts []string
+			for _, dep := range enabledDeps {
+				if len(dep.Flavors) > 1 { // only annotate multi-flavor deps
+					// find chosen flavor in depsForCase
+					for _, cfg := range depsForCase {
+						if cfg.OfferingName == dep.Name && cfg.Enabled != nil && *cfg.Enabled {
+							flavorParts = append(flavorParts, fmt.Sprintf("%s-%s",
+								options.createInitialAbbreviation(dep.Name), options.abbreviateFlavor(cfg.OfferingFlavor)))
+							break
+						}
+					}
+				}
+			}
+			if len(flavorParts) > 0 {
+				name = fmt.Sprintf("%s[%s]", name, strings.Join(flavorParts, ","))
+			}
+
+			uniquePrefix := fmt.Sprintf("%s-%s%d", randomPrefix, basePrefix, permIndex)
+			// Build enabled deps view for skip matching (name+flavor)
+			var enabledForMatch []cloudinfo.AddonConfig
+			for _, cfg := range depsForCase {
+				if cfg.Enabled != nil && *cfg.Enabled {
+					enabledForMatch = append(enabledForMatch, cloudinfo.AddonConfig{
+						OfferingName:   cfg.OfferingName,
+						OfferingFlavor: cfg.OfferingFlavor,
+					})
+				}
+			}
+
+			// Skip if this enabled set matches a configured skip permutation
+			if options != nil && options.shouldSkipPermutation(enabledForMatch) {
+				if options.Logger != nil {
+					options.Logger.ShortInfo(fmt.Sprintf("Skipping permutation: %s", name))
+				}
+				continue
+			}
+
+			testCases = append(testCases, AddonTestCase{
+				Name:                         name,
+				Prefix:                       uniquePrefix,
+				Dependencies:                 depsForCase,
+				SkipInfrastructureDeployment: true,
+			})
+			permIndex++
+		}
+	}
+
+	return testCases
+}
+
+// shouldSkipPermutation returns true if the given set of enabled dependencies matches any skip entry.
+// Matching rules:
+// - Exact set of enabled OfferingName must match (order independent)
+// - For each item in the skip entry, OfferingFlavor must match exactly when provided (non-empty). Empty flavor is wildcard
+func (options *TestAddonOptions) shouldSkipPermutation(enabled []cloudinfo.AddonConfig) bool {
+	if options == nil || len(options.SkipPermutations) == 0 {
+		return false
+	}
+
+	// Build map of enabled name -> flavor
+	enabledMap := make(map[string]string, len(enabled))
+	for _, e := range enabled {
+		enabledMap[e.OfferingName] = e.OfferingFlavor
+	}
+
+	for _, skipSet := range options.SkipPermutations {
+		if len(skipSet) != len(enabled) {
+			continue // size must match for exact set
+		}
+
+		match := true
+		for _, s := range skipSet {
+			chosenFlavor, ok := enabledMap[s.OfferingName]
+			if !ok {
+				match = false
+				break
+			}
+			if s.OfferingFlavor != "" && s.OfferingFlavor != chosenFlavor {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+// abbreviateFlavor creates a short abbreviation for flavor names
+func (options *TestAddonOptions) abbreviateFlavor(flavor string) string {
+	switch flavor {
+	case "fully-configurable":
+		return "fc"
+	case "resource-group-only":
+		return "rgo"
+	case "resource-groups-with-account-settings":
+		return "rgas"
+	case "instance":
+		return "inst"
+	default:
+		// Create abbreviation from first letters
+		return options.createInitialAbbreviation(flavor)
+	}
 }
 
 // isDefaultConfiguration checks if a permutation matches the default "on by default" configuration
@@ -3178,4 +3680,85 @@ func (options *TestAddonOptions) displaySingleTestStrictModeWarnings() {
 
 		options.Logger.ProgressInfo("")
 	}
+}
+
+func mergeInputs(options *TestAddonOptions, inputs map[string]interface{}, configDetails cloudinfo.ConfigDetails, addonID string) error {
+	// Process AddonConfig.Inputs with OverrideInputMappings logic for regular (non-matrix) tests
+	// This ensures input override logging and reference preservation works for both matrix and regular tests
+	if inputs != nil && len(inputs) > 0 {
+		// Apply the same reference-aware input processing logic as matrix tests
+		if options.OverrideInputMappings != nil && !*options.OverrideInputMappings {
+			// Reference preservation mode (default)
+			configReferences := options.configInputReferences[addonID]
+			overriddenCount := 0
+
+			for inputKey, inputValue := range inputs {
+				if _, isReference := configReferences[inputKey]; isReference {
+					return fmt.Errorf("error user defined input %s on dependency %s is already set by a reference to another addon. If you wish to override this reference please set OverrideInputMappings in the test options.", inputKey, configDetails.Name)
+				} else {
+					// Override with new value
+					if !options.QuietMode {
+						existingValue := configDetails.Inputs[inputKey]
+						options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
+					}
+					configDetails.Inputs[inputKey] = inputValue
+					overriddenCount++
+				}
+			}
+
+			// Summary logging
+			if !options.QuietMode && overriddenCount > 0 {
+				options.Logger.ShortInfo(fmt.Sprintf("Input merging complete: %d input(s) overridden (OverrideInputMappings=false)", overriddenCount))
+			}
+		} else {
+			// Override all mode (legacy behavior)
+			overriddenCount := 0
+			if !options.QuietMode {
+				options.Logger.ShortInfo("Overriding ALL inputs (OverrideInputMappings=true)")
+			}
+
+			for inputKey, inputValue := range inputs {
+				if !options.QuietMode {
+					existingValue := configDetails.Inputs[inputKey]
+					options.Logger.ShortInfo(fmt.Sprintf("  Input '%s': %v → %v", inputKey, existingValue, inputValue))
+				}
+				configDetails.Inputs[inputKey] = inputValue
+				overriddenCount++
+			}
+
+			if !options.QuietMode && overriddenCount > 0 {
+				options.Logger.ShortInfo(fmt.Sprintf("Input override complete: %d input(s) overridden (OverrideInputMappings=true)", overriddenCount))
+			}
+		}
+	}
+	return nil
+}
+
+func updateProjectConfiguration(options *TestAddonOptions, configDetails cloudinfo.ConfigDetails) error {
+	confPatch := projectv1.ProjectConfigDefinitionPatch{
+		Inputs: configDetails.Inputs,
+		Authorizations: &projectv1.ProjectConfigAuth{
+			ApiKey: core.StringPtr(options.CloudInfoService.GetApiKey()),
+			Method: core.StringPtr("api_key"),
+		},
+	}
+	prjConfig, response, err := options.CloudInfoService.UpdateConfig(&configDetails, &confPatch)
+	if err != nil {
+		options.Logger.ShortError(fmt.Sprintf("Error updating the configuration: %v", err))
+		options.Logger.MarkFailed()
+		options.Logger.FlushOnFailure()
+		options.Testing.Fail()
+		return fmt.Errorf("error updating the configuration: %w", err)
+	}
+	if response.RawResult != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Response: %s", string(response.RawResult)))
+	}
+	options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration: %s", *prjConfig.ID))
+	if prjConfig.StateCode != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration statecode: %s", *prjConfig.StateCode))
+	}
+	if prjConfig.State != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Updated Configuration state: %s", *prjConfig.State))
+	}
+	return nil
 }

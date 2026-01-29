@@ -59,36 +59,27 @@
           },
           "configuration": [
             {
-              "key": "input1",
-              "type": "string",
-              "description": "Description for input1",
-              "default_value": false,
-              "required": true,
-              "display_name": "Input 1"
+              "key": "input5",
+              "type_metadata": "int",
+              "description": "Description for input5",
+              "default_value": "default_value_5",
+              "required": false,
+              "display_name": "Input 5"
             },
             {
-              "key": "input2",
-              "type": "int",
-              "description": "Description for input2",
-              "default_value": "80",
-              "required": true,
-              "display_name": "Input 2"
+              "key": "input6",
+              "type_metadata": "bool",
+              "description": "Description for input6",
+              "default_value": "",
+              "required": false,
+              "display_name": "Input 6"
             },
             {
-              "key": "input3",
-              "type": "array",
-              "description": "Description for input3",
-              "default_value": "not_an_array_just_a_string",
-              "required": true,
-              "display_name": "Input 3"
-            },
-            {
-              "key": "input4",
-              "type": "bool",
-              "description": "Description for input4",
-              "default_value": "true",
-              "required": true,
-              "display_name": "Input 4"
+              "key": "input7",
+              "description": "Description for input7",
+              "default_value": "some_value",
+              "required": false,
+              "display_name": "Input 7"
             }
           ],
           "outputs": [

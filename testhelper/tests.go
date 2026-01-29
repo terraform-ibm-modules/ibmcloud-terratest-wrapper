@@ -149,13 +149,12 @@ func (options *TestOptions) testTearDown() {
 	}
 
 	if !options.SkipTestTearDown {
-		// Check if "DO_NOT_DESTROY_ON_FAILURE" is set
-		envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
-
-		// Do not destroy if tests failed and "DO_NOT_DESTROY_ON_FAILURE" is true
-		if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+		// Check if destroy should be skipped due to test failure
+		if options.Testing.Failed() && common.DoNotDestroyOnFailure() {
 			fmt.Println("Terratest failed. Debug the Test and delete resources manually.")
 		} else {
+			logger.Log(options.Testing, "Destroying test resources")
+			logger.Log(options.Testing, fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
 
 			for _, address := range options.ImplicitDestroy {
 				// TODO: is this the correct path to the state file? and/or does it need to be updated upstream to a relative path(temp dir)?
@@ -175,7 +174,14 @@ func (options *TestOptions) testTearDown() {
 				_, err := ValidateTerraformOutputs(options.LastTestTerraformOutputs, expected_outputs...)
 				if err == nil {
 					cbr_rule_ids := options.LastTestTerraformOutputs[options.CBRRuleListOutputVariable].([]interface{})
-					infosvc, err := cloudinfo.NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, cloudinfo.CloudInfoServiceOptions{})
+					cacheEnabled := true
+					if options.CacheEnabled != nil {
+						cacheEnabled = *options.CacheEnabled
+					}
+					infosvc, err := cloudinfo.NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, cloudinfo.CloudInfoServiceOptions{
+						CacheEnabled: cacheEnabled,
+						CacheTTL:     options.CacheTTL,
+					})
 					if err != nil {
 						logger.Log(options.Testing, "Error creating CloudInfoService for testhelper, skipping CBR Rule disable")
 					} else {
@@ -204,6 +210,8 @@ func (options *TestOptions) testTearDown() {
 					logger.Log(options.Testing, "END: PreDestroyHook")
 				}
 			}
+			logger.Log(options.Testing, "Destroying test resources")
+			logger.Log(options.Testing, fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
 			logger.Log(options.Testing, "START: Destroy")
 			destroyOutput, destroyError := terraform.DestroyE(options.Testing, options.TerraformOptions)
 			if !assert.NoError(options.Testing, destroyError) {
@@ -228,7 +236,14 @@ func (options *TestOptions) testTearDown() {
 						}
 						// If resource_group_id or resource_group_ids are in the outputs then list resources in the resource group
 						if len(actualOutputs) > 0 {
-							cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, cloudinfo.CloudInfoServiceOptions{})
+							cacheEnabled := true
+							if options.CacheEnabled != nil {
+								cacheEnabled = *options.CacheEnabled
+							}
+							cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv(ibmcloudApiKeyVar, cloudinfo.CloudInfoServiceOptions{
+								CacheEnabled: cacheEnabled,
+								CacheTTL:     options.CacheTTL,
+							})
 							if err != nil {
 								logger.Log(options.Testing, "Error creating CloudInfoService for testhelper, skipping resource listing")
 							} else {
@@ -695,6 +710,20 @@ func (options *TestOptions) runTest() (string, error) {
 		if outputErr != nil {
 			logger.Log(options.Testing, "failed to get terraform output: ", outputErr)
 		}
+	}
+
+	// run another terraform apply if ModifiedTerraformVars have been set
+	if err == nil && options.ModifiedTerraformVars != nil {
+		logger.Log(options.Testing, "Running modified apply with terraform vars")
+		logger.Log(options.Testing, "START: Modify Apply")
+		options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
+			TerraformDir:    options.TerraformDir,
+			TerraformBinary: options.TerraformBinary,
+			Vars:            options.ModifiedTerraformVars,
+		})
+		_, err := terraform.ApplyE(options.Testing, options.TerraformOptions)
+		assert.Nil(options.Testing, err, "Failed", err)
+		logger.Log(options.Testing, "FINISHED: Modify Apply")
 	}
 
 	if err == nil && options.PostApplyHook != nil {

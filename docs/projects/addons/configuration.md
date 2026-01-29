@@ -65,9 +65,10 @@ options.ProjectLocation = "us-south"                    // Default: "us-south"
 ### Project Behavior Settings
 
 ```golang
-options.ProjectDestroyOnDelete = core.BoolPtr(true)     // Default: true
-options.ProjectMonitoringEnabled = core.BoolPtr(true)   // Default: true
-options.ProjectAutoDeploy = core.BoolPtr(true)          // Default: true
+options.ProjectDestroyOnDelete = core.BoolPtr(true)         // Default: true
+options.ProjectMonitoringEnabled = core.BoolPtr(true)       // Default: true
+options.ProjectAutoDeploy = core.BoolPtr(true)              // Default: true
+options.ProjectAutoDeployMode = "manual_approval"           // Default: "auto_approval"
 ```
 
 ### Project Environments
@@ -348,6 +349,8 @@ options.AddonConfig.Dependencies = []cloudinfo.AddonConfig{
     },
 }
 ```
+
+**Note:** This can be used for direct and indirect dependencies.
 
 ### Dependency Configuration Options
 
@@ -726,6 +729,195 @@ options.InputValidationRetryDelay = 3 * time.Second  // Default: 2 seconds
 
 **Note:** Input validation includes automatic retry logic to handle cases where the backend database hasn't been updated yet after configuration changes. This prevents false failures due to timing issues between configuration updates and validation checks.
 
+### Operation Retry Configuration
+
+Configure retry behavior for different types of operations to handle transient failures and adapt to different environment reliability characteristics:
+
+```golang
+// Configure project operation retries (creation, deletion)
+projectRetry := common.ProjectOperationRetryConfig() // Get default config
+projectRetry.MaxRetries = 8                          // Increase retries for unreliable environments
+projectRetry.InitialDelay = 5 * time.Second         // Longer initial delay
+projectRetry.MaxDelay = 60 * time.Second            // Higher maximum delay
+options.ProjectRetryConfig = &projectRetry
+
+// Configure catalog operation retries (offering fetches, catalog operations)
+catalogRetry := common.CatalogOperationRetryConfig() // Get default config
+catalogRetry.MaxRetries = 3                          // Fewer retries for fast environments
+catalogRetry.InitialDelay = 1 * time.Second         // Shorter delays
+options.CatalogRetryConfig = &catalogRetry
+
+// Configure deployment operation retries
+deployRetry := common.DefaultRetryConfig()           // Get default config
+deployRetry.Strategy = common.LinearBackoff          // Use linear instead of exponential
+deployRetry.MaxRetries = 2                          // Minimal retries for fast execution
+options.DeployRetryConfig = &deployRetry
+```
+
+**Retry Configuration Types:**
+
+- **`ProjectRetryConfig`**: Controls project creation and deletion retry behavior
+  - Default: 5 retries, 3s initial delay, 45s max delay, exponential backoff
+  - Handles transient database errors during project operations
+
+- **`CatalogRetryConfig`**: Controls catalog and offering operation retry behavior
+  - Default: 5 retries, 3s initial delay, 30s max delay, linear backoff
+  - Handles API rate limiting and temporary service unavailability
+
+- **`DeployRetryConfig`**: Controls deployment operation retry behavior
+  - Default: 3 retries, 2s initial delay, 30s max delay, exponential backoff
+  - Handles deployment timeouts and infrastructure failures
+
+**Default Values:**
+
+When retry configurations are `nil` (default), the framework uses sensible defaults optimized for typical testing environments. Only specify custom retry configurations when you need to adapt to specific environment characteristics.
+
+**Environment-Specific Examples:**
+
+```golang
+// High-reliability environment (unstable network, frequent transients)
+projectRetry := common.ProjectOperationRetryConfig()
+projectRetry.MaxRetries = 8
+projectRetry.InitialDelay = 5 * time.Second
+projectRetry.MaxDelay = 60 * time.Second
+
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "high-reliability-test",
+    ProjectRetryConfig: &projectRetry,
+})
+
+// Fast execution environment (stable network, minimal retries needed)
+fastRetry := common.DefaultRetryConfig()
+fastRetry.MaxRetries = 2
+fastRetry.InitialDelay = 1 * time.Second
+
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "fast-test",
+    CatalogRetryConfig: &fastRetry,
+    DeployRetryConfig: &fastRetry,
+})
+
+// Development environment (balanced approach)
+// Use defaults by not specifying retry configs (recommended for most cases)
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "dev-test",
+    // ProjectRetryConfig, CatalogRetryConfig, DeployRetryConfig all nil = use defaults
+})
+```
+
+**Retry Strategy Options:**
+
+Available retry strategies from `common.RetryStrategy`:
+- `common.ExponentialBackoff`: Delay doubles each retry (2s, 4s, 8s, 16s...)
+- `common.LinearBackoff`: Delay increases linearly (2s, 4s, 6s, 8s...)
+- `common.FixedDelay`: Same delay every retry (2s, 2s, 2s, 2s...)
+
+**Best Practices:**
+
+- **Use defaults** for most scenarios - they're optimized for typical IBM Cloud environments
+- **Increase retries** in unreliable network environments or during high-load periods
+- **Decrease retries** in stable environments or when fast failure feedback is preferred
+- **Match strategy to failure type**: exponential for transient issues, linear for rate limiting
+- **Test retry configurations** in your specific environment before using in CI/CD pipelines
+
+### Stagger Configuration
+
+Configure timing behavior for parallel test execution to control API call spacing and prevent rate limiting during matrix tests and permutation tests:
+
+```golang
+// Configure stagger settings for permutation tests
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "perm-test",
+    StaggerDelay: StaggerDelay(15 * time.Second),     // 15s delay between batches
+    StaggerBatchSize: StaggerBatchSize(12),           // 12 tests per batch
+    WithinBatchDelay: WithinBatchDelay(3 * time.Second), // 3s delay within batch
+    AddonConfig: cloudinfo.AddonConfig{
+        OfferingName: "my-addon",
+        // ... other config
+    },
+})
+
+// These settings apply to RunAddonPermutationTest()
+err := options.RunAddonPermutationTest()
+```
+
+**Stagger Configuration Options:**
+
+- **`StaggerDelay`**: Controls delay between starting batches of parallel tests
+  - Default: 10 seconds when nil
+  - Set to 0 to disable staggering entirely
+  - Recommended: 5-15 seconds for most scenarios, 20-30 seconds for high API sensitivity
+
+- **`StaggerBatchSize`**: Number of tests per batch for staggered execution
+  - Default: 8 tests per batch when nil
+  - Set to 0 to use linear staggering (original behavior)
+  - Recommended: 8-12 for default, 4-6 for high API sensitivity, 15-25 for low sensitivity
+
+- **`WithinBatchDelay`**: Delay between tests within the same batch
+  - Default: 2 seconds when nil
+  - Only used when StaggerBatchSize > 0
+  - Recommended: 1-3 seconds for most scenarios, 5+ for high sensitivity
+
+**Environment-Specific Examples:**
+
+```golang
+// High API sensitivity environment (conservative staggering)
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "sensitive-test",
+    StaggerDelay:     StaggerDelay(30 * time.Second),  // Long delays between batches
+    StaggerBatchSize: StaggerBatchSize(4),             // Small batches
+    WithinBatchDelay: WithinBatchDelay(5 * time.Second), // Long delays within batches
+})
+
+// Fast execution environment (aggressive batching)
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "fast-test",
+    StaggerDelay:     StaggerDelay(5 * time.Second),   // Short delays between batches
+    StaggerBatchSize: StaggerBatchSize(20),            // Large batches
+    WithinBatchDelay: WithinBatchDelay(1 * time.Second), // Short delays within batches
+})
+
+// Linear staggering (original behavior, not recommended for >20 tests)
+options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
+    Testing: t,
+    Prefix: "linear-test",
+    StaggerDelay:     StaggerDelay(10 * time.Second),  // 10s between each test
+    StaggerBatchSize: StaggerBatchSize(0),             // Disable batching
+    // WithinBatchDelay ignored when batching disabled
+})
+```
+
+**Helper Functions:**
+
+The framework provides convenient helper functions that can be used as direct values:
+
+```golang
+// Using helper functions for cleaner syntax
+options.StaggerDelay = testaddons.StaggerDelay(15 * time.Second)
+options.StaggerBatchSize = testaddons.StaggerBatchSize(12)
+options.WithinBatchDelay = testaddons.WithinBatchDelay(3 * time.Second)
+```
+
+**Usage with Different Test Methods:**
+
+- **`RunAddonPermutationTest()`**: Uses stagger settings from TestAddonOptions
+- **`RunAddonTestMatrix()`**: Uses stagger settings from AddonTestMatrix struct (higher precedence)
+- **`RunAddonTest()`**: Single tests don't use stagger settings
+
+**Best Practices:**
+
+- **Use defaults** for most scenarios - they're optimized for typical parallel test execution
+- **Increase delays and reduce batch sizes** in environments with strict API rate limiting
+- **Decrease delays and increase batch sizes** in stable environments for faster execution
+- **Monitor API rate limit errors** to determine if stagger settings need adjustment
+- **Test stagger configurations** with your specific addon's API usage patterns
+
 ### Enhanced Debug Output
 
 When input validation fails, the framework automatically provides detailed debug information to help diagnose issues:
@@ -798,6 +990,14 @@ options.RequiredEnvironmentVars = map[string]string{
     "EXTERNAL_SERVICE":  os.Getenv("EXTERNAL_SERVICE"),
 }
 ```
+
+### Optional Environment Variables
+
+```golang
+// Automatically checked by framework - Keeps resources after test failure
+DO_NOT_DESTROY_ON_FAILURE=true
+```
+
 
 ## Hook Configuration
 
@@ -1226,11 +1426,11 @@ func TestAddonDependencyPermutations(t *testing.T) {
 
 The `RunAddonPermutationTest()` method automatically configures several settings:
 
-- **Logging Mode**: Set to "failure_only" to reduce log noise
+- **Logging Mode**: Per-test quiet mode with suite-level progress visible
 - **Infrastructure Deployment**: Set to `SkipInfrastructureDeployment: true` for all permutations
 - **Parallel Execution**: Uses matrix testing infrastructure for efficient parallel execution
-- **Dependency Discovery**: Automatically queries catalog for addon dependencies
-- **Permutation Generation**: Creates all 2^n combinations of dependencies (enabled/disabled)
+- **Dependency Discovery**: Parses the local `ibm_catalog.json` to discover direct dependencies and their flavors
+- **Permutation Generation**: For each enabled/disabled subset, enumerates all flavor combinations for enabled dependencies (excludes the default “all enabled” case)
 
 #### Required Configuration for Permutation Testing
 
@@ -1252,11 +1452,11 @@ options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
 
 #### Permutation Test Behavior
 
-- **Automatic Discovery**: Discovers all direct dependencies from the catalog
+- **Automatic Discovery**: Discovers direct dependencies from local `ibm_catalog.json`
 - **Validation-Only**: All permutations skip infrastructure deployment for efficiency
 - **Parallel Execution**: All permutations run in parallel
-- **Failure-Only Logging**: Only shows output for failed permutations
-- **Excludes Default**: Excludes the "on by default" case (covered by regular tests)
+- **Per-test Quiet Mode**: Shows detailed logs only on failure; high-level progress remains visible
+- **Excludes Default**: Excludes the "all enabled" case; other subsets expand to all flavor combinations
 
 ### Method Comparison
 
@@ -1284,3 +1484,16 @@ options := testaddons.TestAddonOptionsDefault(&testaddons.TestAddonOptions{
 - Need comprehensive dependency validation
 - Want zero-maintenance permutation testing
 - Focused on validation rather than deployment
+### Dependency Processing Behavior
+
+- User configuration is the source of truth for which direct dependencies are enabled or disabled.
+- Catalog metadata is used to fill in version locators and flavors and to determine true direct dependencies (from the catalog version’s `SolutionInfo.Dependencies`).
+- Only enabled branches are traversed when building the dependency tree; disabled branches are pruned.
+- Direct dependencies marked `on_by_default` in the catalog are automatically included if not specified by the user, provided they are true direct dependencies of the current addon.
+
+### Required Dependencies and StrictMode
+
+If a required dependency is explicitly disabled, the framework force-enables it and marks it as required.
+
+- StrictMode=true (default): logs warnings and continues.
+- StrictMode=false: logs informational messages and captures warnings for the final report.

@@ -5,17 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
-	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	gitHttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"github.com/go-git/go-git/v5/storage/memory"
 	"github.com/gruntwork-io/terratest/modules/logger"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"golang.org/x/crypto/ssh"
@@ -36,6 +41,18 @@ type gitOps interface {
 	getOriginBranch(repoPath string) string
 	// ExecuteCommand executes a command and returns its output.
 	executeCommand(dir string, command string, args ...string) ([]byte, error)
+	// GetLatestCommitID gets the ID of latest commit on the current branch.
+	getLatestCommitID(repoDir string) (string, error)
+	// CommitExistsInRemote checks if a commitID exists in the remote repo
+	commitExistsInRemote(remoteURL, commitID string) (bool, error)
+	// Init git repo
+	Init(storage *memory.Storage) (*git.Repository, error)
+	//PlainInit git repo
+	PlainInit(remoteRepoPath string) (*git.Repository, error)
+	// PlainOpen git repo
+	PlainOpen(repoPath string) (*git.Repository, error)
+	// CommitOptions git repo
+	CommitOptions(name string, email string) *git.CommitOptions
 }
 
 // envOps is an interface that abstracts environment variable operations.
@@ -121,6 +138,97 @@ func (r *realGitOps) getCurrentBranch() (string, error) {
 		fmt.Println("HEAD means no branch, running in detached mode. This is probably running in GHA")
 	}
 	return branch, nil
+}
+
+func CommitExistsInRemote(remoteURL string, commitID string) (bool, error) {
+	return (&realGitOps{}).commitExistsInRemote(remoteURL, commitID)
+}
+
+func (g *realGitOps) Init(storage *memory.Storage) (*git.Repository, error) {
+	return git.Init(memory.NewStorage(), nil)
+}
+
+func (g *realGitOps) PlainInit(remoteRepoPath string) (*git.Repository, error) {
+	return git.PlainInit(remoteRepoPath, false)
+}
+
+func (g *realGitOps) CommitOptions(name string, email string) *git.CommitOptions {
+	return &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  name,
+			Email: email,
+		},
+	}
+}
+
+// commitExistsInRemote checks if commitID exists in the remote repo
+func (g *realGitOps) commitExistsInRemote(remoteURL, commitID string) (bool, error) {
+	// 1. Create an in-memory repository
+	repo, err := g.Init(memory.NewStorage())
+	if err != nil {
+		return false, fmt.Errorf("failed to init in-memory repo: %w", err)
+	}
+
+	// 2. Create a temporary remote
+	tempRemoteName := "timUpstreamTemp"
+	tempRemote, err := repo.CreateRemote(&config.RemoteConfig{
+		Name: tempRemoteName,
+		URLs: []string{remoteURL},
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to create temporary remote: %w", err)
+	}
+
+	// 3. Fetch all branches and PR refs
+	refSpecs := []config.RefSpec{
+		config.RefSpec(fmt.Sprintf("+refs/heads/*:refs/remotes/%s/*", tempRemoteName)),
+		config.RefSpec(fmt.Sprintf("+refs/pull/*/head:refs/remotes/%s/pr/*", tempRemoteName)),
+	}
+	auth, err := GitAutoAuth(remoteURL)
+	if err != nil {
+		return false, err
+	}
+	err = tempRemote.Fetch(&git.FetchOptions{
+		RemoteName: tempRemoteName,
+		RefSpecs:   refSpecs,
+		Auth:       auth,
+	})
+	if err != nil && err != git.NoErrAlreadyUpToDate {
+		return false, fmt.Errorf("fetch failed: %w", err)
+	}
+
+	// 4. Resolve the commit by hash
+	hash := plumbing.NewHash(commitID)
+	_, err = repo.CommitObject(hash)
+	if err != nil {
+		// not found
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func (g *realGitOps) PlainOpen(repoPath string) (*git.Repository, error) {
+	return git.PlainOpen(repoPath)
+}
+
+// getLatestCommitID returns the hash of the latest commit on the current branch
+func (g *realGitOps) getLatestCommitID(repoPath string) (string, error) {
+	repo, err := g.PlainOpen(repoPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open repo: %w", err)
+	}
+
+	ref, err := repo.Head()
+	if err != nil {
+		return "", fmt.Errorf("failed to get HEAD: %w", err)
+	}
+
+	return ref.Hash().String(), nil
+}
+
+func GetLatestCommitID(repoPath string) (string, error) {
+	return (&realGitOps{}).getLatestCommitID(repoPath)
 }
 
 func (r *realGitOps) getOriginURL(repoPath string) string {
@@ -296,72 +404,6 @@ func getCurrentPrRepoAndBranch(git gitOps) (string, string, error) {
 	return repoURL, branch, nil
 }
 
-// DetermineAuthMethod determines the appropriate authentication method for a given repository URL.
-// The function supports both HTTPS and SSH-based repositories.
-//
-// For HTTPS repositories:
-// - It first checks if the GIT_TOKEN environment variable is set. If so, it uses this as the Personal Access Token (PAT).
-// - If the GIT_TOKEN environment variable is not set, no authentication is used for HTTPS repositories.
-//
-// For SSH repositories:
-// - It first checks if the SSH_PRIVATE_KEY environment variable is set. If so, it uses this as the SSH private key.
-// - If the SSH_PRIVATE_KEY environment variable is not set, it attempts to use the default SSH key located at ~/.ssh/id_rsa.
-// - If neither the environment variable nor the default key is available, no authentication is used for SSH repositories.
-//
-// Parameters:
-// - repoURL: The URL of the Git repository.
-//
-// Returns:
-// - An appropriate AuthMethod based on the repository URL and available credentials.
-// - An error if there's an issue parsing the SSH private key or if the private key cannot be cast to an ssh.Signer.
-func DetermineAuthMethod(repoURL string) (transport.AuthMethod, error) {
-	var pat string
-	var sshPrivateKey string
-	if strings.HasPrefix(repoURL, "https://") {
-		// Check for Personal Access Token (PAT) in environment variable
-		envPat, exists := os.LookupEnv("GIT_TOKEN")
-		if exists {
-			pat = envPat
-		}
-		if pat != "" {
-			return &http.BasicAuth{
-				Username: "git", // This can be anything except an empty string
-				Password: pat,
-			}, nil
-		}
-	} else if strings.HasPrefix(repoURL, "git@") {
-		// SSH authentication
-		envSSHKey, exists := os.LookupEnv("SSH_PRIVATE_KEY")
-		if exists {
-			sshPrivateKey = envSSHKey
-		}
-		if sshPrivateKey == "" {
-			// Attempt to use the default SSH key if none is provided
-			defaultKeyPath := os.ExpandEnv("$HOME/.ssh/id_rsa")
-			if _, err := os.Stat(defaultKeyPath); !os.IsNotExist(err) {
-				// Read the default key
-				keyBytes, err := os.ReadFile(defaultKeyPath)
-				if err != nil {
-					return nil, err
-				}
-				sshPrivateKey = string(keyBytes)
-			}
-		}
-		if sshPrivateKey != "" {
-			key, err := RetrievePrivateKey(sshPrivateKey)
-			if err != nil {
-				return nil, err
-			}
-			signer, ok := key.(ssh.Signer)
-			if !ok {
-				return nil, errors.New("unable to cast private key to ssh.Signer")
-			}
-			return &gitssh.PublicKeys{User: "git", Signer: signer}, nil
-		}
-	}
-	return nil, nil // No authentication
-}
-
 // RetrievePrivateKey is a function that takes a string sshPvtKey as input and returns an interface{} and error as output.
 // IF the SSH_PASSPHRASE environment variable is set:
 //  - It will parse the raw private key with passphrase using the ParseRawPrivateKeyWithPassphrase method of the ssh package.
@@ -440,65 +482,15 @@ func SkipUpgradeTest(testing *testing.T, source_repo string, source_branch strin
 }
 
 func CloneAndCheckoutBranch(testing *testing.T, repoURL string, branch string, cloneDir string) error {
-
-	authMethod, authErr := DetermineAuthMethod(repoURL)
-	if authErr != nil {
-		logger.Log(testing, "Failed to determine authentication method, trying without authentication...")
-
-		// Convert SSH URL to HTTPS URL
-		if strings.HasPrefix(repoURL, "git@") {
-			repoURL = strings.Replace(repoURL, ":", "/", 1)
-			repoURL = strings.Replace(repoURL, "git@", "https://", 1)
-			repoURL = strings.TrimSuffix(repoURL, ".git") + ".git"
-		}
-
-		// Try to clone without authentication
-		_, errUnauth := git.PlainClone(cloneDir, false, &git.CloneOptions{
-			URL:           repoURL,
-			ReferenceName: plumbing.NewBranchReferenceName(branch),
-			SingleBranch:  true,
-		})
-
-		if errUnauth != nil {
-			// If unauthenticated clone fails and we cannot determine authentication, return the error from the unauthenticated approach
-			return fmt.Errorf("failed to determine authentication method and clone base repo and branch without authentication: %v", errUnauth)
-		} else {
-			logger.Log(testing, "Cloned base repo and branch without authentication")
-		}
-	} else {
-		// Authentication method determined, try with authentication
-		_, errAuth := git.PlainClone(cloneDir, false, &git.CloneOptions{
-			URL:           repoURL,
-			ReferenceName: plumbing.NewBranchReferenceName(branch),
-			SingleBranch:  true,
-			Auth:          authMethod,
-		})
-
-		if errAuth != nil {
-			logger.Log(testing, "Failed to clone base repo and branch with authentication, trying without authentication...")
-			// Convert SSH URL to HTTPS URL
-			if strings.HasPrefix(repoURL, "git@") {
-				repoURL = strings.Replace(repoURL, ":", "/", 1)
-				repoURL = strings.Replace(repoURL, "git@", "https://", 1)
-				repoURL = strings.TrimSuffix(repoURL, ".git") + ".git"
-			}
-
-			// Try to clone without authentication
-			_, errUnauth := git.PlainClone(cloneDir, false, &git.CloneOptions{
-				URL:           repoURL,
-				ReferenceName: plumbing.NewBranchReferenceName(branch),
-				SingleBranch:  true,
-			})
-
-			if errUnauth != nil {
-				// If unauthenticated clone also fails, return the error from the authenticated approach
-				return fmt.Errorf("failed to clone base repo and branch with authentication: %v", errAuth)
-			} else {
-				logger.Log(testing, "Cloned base repo and branch without authentication")
-			}
-		} else {
-			logger.Log(testing, "Cloned base repo and branch with authentication")
-		}
+	authMethod, _ := GitAutoAuth(repoURL)
+	_, errClone := git.PlainClone(cloneDir, false, &git.CloneOptions{
+		URL:           repoURL,
+		ReferenceName: plumbing.NewBranchReferenceName(branch),
+		SingleBranch:  true,
+		Auth:          authMethod,
+	})
+	if errClone != nil {
+		return fmt.Errorf("failed to clone base repo and branch: %v", errClone)
 	}
 
 	return nil
@@ -643,4 +635,162 @@ func getFileDiff(repoDir string, fileName string, git gitOps) (string, error) {
 	}
 
 	return string(diffOutput), nil
+}
+
+// GitAutoAuth returns transport.AuthMethod for a remote URL (SSH or HTTPS)
+func GitAutoAuth(remoteURL string) (transport.AuthMethod, error) {
+	if isSSHURL(remoteURL) {
+		return sshAuth(remoteURL)
+	}
+	return httpsAuth(remoteURL)
+}
+
+// SSH auth
+func sshAuth(remoteURL string) (transport.AuthMethod, error) {
+	// 1. Try SSH agent
+	auth, err := gitssh.NewSSHAgentAuth("git")
+	authValidationErr := validateAuth(auth, remoteURL)
+	if err == nil && authValidationErr == nil {
+		return auth, nil
+	}
+
+	// 2. Try SSH_PRIVATE_KEY env variable
+	keyData := os.Getenv("SSH_PRIVATE_KEY")
+	if keyData != "" {
+		auth, err := gitssh.NewPublicKeys("git", []byte(keyData), "")
+		authValidationErr := validateAuth(auth, remoteURL)
+		if err == nil && authValidationErr == nil {
+			return auth, nil
+		}
+	}
+
+	// 3. Try default key file ~/.ssh/id_rsa
+	home := os.Getenv("HOME")
+	if home != "" {
+		defaultKey := filepath.Join(home, ".ssh", "id_rsa")
+		if _, err := os.Stat(defaultKey); err == nil {
+			auth, err := gitssh.NewPublicKeysFromFile("git", defaultKey, "")
+			authValidationErr := validateAuth(auth, remoteURL)
+			if err == nil && authValidationErr == nil {
+				return auth, nil
+			}
+		}
+	}
+	return nil, errors.New(
+		"SSH authentication failed: no keys found. " +
+			"Please start ssh-agent with loaded keys, set SSH_PRIVATE_KEY, or ensure ~/.ssh/id_rsa exists.",
+	)
+}
+
+func validateAuth(auth transport.AuthMethod, remoteURL string) error {
+	remote := git.NewRemote(nil, &config.RemoteConfig{
+		Name: "origin",
+		URLs: []string{remoteURL},
+	})
+
+	_, err := remote.List(&git.ListOptions{
+		Auth: auth,
+	})
+	return err
+}
+
+func isSSHURL(raw string) bool {
+	return strings.HasPrefix(raw, "git@") ||
+		strings.HasPrefix(raw, "ssh://")
+}
+
+// HTTPS auth
+func httpsAuth(remoteURL string) (transport.AuthMethod, error) {
+	// Try .netrc first
+	if auth := loadNetrcAuth(remoteURL); auth != nil {
+		println("auth with https netrc")
+		return auth, nil
+	}
+
+	// Try common environment tokens
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		return &gitHttp.BasicAuth{Username: "token", Password: tok}, nil
+	}
+	if tok := os.Getenv("GIT_TOKEN"); tok != "" {
+		return &gitHttp.BasicAuth{Username: "token", Password: tok}, nil
+	}
+	if tok := os.Getenv("GITLAB_TOKEN"); tok != "" {
+		return &gitHttp.BasicAuth{Username: "token", Password: tok}, nil
+	}
+	if tok := os.Getenv("BITBUCKET_TOKEN"); tok != "" {
+		return &gitHttp.BasicAuth{Username: "token", Password: tok}, nil
+	}
+
+	// Fallback: anonymous HTTPS
+	return nil, nil
+}
+
+// --------------------------
+// .netrc support
+// --------------------------
+type netrcMachine struct {
+	Machine  string
+	Login    string
+	Password string
+}
+
+func loadNetrcAuth(remoteURL string) *gitHttp.BasicAuth {
+	home := os.Getenv("HOME")
+	if home == "" {
+		return nil
+	}
+
+	netrcPath := filepath.Join(home, ".netrc")
+	machines, err := parseNetrcFile(netrcPath)
+	if err != nil {
+		return nil
+	}
+
+	m := lookupNetrcMachine(remoteURL, machines)
+	if m == nil {
+		return nil
+	}
+
+	return &gitHttp.BasicAuth{
+		Username: m.Login,
+		Password: m.Password,
+	}
+}
+
+func lookupNetrcMachine(remoteURL string, machines []netrcMachine) *netrcMachine {
+	u, err := url.Parse(remoteURL)
+	if err != nil {
+		return nil
+	}
+
+	host := u.Hostname()
+
+	for _, m := range machines {
+		if m.Machine == host {
+			return &m
+		}
+	}
+	return nil
+}
+
+func parseNetrcFile(path string) ([]netrcMachine, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	words := strings.Fields(string(data))
+	machines := []netrcMachine{}
+
+	for i := 0; i < len(words); i++ {
+		if words[i] == "machine" && i+5 < len(words) {
+			machines = append(machines, netrcMachine{
+				Machine:  words[i+1],
+				Login:    words[i+3],
+				Password: words[i+5],
+			})
+		}
+	}
+
+	return machines, nil
 }

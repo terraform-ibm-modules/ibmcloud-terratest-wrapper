@@ -140,16 +140,11 @@ func TestAdvancedAddonMatrix(t *testing.T) {
         TestCases:   testCases,
         BaseOptions: baseOptions,
         BaseSetupFunc: func(baseOptions *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) *testaddons.TestAddonOptions {
-            // Customize options for each test case
-            testOptions := baseOptions.copy()
-            testOptions.TestCaseName = testCase.Name
-
-            // Add test-case-specific customizations
-            if testCase.Name == "WithKMS" {
-                testOptions.DeployTimeoutMinutes = 180 // Longer timeout for KMS
-            }
-
-            return testOptions
+			return testaddons.TestAddonsOptionsDefault(&testaddons.TestAddonOptions{
+				Testing:       t,
+				Prefix:        testCase.Prefix,
+				ResourceGroup: resourceGroup,
+			})
         },
         AddonConfigFunc: func(options *testaddons.TestAddonOptions, testCase testaddons.AddonTestCase) cloudinfo.AddonConfig {
             config := cloudinfo.NewAddonConfigTerraform(

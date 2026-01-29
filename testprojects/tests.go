@@ -3,8 +3,8 @@ package testprojects
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -165,6 +165,31 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 	}
 	totalMembers := len(stackMembers)
 
+	// Get initial stack details to lookup member names
+	stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
+	if err != nil {
+		return []error{err}
+	}
+	if stackDetails == nil {
+		return []error{fmt.Errorf("stackDetails is nil")}
+	}
+
+	// Create map of expected members (ID -> name) from initial fetch
+	expectedMemberIDs := make(map[string]string)
+	for _, member := range stackMembers {
+		if member.ID != nil {
+			name, nameErr := options.CloudInfoService.LookupMemberNameByID(stackDetails, *member.ID)
+			if nameErr != nil {
+				name = fmt.Sprintf("Unknown (ID: %s)", *member.ID)
+			}
+			expectedMemberIDs[*member.ID] = name
+		}
+	}
+	options.Logger.Info(fmt.Sprintf("Tracking %d members for stack deployment", len(expectedMemberIDs)))
+
+	// Add counter for consecutive polls with missing members
+	consecutiveMissingMemberPolls := 0
+
 	for !deployComplete && time.Now().Before(deployEndTime) && !failed {
 		options.Logger.ShortInfo("Checking Stack Deploy Status")
 		stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
@@ -177,15 +202,69 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 
 		currentMemberCount := 0
 		attempt := 0
+		var missingMemberNames []string
+
 		// Sometimes not all members are returned by the api, so we need to retry. This is intermittent and infrequent
 		for currentMemberCount != totalMembers && attempt < 5 {
 			attempt++
+			if attempt > 1 {
+				options.Logger.Warn(fmt.Sprintf("Member count mismatch - retry attempt %d/5: expected %d members, received %d",
+					attempt, totalMembers, currentMemberCount))
+				time.Sleep(2 * time.Second)
+			}
+
 			stackMembers, memErr = options.CloudInfoService.GetStackMembers(options.currentStackConfig)
 			if memErr != nil {
 				return []error{memErr}
 			}
 			currentMemberCount = len(stackMembers)
+
+			// Build list of missing members
+			if currentMemberCount != totalMembers {
+				receivedIDs := make(map[string]bool)
+				for _, m := range stackMembers {
+					if m.ID != nil {
+						receivedIDs[*m.ID] = true
+					}
+				}
+				missingMemberNames = []string{}
+				for id, name := range expectedMemberIDs {
+					if !receivedIDs[id] {
+						missingMemberNames = append(missingMemberNames, fmt.Sprintf("%s (%s)", name, id))
+					}
+				}
+				if attempt >= 5 {
+					options.Logger.Error(fmt.Sprintf("Missing members after %d retry attempts: %v", attempt, missingMemberNames))
+				}
+			}
 		}
+
+		// Track missing members and fail fast after 5 consecutive polls
+		if currentMemberCount != totalMembers {
+			consecutiveMissingMemberPolls++
+			options.Logger.Warn(fmt.Sprintf(
+				"WARNING: API returning incomplete member list (%d/%d polls with missing members). Missing: %v",
+				consecutiveMissingMemberPolls, 5, missingMemberNames))
+
+			// Fail after 5 consecutive polls with missing members
+			if consecutiveMissingMemberPolls >= 5 {
+				errorMsg := fmt.Sprintf(
+					"API consistently returning incomplete member list after %d consecutive polls.\n"+
+						"Expected %d members but received %d.\n"+
+						"Missing members: %v\n"+
+						"This indicates an IBM Cloud Projects API issue. "+
+						"Please check the IBM Cloud console to verify actual member states.",
+					consecutiveMissingMemberPolls, totalMembers, currentMemberCount, missingMemberNames)
+				return []error{fmt.Errorf("%s", errorMsg)}
+			}
+		} else {
+			// Reset counter when all members are present
+			if consecutiveMissingMemberPolls > 0 {
+				options.Logger.Info("All members now present in API response, resetting missing member counter")
+				consecutiveMissingMemberPolls = 0
+			}
+		}
+
 		// If the stack is not fully deployed and no members are in a state that can be deployed then we have an error
 		deployableState := false
 		var memberStates []string
@@ -241,10 +320,41 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 				deployableState = true
 			case project.ProjectConfig_State_Deployed, project.ProjectConfig_State_Approved:
 				currentDeployStatus = fmt.Sprintf("%s%s%s is %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
-			case project.ProjectConfig_State_ValidatingFailed, project.ProjectConfig_State_DeployingFailed:
+			case project.ProjectConfig_State_ValidatingFailed:
+				re := regexp.MustCompile(`workspace:(.+)$`)
+				if member.Schematics != nil && member.Schematics.WorkspaceCrn != nil {
+					matches := re.FindStringSubmatch(*member.Schematics.WorkspaceCrn)
+					if len(matches) != 2 {
+						options.Logger.ShortWarn(fmt.Sprintf("Could not parse workspace CRN: %s", *member.Schematics.WorkspaceCrn))
+					} else {
+						workspaceID := matches[1]
+						location := strings.SplitN(workspaceID, "-", 2)[0]
+						options.CloudInfoService.WaitForSchematicsJobCompletion(workspaceID, *member.LastValidated.Job.ID, location, 10)
+						rawJobLogs, err := options.CloudInfoService.GetSchematicsJobLogsText(*member.LastValidated.Job.ID, location)
+						if err != nil {
+							options.Logger.ShortWarn(fmt.Sprintf("Could not get job logs for job: %s", *member.LastValidated.Job.ID))
+						}
+						// plan passed if string exists in logs
+						if strings.Contains(rawJobLogs, "Terraform will perform the following actions:") {
+							deployableState = true
+							failed = false
+							options.Logger.ShortInfo("Project Validation failed, but Schematics Workspace Plan succeeded. Continuing with deployment.")
+							currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
+							continue
+						}
+					}
+				}
+				currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
+				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location, options.currentStackConfig.ProjectID, *member.ID)
 				deployableState = false
 				failed = true
-				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location)
+				options.Logger.ShortError(terraLogs)
+				errorList = append(errorList, fmt.Errorf("%s", logMessage))
+			case project.ProjectConfig_State_DeployingFailed:
+				currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s and state code %s\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State], Statuses[stateCode])
+				logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location, options.currentStackConfig.ProjectID, *member.ID)
+				deployableState = false
+				failed = true
 				options.Logger.ShortError(terraLogs)
 				errorList = append(errorList, fmt.Errorf("%s", logMessage))
 			case project.ProjectConfig_State_Draft:
@@ -260,8 +370,8 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 							options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Trigger Deploy returned Not Modified, continuing", memberName, Statuses[*member.State], Statuses[stateCode]))
 							currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, not triggered, no changes, continuing assuming still deploying\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
 						} else {
-							options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Something unexpected happened on the backend attempting re-trigger deploy failed, continuing assuming still deploying\n%s", memberName, Statuses[*member.State], Statuses[stateCode], trigErrs))
-							currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, error triggering, continuing assuming still deploying\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
+							options.Logger.ShortInfo(fmt.Sprintf("(member: %s state: %s stateCode: %s) Something unexpected happened on the backend attempted re-trigger deploy unsuccessful, continuing assuming still deploying\n%s", memberName, Statuses[*member.State], Statuses[stateCode], trigErrs))
+							currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, could not trigger, continuing assuming still deploying\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
 						}
 					} else {
 						currentDeployStatus = fmt.Sprintf("%s%s%s is in state %s, attempting to re-trigger deploy\n", currentDeployStatus, memberLabel, memberName, Statuses[*member.State])
@@ -391,7 +501,9 @@ func (options *TestProjectsOptions) TriggerDeployAndWait() (errorList []error) {
 	}
 
 	// print final state of the stack
-	stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
+	var finalResponse interface{}
+	stackDetails, finalResponse, err = options.CloudInfoService.GetConfig(options.currentStackConfig)
+	_ = finalResponse // suppress unused variable warning
 	if err != nil {
 		return []error{err}
 	}
@@ -480,6 +592,7 @@ func (options *TestProjectsOptions) TriggerUnDeploy() (bool, []error) {
 	}
 	return true, nil
 }
+
 func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error) {
 	if !options.SkipUndeploy {
 		triggered, err := options.TriggerUnDeploy()
@@ -501,10 +614,38 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 				return []error{memErr}
 			}
 			totalMembers := len(stackMembers)
+
+			// Get initial stack details to lookup member names
+			stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
+			if err != nil {
+				return []error{err}
+			}
+			if stackDetails == nil {
+				return []error{fmt.Errorf("stackDetails is nil")}
+			}
+
+			// Create map of expected members (ID -> name) from initial fetch
+			expectedMemberIDs := make(map[string]string)
+			for _, member := range stackMembers {
+				if member.ID != nil {
+					name, nameErr := options.CloudInfoService.LookupMemberNameByID(stackDetails, *member.ID)
+					if nameErr != nil {
+						name = fmt.Sprintf("Unknown (ID: %s)", *member.ID)
+					}
+					expectedMemberIDs[*member.ID] = name
+				}
+			}
+			options.Logger.Info(fmt.Sprintf("Tracking %d members for stack undeploy", len(expectedMemberIDs)))
+
+			// Add counter for consecutive polls with missing members
+			consecutiveMissingMemberPolls := 0
+
 			var undeployedCount int
 			for !undeployComplete && time.Now().Before(undeployEndTime) && !failed {
 				options.Logger.ShortInfo("Checking Stack Undeploy Status")
-				stackDetails, _, err := options.CloudInfoService.GetConfig(options.currentStackConfig)
+				var response interface{}
+				stackDetails, response, err = options.CloudInfoService.GetConfig(options.currentStackConfig)
+				_ = response // suppress unused variable warning
 				if err != nil {
 					return []error{err}
 				}
@@ -514,18 +655,67 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 
 				currentMemberCount := 0
 				attempt := 0
+				var missingMemberNames []string
+
 				// Sometimes not all members are returned by the API, so we need to retry. This is intermittent and infrequent
 				for currentMemberCount != totalMembers && attempt < 5 {
 					attempt++
+					if attempt > 1 {
+						options.Logger.Warn(fmt.Sprintf("Member count mismatch - retry attempt %d/5: expected %d members, received %d",
+							attempt, totalMembers, currentMemberCount))
+						time.Sleep(2 * time.Second)
+					}
+
 					stackMembers, memErr = options.CloudInfoService.GetStackMembers(options.currentStackConfig)
 					if memErr != nil {
 						return []error{memErr}
 					}
 					currentMemberCount = len(stackMembers)
+
+					// Build list of missing members
+					if currentMemberCount != totalMembers {
+						receivedIDs := make(map[string]bool)
+						for _, m := range stackMembers {
+							if m.ID != nil {
+								receivedIDs[*m.ID] = true
+							}
+						}
+						missingMemberNames = []string{}
+						for id, name := range expectedMemberIDs {
+							if !receivedIDs[id] {
+								missingMemberNames = append(missingMemberNames, fmt.Sprintf("%s (%s)", name, id))
+							}
+						}
+						if attempt >= 5 {
+							options.Logger.Error(fmt.Sprintf("Missing members after %d retry attempts: %v", attempt, missingMemberNames))
+						}
+					}
 				}
 
+				// Track missing members and fail fast after 5 consecutive polls
 				if currentMemberCount != totalMembers {
-					return []error{fmt.Errorf("expected %d members, but got %d", totalMembers, currentMemberCount)}
+					consecutiveMissingMemberPolls++
+					options.Logger.Warn(fmt.Sprintf(
+						"WARNING: API returning incomplete member list (%d/%d polls with missing members). Missing: %v",
+						consecutiveMissingMemberPolls, 5, missingMemberNames))
+
+					// Fail after 5 consecutive polls with missing members
+					if consecutiveMissingMemberPolls >= 5 {
+						errorMsg := fmt.Sprintf(
+							"API consistently returning incomplete member list after %d consecutive polls.\n"+
+								"Expected %d members but received %d.\n"+
+								"Missing members: %v\n"+
+								"This indicates an IBM Cloud Projects API issue. "+
+								"Please check the IBM Cloud console to verify actual member states.",
+							consecutiveMissingMemberPolls, totalMembers, currentMemberCount, missingMemberNames)
+						return []error{fmt.Errorf("%s", errorMsg)}
+					}
+				} else {
+					// Reset counter when all members are present
+					if consecutiveMissingMemberPolls > 0 {
+						options.Logger.Info("All members now present in API response, resetting missing member counter")
+						consecutiveMissingMemberPolls = 0
+					}
 				}
 
 				syncErrs := TrackAndResyncState(options, stackDetails, stackMembers, memberStateStartTime, &mu)
@@ -561,7 +751,7 @@ func (options *TestProjectsOptions) TriggerUnDeployAndWait() (errorList []error)
 						memberStates = append(memberStates, fmt.Sprintf("%s%s current state: %s", memberLabel, memberName, Statuses[*member.State]))
 						undeployableState = false
 						failed = true
-						logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location)
+						logMessage, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(member, memberName, options.currentProjectConfig.Location, options.currentStackConfig.ProjectID, *member.ID)
 						options.Logger.ShortError(terraLogs)
 						errorList = append(errorList, fmt.Errorf("(%s) failed Undeployment\n%s", memberName, logMessage))
 					} else if cloudinfo.ProjectsMemberIsUndeployed(member) {
@@ -663,82 +853,108 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		return fmt.Errorf("test setup has failed:%w", setupErr)
 	}
 
-	// Create a new project
-	options.Logger.ShortInfo("Creating Test Project")
-	if options.ProjectDestroyOnDelete == nil {
-		options.ProjectDestroyOnDelete = core.BoolPtr(true)
+	// First, validate that the branch exists in the remote repository BEFORE creating any resources
+	// Use the new cloudinfo helper for offering import preparation
+	branchUrl, repo, branch, prepErr := options.CloudInfoService.PrepareOfferingImport()
+	if prepErr != nil {
+		options.Logger.ShortError(fmt.Sprintf("Failed to prepare offering import: %v", prepErr))
+		return fmt.Errorf("failed to prepare offering import")
 	}
-	if options.ProjectAutoDeploy == nil {
-		options.ProjectAutoDeploy = core.BoolPtr(false)
-	}
-	if options.ProjectMonitoringEnabled == nil {
-		options.ProjectMonitoringEnabled = core.BoolPtr(false)
-	}
-	options.currentProjectConfig = &cloudinfo.ProjectsConfig{
-		Location:           options.ProjectLocation,
-		ProjectName:        options.ProjectName,
-		ProjectDescription: options.ProjectDescription,
-		ResourceGroup:      options.ResourceGroup,
-		DestroyOnDelete:    *options.ProjectDestroyOnDelete,
-		MonitoringEnabled:  *options.ProjectMonitoringEnabled,
-		AutoDeploy:         *options.ProjectAutoDeploy,
-		Environments:       options.ProjectEnvironments,
-	}
-	prj, resp, err := options.CloudInfoService.CreateProjectFromConfig(options.currentProjectConfig)
-	if assert.NoError(options.Testing, err) {
-		if assert.Equal(options.Testing, 201, resp.StatusCode) {
-			options.Logger.ShortInfo(fmt.Sprintf("Created Test Project - %s", *prj.Definition.Name))
-			// https://cloud.ibm.com/projects/a1316ed6-76de-418e-bb9a-e7ed05aa7834
-			// print link to project
-			options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", fmt.Sprintf("https://cloud.ibm.com/projects/%s", *prj.ID)))
-			options.currentProject = prj
-			options.currentProjectConfig.ProjectID = *prj.ID
-			if assert.NoError(options.Testing, options.ConfigureTestStack()) {
-				options.Logger.ShortInfo(fmt.Sprintf("Configured Test Stack - %s \n- %s %s \n- %s %s", *prj.Definition.Name, common.ColorizeString(common.Colors.Blue, "Project ID:"), *prj.ID, common.ColorizeString(common.Colors.Blue, "Config ID:"), *options.currentStack.Configuration.ID))
-				if options.PreDeployHook != nil {
-					options.Logger.ShortInfo("Running PreDeployHook")
-					hookErr := options.PreDeployHook(options)
-					if hookErr != nil {
-						options.Testing.Fail()
-						return hookErr
-					}
-					options.Logger.ShortInfo("Finished PreDeployHook")
-				}
-				// Deploy the configuration in parallel
-				deployErrs := options.TriggerDeployAndWait()
+	options.currentBranch = &branch
+	options.currentBranchUrl = core.StringPtr(branchUrl)
+	options.Logger.ShortInfo(fmt.Sprintf("Current repo: %s", repo))
+	options.Logger.ShortInfo(fmt.Sprintf("Current branch URL: %s", *options.currentBranchUrl))
 
-				var finalError error
+	catalog, err := cloudinfo.SetupCatalog(cloudinfo.SetupCatalogOptions{
+		CatalogUseExisting: options.CatalogUseExisting,
+		Catalog:            options.catalog,
+		CatalogName:        options.CatalogName,
+		SharedCatalog:      options.SharedCatalog,
+		CloudInfoService:   options.CloudInfoService,
+		Logger:             options.Logger,
+		Testing:            options.Testing,
+		PostCreateDelay:    options.PostCreateDelay,
+		IsAddonTest:        false,
+	})
 
-				if len(deployErrs) > 0 {
-					// print all errors and return a single error
-					for _, derr := range deployErrs {
-						options.Logger.ShortError(fmt.Sprintf("Error: %s", derr.Error()))
-						if finalError == nil {
-							finalError = derr
-						} else {
-							finalError = fmt.Errorf("%w\n%s", finalError, derr)
-						}
-					}
+	if err != nil {
+		return err
+	} else {
+		options.catalog = catalog
+	}
+
+	if err := options.setupOffering(); err != nil {
+		return err
+	}
+
+	project, projectConfig, err := cloudinfo.SetupProject(cloudinfo.SetupProjectOptions{
+		CurrentProject:           options.currentProject,
+		CurrentProjectConfig:     options.currentProjectConfig,
+		ProjectDestroyOnDelete:   options.ProjectDestroyOnDelete,
+		ProjectAutoDeploy:        options.ProjectAutoDeploy,
+		ProjectAutoDeployMode:    options.ProjectAutoDeployMode,
+		ProjectMonitoringEnabled: options.ProjectMonitoringEnabled,
+		ProjectEnvironments:      options.ProjectEnvironments,
+		ProjectName:              options.ProjectName,
+		ProjectDescription:       options.ProjectDescription,
+		ProjectRetryConfig:       options.ProjectRetryConfig,
+		ResourceGroup:            options.ResourceGroup,
+		QuietMode:                options.QuietMode,
+		PostCreateDelay:          options.PostCreateDelay,
+		CloudInfoService:         options.CloudInfoService,
+		Logger:                   options.Logger,
+		Testing:                  options.Testing,
+	})
+	if err != nil {
+		return err
+	}
+	options.currentProject = project
+	options.currentProjectConfig = projectConfig
+
+	if assert.NoError(options.Testing, options.ConfigureTestStack()) {
+		options.Logger.ShortInfo(fmt.Sprintf("Configured Test Stack - %s \n- %s %s \n- %s %s", *options.currentProject.Definition.Name, common.ColorizeString(common.Colors.Blue, "Project ID:"), *options.currentProject.ID, common.ColorizeString(common.Colors.Blue, "Config ID:"), *options.currentStack.Configuration.ID))
+		if options.PreDeployHook != nil {
+			options.Logger.ShortInfo("Running PreDeployHook")
+			hookErr := options.PreDeployHook(options)
+			if hookErr != nil {
+				options.Testing.Fail()
+				return hookErr
+			}
+			options.Logger.ShortInfo("Finished PreDeployHook")
+		}
+		// Deploy the configuration in parallel
+		deployErrs := options.TriggerDeployAndWait()
+
+		var finalError error
+
+		if len(deployErrs) > 0 {
+			// print all errors and return a single error
+			for _, derr := range deployErrs {
+				options.Logger.ShortError(fmt.Sprintf("Error: %s", derr.Error()))
+				if finalError == nil {
+					finalError = derr
 				} else {
-					options.Logger.ShortInfo("All configurations deployed successfully")
-				}
-
-				if options.PostDeployHook != nil {
-					options.Logger.ShortInfo("Running PostDeployHook")
-					hookErr := options.PostDeployHook(options)
-					if hookErr != nil {
-						options.Testing.Fail()
-						return hookErr
-					}
-					options.Logger.ShortInfo("Finished PostDeployHook")
-				}
-				if finalError != nil {
-					options.Testing.Fail()
-					return finalError
-				} else {
-					return nil
+					finalError = fmt.Errorf("%w\n%s", finalError, derr)
 				}
 			}
+		} else {
+			options.Logger.ShortInfo("All configurations deployed successfully")
+		}
+
+		if options.PostDeployHook != nil {
+			options.Logger.ShortInfo("Running PostDeployHook")
+			hookErr := options.PostDeployHook(options)
+			if hookErr != nil {
+				options.Testing.Fail()
+				return hookErr
+			}
+			options.Logger.ShortInfo("Finished PostDeployHook")
+		}
+		if finalError != nil {
+			options.Testing.Fail()
+			return finalError
+		} else {
+			return nil
 		}
 	}
 	return nil
@@ -751,7 +967,6 @@ func (options *TestProjectsOptions) TestTearDown() {
 	}
 	if !options.SkipTestTearDown {
 		if options.executeResourceTearDown() {
-
 			// Trigger undeploy and wait for completion
 			options.Logger.ShortInfo("Triggering Undeploy and waiting for completion")
 			undeployErrors := options.TriggerUnDeployAndWait()
@@ -791,15 +1006,49 @@ func (options *TestProjectsOptions) TestTearDown() {
 			// Delete the project
 			options.Logger.ShortInfo("Deleting Test Project")
 			if options.currentProject.ID != nil {
-				_, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
-				if assert.NoError(options.Testing, err) {
-					if assert.Equal(options.Testing, 202, resp.StatusCode) {
-						options.Logger.ShortInfo("Deleted Test Project")
-					} else {
-						options.Logger.ShortError(fmt.Sprintf("Failed to delete Test Project, response code: %d", resp.StatusCode))
+				// Delete project with retry logic to handle transient database errors
+				retryConfig := common.ProjectOperationRetryConfig()
+				retryConfig.Logger = options.Logger
+				retryConfig.OperationName = "project deletion"
+
+				_, err := common.RetryWithConfig(retryConfig, func() (*project.ProjectDeleteResponse, error) {
+					result, resp, err := options.CloudInfoService.DeleteProject(*options.currentProject.ID)
+					if err != nil {
+						options.Logger.ShortWarn(fmt.Sprintf("Project deletion attempt failed: %v (will retry if retryable)", err))
+
+						// Check if project was actually deleted despite the error
+						if common.StringContainsIgnoreCase(err.Error(), "not found") || common.StringContainsIgnoreCase(err.Error(), "does not exist") {
+							options.Logger.ShortInfo("Project deletion returned 'not found' error - this indicates the project was successfully deleted on a previous attempt")
+
+							// The "not found" error means the deletion succeeded - the project doesn't exist
+							// This is the desired end state for deletion
+							if resp != nil && resp.StatusCode == 404 { // 404 Not Found
+								options.Logger.ShortInfo("Treating 'not found' response as successful project deletion")
+								return &project.ProjectDeleteResponse{}, nil
+							}
+
+							// Even without a 404 response, "not found" in error message indicates successful deletion
+							options.Logger.ShortInfo("Project deleted successfully despite API error response")
+							return &project.ProjectDeleteResponse{}, nil
+						}
+
+						return nil, err
 					}
+
+					// Check for successful deletion (HTTP 202)
+					if resp.StatusCode != 202 {
+						options.Logger.ShortWarn(fmt.Sprintf("Project deletion returned unexpected status code: %d", resp.StatusCode))
+						return nil, fmt.Errorf("unexpected response code: %d", resp.StatusCode)
+					}
+
+					return result, nil
+				})
+
+				if assert.NoError(options.Testing, err) {
+					options.Logger.ShortInfo("Deleted Test Project")
 				} else {
-					options.Logger.ShortError(fmt.Sprintf("Error deleting Test Project: %s", err))
+					projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s", *options.currentProject.ID)
+					options.Logger.ShortError(fmt.Sprintf("Error deleting Test Project: %s\nProject Console: %s", err, projectURL))
 				}
 			} else {
 				options.Logger.ShortInfo("No project ID found to delete")
@@ -810,6 +1059,32 @@ func (options *TestProjectsOptions) TestTearDown() {
 	} else {
 		options.Logger.ShortInfo(fmt.Sprintf("Project URL: %s", fmt.Sprintf("https://cloud.ibm.com/projects/%s", *options.currentProject.ID)))
 	}
+}
+
+// setupOffering handles offering import based on configuration
+func (options *TestProjectsOptions) setupOffering() error {
+	// import the offering
+	// Import the offering - check sharing settings
+	if options.SharedCatalog != nil && *options.SharedCatalog && options.offering != nil &&
+		options.offering.Label != nil && options.offering.ID != nil && options.offering.Name != nil {
+		options.Logger.ShortInfo(fmt.Sprintf("Using existing shared offering: %s with ID %s", *options.offering.Label, *options.offering.ID))
+	} else if options.SharedCatalog != nil && *options.SharedCatalog && options.offering != nil {
+		// Shared offering is incomplete - log warning and fall back to creating new offering
+		options.Logger.ShortWarn("Shared offering is nil or incomplete - offering import may have failed")
+	} else {
+		// Create new offering if sharing is disabled or no existing offering
+		version := fmt.Sprintf("v0.0.1-dev-stack-%s", options.Prefix)
+		options.Logger.ShortInfo(fmt.Sprintf("Importing the stack from branch: %s as version: %s", *options.currentBranchUrl, version))
+		offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, "", "click-and-go", version, "")
+		if err != nil {
+			options.Logger.CriticalError(fmt.Sprintf("Error importing the offering: %v", err))
+			options.Testing.Fail()
+			return fmt.Errorf("error importing the offering: %w", err)
+		}
+		options.offering = offering
+		options.Logger.ShortInfo(fmt.Sprintf("Imported flavor: %s with version: %s to %s", *options.offering.Label, version, *options.catalog.Label))
+	}
+	return nil
 }
 
 // Function to determine if test resources should be destroyed
@@ -825,17 +1100,19 @@ func (options *TestProjectsOptions) executeResourceTearDown() bool {
 
 	// if skipundeploy is true, short circuit we are done
 	if options.SkipUndeploy {
+		options.Logger.ShortInfo("SkipUndeploy is set")
 		execute = false
 	}
 
 	// dont teardown if there is nothing to teardown
 	if options.currentStackConfig == nil || options.currentStackConfig.ConfigID == "" {
+		options.Logger.ShortInfo("No resources to delete")
 		execute = false
 	}
 
-	envVal, _ := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
-
-	if options.Testing.Failed() && strings.ToLower(envVal) == "true" {
+	if options.Testing.Failed() && common.DoNotDestroyOnFailure() {
+		options.Logger.ShortInfo("DO_NOT_DESTROY_ON_FAILURE is set")
+		options.Logger.ShortInfo(fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
 		execute = false
 	}
 
@@ -848,6 +1125,10 @@ func (options *TestProjectsOptions) executeResourceTearDown() bool {
 		}
 	}
 
+	if execute {
+		options.Logger.ShortInfo("Executing resource teardown")
+
+	}
 	return execute
 }
 
@@ -912,7 +1193,14 @@ func (options *TestProjectsOptions) testSetup() error {
 
 	// create new CloudInfoService if not supplied
 	if options.CloudInfoService == nil {
-		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{})
+		cacheEnabled := true
+		if options.CacheEnabled != nil {
+			cacheEnabled = *options.CacheEnabled
+		}
+		cloudInfoSvc, err := cloudinfo.NewCloudInfoServiceFromEnv("TF_VAR_ibmcloud_api_key", cloudinfo.CloudInfoServiceOptions{
+			CacheEnabled: cacheEnabled,
+			CacheTTL:     options.CacheTTL,
+		})
 		if err != nil {
 			return err
 		}

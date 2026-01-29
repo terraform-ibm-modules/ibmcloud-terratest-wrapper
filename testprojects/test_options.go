@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
+	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
 
 	project "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/jinzhu/copier"
@@ -46,7 +48,10 @@ type TestProjectsOptions struct {
 	ProjectDestroyOnDelete   *bool
 	ProjectMonitoringEnabled *bool
 	ProjectAutoDeploy        *bool
-	ProjectEnvironments      []project.EnvironmentPrototype
+
+	// ProjectAutoDeployMode Valid values are "manual_approval" and "auto_approval".
+	ProjectAutoDeployMode string
+	ProjectEnvironments   []project.EnvironmentPrototype
 
 	CloudInfoService cloudinfo.CloudInfoServiceI // OPTIONAL: Supply if you need multiple tests to share info service and data
 
@@ -108,12 +113,46 @@ type TestProjectsOptions struct {
 	SkipUndeploy      bool
 	SkipProjectDelete bool
 
+	// PostCreateDelay is the delay to wait after creating resources before attempting to read them.
+	// This helps with eventual consistency issues in IBM Cloud APIs.
+	// Default: 1 second. Set to a pointer to 0 duration to disable delays explicitly.
+	PostCreateDelay *time.Duration
+
 	// internal use
 	currentProject       *project.Project
 	currentProjectConfig *cloudinfo.ProjectsConfig
 
 	currentStack       *project.StackDefinition
 	currentStackConfig *cloudinfo.ConfigDetails
+
+	currentBranch    *string
+	currentBranchUrl *string
+
+	// CatalogUseExisting If set to true, the test will use an existing catalog.
+	CatalogUseExisting bool
+	// CatalogName The name of the catalog to create and deploy to.
+	CatalogName string
+
+	// SharedCatalog If set to true (default), catalogs and offerings will be shared across tests using the same TestOptions object.
+	// When false, each test will create its own catalog and offering, which is useful for isolation but less efficient.
+	// This applies to both individual tests and matrix tests.
+	SharedCatalog *bool
+
+	// Internal Use
+	// catalog the catalog instance in use.
+	catalog *catalogmanagementv1.Catalog
+
+	// internal use
+	// offering the offering created in the catalog.
+	offering *catalogmanagementv1.Offering
+
+	// ProjectRetryConfig Configuration for project creation/deletion retry behavior (optional)
+	// When nil, uses common.ProjectOperationRetryConfig() defaults (5 retries, 3s initial delay, 45s max, exponential backoff)
+	ProjectRetryConfig *common.RetryConfig
+
+	// QuietMode If set to true, detailed logs are buffered and only shown on test failure.
+	// When false, all logs are shown immediately. Default is false.
+	QuietMode bool
 
 	// Hooks These allow us to inject custom code into the test process
 	// example to set a hook:
@@ -126,7 +165,18 @@ type TestProjectsOptions struct {
 	PreUndeployHook  func(options *TestProjectsOptions) error // If this fails, the undeploy will continue
 	PostUndeployHook func(options *TestProjectsOptions) error
 
-	Logger *common.TestLogger
+	Logger common.Logger
+
+	// CacheEnabled enables API response caching for catalog operations to reduce API calls by 70-80%
+	// When enabled, static catalog metadata (offerings, versions, dependencies) will be cached
+	// Dynamic state (configs, deployments, validation) is never cached to ensure test correctness
+	// Default: true (cache enabled by default for performance benefits)
+	CacheEnabled *bool
+
+	// CacheTTL sets the time-to-live for cached API responses
+	// Default: 10 minutes if not specified when cache is enabled
+	// Recommended: 5-15 minutes for test scenarios, 10 minutes for CI/CD pipelines
+	CacheTTL time.Duration
 }
 
 // TestProjectOptionsDefault Default constructor for TestProjectsOptions
@@ -156,6 +206,10 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 		newOptions.ResourceGroup = "Default"
 	}
 
+	if newOptions.CatalogName == "" {
+		newOptions.CatalogName = fmt.Sprintf("stack-test-catalog-%s", newOptions.Prefix)
+	}
+
 	if newOptions.StackConfigurationPath == "" {
 		newOptions.StackConfigurationPath = "stack_definition.json"
 	}
@@ -177,6 +231,9 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	if newOptions.ProjectAutoDeploy == nil {
 		newOptions.ProjectAutoDeploy = core.BoolPtr(true)
 	}
+	if newOptions.ProjectAutoDeployMode == "" {
+		newOptions.ProjectAutoDeployMode = project.ProjectDefinition_AutoDeployMode_AutoApproval
+	}
 
 	if newOptions.StackAutoSyncInterval == 0 {
 		newOptions.StackAutoSyncInterval = 20
@@ -191,8 +248,14 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	if newOptions.StackAuthorizations == nil {
 		newOptions.StackAuthorizations = &project.ProjectConfigAuth{
 			ApiKey: core.StringPtr(os.Getenv(ibmcloudApiKeyVar)),
-			Method: core.StringPtr(project.ProjectConfigAuth_Method_ApiKey),
+			Method: core.StringPtr("api_key"),
 		}
+	}
+
+	// Set default post-creation delay if not already set
+	if newOptions.PostCreateDelay == nil {
+		delay := 1 * time.Second
+		newOptions.PostCreateDelay = &delay
 	}
 
 	return newOptions

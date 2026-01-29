@@ -101,6 +101,7 @@ options.ProjectLocation = "us-east"
 options.ProjectDestroyOnDelete = core.BoolPtr(true)
 options.ProjectMonitoringEnabled = core.BoolPtr(true)
 options.ProjectAutoDeploy = core.BoolPtr(false)
+options.ProjectAutoDeployMode = "manual_approval"
 ```
 
 ### Dependency Processing

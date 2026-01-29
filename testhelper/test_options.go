@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/jinzhu/copier"
@@ -54,6 +55,10 @@ type TestOptions struct {
 	// NOTE: when using the `...WithVars()` constructor, this map will be appended with the
 	// standard test variables.
 	TerraformVars map[string]interface{}
+
+	// This map contains key-value pairs that will be used as variables for the test terraform run.
+	// If set, the test will execute a second modified terraform apply with the given variables.
+	ModifiedTerraformVars map[string]interface{}
 
 	// When set during teardown this Terraform output will be used to disable CBR Rules that were created during the
 	// test to allow to destroy to complete.
@@ -106,6 +111,11 @@ type TestOptions struct {
 	// NOTE: when using `...WithVars()` constructor, this value will be automatically added to the appropriate
 	// TerraformVars entries for tags.
 	Tags []string
+
+	// PostCreateDelay is the delay to wait after creating resources before attempting to read them.
+	// This helps with eventual consistency issues in IBM Cloud APIs.
+	// Default: 1 second. Set to a pointer to 0 duration to disable delays explicitly.
+	PostCreateDelay *time.Duration
 
 	// For Consistency Checks: Specify terraform resource names to ignore for consistency checks.
 	// You can ignore specific resources in both idempotent and upgrade consistency checks by adding their names to these
@@ -173,6 +183,17 @@ type TestOptions struct {
 	PostApplyHook   func(options *TestOptions) error // In upgrade tests, this hook will be called after the base apply
 	PreDestroyHook  func(options *TestOptions) error // If this fails, the destroy will continue
 	PostDestroyHook func(options *TestOptions) error
+
+	// CacheEnabled enables API response caching for catalog operations to reduce API calls by 70-80%
+	// When enabled, static catalog metadata (offerings, versions, dependencies) will be cached
+	// Dynamic state (configs, deployments, validation) is never cached to ensure test correctness
+	// Default: true (cache enabled by default for performance benefits)
+	CacheEnabled *bool
+
+	// CacheTTL sets the time-to-live for cached API responses
+	// Default: 10 minutes if not specified when cache is enabled
+	// Recommended: 5-15 minutes for test scenarios, 10 minutes for CI/CD pipelines
+	CacheTTL time.Duration
 }
 
 type CheckConsistencyOptions struct {
@@ -306,6 +327,12 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 	newOptions.TerraformOptions = nil
 
 	newOptions.IsUpgradeTest = false
+
+	// Set default post-creation delay if not already set
+	if newOptions.PostCreateDelay == nil {
+		delay := 1 * time.Second
+		newOptions.PostCreateDelay = &delay
+	}
 
 	return newOptions
 

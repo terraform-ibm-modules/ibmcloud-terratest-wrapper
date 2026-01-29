@@ -92,16 +92,15 @@ func (mock *iamIdentityServiceMock) GetAPIKeysDetails(options *iamidentityv1.Get
 	name := "MOCK_NAME"
 	acctId := "MOCK_ACCOUNT_ID"
 
-	// if the api key in option is ERROR then pass error back
 	if *options.IamAPIKey == "ERROR" {
-		return nil, nil, errors.New("mock API key is bad")
+		return nil, &core.DetailedResponse{StatusCode: 400}, errors.New("mock API key is bad")
 	}
 
 	return &iamidentityv1.APIKey{
 		ID:        &id,
 		Name:      &name,
 		AccountID: &acctId,
-	}, nil, nil
+	}, &core.DetailedResponse{StatusCode: 200}, nil
 }
 
 // IAM POLICY SERVICE MOCK
@@ -431,4 +430,28 @@ func (s *icdServiceMock) NewListDeployablesOptions() *clouddatabasesv5.ListDeplo
 
 func (s *icdServiceMock) ListDeployables(*clouddatabasesv5.ListDeployablesOptions) (*clouddatabasesv5.ListDeployablesResponse, *core.DetailedResponse, error) {
 	return s.mockListDeployablesResponse, nil, nil
+}
+
+// Mock ContainerV1 Client
+type containerV1ClientMock struct {
+	mock.Mock
+}
+
+func (mock *containerV1ClientMock) KubeVersions() containerv1.KubeVersions {
+	args := mock.Called()
+	return args.Get(0).(containerv1.KubeVersions) // Cast to the expected return type
+}
+
+type KubeVersionsMock struct {
+	mock.Mock
+}
+
+func (m *KubeVersionsMock) List(target containerv1.ClusterTargetHeader) ([]containerv1.KubeVersion, error) {
+	args := m.Called(target)
+	return args.Get(0).([]containerv1.KubeVersion), args.Error(1)
+}
+
+func (m *KubeVersionsMock) ListV1(target containerv1.ClusterTargetHeader) (containerv1.V1Version, error) {
+	args := m.Called(target)
+	return args.Get(0).(containerv1.V1Version), args.Error(1)
 }

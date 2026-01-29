@@ -403,3 +403,26 @@ func IsRunningInCI() bool {
 	branch, err := git.getCurrentBranch()
 	return err == nil && branch == "HEAD"
 }
+
+// DoNotDestroyOnFailure checks if the DO_NOT_DESTROY_ON_FAILURE environment variable
+// is set to a truthy value. This is used to preserve test resources when a test fails,
+// allowing for manual debugging in the IBM Cloud console.
+//
+// Accepted truthy values (case-insensitive, whitespace-trimmed):
+//   - "true", "1", "yes"
+//
+// Usage: Call this in teardown logic along with Testing.Failed() to determine
+// whether to skip resource cleanup:
+//
+//	if t.Failed() && common.DoNotDestroyOnFailure() {
+//	    // Skip cleanup - resources preserved for debugging
+//	}
+func DoNotDestroyOnFailure() bool {
+	envVal, exists := os.LookupEnv("DO_NOT_DESTROY_ON_FAILURE")
+	if !exists {
+		return false
+	}
+	// Trim whitespace and convert to lowercase for comparison
+	normalizedVal := strings.ToLower(strings.TrimSpace(envVal))
+	return normalizedVal == "true" || normalizedVal == "1" || normalizedVal == "yes"
+}
