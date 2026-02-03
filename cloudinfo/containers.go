@@ -63,6 +63,15 @@ func (infoSvc *CloudInfoService) GetClusterIngressStatus(clusterId string) (stri
 	return ingressDetails.Status, nil
 }
 
+// CheckClusterIngressHealthyDefaultTimeout checks the ingress status of the specified cluster using default clusterCheckTimeoutMinutes and clusterCheckDelayMinutes values of 10 minutes and a delay of 1 minute between status checks respectively.
+// This method is a convenience wrapper around the `CheckClusterIngressHealthy` method.
+// Parameters:
+// - clusterId: The ID or name of the cluster whose ingress status is to be checked.
+// - logf: A logging function to report status updates.
+func (infoSvc *CloudInfoService) CheckClusterIngressHealthyDefaultTimeout(clusterId string, logf func(...any)) bool {
+	return infoSvc.CheckClusterIngressHealthy(clusterId, 10, 1, logf)
+}
+
 // CheckClusterIngressHealthy checks the ingress status of the specified cluster and asserts that it becomes healthy within a specified timeout period.
 // This method performs the following steps:
 // 1. Continuously checks the ingress status of the cluster identified by `clusterId`.
@@ -94,15 +103,8 @@ func (infoSvc *CloudInfoService) CheckClusterIngressHealthy(clusterId string, cl
 	}
 	if !healthy {
 		logf("Cluster Ingress failed to become healthy")
+	} else {
+		logf("Cluster Ingress is healthy")
 	}
 	return healthy
-}
-
-// CheckClusterIngressHealthyDefaultTimeout checks the ingress status of the specified cluster using default clusterCheckTimeoutMinutes and clusterCheckDelayMinutes values of 10 minutes and a delay of 1 minute between status checks respectively.
-// This method is a convenience wrapper around the `CheckClusterIngressHealthy` method.
-// Parameters:
-// - clusterId: The ID or name of the cluster whose ingress status is to be checked.
-// - logf: A logging function to report status updates.
-func (infoSvc *CloudInfoService) CheckClusterIngressHealthyDefaultTimeout(clusterId string, logf func(...any)){
-	infoSvc.CheckClusterIngressHealthy(clusterId, 10, 1, logf)
 }
