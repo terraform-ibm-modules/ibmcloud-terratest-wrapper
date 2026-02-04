@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	projects "github.com/IBM/project-go-sdk/projectv1"
 
 	"github.com/IBM-Cloud/bluemix-go"
+	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM-Cloud/bluemix-go/session"
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
@@ -151,6 +153,7 @@ type CloudInfoService struct {
 	resourceManagerService    resourceManagerService
 	cbrService                cbrService
 	containerClient           containerClient
+	containerV1Client         containerV1Client
 	catalogService            catalogService
 	// stackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	stackDefinitionCreator StackDefinitionCreator
@@ -283,8 +286,10 @@ type CloudInfoServiceOptions struct {
 	IamPolicyService          iamPolicyService
 	CbrService                cbrService
 	ContainerClient           containerClient
+	ContainerV1Client         containerV1Client
 	RegionPrefs               []RegionData
 	IcdService                icdService
+	IcdRegion                 string
 	ProjectsService           projectsService
 	CatalogService            catalogService
 	SchematicsServices        map[string]schematicsService
@@ -357,6 +362,11 @@ type ibmPICloudConnectionClient interface {
 type containerClient interface {
 	Clusters() containerv2.Clusters
 	Albs() containerv2.Alb
+}
+
+// containerV1Client interface for external Kubernetes Versions Service API. Used for mocking.
+type containerV1Client interface {
+	KubeVersions() containerv1.KubeVersions
 }
 
 // cbrService interface for external Context Based Restrictions Service API. Used for mocking.
@@ -598,6 +608,29 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 		infoSvc.containerClient = containerClient
 	}
+
+	// if containerV1Client is not supplied, use default external service
+	if options.ContainerV1Client != nil {
+		infoSvc.containerV1Client = options.ContainerV1Client
+	} else {
+		// Create a new Bluemix session
+		sess, sessErr := session.New(&bluemix.Config{
+			BluemixAPIKey: infoSvc.ApiKey, // pragma: allowlist secret
+		})
+		if sessErr != nil {
+			log.Println("ERROR: Could not create Bluemix session:", sessErr)
+			return nil, sessErr
+		}
+
+		// Initialize the containerv1 service client with the session
+		containerV1Client, containerErr := containerv1.New(sess)
+		if containerErr != nil {
+			log.Println("ERROR: Could not create containerv1 service client:", containerErr)
+			return nil, containerErr
+		}
+		infoSvc.containerV1Client = containerV1Client
+	}
+
 	// if resourceControllerService is not supplied use new external
 	if options.ResourceControllerService != nil {
 		infoSvc.resourceControllerService = options.ResourceControllerService
@@ -632,9 +665,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 	if options.IcdService != nil {
 		infoSvc.icdService = options.IcdService
 	} else {
+
+		serviceURL := clouddatabasesv5.DefaultServiceURL
+		if options.IcdRegion != "" {
+			ParameterizedServiceURL := clouddatabasesv5.ParameterizedServiceURL
+			replacer := strings.NewReplacer(
+				"{region}", options.IcdRegion,
+				"{platform}", "ibm",
+			)
+			serviceURL = replacer.Replace(ParameterizedServiceURL)
+		}
 		icdClient, icdMgrErr := clouddatabasesv5.NewCloudDatabasesV5(&clouddatabasesv5.CloudDatabasesV5Options{
 			Authenticator: infoSvc.authenticator,
+			URL:           serviceURL,
 		})
+
 		if icdMgrErr != nil {
 			log.Println("Error creating clouddatabasesv5 client:", icdMgrErr)
 			return nil, icdMgrErr

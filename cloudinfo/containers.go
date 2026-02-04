@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 )
 
@@ -63,6 +64,50 @@ func (infoSvc *CloudInfoService) GetClusterIngressStatus(clusterId string) (stri
 	return ingressDetails.Status, nil
 }
 
+// GetKubeVersions retrieves the available Kubernetes or OpenShift versions
+// for a given platform and returns them as a slice of "major.minor" version strings.
+//
+// KubeVersions().ListV1 returns a map like:
+// map[
+//
+//	kubernetes:[{1 31 14 false} {1 32 11 false} {1 33 7 true} {1 34 3 false}]
+//	openshift:[{4 16 54 false} {4 17 45 false} {4 18 30 false} {4 19 21 true}]
+//
+// ]
+// The function preprocesses this output to return only the versions
+// corresponding to the platform passed to GetKubeVersions.
+//
+// The platform parameter must match a key returned by the API (e.g., "kubernetes" or "openshift").
+// This works for both classic and VPC clusters.
+func (infoSvc *CloudInfoService) GetKubeVersions(platform string) ([]string, error) {
+	// Get the container V1 client from the service
+	containerV1Client := infoSvc.containerV1Client
+
+	// Fetch all available cluster versions (kubernetes and openShift) using the V1 API
+	stableVersions, err := containerV1Client.KubeVersions().ListV1(containerv1.ClusterTargetHeader{})
+	if err != nil {
+		return nil, fmt.Errorf("error listing cluster versions: %w", err)
+	}
+
+	if len(stableVersions) == 0 {
+		return nil, fmt.Errorf("no kubernetes or openShift versions returned")
+	}
+
+	// Get the versions for the requested platform (e.g., "kubernetes" or "openshift")
+	platformVersions, ok := stableVersions[platform]
+	if !ok || len(platformVersions) == 0 {
+		return nil, fmt.Errorf("no versions available for platform: %s", platform)
+	}
+
+	// Convert each KubeVersion struct into a "major.minor" string e.g "4.16"
+	versions := make([]string, 0, len(platformVersions))
+	for _, v := range platformVersions {
+		versions = append(versions, fmt.Sprintf("%d.%d", v.Major, v.Minor))
+	}
+
+	return versions, nil
+}
+
 // CheckClusterIngressHealthyDefaultTimeout checks the ingress status of the specified cluster using default clusterCheckTimeoutMinutes and clusterCheckDelayMinutes values of 10 minutes and a delay of 1 minute between status checks respectively.
 // This method is a convenience wrapper around the `CheckClusterIngressHealthy` method.
 // Parameters:
@@ -107,4 +152,3 @@ func (infoSvc *CloudInfoService) CheckClusterIngressHealthy(clusterId string, cl
 		logf("Cluster Ingress is healthy")
 	}
 	return healthy
-}
