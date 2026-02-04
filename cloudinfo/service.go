@@ -185,6 +185,8 @@ type CloudInfoServiceI interface {
 	ReplaceCBRRule(updatedExistingRule *contextbasedrestrictionsv1.Rule, eTag *string) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	GetThreadLock() *sync.Mutex
 	GetClusterIngressStatus(clusterId string) (string, error)
+	CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutMinutes int, clusterCheckDelayMinutes int, logf func(...any)) (bool)
+	CheckClusterIngressHealthyDefaultTimeout(clusterId string, logf func(...any)) (bool)
 	GetCatalogVersionByLocator(string) (*catalogmanagementv1.Version, error)
 	CreateCatalog(catalogName string) (*catalogmanagementv1.Catalog, error)
 	DeleteCatalog(catalogID string) error

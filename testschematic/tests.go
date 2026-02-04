@@ -448,7 +448,7 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 			if options.Testing.Failed() && common.DoNotDestroyOnFailure() {
 				options.Testing.Log("[SCHEMATICS] Schematics APPLY failed. Debug the Test and delete resources manually.")
 			} else {
-				options.Testing.Log("Preforming Teardown")
+				options.Testing.Log("Performing Teardown")
 				options.Testing.Log(fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
 
 				destroySuccess := false // will only flip to true if job completes
