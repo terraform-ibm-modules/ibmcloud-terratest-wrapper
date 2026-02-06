@@ -584,6 +584,88 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 	return result, resultErr
 }
 
+// ShouldSkipUpgradeTest checks if the upgrade test will be skipped without running any infrastructure setup.
+// This is useful for avoiding unnecessary prerequisite infrastructure deployment when the upgrade test
+// will be skipped due to commit messages.
+//
+// Parameters:
+// - options: TestOptions containing test configuration
+//
+// Returns:
+// - bool: true if the upgrade test will be skipped, false otherwise
+// - error: any error encountered during the check
+func (options *TestOptions) ShouldSkipUpgradeTest() (bool, error) {
+
+	// Determine the name of the PR branch
+	_, prBranch, err := common.GetCurrentPrRepoAndBranch()
+	if err != nil {
+		return false, fmt.Errorf("failed to determine the PR repo and branch: %v", err)
+	}
+
+	baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
+	if baseBranch == "" || baseRepo == "" {
+		return false, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
+	}
+
+	// Check if upgrade test should be skipped based on commit messages
+	if common.SkipUpgradeTest(options.Testing, baseRepo, baseBranch, prBranch) {
+		logger.Log(options.Testing, "Upgrade test will be skipped: detected \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" in commit message")
+		return true, nil
+	}
+	return false, nil
+}
+
+// RunUpgradeTestWithPrerequisites runs prerequisite infrastructure setup only if the upgrade test
+// will be executed. This prevents unnecessary infrastructure deployment when the upgrade test
+// would be skipped due to commit messages.
+//
+// Parameters:
+//   - prerequisiteSetup: A function that sets up prerequisite infrastructure. It receives the TestOptions
+//     and should return an error if setup fails. This function is only called if the upgrade test will run.
+//
+// Returns:
+// - *terraform.PlanStruct: The plan results from the upgrade test (nil if skipped)
+// - error: Any error encountered during prerequisite setup or upgrade test execution
+//
+// Example usage:
+//
+//	output, err := options.RunUpgradeTestWithPrerequisites(func(opts *TestOptions) error {
+//	    // Setup prerequisite infrastructure
+//	    existingTerraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+//	        TerraformDir: tempTerraformDir,
+//	        Vars: map[string]interface{}{
+//	            "prefix": prefix,
+//	            "region": region,
+//	        },
+//	        Upgrade: true,
+//	    })
+//	    terraform.WorkspaceSelectOrNew(t, existingTerraformOptions, prefix)
+//	    _, err := terraform.InitAndApplyE(t, existingTerraformOptions)
+//	    return err
+//	})
+func (options *TestOptions) RunUpgradeTestWithPrerequisites(prerequisiteSetup func(*TestOptions) error) (*terraform.PlanStruct, error) {
+	// Check if upgrade test will be skipped
+	skip, err := options.ShouldSkipUpgradeTest()
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if upgrade test should be skipped: %v", err)
+	}
+
+	if skip {
+		// Mark as skipped and return early without running prerequisite setup
+		options.UpgradeTestSkipped = true
+		logger.Log(options.Testing, "Skipping prerequisite setup because upgrade test will be skipped")
+		return nil, nil
+	}
+
+	// Run prerequisite setup since upgrade test will proceed
+	logger.Log(options.Testing, "Running prerequisite setup for upgrade test")
+	if err := prerequisiteSetup(options); err != nil {
+		return nil, fmt.Errorf("prerequisite setup failed: %v", err)
+	}
+
+	return options.RunTestUpgrade()
+}
+
 // RunTestConsistency Runs Test To check consistency between apply and re-apply, returns the output as string for further assertions
 func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) {
 	defer func() {
