@@ -87,24 +87,25 @@ func (infoSvc *CloudInfoService) CheckClusterIngressHealthyDefaultTimeout(cluste
 // A bool value indicating if cluster is healthy or not.
 func (infoSvc *CloudInfoService) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutMinutes int, clusterCheckDelayMinutes int, logf func(...any)) bool {
 	startTime := time.Now()
+	endTime := startTime.Add(time.Duration(clusterCheckTimeoutMinutes) * time.Minute)
 	healthy := false
-	for {
+
+	// loop till a duration of clusterCheckTimeoutMinutes minutes
+	for time.Now().Before(endTime){
 		ingressStatus, err := infoSvc.GetClusterIngressStatus(clusterId)
-		if ingressStatus == "healthy" {
+		if ingressStatus == "healthy" && err == nil {
 			healthy = true
 			break
-		} else if ingressStatus == "critical" || err != nil {
-			if time.Since(startTime) > time.Duration(clusterCheckTimeoutMinutes)*time.Minute {
-				break
-			}
-			logf("Cluster Ingress is critical, retrying after delay...")
+		} else {
+			logf(fmt.Sprintf("Cluster ingress is %q, retrying after %d minute(s)...", ingressStatus, clusterCheckDelayMinutes))
 			time.Sleep(time.Duration(clusterCheckDelayMinutes) * time.Minute)
 		}
 	}
+
 	if !healthy {
-		logf("Cluster Ingress failed to become healthy")
+		logf(fmt.Sprintf("Cluster ingress failed to become healthy after %d minute(s)", clusterCheckTimeoutMinutes))
 	} else {
-		logf("Cluster Ingress is healthy")
+		logf("Cluster ingress is healthy")
 	}
 	return healthy
 }
