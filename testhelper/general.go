@@ -2,13 +2,17 @@
 package testhelper
 
 import (
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"testing"
 
+	"github.com/gruntwork-io/terratest/modules/logger"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
+	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
 const ForceTestRegionEnvName = "FORCE_TEST_REGION"
@@ -268,4 +272,73 @@ func walk(r *tarIncludePatterns, s string, d fs.DirEntry, err error) error {
 		}
 	}
 	return nil
+}
+
+// gitHelperFuncs is an interface for git-related helper functions to enable mocking
+type gitHelperFuncs interface {
+	GetCurrentPrRepoAndBranch() (string, string, error)
+	GetBaseRepoAndBranch(repo string, branch string) (string, string)
+	SkipUpgradeTest(t *testing.T, source_repo string, source_branch string, branch string) bool
+}
+
+type gitHelper struct{}
+
+func (r *gitHelper) GetCurrentPrRepoAndBranch() (string, string, error) {
+	return common.GetCurrentPrRepoAndBranch()
+}
+
+func (r *gitHelper) GetBaseRepoAndBranch(repo string, branch string) (string, string) {
+	return common.GetBaseRepoAndBranch(repo, branch)
+}
+
+func (r *gitHelper) SkipUpgradeTest(t *testing.T, source_repo string, source_branch string, branch string) bool {
+	return common.SkipUpgradeTest(t, source_repo, source_branch, branch)
+}
+
+// ShouldSkipUpgradeTest checks if the upgrade test will be skipped.
+// This is useful for avoiding unnecessary prerequisite infrastructure deployment when the upgrade test
+// will be skipped due to commit messages.
+//
+// Parameters:
+// - t: testing.T instance for logging
+// - baseTerraformRepo: (optional) base repository for the upgrade test. If empty or not provided, defaults will be used
+// - baseTerraformBranch: (optional) base branch for the upgrade test. If empty or not provided, defaults will be used
+//
+// Returns:
+// - bool: true if the upgrade test will be skipped, false otherwise
+// - error: any error encountered during the check
+func ShouldSkipUpgradeTest(t *testing.T, baseRepoAndBranch ...string) (bool, error) {
+	return shouldSkipUpgradeTest(t, &gitHelper{}, baseRepoAndBranch...)
+}
+
+// shouldSkipUpgradeTest is the internal implementation that accepts dependencies for testing
+func shouldSkipUpgradeTest(t *testing.T, gitHelper gitHelperFuncs, baseRepoAndBranch ...string) (bool, error) {
+	var baseTerraformRepo, baseTerraformBranch string
+	if len(baseRepoAndBranch) > 0 {
+		baseTerraformRepo = baseRepoAndBranch[0]
+	}
+	if len(baseRepoAndBranch) > 1 {
+		baseTerraformBranch = baseRepoAndBranch[1]
+	}
+
+	if testing.Short() {
+		return true, nil
+	}
+
+	_, prBranch, err := gitHelper.GetCurrentPrRepoAndBranch()
+	if err != nil {
+		return false, fmt.Errorf("failed to determine the PR repo and branch: %v", err)
+	}
+
+	baseRepo, baseBranch := gitHelper.GetBaseRepoAndBranch(baseTerraformRepo, baseTerraformBranch)
+	if baseBranch == "" || baseRepo == "" {
+		return false, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
+	}
+
+	// Check if upgrade test should be skipped based on commit messages
+	if gitHelper.SkipUpgradeTest(t, baseRepo, baseBranch, prBranch) {
+		logger.Log(t, "Upgrade test will be skipped: detected \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" in commit message")
+		return true, nil
+	}
+	return false, nil
 }
