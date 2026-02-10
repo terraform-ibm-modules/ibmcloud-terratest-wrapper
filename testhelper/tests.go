@@ -341,33 +341,12 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 	var result *terraform.PlanStruct
 	var resultErr error
 
-	skipped := true
-
-	// Skip upgrade Test in continuous testing pipeline which runs in short mode
-	if testing.Short() {
-		options.Testing.Skip("Skipping upgrade Test in short mode.")
-	}
-
-	// Determine the name of the PR branch
-	_, prBranch, err := common.GetCurrentPrRepoAndBranch()
+	skipped, err := ShouldSkipUpgradeTest(options.Testing, options.BaseTerraformRepo, options.BaseTerraformBranch)
 	if err != nil {
-		return nil, fmt.Errorf("failed to determine the PR repo and branch: %v", err)
-	} else {
-		logger.Log(options.Testing, "PR Branch:", prBranch)
+		return nil, err
 	}
 
-	baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
-	if baseBranch == "" || baseRepo == "" {
-		// No need to tearDown as nothing was created
-		return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
-	} else {
-		logger.Log(options.Testing, "Base Repo:", baseRepo)
-		logger.Log(options.Testing, "Base Branch:", baseBranch)
-	}
-
-	if common.SkipUpgradeTest(options.Testing, baseRepo, baseBranch, prBranch) {
-		options.Testing.Log("Detected the string \"BREAKING CHANGE\" or \"SKIP UPGRADE TEST\" used in commit message, skipping upgrade Test.")
-	} else {
+	if !skipped {
 		skipped = false
 		options.IsUpgradeTest = true
 
@@ -467,6 +446,20 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			}
 		}
 
+		// Determine the name of the PR branch
+		_, prBranch, err := common.GetCurrentPrRepoAndBranch()
+		if err != nil {
+			return nil, fmt.Errorf("failed to determine the PR repo and branch: %v", err)
+		} else {
+			logger.Log(options.Testing, "PR Branch:", prBranch)
+		}
+		baseRepo, baseBranch := common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
+		if baseBranch == "" || baseRepo == "" {
+			return nil, fmt.Errorf("failed to get default repo and branch: %s %s", baseRepo, baseBranch)
+		} else {
+			logger.Log(options.Testing, "Base Repo:", baseRepo)
+			logger.Log(options.Testing, "Base Branch:", baseBranch)
+		}
 		cloneBaseErr := common.CloneAndCheckoutBranch(options.Testing, baseRepo, baseBranch, baseTempDir)
 		if cloneBaseErr != nil {
 			return nil, cloneBaseErr
