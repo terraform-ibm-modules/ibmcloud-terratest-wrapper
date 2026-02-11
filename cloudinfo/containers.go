@@ -131,19 +131,35 @@ func (infoSvc *CloudInfoService) CheckClusterIngressHealthyDefaultTimeout(cluste
 // Returns:
 // A bool value indicating if cluster is healthy or not.
 func (infoSvc *CloudInfoService) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutMinutes int, clusterCheckDelayMinutes int, logf func(...any)) bool {
-	startTime := time.Now()
+	return infoSvc.checkClusterIngressHealthyWithTime(clusterId, clusterCheckTimeoutMinutes, clusterCheckDelayMinutes, logf, time.Now, time.Sleep)
+}
+
+// checkClusterIngressHealthyWithTime is an internal function that accepts time functions for testability
+func (infoSvc *CloudInfoService) checkClusterIngressHealthyWithTime(
+	clusterId string,
+	clusterCheckTimeoutMinutes int,
+	clusterCheckDelayMinutes int,
+	logf func(...any),
+	nowFunc func() time.Time,
+	sleepFunc func(time.Duration),
+) bool {
+	startTime := nowFunc()
 	endTime := startTime.Add(time.Duration(clusterCheckTimeoutMinutes) * time.Minute)
 	healthy := false
 
 	// loop till a duration of clusterCheckTimeoutMinutes minutes
-	for time.Now().Before(endTime){
+	for nowFunc().Before(endTime) {
 		ingressStatus, err := infoSvc.GetClusterIngressStatus(clusterId)
 		if ingressStatus == "healthy" && err == nil {
 			healthy = true
 			break
 		} else {
-			logf(fmt.Sprintf("Cluster ingress is %q, retrying after %d minute(s)...", ingressStatus, clusterCheckDelayMinutes))
-			time.Sleep(time.Duration(clusterCheckDelayMinutes) * time.Minute)
+			if err == nil {
+				logf(fmt.Sprintf("Cluster ingress is %q, retrying after %d minute(s)...", ingressStatus, clusterCheckDelayMinutes))
+			} else {
+				logf(fmt.Sprintf("%v, retrying after %d minute(s)...", err, clusterCheckDelayMinutes))
+			}
+			sleepFunc(time.Duration(clusterCheckDelayMinutes) * time.Minute)
 		}
 	}
 
@@ -153,3 +169,4 @@ func (infoSvc *CloudInfoService) CheckClusterIngressHealthy(clusterId string, cl
 		logf("Cluster ingress is healthy")
 	}
 	return healthy
+}

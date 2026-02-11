@@ -111,6 +111,16 @@ func (m *MockCloudInfoServiceForPermutation) GetClusterIngressStatus(clusterId s
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockCloudInfoServiceForPermutation) CheckClusterIngressHealthy(clusterId string, logf func(...any)) (bool) {
+	args := m.Called(clusterId)
+	return args.Bool(0)
+}
+
+func (m *MockCloudInfoServiceForPermutation) CheckClusterIngressHealthyDefaultTimeout(clusterId string, clusterCheckTimeoutMinutes int, clusterCheckDelayMinutes int, logf func(...any)) (bool) {
+	args := m.Called(clusterId)
+	return args.Bool(0)
+}
+
 func (m *MockCloudInfoServiceForPermutation) GetCatalogVersionByLocator(locator string) (*catalogmanagementv1.Version, error) {
 	args := m.Called(locator)
 

@@ -3,6 +3,7 @@ package cloudinfo
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
@@ -135,6 +136,153 @@ func TestGetClusterIngressStatus(t *testing.T) {
 		})
 	}
 
+}
+
+func TestCheckClusterIngressHealthy(t *testing.T) {
+	mockClusterId := "test-cluster"
+
+	testCases := []struct {
+		name                string
+		timeoutMinutes      int
+		delayMinutes        int
+		mockStatusSequence  []string // Sequence of statuses to return on successive calls
+		mockErrorSequence   []error  // Sequence of errors to return on successive calls
+		expectedResult      bool
+		expectedLogContains []string // Log messages we expect to see
+	}{
+		{
+			name:               "Immediate Success - healthy on first check",
+			timeoutMinutes:     1,
+			delayMinutes:       1,
+			mockStatusSequence: []string{"healthy"},
+			mockErrorSequence:  []error{nil},
+			expectedResult:     true,
+			expectedLogContains: []string{
+				"Cluster ingress is healthy",
+			},
+		},
+		{
+			name:           "Success After Retries - critical then healthy",
+			timeoutMinutes: 3,
+			delayMinutes:   1,
+			mockStatusSequence: []string{"critical", "critical", "healthy"},
+			mockErrorSequence:  []error{nil, nil, nil},
+			expectedResult:     true,
+			expectedLogContains: []string{
+				"Cluster ingress is \"critical\", retrying after 1 minute(s)...",
+				"Cluster ingress is healthy",
+			},
+		},
+		{
+			name:           "Timeout Failure - remains critical",
+			timeoutMinutes: 2,
+			delayMinutes:   1,
+			mockStatusSequence: []string{"critical", "critical"},
+			mockErrorSequence:  []error{nil, nil},
+			expectedResult:     false,
+			expectedLogContains: []string{
+				"Cluster ingress is \"critical\", retrying after 1 minute(s)...",
+				"Cluster ingress failed to become healthy after 2 minute(s)",
+			},
+		},
+		{
+			name:           "Error Handling - GetIngressStatus returns error",
+			timeoutMinutes: 3,
+			delayMinutes:   1,
+			mockStatusSequence: []string{"", "", "healthy"},
+			mockErrorSequence:  []error{fmt.Errorf("API error"), fmt.Errorf("API error"), nil},
+			expectedResult:     true,
+			expectedLogContains: []string{
+				"failed to get cluster ingress status: API error, retrying after 1 minute(s)...",
+				"Cluster ingress is healthy",
+			},
+		},
+		{
+			name:           "Multiple retries with warning status",
+			timeoutMinutes: 2,
+			delayMinutes:   0,
+			mockStatusSequence: []string{"warning", "warning", "critical", "healthy"},
+			mockErrorSequence:  []error{nil, nil, nil, nil},
+			expectedResult:     true,
+			expectedLogContains: []string{
+				"Cluster ingress is \"warning\", retrying after 0 minute(s)...",
+				"Cluster ingress is \"critical\", retrying after 0 minute(s)...",
+				"Cluster ingress is healthy",
+			},
+		},
+		{
+			name:           "Timeout with persistent errors",
+			timeoutMinutes: 2,
+			delayMinutes:   1,
+			mockStatusSequence: []string{"", ""},
+			mockErrorSequence:  []error{fmt.Errorf("persistent error"), fmt.Errorf("persistent error")},
+			expectedResult:     false,
+			expectedLogContains: []string{
+				"failed to get cluster ingress status: persistent error, retrying after 1 minute(s)...",
+				"Cluster ingress failed to become healthy after 2 minute(s)",
+			},
+		},
+		// Add more cases as needed
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockContainerClient := &containerClientMock{}
+			mockAlbs := &AlbsMock{}
+
+			mockContainerClient.On("Albs").Return(mockAlbs)
+
+			// Setup sequential mock responses for GetIngressStatus
+			for i := 0; i < len(tc.mockStatusSequence); i++ {
+				status := tc.mockStatusSequence[i]
+				err := tc.mockErrorSequence[i]
+				mockAlbs.On("GetIngressStatus", mockClusterId, mock.AnythingOfType("containerv2.ClusterTargetHeader")).
+					Return(containerv2.IngressStatus{Status: status}, err).Once().Maybe()
+			}
+
+			infoSvc := CloudInfoService{containerClient: mockContainerClient}
+
+			// Capture log messages
+			var logMessages []string
+			logFunc := func(args ...any) {
+				if len(args) > 0 {
+					logMessages = append(logMessages, fmt.Sprint(args...))
+				}
+			}
+
+			// Mock time functions for fast, deterministic tests
+			currentTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			mockNow := func() time.Time {
+				return currentTime
+			}
+			mockSleep := func(d time.Duration) {
+				// Advance time when sleep is called
+				currentTime = currentTime.Add(d)
+			}
+
+			// Call internal method with mock time functions
+			result := infoSvc.checkClusterIngressHealthyWithTime(mockClusterId, tc.timeoutMinutes, tc.delayMinutes, logFunc, mockNow, mockSleep)
+
+			// Assertions
+			assert.Equal(t, tc.expectedResult, result, "Expected result mismatch")
+
+			// Verify expected log messages are present
+			for _, expectedLog := range tc.expectedLogContains {
+				found := false
+				for _, logMsg := range logMessages {
+					if logMsg == expectedLog {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "Expected log message not found: %s\nActual logs: %v", expectedLog, logMessages)
+			}
+
+			// Verify expectations
+			mockAlbs.AssertExpectations(t)
+			mockContainerClient.AssertExpectations(t)
+		})
+	}
 }
 
 // TestGetKubeVersions validates that GetKubeVersions returns the correct
