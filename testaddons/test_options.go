@@ -457,7 +457,7 @@ type TestAddonOptions struct {
 	SkipLocalChangeCheck bool
 	// SkipRefValidation If set to true, the test will not check for reference validation before deploying.
 	SkipRefValidation bool
-	// SkipDependencyValidatio If set to true, the test will not check for dependency validation before deploying
+	// SkipDependencyValidation If set to true, the test will not check for dependency validation before deploying
 	SkipDependencyValidation bool
 
 	// InputValidationRetries The number of retry attempts for input validation (default: 3)

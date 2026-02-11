@@ -26,7 +26,7 @@ type TestOptions struct {
 	// If any are missing, the test will fail.
 	RequiredEnvironmentVars map[string]string
 
-	// Path to YAML file contaning preferences for how dynamic regions should be chosen.
+	// Path to YAML file containing preferences for how dynamic regions should be chosen.
 	// See examples in cloudinfo/testdata for proper format.
 	BestRegionYAMLPath string
 

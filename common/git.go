@@ -422,7 +422,7 @@ func getCurrentPrRepoAndBranch(git gitOps) (string, string, error) {
 
 func RetrievePrivateKey(sshPvtKey string) (interface{}, error) {
 	var sshPassphrase string
-	// Chek for SSH_PASSPHRASE environment variable
+	// Check for SSH_PASSPHRASE environment variable
 	envSSHPassphrase, isPassphrase := os.LookupEnv("SSH_PASSPHRASE")
 	if isPassphrase {
 		sshPassphrase = envSSHPassphrase
@@ -443,7 +443,7 @@ func RetrievePrivateKey(sshPvtKey string) (interface{}, error) {
 }
 
 // SkipUpgradeTest can determine if a terraform or schematics upgrade test should be skipped by analyzing
-// the currently checked out git branch, looking for specific verbage in the commit messages.
+// the currently checked out git branch, looking for specific verbiage in the commit messages.
 func SkipUpgradeTest(testing *testing.T, source_repo string, source_branch string, branch string) bool {
 
 	// random string to use in remote name

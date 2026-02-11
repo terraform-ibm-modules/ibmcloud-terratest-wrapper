@@ -156,7 +156,7 @@ func (infoSvc *CloudInfoService) DeleteCatalog(catalogID string) error {
 // catalogID: The ID of the catalog to import the offering to
 // zipUrl: The URL of the zip file containing the offering or url to the branch
 // offeringName: The name of the offering to import
-// flavorName: The name of the flavor to import Note: programatic name not label
+// flavorName: The name of the flavor to import Note: programmatic name not label
 // version: The version of the offering
 // installKind: The kind of install to use
 func (infoSvc *CloudInfoService) ImportOffering(catalogID string, zipUrl string, offeringName string, flavorName string, version string, installKind InstallKind) (*catalogmanagementv1.Offering, error) {
@@ -828,7 +828,7 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 	return deployResponse, nil
 }
 
-// GetComponentReferences gets the component references for a version locator returns a flat list of all components(dependencies and sub-dependencies) for the given version locator including the inital component.
+// GetComponentReferences gets the component references for a version locator returns a flat list of all components(dependencies and sub-dependencies) for the given version locator including the initial component.
 // /ui/v1/versions/:version_locator/componentsReferences
 // CACHED: Static dependency tree metadata - safe to cache as component references don't change for a version
 func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (*OfferingReferenceResponse, error) {

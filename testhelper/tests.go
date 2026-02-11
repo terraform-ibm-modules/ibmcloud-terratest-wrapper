@@ -158,7 +158,7 @@ func (options *TestOptions) testTearDown() {
 			}
 
 			if options.CBRRuleListOutputVariable != "" {
-				// Disable any CBR Rules before procceding with destroy
+				// Disable any CBR Rules before proceeding with destroy
 				expected_outputs := []string{options.CBRRuleListOutputVariable}
 				_, err := ValidateTerraformOutputs(options.LastTestTerraformOutputs, expected_outputs...)
 				if err == nil {
@@ -185,7 +185,7 @@ func (options *TestOptions) testTearDown() {
 						}
 					}
 				} else {
-					logger.Log(options.Testing, fmt.Sprintf("Error output containg CBRRuleList %s not found in Statefile, skipping CBR Rule disable", options.CBRRuleListOutputVariable))
+					logger.Log(options.Testing, fmt.Sprintf("Error output containing CBRRuleList %s not found in Statefile, skipping CBR Rule disable", options.CBRRuleListOutputVariable))
 				}
 			}
 			if options.PreDestroyHook != nil {
@@ -717,7 +717,7 @@ func (options *TestOptions) runTest() (string, error) {
 	return output, err
 }
 
-// setTerraformDir helper funtion to set the terraform directory
+// setTerraformDir helper function to set the terraform directory
 // sets the TerraformOptions.TerraformDir, TestOptions.TerraformDir and TestOptions.WorkspacePath
 func (options *TestOptions) setTerraformDir(tempDir string) {
 	options.TerraformOptions.TerraformDir = tempDir

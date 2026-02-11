@@ -12,7 +12,7 @@ func Example_default() {
 	t := &testing.T{}
 
 	t.Run("schematic unit test", func(t *testing.T) {
-		// create TestOptions using Default contructor. This will do several things for you:
+		// create TestOptions using Default constructor. This will do several things for you:
 		// * Prefix will have random string added to end
 		// * Validate required OS Environment variables are set
 		// * Dynamically choose best region for test, if region not supplied
