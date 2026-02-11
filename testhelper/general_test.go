@@ -18,6 +18,29 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+/**** START MOCK for gitHelperFuncs ****/
+// mockGitHelperFuncs is a mock implementation of gitHelperFuncs interface
+type mockGitHelperFuncs struct {
+	mock.Mock
+}
+
+func (m *mockGitHelperFuncs) GetCurrentPrRepoAndBranch() (string, string, error) {
+	args := m.Called()
+	return args.String(0), args.String(1), args.Error(2)
+}
+
+func (m *mockGitHelperFuncs) GetBaseRepoAndBranch(repo string, branch string) (string, string) {
+	args := m.Called(repo, branch)
+	return args.String(0), args.String(1)
+}
+
+func (m *mockGitHelperFuncs) SkipUpgradeTest(t *testing.T, source_repo string, source_branch string, branch string) bool {
+	args := m.Called(t, source_repo, source_branch, branch)
+	return args.Bool(0)
+}
+
+/**** END MOCK for gitHelperFuncs ****/
+
 /**** START MOCK CloudInfoService ****/
 type cloudInfoServiceMock struct {
 	mock.Mock
@@ -421,6 +444,119 @@ func assertNoPrefix(t *testing.T, got []string, prefix string) {
 		if strings.HasPrefix(g, prefix) {
 			t.Fatalf("expected no entry with prefix %q, but found %q in %v", prefix, g, got)
 		}
+	}
+}
+
+func TestShouldSkipUpgradeTest(t *testing.T) {
+	tests := []struct {
+		name              string
+		baseRepoAndBranch []string
+		setupMock         func(*mockGitHelperFuncs)
+		expectedSkip      bool
+		expectedError     bool
+		errorContains     string
+	}{
+		{
+			name:              "returns error when GetCurrentPrRepoAndBranch fails",
+			baseRepoAndBranch: []string{},
+			setupMock: func(m *mockGitHelperFuncs) {
+				m.On("GetCurrentPrRepoAndBranch").Return("", "", errors.New("failed to get PR repo and branch"))
+			},
+			expectedSkip:  false,
+			expectedError: true,
+			errorContains: "failed to determine the PR repo and branch",
+		},
+		{
+			name:              "returns error when GetBaseRepoAndBranch returns empty values",
+			baseRepoAndBranch: []string{},
+			setupMock: func(m *mockGitHelperFuncs) {
+				m.On("GetCurrentPrRepoAndBranch").Return("https://github.com/test/repo", "feature-branch", nil)
+				m.On("GetBaseRepoAndBranch", "", "").Return("", "")
+			},
+			expectedSkip:  false,
+			expectedError: true,
+			errorContains: "failed to get default repo and branch",
+		},
+		{
+			name: "returns true when SkipUpgradeTest returns true",
+			baseRepoAndBranch: []string{
+				"https://github.com/test/repo",
+				"main",
+			},
+			setupMock: func(m *mockGitHelperFuncs) {
+				m.On("GetCurrentPrRepoAndBranch").Return("https://github.com/test/repo", "feature-branch", nil)
+				m.On("GetBaseRepoAndBranch", "https://github.com/test/repo", "main").Return("https://github.com/test/repo", "main")
+				m.On("SkipUpgradeTest", mock.Anything, "https://github.com/test/repo", "main", "feature-branch").Return(true)
+			},
+			expectedSkip:  true,
+			expectedError: false,
+		},
+		{
+			name: "returns false when SkipUpgradeTest returns false",
+			baseRepoAndBranch: []string{
+				"https://github.com/test/repo",
+				"main",
+			},
+			setupMock: func(m *mockGitHelperFuncs) {
+				m.On("GetCurrentPrRepoAndBranch").Return("https://github.com/test/repo", "feature-branch", nil)
+				m.On("GetBaseRepoAndBranch", "https://github.com/test/repo", "main").Return("https://github.com/test/repo", "main")
+				m.On("SkipUpgradeTest", mock.Anything, "https://github.com/test/repo", "main", "feature-branch").Return(false)
+			},
+			expectedSkip:  false,
+			expectedError: false,
+		},
+		{
+			name:              "uses default values when baseRepoAndBranch is empty",
+			baseRepoAndBranch: []string{},
+			setupMock: func(m *mockGitHelperFuncs) {
+				m.On("GetCurrentPrRepoAndBranch").Return("https://github.com/test/repo", "feature-branch", nil)
+				m.On("GetBaseRepoAndBranch", "", "").Return("https://github.com/test/repo", "main")
+				m.On("SkipUpgradeTest", mock.Anything, "https://github.com/test/repo", "main", "feature-branch").Return(false)
+			},
+			expectedSkip:  false,
+			expectedError: false,
+		},
+		{
+			name: "handles single parameter (repo only)",
+			baseRepoAndBranch: []string{
+				"https://github.com/test/repo",
+			},
+			setupMock: func(m *mockGitHelperFuncs) {
+				m.On("GetCurrentPrRepoAndBranch").Return("https://github.com/test/repo", "feature-branch", nil)
+				m.On("GetBaseRepoAndBranch", "https://github.com/test/repo", "").Return("https://github.com/test/repo", "main")
+				m.On("SkipUpgradeTest", mock.Anything, "https://github.com/test/repo", "main", "feature-branch").Return(false)
+			},
+			expectedSkip:  false,
+			expectedError: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create mock
+			mockGitHelper := new(mockGitHelperFuncs)
+			tc.setupMock(mockGitHelper)
+
+			// Create a test instance
+			testT := &testing.T{}
+
+			// Call the internal function with mock
+			skip, err := shouldSkipUpgradeTest(testT, mockGitHelper, tc.baseRepoAndBranch...)
+
+			// Verify results
+			if tc.expectedError {
+				assert.NotNil(t, err, "Expected an error but got nil")
+				if tc.errorContains != "" {
+					assert.Contains(t, err.Error(), tc.errorContains, "Error message should contain expected text")
+				}
+			} else {
+				assert.Nil(t, err, "Expected no error but got: %v", err)
+				assert.Equal(t, tc.expectedSkip, skip, "Skip value should match expected")
+			}
+
+			// Verify all expectations were met
+			mockGitHelper.AssertExpectations(t)
+		})
 	}
 }
 
