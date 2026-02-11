@@ -15,6 +15,7 @@ func TestNewServiceWithKey(t *testing.T) {
 		IamPolicyService:          new(iamPolicyServiceMock),
 		ResourceControllerService: new(resourceControllerServiceMock),
 		ContainerClient:           new(containerClientMock),
+		ContainerV1Client:         new(containerV1ClientMock),
 	}
 
 	_, err := NewCloudInfoServiceWithKey(serviceOptions)
@@ -29,6 +30,7 @@ func TestNewServiceWithEnv(t *testing.T) {
 		IamPolicyService:          new(iamPolicyServiceMock),
 		ResourceControllerService: new(resourceControllerServiceMock),
 		ContainerClient:           new(containerClientMock),
+		ContainerV1Client:         new(containerV1ClientMock),
 	}
 
 	if err := os.Setenv("TEST_KEY_VAL", "dummy_key"); err != nil {
@@ -47,6 +49,7 @@ func TestNewServiceWithEmptyKey(t *testing.T) {
 		IamPolicyService:          new(iamPolicyServiceMock),
 		ResourceControllerService: new(resourceControllerServiceMock),
 		ContainerClient:           new(containerClientMock),
+		ContainerV1Client:         new(containerV1ClientMock),
 	}
 
 	_, err := NewCloudInfoServiceWithKey(serviceOptions)
@@ -61,6 +64,7 @@ func TestNewServiceWithEmptyEnv(t *testing.T) {
 		IamPolicyService:          new(iamPolicyServiceMock),
 		ResourceControllerService: new(resourceControllerServiceMock),
 		ContainerClient:           new(containerClientMock),
+		ContainerV1Client:         new(containerV1ClientMock),
 	}
 
 	_, err := NewCloudInfoServiceFromEnv("", serviceOptions)
