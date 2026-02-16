@@ -131,26 +131,14 @@ func (infoSvc *CloudInfoService) CheckClusterIngressHealthyDefaultTimeout(cluste
 // Returns:
 // A bool value indicating if cluster is healthy or not.
 func (infoSvc *CloudInfoService) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutMinutes int, clusterCheckDelayMinutes int, logf func(...any)) bool {
-	return infoSvc.checkClusterIngressHealthyWithTime(clusterId, clusterCheckTimeoutMinutes, clusterCheckDelayMinutes, logf, time.Now, time.Sleep)
-}
-
-// checkClusterIngressHealthyWithTime is an internal function that accepts time functions for testability
-func (infoSvc *CloudInfoService) checkClusterIngressHealthyWithTime(
-	clusterId string,
-	clusterCheckTimeoutMinutes int,
-	clusterCheckDelayMinutes int,
-	logf func(...any),
-	nowFunc func() time.Time,
-	sleepFunc func(time.Duration),
-) bool {
-
 	// logFunc will handle nil check for logf
 	logFunc := func(args ...any) {
 		if logf != nil {
 			logf(args...)
 		}
 	}
-
+	nowFunc := infoSvc.timeProvider.Now
+	sleepFunc := infoSvc.timeProvider.Sleep
 	startTime := nowFunc()
 	endTime := startTime.Add(time.Duration(clusterCheckTimeoutMinutes) * time.Minute)
 	healthy := false

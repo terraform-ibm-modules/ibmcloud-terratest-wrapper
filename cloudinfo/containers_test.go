@@ -3,7 +3,6 @@ package cloudinfo
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
@@ -229,6 +228,7 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockContainerClient := &containerClientMock{}
 			mockAlbs := &AlbsMock{}
+			mockTimeProvider := &timeProviderMock{}
 
 			mockContainerClient.On("Albs").Return(mockAlbs)
 
@@ -240,7 +240,13 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 					Return(containerv2.IngressStatus{Status: status}, err).Once().Maybe()
 			}
 
-			infoSvc := CloudInfoService{containerClient: mockContainerClient}
+			mockTimeProvider.On("Now").Return().Maybe()
+			mockTimeProvider.On("Sleep", mock.AnythingOfType("time.Duration")).Return().Maybe()
+
+			infoSvc := CloudInfoService{
+				containerClient: mockContainerClient,
+				timeProvider:    mockTimeProvider,
+			}
 
 			// Capture log messages
 			var logMessages []string
@@ -250,18 +256,7 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 				}
 			}
 
-			// Mock time functions for fast, deterministic tests
-			currentTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-			mockNow := func() time.Time {
-				return currentTime
-			}
-			mockSleep := func(d time.Duration) {
-				// Advance time when sleep is called
-				currentTime = currentTime.Add(d)
-			}
-
-			// Call internal method with mock time functions
-			result := infoSvc.checkClusterIngressHealthyWithTime(mockClusterId, tc.timeoutMinutes, tc.delayMinutes, logFunc, mockNow, mockSleep)
+			result := infoSvc.CheckClusterIngressHealthy(mockClusterId, tc.timeoutMinutes, tc.delayMinutes, logFunc)
 
 			// Assertions
 			assert.Equal(t, tc.expectedResult, result, "Expected result mismatch")
@@ -281,6 +276,7 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 			// Verify expectations
 			mockAlbs.AssertExpectations(t)
 			mockContainerClient.AssertExpectations(t)
+			mockTimeProvider.AssertExpectations(t)
 		})
 	}
 }

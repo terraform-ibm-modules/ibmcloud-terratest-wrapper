@@ -6,6 +6,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
@@ -454,4 +455,23 @@ func (m *KubeVersionsMock) List(target containerv1.ClusterTargetHeader) ([]conta
 func (m *KubeVersionsMock) ListV1(target containerv1.ClusterTargetHeader) (containerv1.V1Version, error) {
 	args := m.Called(target)
 	return args.Get(0).(containerv1.V1Version), args.Error(1)
+}
+
+// Mock TimeProvider
+type timeProviderMock struct {
+	mock.Mock
+	currentTime time.Time
+}
+
+func (m *timeProviderMock) Now() time.Time {
+	m.Called()
+	if m.currentTime.IsZero() {
+		m.currentTime = time.Now()
+	}
+	return m.currentTime
+}
+
+func (m *timeProviderMock) Sleep(d time.Duration) {
+	m.Called(d)
+	m.currentTime = m.currentTime.Add(d)
 }

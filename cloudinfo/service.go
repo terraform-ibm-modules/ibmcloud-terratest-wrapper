@@ -141,6 +141,23 @@ func (c *APICache) ClearCache() {
 	c.stats = CacheStats{} // Reset stats
 }
 
+// TimeProvider is used to perform time operations as well as mocking in tests
+type TimeProvider interface {
+	Now() time.Time
+	Sleep(d time.Duration)
+}
+
+// realClock implements real time operations
+type realClock struct{}
+
+func (realClock) Now() time.Time {
+	return time.Now()
+}
+
+func (realClock) Sleep(d time.Duration) {
+	time.Sleep(d)
+}
+
 // CloudInfoService is a structure that is used as the receiver to many methods in this package.
 // It contains references to other important services and data structures needed to perform these methods.
 type CloudInfoService struct {
@@ -172,6 +189,8 @@ type CloudInfoService struct {
 	apiCache *APICache
 	// offeringSingleflight prevents duplicate concurrent GetOffering requests
 	offeringSingleflight singleflight.Group
+	// timeProvider is used to perform time operations and to support testing/mocking
+	timeProvider TimeProvider
 }
 
 // interface for the cloudinfo service (can be mocked in tests)
@@ -302,6 +321,8 @@ type CloudInfoServiceOptions struct {
 	CacheTTL time.Duration
 	// BypassCacheForValidation forces cache bypass for critical validation operations
 	BypassCacheForValidation bool
+	// timeProvider is used to perform time operations and to support testing/mocking
+	timeProvider TimeProvider
 }
 
 // RegionData is a data structure used for holding configurable information about a region.
@@ -745,6 +766,12 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.stackDefinitionCreator = options.StackDefinitionCreator
 	} else {
 		infoSvc.stackDefinitionCreator = infoSvc
+	}
+
+	if options.timeProvider != nil {
+		infoSvc.timeProvider = options.timeProvider
+	} else {
+		infoSvc.timeProvider = &realClock{}
 	}
 
 	// Initialize API cache if enabled
