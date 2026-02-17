@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"sync"
+	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
@@ -111,7 +112,7 @@ func (m *MockCloudInfoServiceForPermutation) GetClusterIngressStatus(clusterId s
 	return args.String(0), args.Error(1)
 }
 
-func (m *MockCloudInfoServiceForPermutation) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutMinutes int, clusterCheckDelayMinutes int, logf func(...any)) bool {
+func (m *MockCloudInfoServiceForPermutation) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutDuration time.Duration, clusterCheckDelayDuration time.Duration, logf func(...any)) bool {
 	args := m.Called(clusterId)
 	return args.Bool(0)
 }

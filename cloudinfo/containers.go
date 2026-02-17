@@ -108,13 +108,13 @@ func (infoSvc *CloudInfoService) GetKubeVersions(platform string) ([]string, err
 	return versions, nil
 }
 
-// CheckClusterIngressHealthyDefaultTimeout checks the ingress status of the specified cluster using default clusterCheckTimeoutMinutes and clusterCheckDelayMinutes values of 10 minutes and a delay of 1 minute between status checks respectively.
+// CheckClusterIngressHealthyDefaultTimeout checks the ingress status of the specified cluster using default clusterCheckTimeoutDuration and clusterCheckDelayDuration values of 10 minutes and a delay of 1 minute between status checks respectively.
 // This method is a convenience wrapper around the `CheckClusterIngressHealthy` method.
 // Parameters:
 // - clusterId: The ID or name of the cluster whose ingress status is to be checked.
 // - logf: A logging function to report status updates.
 func (infoSvc *CloudInfoService) CheckClusterIngressHealthyDefaultTimeout(clusterId string, logf func(...any)) bool {
-	return infoSvc.CheckClusterIngressHealthy(clusterId, 10, 1, logf)
+	return infoSvc.CheckClusterIngressHealthy(clusterId, 10*time.Minute, 1*time.Minute, logf)
 }
 
 // CheckClusterIngressHealthy checks the ingress status of the specified cluster and asserts that it becomes healthy within a specified timeout period.
@@ -125,44 +125,37 @@ func (infoSvc *CloudInfoService) CheckClusterIngressHealthyDefaultTimeout(cluste
 // 4. If the timeout is reached and the status is still "critical" or an error persists, the method exits the loop.
 // Parameters:
 // - clusterId: The ID or name of the cluster whose ingress status is to be checked.
-// - clusterCheckTimeoutMinutes: The maximum time allowed for checking the ingress status, in minutes.
-// - clusterCheckDelayMinutes: The duration to wait between status checks, in minutes.
+// - clusterCheckTimeoutDuration: The maximum time allowed for checking the ingress status.
+// - clusterCheckDelayDuration: The duration to wait between status checks.
 // - logf: A logging function to report status updates.
 // Returns:
 // A bool value indicating if cluster is healthy or not.
-func (infoSvc *CloudInfoService) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutMinutes int, clusterCheckDelayMinutes int, logf func(...any)) bool {
+func (infoSvc *CloudInfoService) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutDuration time.Duration, clusterCheckDelayDuration time.Duration, logf func(...any)) bool {
 	// logFunc will handle nil check for logf
 	logFunc := func(args ...any) {
 		if logf != nil {
 			logf(args...)
 		}
 	}
-	nowFunc := infoSvc.timeProvider.Now
-	sleepFunc := infoSvc.timeProvider.Sleep
-	startTime := nowFunc()
-	endTime := startTime.Add(time.Duration(clusterCheckTimeoutMinutes) * time.Minute)
-	healthy := false
+	startTime := time.Now()
+	endTime := startTime.Add(clusterCheckTimeoutDuration)
 
-	// loop till a duration of clusterCheckTimeoutMinutes minutes
-	for nowFunc().Before(endTime) {
+	// loop till a duration of clusterCheckTimeoutDuration
+	for time.Now().Before(endTime) {
 		ingressStatus, err := infoSvc.GetClusterIngressStatus(clusterId)
 		if ingressStatus == "healthy" && err == nil {
-			healthy = true
-			break
+			logFunc("Cluster ingress is healthy")
+			return true
 		} else {
 			if err == nil {
-				logFunc(fmt.Sprintf("Cluster ingress is %q, retrying after %d minute(s)...", ingressStatus, clusterCheckDelayMinutes))
+				logFunc(fmt.Sprintf("Cluster ingress is %q, retrying after %v...", ingressStatus, clusterCheckDelayDuration))
 			} else {
-				logFunc(fmt.Sprintf("%v, retrying after %d minute(s)...", err, clusterCheckDelayMinutes))
+				logFunc(fmt.Sprintf("%v, retrying after %v...", err, clusterCheckDelayDuration))
 			}
-			sleepFunc(time.Duration(clusterCheckDelayMinutes) * time.Minute)
+			time.Sleep(clusterCheckDelayDuration)
 		}
 	}
 
-	if !healthy {
-		logFunc(fmt.Sprintf("Cluster ingress failed to become healthy after %d minute(s)", clusterCheckTimeoutMinutes))
-	} else {
-		logFunc("Cluster ingress is healthy")
-	}
-	return healthy
+	logFunc(fmt.Sprintf("Cluster ingress failed to become healthy after %v", clusterCheckTimeoutDuration))
+	return false
 }

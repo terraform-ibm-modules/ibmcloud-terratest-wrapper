@@ -3,6 +3,7 @@ package cloudinfo
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
@@ -142,8 +143,8 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 
 	testCases := []struct {
 		name                string
-		timeoutMinutes      int
-		delayMinutes        int
+		timeoutMinutes      time.Duration
+		delayMinutes        time.Duration
 		mockStatusSequence  []string // Sequence of statuses to return on successive calls
 		mockErrorSequence   []error  // Sequence of errors to return on successive calls
 		expectedResult      bool
@@ -151,8 +152,8 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 	}{
 		{
 			name:               "Immediate Success - healthy on first check",
-			timeoutMinutes:     1,
-			delayMinutes:       1,
+			timeoutMinutes:     1 * time.Millisecond,
+			delayMinutes:       1 * time.Millisecond,
 			mockStatusSequence: []string{"healthy"},
 			mockErrorSequence:  []error{nil},
 			expectedResult:     true,
@@ -162,73 +163,71 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 		},
 		{
 			name:               "Success After Retries - critical then healthy",
-			timeoutMinutes:     3,
-			delayMinutes:       1,
+			timeoutMinutes:     3 * time.Millisecond,
+			delayMinutes:       1 * time.Millisecond,
 			mockStatusSequence: []string{"critical", "critical", "healthy"},
 			mockErrorSequence:  []error{nil, nil, nil},
 			expectedResult:     true,
 			expectedLogContains: []string{
-				"Cluster ingress is \"critical\", retrying after 1 minute(s)...",
+				"Cluster ingress is \"critical\", retrying after 1ms...",
 				"Cluster ingress is healthy",
 			},
 		},
 		{
 			name:               "Timeout Failure - remains critical",
-			timeoutMinutes:     2,
-			delayMinutes:       1,
+			timeoutMinutes:     2 * time.Millisecond,
+			delayMinutes:       1 * time.Millisecond,
 			mockStatusSequence: []string{"critical", "critical"},
 			mockErrorSequence:  []error{nil, nil},
 			expectedResult:     false,
 			expectedLogContains: []string{
-				"Cluster ingress is \"critical\", retrying after 1 minute(s)...",
-				"Cluster ingress failed to become healthy after 2 minute(s)",
+				"Cluster ingress is \"critical\", retrying after 1ms...",
+				"Cluster ingress failed to become healthy after 2ms",
 			},
 		},
 		{
 			name:               "Error Handling - GetIngressStatus returns error",
-			timeoutMinutes:     3,
-			delayMinutes:       1,
+			timeoutMinutes:     3 * time.Millisecond,
+			delayMinutes:       1 * time.Millisecond,
 			mockStatusSequence: []string{"", "", "healthy"},
 			mockErrorSequence:  []error{fmt.Errorf("API error"), fmt.Errorf("API error"), nil},
 			expectedResult:     true,
 			expectedLogContains: []string{
-				"failed to get cluster ingress status: API error, retrying after 1 minute(s)...",
+				"failed to get cluster ingress status: API error, retrying after 1ms...",
 				"Cluster ingress is healthy",
 			},
 		},
 		{
 			name:               "Multiple retries with warning status",
-			timeoutMinutes:     2,
-			delayMinutes:       0,
+			timeoutMinutes:     2 * time.Millisecond,
+			delayMinutes:       0 * time.Millisecond,
 			mockStatusSequence: []string{"warning", "warning", "critical", "healthy"},
 			mockErrorSequence:  []error{nil, nil, nil, nil},
 			expectedResult:     true,
 			expectedLogContains: []string{
-				"Cluster ingress is \"warning\", retrying after 0 minute(s)...",
-				"Cluster ingress is \"critical\", retrying after 0 minute(s)...",
+				"Cluster ingress is \"warning\", retrying after 0s...",
+				"Cluster ingress is \"critical\", retrying after 0s...",
 				"Cluster ingress is healthy",
 			},
 		},
 		{
 			name:               "Timeout with persistent errors",
-			timeoutMinutes:     2,
-			delayMinutes:       1,
+			timeoutMinutes:     2 * time.Millisecond,
+			delayMinutes:       1 * time.Millisecond,
 			mockStatusSequence: []string{"", ""},
 			mockErrorSequence:  []error{fmt.Errorf("persistent error"), fmt.Errorf("persistent error")},
 			expectedResult:     false,
 			expectedLogContains: []string{
-				"failed to get cluster ingress status: persistent error, retrying after 1 minute(s)...",
-				"Cluster ingress failed to become healthy after 2 minute(s)",
+				"failed to get cluster ingress status: persistent error, retrying after 1ms...",
+				"Cluster ingress failed to become healthy after 2ms",
 			},
 		},
-		// Add more cases as needed
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mockContainerClient := &containerClientMock{}
 			mockAlbs := &AlbsMock{}
-			mockTimeProvider := &timeProviderMock{}
 
 			mockContainerClient.On("Albs").Return(mockAlbs)
 
@@ -240,13 +239,7 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 					Return(containerv2.IngressStatus{Status: status}, err).Once().Maybe()
 			}
 
-			mockTimeProvider.On("Now").Return().Maybe()
-			mockTimeProvider.On("Sleep", mock.AnythingOfType("time.Duration")).Return().Maybe()
-
-			infoSvc := CloudInfoService{
-				containerClient: mockContainerClient,
-				timeProvider:    mockTimeProvider,
-			}
+			infoSvc := CloudInfoService{containerClient: mockContainerClient}
 
 			// Capture log messages
 			var logMessages []string
@@ -276,7 +269,6 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 			// Verify expectations
 			mockAlbs.AssertExpectations(t)
 			mockContainerClient.AssertExpectations(t)
-			mockTimeProvider.AssertExpectations(t)
 		})
 	}
 }
