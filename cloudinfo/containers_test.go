@@ -143,8 +143,8 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 
 	testCases := []struct {
 		name                string
-		timeoutMinutes      time.Duration
-		delayMinutes        time.Duration
+		timeoutDuration     time.Duration
+		delayDuration       time.Duration
 		mockStatusSequence  []string // Sequence of statuses to return on successive calls
 		mockErrorSequence   []error  // Sequence of errors to return on successive calls
 		expectedResult      bool
@@ -152,8 +152,8 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 	}{
 		{
 			name:               "Immediate Success - healthy on first check",
-			timeoutMinutes:     1 * time.Millisecond,
-			delayMinutes:       1 * time.Millisecond,
+			timeoutDuration:    1 * time.Millisecond,
+			delayDuration:      1 * time.Millisecond,
 			mockStatusSequence: []string{"healthy"},
 			mockErrorSequence:  []error{nil},
 			expectedResult:     true,
@@ -163,8 +163,8 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 		},
 		{
 			name:               "Success After Retries - critical then healthy",
-			timeoutMinutes:     3 * time.Millisecond,
-			delayMinutes:       1 * time.Millisecond,
+			timeoutDuration:    3 * time.Millisecond,
+			delayDuration:      1 * time.Millisecond,
 			mockStatusSequence: []string{"critical", "critical", "healthy"},
 			mockErrorSequence:  []error{nil, nil, nil},
 			expectedResult:     true,
@@ -175,8 +175,8 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 		},
 		{
 			name:               "Timeout Failure - remains critical",
-			timeoutMinutes:     2 * time.Millisecond,
-			delayMinutes:       1 * time.Millisecond,
+			timeoutDuration:    2 * time.Millisecond,
+			delayDuration:      1 * time.Millisecond,
 			mockStatusSequence: []string{"critical", "critical"},
 			mockErrorSequence:  []error{nil, nil},
 			expectedResult:     false,
@@ -187,8 +187,8 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 		},
 		{
 			name:               "Error Handling - GetIngressStatus returns error",
-			timeoutMinutes:     3 * time.Millisecond,
-			delayMinutes:       1 * time.Millisecond,
+			timeoutDuration:    3 * time.Millisecond,
+			delayDuration:      1 * time.Millisecond,
 			mockStatusSequence: []string{"", "", "healthy"},
 			mockErrorSequence:  []error{fmt.Errorf("API error"), fmt.Errorf("API error"), nil},
 			expectedResult:     true,
@@ -199,8 +199,8 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 		},
 		{
 			name:               "Multiple retries with warning status",
-			timeoutMinutes:     2 * time.Millisecond,
-			delayMinutes:       0 * time.Millisecond,
+			timeoutDuration:    2 * time.Millisecond,
+			delayDuration:      0 * time.Millisecond,
 			mockStatusSequence: []string{"warning", "warning", "critical", "healthy"},
 			mockErrorSequence:  []error{nil, nil, nil, nil},
 			expectedResult:     true,
@@ -212,8 +212,8 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 		},
 		{
 			name:               "Timeout with persistent errors",
-			timeoutMinutes:     2 * time.Millisecond,
-			delayMinutes:       1 * time.Millisecond,
+			timeoutDuration:    2 * time.Millisecond,
+			delayDuration:      1 * time.Millisecond,
 			mockStatusSequence: []string{"", ""},
 			mockErrorSequence:  []error{fmt.Errorf("persistent error"), fmt.Errorf("persistent error")},
 			expectedResult:     false,
@@ -249,7 +249,7 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 				}
 			}
 
-			result := infoSvc.CheckClusterIngressHealthy(mockClusterId, tc.timeoutMinutes, tc.delayMinutes, logFunc)
+			result := infoSvc.CheckClusterIngressHealthy(mockClusterId, tc.timeoutDuration, tc.delayDuration, logFunc)
 
 			// Assertions
 			assert.Equal(t, tc.expectedResult, result, "Expected result mismatch")
