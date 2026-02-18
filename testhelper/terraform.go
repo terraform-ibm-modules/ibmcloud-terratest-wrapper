@@ -43,12 +43,12 @@ func RemoveFromStateFileV2(stateFile string, resourceAddress string, tfBinary st
 		cmd.Dir = stateDir
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			errorMsg = fmt.Sprintf("An error occured removingresource '%s' from Statefile '%s': %s", resourceAddress, stateFile, err)
+			errorMsg = fmt.Sprintf("An error occurred removingresource '%s' from Statefile '%s': %s", resourceAddress, stateFile, err)
 			return string(out), errors.New(errorMsg)
 		}
 		return string(out), nil
 	} else {
-		errorMsg = fmt.Sprintf("An error occured Statefile '%s' not found", stateFile)
+		errorMsg = fmt.Sprintf("An error occurred Statefile '%s' not found", stateFile)
 
 		return "", errors.New(errorMsg)
 	}

@@ -19,7 +19,7 @@ const defaultGitUserEnvKey = "GIT_TOKEN_USER"
 const defaultGitTokenEnvKey = "GIT_TOKEN"
 const DefaultWaitJobCompleteMinutes = int16(120) // default 2 hrs wait time
 
-// TestSchematicOptions is the main data struct containing all options related to running a Terraform unit test wihtin IBM Schematics Workspaces
+// TestSchematicOptions is the main data struct containing all options related to running a Terraform unit test within IBM Schematics Workspaces
 type TestSchematicOptions struct {
 	// REQUIRED: a pointer to an initialized testing object.
 	// Typically you would assign the test object used in the unit test.
@@ -41,7 +41,7 @@ type TestSchematicOptions struct {
 	// If any are missing, the test will fail.
 	RequiredEnvironmentVars map[string]string
 
-	// Path to YAML file contaning preferences for how dynamic regions should be chosen.
+	// Path to YAML file containing preferences for how dynamic regions should be chosen.
 	// See examples in cloudinfo/testdata for proper format.
 	BestRegionYAMLPath string
 
@@ -186,7 +186,7 @@ type TestSchematicOptions struct {
 type TestSchematicTerraformVar struct {
 	Name     string      // name of variable
 	Value    interface{} // value of variable
-	DataType string      // the TERRAFORM DATA TYPE of the varialbe (not golang type)
+	DataType string      // the TERRAFORM DATA TYPE of the variable (not golang type)
 	Secure   bool        // true if value should be hidden
 }
 

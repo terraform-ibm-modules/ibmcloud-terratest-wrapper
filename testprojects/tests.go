@@ -32,7 +32,7 @@ type Status struct {
 	AWAITING_PREREQUISITE string
 	AWAITING_INPUT        string
 	NIL                   string
-	UNKOWN                string
+	UNKNOWN               string
 }
 
 // Statuses is a map of the status strings to colorized strings
@@ -1187,7 +1187,7 @@ func (options *TestProjectsOptions) testSetup() error {
 	if repoErr != nil {
 		repoRoot = "."
 	}
-	options.ConfigrationPath = path.Join(repoRoot, options.ConfigrationPath)
+	options.ConfigurationPath = path.Join(repoRoot, options.ConfigurationPath)
 	options.StackConfigurationPath = path.Join(repoRoot, options.StackConfigurationPath)
 	options.StackCatalogJsonPath = path.Join(repoRoot, options.StackCatalogJsonPath)
 

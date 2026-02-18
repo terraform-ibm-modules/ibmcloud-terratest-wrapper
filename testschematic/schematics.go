@@ -86,7 +86,7 @@ func (svc *SchematicsTestService) CreateAuthenticator(ibmcloudApiKey string) {
 }
 
 // GetRefreshToken will use a previously established Authenticator to create a new IAM Token object,
-// if existing is not valid, and return the refresh token propery from the token object.
+// if existing is not valid, and return the refresh token property from the token object.
 func (svc *SchematicsTestService) GetRefreshToken() (string, error) {
 	response, err := svc.ApiAuthenticator.RequestToken()
 	if err != nil {

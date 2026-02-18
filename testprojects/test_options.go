@@ -59,9 +59,9 @@ type TestProjectsOptions struct {
 	// Default: https://projects.api.cloud.ibm.com
 	ProjectsApiURL string
 
-	// ConfigrationPath Path to the configuration file that will be used to create the project.
+	// ConfigurationPath Path to the configuration file that will be used to create the project.
 	// Deprecated: Use StackConfigurationPath instead.
-	ConfigrationPath string
+	ConfigurationPath string
 	// StackConfigurationPath Path to the configuration file that will be used to create the stack.
 	StackConfigurationPath string
 	StackCatalogJsonPath   string

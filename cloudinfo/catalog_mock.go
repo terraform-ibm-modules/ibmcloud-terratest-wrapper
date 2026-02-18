@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"sync"
+	"time"
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
@@ -109,6 +110,16 @@ func (m *MockCloudInfoServiceForPermutation) GetThreadLock() *sync.Mutex {
 func (m *MockCloudInfoServiceForPermutation) GetClusterIngressStatus(clusterId string) (string, error) {
 	args := m.Called(clusterId)
 	return args.String(0), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutDuration time.Duration, clusterCheckDelayDuration time.Duration, logf func(...any)) bool {
+	args := m.Called(clusterId)
+	return args.Bool(0)
+}
+
+func (m *MockCloudInfoServiceForPermutation) CheckClusterIngressHealthyDefaultTimeout(clusterId string, logf func(...any)) bool {
+	args := m.Called(clusterId)
+	return args.Bool(0)
 }
 
 func (m *MockCloudInfoServiceForPermutation) GetCatalogVersionByLocator(locator string) (*catalogmanagementv1.Version, error) {

@@ -56,7 +56,7 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 
 	// WORKSPACE SETUP
 	// In this section of the test we are setting up the workspace.
-	// Any errors in this section will be considerd "unexpected" and returned to the calling unit test
+	// Any errors in this section will be considered "unexpected" and returned to the calling unit test
 	// to short-circuit and quit the test.
 	// The official start of the unit test, with assertions, will begin AFTER workspace is properly created.
 	svc, setupErr := testSetup(options)
@@ -312,7 +312,7 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 }
 
 // testSetup is a helper function that will initialize and setup the SchematicsTestService in preparation for a test
-// Any errors in this section will be considerd "unexpected" and returned to the calling unit test
+// Any errors in this section will be considered "unexpected" and returned to the calling unit test
 // to short-circuit and quit the test.
 func testSetup(options *TestSchematicOptions) (*SchematicsTestService, error) {
 	// create new schematic service with authenticator, set pointer of service in options for use later
@@ -366,7 +366,7 @@ func testSetup(options *TestSchematicOptions) (*SchematicsTestService, error) {
 	var testRepoErr error
 	svc.TestTerraformRepo, svc.TestTerraformRepoBranch, testRepoErr = common.GetCurrentPrRepoAndBranch()
 	if testRepoErr != nil {
-		return nil, fmt.Errorf("error determining PR Test repostory and branch: %w", testRepoErr)
+		return nil, fmt.Errorf("error determining PR Test repository and branch: %w", testRepoErr)
 	}
 
 	svc.BaseTerraformRepo, svc.BaseTerraformRepoBranch = common.GetBaseRepoAndBranch(options.BaseTerraformRepo, options.BaseTerraformBranch)
@@ -448,7 +448,7 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 			if options.Testing.Failed() && common.DoNotDestroyOnFailure() {
 				options.Testing.Log("[SCHEMATICS] Schematics APPLY failed. Debug the Test and delete resources manually.")
 			} else {
-				options.Testing.Log("Preforming Teardown")
+				options.Testing.Log("Performing Teardown")
 				options.Testing.Log(fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
 
 				destroySuccess := false // will only flip to true if job completes

@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv1"
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
@@ -105,4 +106,56 @@ func (infoSvc *CloudInfoService) GetKubeVersions(platform string) ([]string, err
 	}
 
 	return versions, nil
+}
+
+// CheckClusterIngressHealthyDefaultTimeout checks the ingress status of the specified cluster using default clusterCheckTimeoutDuration and clusterCheckDelayDuration values of 10 minutes and a delay of 1 minute between status checks respectively.
+// This method is a convenience wrapper around the `CheckClusterIngressHealthy` method.
+// Parameters:
+// - clusterId: The ID or name of the cluster whose ingress status is to be checked.
+// - logf: A logging function to report status updates.
+func (infoSvc *CloudInfoService) CheckClusterIngressHealthyDefaultTimeout(clusterId string, logf func(...any)) bool {
+	return infoSvc.CheckClusterIngressHealthy(clusterId, 10*time.Minute, 1*time.Minute, logf)
+}
+
+// CheckClusterIngressHealthy checks the ingress status of the specified cluster and asserts that it becomes healthy within a specified timeout period.
+// This method performs the following steps:
+// 1. Continuously checks the ingress status of the cluster identified by `clusterId`.
+// 2. If the ingress status is "healthy", the method sets the result as healthy and exits the loop.
+// 3. If the ingress status is "critical" or an error occurs, the method retries the check after a delay, continuing until either the status becomes "healthy" or the specified timeout is reached.
+// 4. If the timeout is reached and the status is still "critical" or an error persists, the method exits the loop.
+// Parameters:
+// - clusterId: The ID or name of the cluster whose ingress status is to be checked.
+// - clusterCheckTimeoutDuration: The maximum time allowed for checking the ingress status.
+// - clusterCheckDelayDuration: The duration to wait between status checks.
+// - logf: A logging function to report status updates.
+// Returns:
+// A bool value indicating if cluster is healthy or not.
+func (infoSvc *CloudInfoService) CheckClusterIngressHealthy(clusterId string, clusterCheckTimeoutDuration time.Duration, clusterCheckDelayDuration time.Duration, logf func(...any)) bool {
+	// logFunc will handle nil check for logf
+	logFunc := func(args ...any) {
+		if logf != nil {
+			logf(args...)
+		}
+	}
+	startTime := time.Now()
+	endTime := startTime.Add(clusterCheckTimeoutDuration)
+
+	// loop till a duration of clusterCheckTimeoutDuration
+	for time.Now().Before(endTime) {
+		ingressStatus, err := infoSvc.GetClusterIngressStatus(clusterId)
+		if ingressStatus == "healthy" && err == nil {
+			logFunc("Cluster ingress is healthy")
+			return true
+		} else {
+			if err == nil {
+				logFunc(fmt.Sprintf("Cluster ingress is %q, retrying after %v...", ingressStatus, clusterCheckDelayDuration))
+			} else {
+				logFunc(fmt.Sprintf("%v, retrying after %v...", err, clusterCheckDelayDuration))
+			}
+			time.Sleep(clusterCheckDelayDuration)
+		}
+	}
+
+	logFunc(fmt.Sprintf("Cluster ingress failed to become healthy after %v", clusterCheckTimeoutDuration))
+	return false
 }

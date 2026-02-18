@@ -168,7 +168,7 @@ func regionHasActivityTracker(region string, activityTrackerList []resourcecontr
 }
 
 // GetTestRegionsByPriority is a method for receiver CloudInfoService that will use the service regionsData
-// to determine a priorty order and region eligibility for test resources to be deployed.
+// to determine a priority order and region eligibility for test resources to be deployed.
 // The returned array will then be used by various methods to determine best region to use for different test scenarios.
 // Returns an array of RegionData struct, and error.
 func (infoSvc *CloudInfoService) GetTestRegionsByPriority() ([]RegionData, error) {
@@ -334,7 +334,7 @@ func (infoSvc *CloudInfoService) RemoveRegionForTest(regionID string) {
 	}
 }
 
-// countPowerConnectionsInZone is a private helper function that will return a count of occurances of
+// countPowerConnectionsInZone is a private helper function that will return a count of occurrences of
 // the provided zone in a list of existing Powercloud connections.
 func countPowerConnectionsInZone(zone string, connections []*PowerCloudConnectionDetail) int {
 	count := 0

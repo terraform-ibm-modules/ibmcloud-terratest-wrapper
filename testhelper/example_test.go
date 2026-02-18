@@ -41,7 +41,7 @@ func Example_default() {
 	t := &testing.T{}
 
 	t.Run("unit test", func(t *testing.T) {
-		// create TestOptions using Default contructor. This will do several things for you:
+		// create TestOptions using Default constructor. This will do several things for you:
 		// * Prefix will have random string added to end
 		// * Validate required OS Environment variables are set
 		// * Dynamically choose best region for test, if region not supplied
@@ -84,7 +84,7 @@ func Example_standard_inputs() {
 	t := &testing.T{}
 
 	t.Run("unit test", func(t *testing.T) {
-		// create TestOptions using Default contructor, and including some "standard" terraform input variables to your supplied list.
+		// create TestOptions using Default constructor, and including some "standard" terraform input variables to your supplied list.
 		// This will do several things for you:
 		// * Prefix will have random string added to end
 		// * Validate required OS Environment variables are set
@@ -182,7 +182,7 @@ func Example_advanced_settings() {
 	t := &testing.T{}
 
 	t.Run("advanced unit test", func(t *testing.T) {
-		// create TestOptions using Default contructor. This will do several things for you:
+		// create TestOptions using Default constructor. This will do several things for you:
 		// * Prefix will have random string added to end
 		// * Validate required OS Environment variables are set
 		// * Dynamically choose best region for test, if region not supplied
