@@ -1075,7 +1075,7 @@ func (options *TestProjectsOptions) setupOffering() error {
 		// Create new offering if sharing is disabled or no existing offering
 		version := fmt.Sprintf("v0.0.1-dev-stack-%s", options.Prefix)
 		options.Logger.ShortInfo(fmt.Sprintf("Importing the stack from branch: %s as version: %s", *options.currentBranchUrl, version))
-		offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, "", "click-and-go", version, "")
+		offering, err := options.CloudInfoService.ImportOffering(*options.catalog.ID, *options.currentBranchUrl, "", options.CatalogFlavorName, version, "")
 		if err != nil {
 			options.Logger.CriticalError(fmt.Sprintf("Error importing the offering: %v", err))
 			options.Testing.Fail()
