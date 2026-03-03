@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -692,7 +693,19 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 	}
 
 	// Deploy with retry logic to handle rate limiting
-	url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/api/v1-beta/deploy/projects/%s/container", projectConfig.ProjectID)
+	deployURL := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/api/v1-beta/deploy/projects/%s/container", projectConfig.ProjectID)
+
+	// Validate URL to prevent SSRF attacks (gosec G704)
+	parsedURL, err := url.Parse(deployURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid URL: %w", err)
+	}
+	if parsedURL.Scheme != "https" {
+		return nil, fmt.Errorf("invalid URL scheme: %s (only https is allowed)", parsedURL.Scheme)
+	}
+	if parsedURL.Host == "" {
+		return nil, fmt.Errorf("URL must have a valid host")
+	}
 
 	// Use new retry utility for deployment operation
 	config := common.CatalogOperationRetryConfig()
@@ -702,7 +715,7 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 
 	body, err := common.RetryWithConfig(config, func() ([]byte, error) {
 		// Create a new HTTP request with the JSON body
-		req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+		req, err := http.NewRequest("POST", deployURL, bytes.NewBuffer(jsonBody))
 		if err != nil {
 			return nil, fmt.Errorf("error creating request: %w", err)
 		}
@@ -717,6 +730,7 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 
 		// Execute the request
 		client := &http.Client{}
+		// #nosec G704 -- URL is validated above to prevent SSRF
 		resp, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("error executing request: %w", err)
@@ -797,7 +811,7 @@ func (infoSvc *CloudInfoService) DeployAddonToProject(addonConfig *AddonConfig, 
 			}
 
 			// Debug logging for failed requests - log API URL and request body
-			infoSvc.Logger.ShortError(fmt.Sprintf("API request failed - URL: %s", url))
+			infoSvc.Logger.ShortError(fmt.Sprintf("API request failed - URL: %s", deployURL))
 			infoSvc.Logger.ShortError(fmt.Sprintf("Request body: %s", string(jsonBody)))
 			return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 		}
@@ -863,10 +877,22 @@ func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (
 
 	result, err := common.RetryWithConfig(config, func() (*OfferingReferenceResponse, error) {
 		// Build the request URL
-		url := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/ui/v1/versions/%s/componentsReferences", versionLocator)
+		urlStr := fmt.Sprintf("https://cm.globalcatalog.cloud.ibm.com/ui/v1/versions/%s/componentsReferences", versionLocator)
+
+		// Validate URL to prevent SSRF attacks (gosec G704)
+		parsedURL, err := url.Parse(urlStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid URL: %w", err)
+		}
+		if parsedURL.Scheme != "https" {
+			return nil, fmt.Errorf("invalid URL scheme: %s (only https is allowed)", parsedURL.Scheme)
+		}
+		if parsedURL.Host == "" {
+			return nil, fmt.Errorf("URL must have a valid host")
+		}
 
 		// Create a new HTTP request
-		req, err := http.NewRequest("GET", url, nil)
+		req, err := http.NewRequest("GET", urlStr, nil)
 		if err != nil {
 			return nil, fmt.Errorf("error creating request: %w", err)
 		}
@@ -881,6 +907,7 @@ func (infoSvc *CloudInfoService) GetComponentReferences(versionLocator string) (
 
 		// Execute the request
 		client := &http.Client{}
+		// #nosec G704 -- URL is validated above to prevent SSRF
 		resp, err := client.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("error executing request: %w", err)

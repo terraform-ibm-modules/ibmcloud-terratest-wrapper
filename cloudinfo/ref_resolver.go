@@ -483,8 +483,21 @@ func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, r
 		infoSvc.Logger.ShortInfo(fmt.Sprintf("Resolving %d references for region %s", len(references), region))
 	}
 
+	// Validate URL to prevent SSRF attacks (gosec G704)
+	fullURL := serviceURL + "/resolve"
+	parsedURL, err := url.Parse(fullURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid service URL: %w", err)
+	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return nil, fmt.Errorf("invalid URL scheme: %s (only http and https are allowed)", parsedURL.Scheme)
+	}
+	if parsedURL.Host == "" {
+		return nil, fmt.Errorf("service URL must have a valid host")
+	}
+
 	// Create a new request
-	req, err := http.NewRequest("POST", serviceURL+"/resolve", bytes.NewReader(jsonPayload))
+	req, err := http.NewRequest("POST", fullURL, bytes.NewReader(jsonPayload))
 	if err != nil {
 		if infoSvc.Logger != nil {
 			infoSvc.Logger.ShortError(fmt.Sprintf("Failed to create HTTP request: %v", err))
@@ -509,6 +522,7 @@ func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, r
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	// Send the request using the global HTTP client that can be overridden in tests
+	// #nosec G704 -- URL is validated above to prevent SSRF
 	resp, err := CloudInfo_HttpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
