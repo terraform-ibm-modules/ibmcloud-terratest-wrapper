@@ -265,10 +265,10 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 				if assert.Equalf(options.Testing, SchematicsJobStatusCompleted, consistencyPlanJobStatus, "%s PLAN has failed with status %s - %s", consistencyTypeForLog, consistencyPlanJobStatus, svc.WorkspaceNameForLog) {
 					// if the consistency plan was successful, get the plan json and check consistency
 					consistencyPlanJson, consistencyPlanJsonErr := svc.TestOptions.CloudInfoService.GetSchematicsJobPlanJson(*consistencyPlanResponse.Activityid, svc.WorkspaceLocation)
-					if assert.NoErrorf(options.Testing, consistencyPlanJsonErr, "error retrieving %s PLAN JSON - %w - %s", consistencyTypeForLog, consistencyPlanJsonErr, svc.WorkspaceNameForLog) {
+					if assert.NoErrorf(options.Testing, consistencyPlanJsonErr, "error retrieving %s PLAN JSON - %s - %s", consistencyTypeForLog, consistencyPlanJsonErr, svc.WorkspaceNameForLog) {
 						// convert the json string into a terratest plan struct
 						planStruct, planStructErr := terraform.ParsePlanJSON(consistencyPlanJson)
-						if assert.NoErrorf(options.Testing, planStructErr, "error converting %s plan string into struct: %w -%s", consistencyTypeForLog, planStructErr, svc.WorkspaceNameForLog) {
+						if assert.NoErrorf(options.Testing, planStructErr, "error converting %s plan string into struct: %s -%s", consistencyTypeForLog, planStructErr, svc.WorkspaceNameForLog) {
 							// not consuming the boolean return from CheckConsistency on purpose, as it does not let us know what we need to know here
 							testhelper.CheckConsistency(planStruct, options)
 						}
