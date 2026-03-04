@@ -509,6 +509,7 @@ func (infoSvc *CloudInfoService) doResolveReferencesWithContext(region string, r
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	// Send the request using the global HTTP client that can be overridden in tests
+	// #nosec G704 -- False positive: URL is strictly allowlisted via endpoints
 	resp, err := CloudInfo_HttpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
