@@ -665,11 +665,13 @@ func sshAuth(remoteURL string) (transport.AuthMethod, error) {
 	}
 
 	// 3. Try default key file ~/.ssh/id_rsa
-	home := os.Getenv("HOME")
-	if home != "" {
+	home, err := os.UserHomeDir()
+	if err == nil && home != "" {
 		defaultKey := filepath.Join(home, ".ssh", "id_rsa")
-		if _, err := os.Stat(defaultKey); err == nil {
-			auth, err := gitssh.NewPublicKeysFromFile("git", defaultKey, "")
+		cleanKey := filepath.Clean(defaultKey)
+
+		if _, err := os.Stat(cleanKey); err == nil {
+			auth, err := gitssh.NewPublicKeysFromFile("git", cleanKey, "")
 			authValidationErr := validateAuth(auth, remoteURL)
 			if err == nil && authValidationErr == nil {
 				return auth, nil
@@ -774,6 +776,7 @@ func lookupNetrcMachine(remoteURL string, machines []netrcMachine) *netrcMachine
 }
 
 func parseNetrcFile(path string) ([]netrcMachine, error) {
+	// #nosec G703 -- False Positive : This is a generic utility; paths are assumed trusted by caller
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
