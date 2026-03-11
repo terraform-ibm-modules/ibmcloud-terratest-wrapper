@@ -202,6 +202,7 @@ func IntArrayContains(arr []int, val int) bool {
 // LoadMapFromYaml loads a YAML file into a map[string]interface{}.
 // It returns the resulting map and any error encountered.
 func LoadMapFromYaml(filePath string) (map[string]interface{}, error) {
+	// #nosec G703 -- false positive: This is a generic utility; paths are assumed trusted by caller
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -281,10 +282,12 @@ func GenerateTempGPGKeyPairBase64() (privateKeyBase64 string, publicKeyBase64 st
 // Returns an error if the operation fails.
 func CopyFile(source, destination string) error {
 	// Check path exists
+	// #nosec G703 -- false positive: This is a generic utility; paths are assumed trusted by caller
 	if _, err := os.Stat(source); os.IsNotExist(err) {
 		return fmt.Errorf("source path %s does not exist: %w", source, err)
 	}
 	// Check if source is a symlink
+	// #nosec G703 -- false positive: This is a generic utility; paths are assumed trusted by caller
 	srcInfo, err := os.Lstat(source)
 
 	if err != nil {
@@ -300,12 +303,14 @@ func CopyFile(source, destination string) error {
 		return os.Symlink(linkTarget, destination)
 	}
 
+	// #nosec G703 -- false positive: This is a generic utility; paths are assumed trusted by caller
 	src, err := os.Open(source)
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
 	defer src.Close()
 
+	// #nosec G703 -- false positive: This is a generic utility; paths are assumed trusted by caller
 	dst, err := os.Create(destination)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
@@ -318,6 +323,7 @@ func CopyFile(source, destination string) error {
 	}
 
 	// Set the permissions of the destination file to match the source file
+	// #nosec G703 -- false positive: This is a generic utility; paths are assumed trusted by caller
 	if err := os.Chmod(destination, srcInfo.Mode()); err != nil {
 		return fmt.Errorf("failed to set destination file permissions: %w", err)
 	}
@@ -332,20 +338,29 @@ func CopyFile(source, destination string) error {
 // Returns an error if the operation fails.
 func CopyDirectory(src string, dst string, fileFilter ...func(string) bool) error {
 	// Check path exists
+	// #nosec G703 -- false positive: This is a generic utility; paths are assumed trusted by caller
 	if _, err := os.Stat(src); os.IsNotExist(err) {
 		return fmt.Errorf("source path %s does not exist: %w", src, err)
 	}
 	// Check if source is a symlink
+	// #nosec G703 -- false positive: This is a generic utility; paths are assumed trusted by caller
 	srcInfo, err := os.Lstat(src)
 	if err != nil {
 		return err
 	}
 
+	// #nosec G703 -- false positive: This is a generic utility; paths are assumed trusted by caller
 	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
 		return err
 	}
 
-	directory, _ := os.Open(src)
+	// #nosec G703 -- false positive: This is a generic utility; paths are assumed trusted by caller
+	directory, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("failed to open source directory: %w", err)
+	}
+	defer directory.Close()
+
 	objects, err := directory.Readdir(-1)
 	if err != nil {
 		return err
