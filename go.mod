@@ -1,6 +1,6 @@
 module github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper
 
-go 1.26
+go 1.26.1
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240719075425-078fcb3a55be
