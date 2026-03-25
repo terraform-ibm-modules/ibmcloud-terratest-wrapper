@@ -65,7 +65,8 @@ func (infoSvc *CloudInfoService) GetClusterIngressStatus(clusterId string) (stri
 }
 
 // GetKubeVersions retrieves the available Kubernetes or OpenShift versions
-// for a given platform and returns them as a slice of "major.minor" version strings.
+// for a given platform and returns them as a slice of "major.minor" version strings,
+// along with the default version for the platform.
 //
 // KubeVersions().ListV1 returns a map like:
 // map[
@@ -79,33 +80,44 @@ func (infoSvc *CloudInfoService) GetClusterIngressStatus(clusterId string) (stri
 //
 // The platform parameter must match a key returned by the API (e.g., "kubernetes" or "openshift").
 // This works for both classic and VPC clusters.
-func (infoSvc *CloudInfoService) GetKubeVersions(platform string) ([]string, error) {
+//
+// Returns:
+// - versions: slice of all available version strings in "major.minor" format
+// - defaultVersion: the default version string in "major.minor" format, or empty string if no default is set
+// - error: any error encountered during the operation
+func (infoSvc *CloudInfoService) GetKubeVersions(platform string) ([]string, string, error) {
 	// Get the container V1 client from the service
 	containerV1Client := infoSvc.containerV1Client
 
 	// Fetch all available cluster versions (kubernetes and openShift) using the V1 API
 	stableVersions, err := containerV1Client.KubeVersions().ListV1(containerv1.ClusterTargetHeader{})
 	if err != nil {
-		return nil, fmt.Errorf("error listing cluster versions: %w", err)
+		return nil, "", fmt.Errorf("error listing cluster versions: %w", err)
 	}
 
 	if len(stableVersions) == 0 {
-		return nil, fmt.Errorf("no kubernetes or openShift versions returned")
+		return nil, "", fmt.Errorf("no kubernetes or openShift versions returned")
 	}
 
 	// Get the versions for the requested platform (e.g., "kubernetes" or "openshift")
 	platformVersions, ok := stableVersions[platform]
 	if !ok || len(platformVersions) == 0 {
-		return nil, fmt.Errorf("no versions available for platform: %s", platform)
+		return nil, "", fmt.Errorf("no versions available for platform: %s", platform)
 	}
 
 	// Convert each KubeVersion struct into a "major.minor" string e.g "4.16"
+	// and identify the default version
 	versions := make([]string, 0, len(platformVersions))
+	defaultVersion := ""
 	for _, v := range platformVersions {
-		versions = append(versions, fmt.Sprintf("%d.%d", v.Major, v.Minor))
+		versionStr := fmt.Sprintf("%d.%d", v.Major, v.Minor)
+		versions = append(versions, versionStr)
+		if v.Default {
+			defaultVersion = versionStr
+		}
 	}
 
-	return versions, nil
+	return versions, defaultVersion, nil
 }
 
 // CheckClusterIngressHealthyDefaultTimeout checks the ingress status of the specified cluster using default clusterCheckTimeoutDuration and clusterCheckDelayDuration values of 10 minutes and a delay of 1 minute between status checks respectively.

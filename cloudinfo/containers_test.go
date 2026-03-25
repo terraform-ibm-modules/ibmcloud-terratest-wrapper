@@ -274,8 +274,8 @@ func TestCheckClusterIngressHealthy(t *testing.T) {
 }
 
 // TestGetKubeVersions validates that GetKubeVersions returns the correct
-// major.minor version strings for supported platforms and returns an
-// error for unsupported platforms.
+// major.minor version strings and default version for supported platforms
+// and returns an error for unsupported platforms.
 func TestGetKubeVersions(t *testing.T) {
 	mockData := containerv1.V1Version{
 		"kubernetes": []containerv1.KubeVersion{
@@ -289,20 +289,23 @@ func TestGetKubeVersions(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string   // Descriptive name of the test case
-		platform    string   // Platform passed to GetKubeVersions
-		expected    []string // Expected major.minor versions
-		expectError bool     // Indicates whether an error is expected
+		name            string   // Descriptive name of the test case
+		platform        string   // Platform passed to GetKubeVersions
+		expected        []string // Expected major.minor versions
+		expectedDefault string   // Expected default version
+		expectError     bool     // Indicates whether an error is expected
 	}{
 		{
-			name:     "openshift platform",
-			platform: "openshift",
-			expected: []string{"4.16", "4.19"},
+			name:            "openshift platform",
+			platform:        "openshift",
+			expected:        []string{"4.16", "4.19"},
+			expectedDefault: "4.19",
 		},
 		{
-			name:     "kubernetes platform",
-			platform: "kubernetes",
-			expected: []string{"1.31", "1.33"},
+			name:            "kubernetes platform",
+			platform:        "kubernetes",
+			expected:        []string{"1.31", "1.33"},
+			expectedDefault: "1.33",
 		},
 		{
 			name:        "invalid platform",
@@ -325,14 +328,16 @@ func TestGetKubeVersions(t *testing.T) {
 				containerV1Client: mockContainerV1Client,
 			}
 
-			versions, err := infoSvc.GetKubeVersions(tt.platform)
+			versions, defaultVersion, err := infoSvc.GetKubeVersions(tt.platform)
 
 			if tt.expectError {
 				assert.Error(t, err)
 				assert.Nil(t, versions)
+				assert.Empty(t, defaultVersion)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expected, versions)
+				assert.Equal(t, tt.expectedDefault, defaultVersion)
 			}
 		})
 	}
