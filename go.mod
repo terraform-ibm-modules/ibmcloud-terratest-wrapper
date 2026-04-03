@@ -11,7 +11,7 @@ require (
 	github.com/IBM/project-go-sdk v0.4.0
 	github.com/IBM/schematics-go-sdk v0.4.0
 	github.com/IBM/vpc-go-sdk v1.0.2
-	github.com/go-git/go-git/v5 v5.17.0
+	github.com/go-git/go-git/v5 v5.17.2
 	github.com/go-openapi/errors v0.22.7
 	github.com/go-openapi/strfmt v0.26.1
 	github.com/google/go-cmp v0.7.0
@@ -31,7 +31,7 @@ require (
 	github.com/agext/levenshtein v1.2.3 // indirect
 	github.com/apparentlymart/go-textseg/v15 v15.0.0 // indirect
 	github.com/bgentry/go-netrc v0.0.0-20140422174119-9fd32a8b3d3d // indirect
-	github.com/cloudflare/circl v1.6.1 // indirect
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
