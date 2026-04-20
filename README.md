@@ -215,3 +215,26 @@ go test -v ./cloudinfo
 # run all packages tests, skipping template tests that exist in common-dev-assets
 go test -v $(go list ./... | grep -v /common-dev-assets/)
 ```
+
+### Testing wrapper changes in a pipeline using go.work
+
+When you make changes to the `ibmcloud-terratest-wrapper` and want to test those changes in a pipeline, you can use a `go.work` file:
+
+1. (Optional) Create a fork of the testwrapper repository
+2. Create a plain git tag on the most current commit of your branch (just a tag, not a release):
+   ```bash
+   git tag v1.46.0-alpha
+   git push origin v1.46.0-alpha
+   ```
+3. In your test repository, create a `go.work` file with the following content:
+   ```go
+   go 1.22.4
+
+   use .
+
+   replace github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper => github.com/YOUR_USERNAME/ibmcloud-terratest-wrapper v1.46.0-alpha
+   ```
+   **Note:** Creating a fork is optional. You can replace `YOUR_USERNAME` with `terraform-ibm-modules` to use the main repository directly with your tag.
+4. Commit the `go.work` file to your test repository
+
+**Result:** The GitHub Actions pipeline will run using your unreleased testwrapper changes, allowing you to validate your modifications before merging them to the main branch.
