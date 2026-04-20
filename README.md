@@ -237,4 +237,4 @@ When you make changes to the `ibmcloud-terratest-wrapper` and want to test those
    **Note:** Creating a fork is optional. You can replace `YOUR_USERNAME` with `terraform-ibm-modules` to use the main repository directly with your tag.
 4. Commit the `go.work` file to your test repository
 
-**Result:** The GitHub Actions pipeline will run using your unreleased testwrapper changes, allowing you to validate your modifications before merging them to the main branch.
+**Result:** The pipeline will run using your unreleased testwrapper changes, allowing you to validate your modifications before merging them to the main branch.
