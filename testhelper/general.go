@@ -14,7 +14,6 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
-// TEST COMMENT: Testing go.work documentation approach
 
 const ForceTestRegionEnvName = "FORCE_TEST_REGION"
 
