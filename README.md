@@ -226,7 +226,7 @@ When you make changes to the `ibmcloud-terratest-wrapper` and want to test those
    git tag v1.46.0-alpha
    git push origin v1.46.0-alpha
    ```
-3. In your test repository, create a `go.work` file with the following content:
+3. In your test repository (a different repository that uses this wrapper), create a `go.work` file with the following content:
    ```go
    go 1.22.4
 
@@ -234,7 +234,7 @@ When you make changes to the `ibmcloud-terratest-wrapper` and want to test those
 
    replace github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper => github.com/YOUR_USERNAME/ibmcloud-terratest-wrapper v1.46.0-alpha
    ```
-   **Note:** Creating a fork is optional. You can replace `YOUR_USERNAME` with `terraform-ibm-modules` to use the main repository directly with your tag.
+   **Note:** Use the Go version from your test repository's `go.mod` file (the `1.22.4` shown here is just an example). Creating a fork is optional - you can replace `YOUR_USERNAME` with `terraform-ibm-modules` to use the main repository directly with your tag.
 4. Commit the `go.work` file to your test repository
 
 **Result:** The pipeline will run using your unreleased testwrapper changes, allowing you to validate your modifications before merging them to the main branch.
