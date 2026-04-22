@@ -218,15 +218,32 @@ go test -v $(go list ./... | grep -v /common-dev-assets/)
 
 ### Testing wrapper changes in a pipeline using go.work
 
-When you make changes to the `ibmcloud-terratest-wrapper` and want to test those changes in a pipeline, you can use a `go.work` file:
+When you make changes to the `ibmcloud-terratest-wrapper` and want to test those changes in a pipeline before merging, you can use a `go.work` file to temporarily replace the wrapper dependency.
 
-1. (Optional) Create a fork of the testwrapper repository
-2. Create a plain git tag on the most current commit of your branch (just a tag, not a release):
+#### Prerequisites
+
+- A fork of the `ibmcloud-terratest-wrapper` repository
+- A working repository (e.g., a Terraform module) that uses this wrapper
+
+#### Steps
+
+1. **Fork the testwrapper repository**
+
+   Create a fork of the `ibmcloud-terratest-wrapper` repository if you haven't already.
+
+2. **Create a git tag in your fork**
+
+   In your forked testwrapper repository, create a git tag on your branch. This should be a tag, not a release.
+
    ```bash
    git tag v1.46.0-alpha
    git push origin v1.46.0-alpha
    ```
-3. In your test repository (a different repository that uses this wrapper), create a `go.work` file with the following content:
+
+3. **Create a go.work file**
+
+   In the working repository where you want to test the new testwrapper changes, create a `go.work` file in the root directory with the following content:
+
    ```go
    go 1.22.4
 
@@ -234,7 +251,16 @@ When you make changes to the `ibmcloud-terratest-wrapper` and want to test those
 
    replace github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper => github.com/YOUR_USERNAME/ibmcloud-terratest-wrapper v1.46.0-alpha
    ```
-   **Note:** Use the Go version from your test repository's `go.mod` file (the `1.22.4` shown here is just an example). Creating a fork is optional - you can replace `YOUR_USERNAME` with `terraform-ibm-modules` to use the main repository directly with your tag.
-4. Commit the `go.work` file to your test repository
 
-**Result:** The pipeline will run using your unreleased testwrapper changes, allowing you to validate your modifications before merging them to the main branch.
+   Replace the following placeholders:
+   - `YOUR_USERNAME`: Your GitHub username
+   - `1.22.4`: The Go version from your working repository's `go.mod` file
+   - `v1.46.0-alpha`: The tag you created in step 2
+
+4. **Commit and push**
+
+   Commit the `go.work` file to your working repository and push to create or update a pull request.
+
+#### Result
+
+The pipeline will run using your unreleased testwrapper changes, allowing you to validate your modifications before merging them to the main branch. After testing is complete, remove the `go.work` file before merging your changes.
