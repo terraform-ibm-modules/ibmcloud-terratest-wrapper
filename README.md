@@ -275,28 +275,26 @@ The `go.work` file allows you to temporarily override the wrapper dependency for
 This method uses the `go get` command to directly update the wrapper dependency in your `go.mod` file.
 
 1. **Update the wrapper dependency**
-   
+
    In your working repository, run:
-   
+
    ```bash
    go get github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper@YOUR_BRANCH
    ```
-   
+
    Replace `YOUR_BRANCH` with your wrapper branch name. This command updates both `go.mod` and `go.sum` files with a version pointing to your branch.
 
 2. **Run tests locally**
-   
+
    ```bash
    cd tests
    go test -v
    ```
 
 3. **Revert changes after testing**
-   
+
    After testing is complete, revert the dependency changes:
-   
+
    ```bash
    git checkout go.mod go.sum
    ```
-
-
