@@ -216,52 +216,63 @@ go test -v ./cloudinfo
 go test -v $(go list ./... | grep -v /common-dev-assets/)
 ```
 
-### Testing wrapper changes using go.work
+### Testing wrapper changes locally
 
-When you make changes to the `ibmcloud-terratest-wrapper` and want to test those changes before merging, you can use a `go.work` file to temporarily replace the wrapper dependency.
+When you make changes to the `ibmcloud-terratest-wrapper` and want to test those changes locally before merging, you can use one of two methods: the `go.work` file approach or the `go get` command approach. Both methods allow you to test your wrapper changes in a working repository.
 
 #### Prerequisites
 
-- A working repository (e.g., a Terraform module) that uses this wrapper
-- (Optional) A fork of the `ibmcloud-terratest-wrapper` repository
+- A working repository (for example, a Terraform module) that uses this wrapper
+- For the `go.work` method: A fork of this repository (optional but recommended)
 
-#### Steps
+#### Method 1: Using go.work
 
-1. **Create a git tag**
+The `go.work` file allows you to temporarily override the wrapper dependency for local testing.
 
-   In your testwrapper repository (or fork if using one), create a git tag on your branch. This should be a tag, not a release.
+1. **Create a git tag in the wrapper repository**
+
+   In your wrapper repository (or fork), create a git tag on your development branch:
 
    ```bash
    git tag v1.46.0-alpha
    git push origin v1.46.0-alpha
    ```
 
-3. **Create a go.work file**
+2. **Create a go.work file**
 
-   In the working repository where you want to test the new testwrapper changes, create a `go.work` file with the following content:
+   In your working repository, create a `go.work` file with the following content:
 
    ```go
-   go 1.22.4
+   go 1.26.1
 
    use .
 
    replace github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper => github.com/YOUR_USERNAME_OR_ORG/ibmcloud-terratest-wrapper v1.46.0-alpha
    ```
 
-   Replace the following placeholders:
-   - `YOUR_USERNAME_OR_ORG`: Your GitHub username (if using a fork) or `terraform-ibm-modules` (if using main repo)
-   - `1.22.4`: The Go version from your working repository's `go.mod` file
+   Replace the placeholders:
+   - `YOUR_USERNAME_OR_ORG`: Your GitHub username (if using a fork) or `terraform-ibm-modules` (if using the main repo)
+   - `1.26.1`: The Go version from your working repository's `go.mod` file
    - `v1.46.0-alpha`: The tag you created in step 1
 
-#### Result
+3. **Run tests locally**
 
-Your local tests will run using your unreleased testwrapper changes, allowing you to validate your modifications before merging them to the main branch. After testing is complete, remove the `go.work` file.
+   ```bash
+   cd tests
+   go test -v
+   ```
 
-### Alternative: Testing wrapper changes using go get
+4. **Clean up**
 
-As an alternative to the go.work approach, you can directly update the wrapper dependency using `go get`. This method is simpler but modifies your `go.mod` file directly.
+   After testing is complete, remove the `go.work` file:
 
-#### Steps
+   ```bash
+   rm go.work
+   ```
+
+#### Method 2: Using go get
+
+This method uses the `go get` command to directly update the wrapper dependency in your `go.mod` file.
 
 1. **Update the wrapper dependency**
    
@@ -271,7 +282,7 @@ As an alternative to the go.work approach, you can directly update the wrapper d
    go get github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper@YOUR_BRANCH
    ```
    
-   Replace `YOUR_BRANCH` with your wrapper branch name .
+   Replace `YOUR_BRANCH` with your wrapper branch name. This command updates both `go.mod` and `go.sum` files with a version pointing to your branch.
 
 2. **Run tests locally**
    
@@ -282,12 +293,10 @@ As an alternative to the go.work approach, you can directly update the wrapper d
 
 3. **Revert changes after testing**
    
+   After testing is complete, revert the dependency changes:
+   
    ```bash
    git checkout go.mod go.sum
    ```
 
-#### Result
 
-Your local tests will run using your unreleased testwrapper changes. This method modifies dependency files.
-
-**Note:** The go.work approach keeps changes isolated in a separate file, while this method directly modifies `go.mod` and `go.sum`. Choose based on your preference and workflow.
