@@ -215,3 +215,86 @@ go test -v ./cloudinfo
 # run all packages tests, skipping template tests that exist in common-dev-assets
 go test -v $(go list ./... | grep -v /common-dev-assets/)
 ```
+
+### Testing wrapper changes locally
+
+When you make changes to the `ibmcloud-terratest-wrapper` and want to test those changes locally before merging, you can use one of two methods: the `go.work` file approach or the `go get` command approach. Both methods allow you to test your wrapper changes in a working repository.
+
+#### Prerequisites
+
+- A working repository (for example, a Terraform module) that uses this wrapper
+- For the `go.work` method: A fork of this repository (optional but recommended)
+
+#### Method 1: Using go.work
+
+The `go.work` file allows you to temporarily override the wrapper dependency for local testing.
+
+1. **Create a git tag in the wrapper repository**
+
+   In your wrapper repository (or fork), create a git tag on your development branch:
+
+   ```bash
+   git tag v1.46.0-alpha
+   git push origin v1.46.0-alpha
+   ```
+
+2. **Create a go.work file**
+
+   In your working repository, create a `go.work` file with the following content:
+
+   ```go
+   go 1.26.1
+
+   use .
+
+   replace github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper => github.com/YOUR_USERNAME_OR_ORG/ibmcloud-terratest-wrapper v1.46.0-alpha
+   ```
+
+   Replace the placeholders:
+   - `YOUR_USERNAME_OR_ORG`: Your GitHub username (if using a fork) or `terraform-ibm-modules` (if using the main repo)
+   - `1.26.1`: The Go version from your working repository's `go.mod` file
+   - `v1.46.0-alpha`: The tag you created in step 1
+
+3. **Run tests locally**
+
+   ```bash
+   cd tests
+   go test -v
+   ```
+
+4. **Clean up**
+
+   After testing is complete, remove the `go.work` file:
+
+   ```bash
+   rm go.work
+   ```
+
+#### Method 2: Using go get
+
+This method uses the `go get` command to directly update the wrapper dependency in your `go.mod` file.
+
+1. **Update the wrapper dependency**
+
+   In your working repository, run:
+
+   ```bash
+   go get github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper@YOUR_BRANCH
+   ```
+
+   Replace `YOUR_BRANCH` with your wrapper branch name. This command updates both `go.mod` and `go.sum` files with a version pointing to your branch.
+
+2. **Run tests locally**
+
+   ```bash
+   cd tests
+   go test -v
+   ```
+
+3. **Revert changes after testing**
+
+   After testing is complete, revert the dependency changes:
+
+   ```bash
+   git checkout go.mod go.sum
+   ```
