@@ -9,6 +9,7 @@ import (
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	projects "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/IBM/schematics-go-sdk/schematicsv1"
+	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"github.com/stretchr/testify/mock"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
@@ -493,4 +494,23 @@ func (m *MockCloudInfoServiceForPermutation) GetSchematicsWorkspaceOutputs(works
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(map[string]interface{}), args.Error(1)
+}
+
+// VSI Image methods
+func (m *MockCloudInfoServiceForPermutation) GetLatestVSIImageID(region string) (string, error) {
+	args := m.Called(region)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetLatestVSIImageIDWithPattern(region string, pattern string) (string, error) {
+	args := m.Called(region, pattern)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetVSIImagesByPattern(region string, pattern string) ([]vpcv1.Image, error) {
+	args := m.Called(region, pattern)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]vpcv1.Image), args.Error(1)
 }

@@ -82,6 +82,15 @@ func (mock *vpcServiceMock) SetServiceURL(url string) error {
 	return nil
 }
 
+func (mock *vpcServiceMock) GetServiceURL() string {
+	return mock.mockRegionUrl
+}
+
+func (mock *vpcServiceMock) ListImages(options *vpcv1.ListImagesOptions) (*vpcv1.ImageCollection, *core.DetailedResponse, error) {
+	// Return empty collection by default - tests should override this
+	return &vpcv1.ImageCollection{Images: []vpcv1.Image{}}, nil, nil
+}
+
 // IAM SERVICE MOCK
 type iamIdentityServiceMock struct {
 	mock.Mock

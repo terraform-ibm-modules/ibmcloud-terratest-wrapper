@@ -182,6 +182,9 @@ type CloudInfoServiceI interface {
 	LoadRegionPrefsFromFile(string) error
 	HasRegionData() bool
 	RemoveRegionForTest(string)
+	GetLatestVSIImageID(region string) (string, error)
+	GetLatestVSIImageIDWithPattern(region string, pattern string) (string, error)
+	GetVSIImagesByPattern(region string, pattern string) ([]vpcv1.Image, error)
 	ReplaceCBRRule(updatedExistingRule *contextbasedrestrictionsv1.Rule, eTag *string) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	GetThreadLock() *sync.Mutex
 	GetClusterIngressStatus(clusterId string) (string, error)
@@ -322,6 +325,8 @@ type vpcService interface {
 	NewGetRegionOptions(string) *vpcv1.GetRegionOptions
 	ListVpcs(*vpcv1.ListVpcsOptions) (*vpcv1.VPCCollection, *core.DetailedResponse, error)
 	SetServiceURL(string) error
+	GetServiceURL() string
+	ListImages(*vpcv1.ListImagesOptions) (*vpcv1.ImageCollection, *core.DetailedResponse, error)
 }
 
 // iamIdentityService interface for an external IBM IAM Identity V1 Service API. Used for mocking.
