@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 
+	"github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"gopkg.in/yaml.v3"
@@ -146,6 +147,163 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegionO(options GetTestRegionOpt
 	}
 
 	return bestregion.Name, nil
+}
+
+// GetRegionWithoutService finds a region with ZERO instances of the specified service.
+func (infoSvc *CloudInfoService) GetRegionWithoutService(serviceName string) (string, error) {
+	log.Printf("Searching for regions without '%s' instances...", serviceName)
+
+	// Get all instances of this service using Resource Controller
+	instances, err := infoSvc.ListResourcesByCrnServiceName(serviceName)
+	if err != nil {
+		return "", errors.New("failed to list '" + serviceName + "' instances: " + err.Error())
+	}
+
+	log.Printf("Found %d '%s' instances total", len(instances), serviceName)
+
+	// Build set of regions that have this service
+	occupiedRegions := make(map[string]bool)
+	for _, instance := range instances {
+		if instance.RegionID != nil && *instance.RegionID != "" {
+			occupiedRegions[*instance.RegionID] = true
+			log.Printf("Found '%s' instance '%s' in region: %s", serviceName, *instance.Name, *instance.RegionID)
+		}
+	}
+
+	log.Printf("Total regions with '%s': %d", serviceName, len(occupiedRegions))
+
+	// Get priority-ordered available regions
+	regions, err := infoSvc.GetTestRegionsByPriority()
+	if err != nil {
+		return "", errors.New("failed to get test regions: " + err.Error())
+	}
+
+	// Return first priority region WITHOUT this service
+	for _, region := range regions {
+		if !occupiedRegions[region.Name] {
+			log.Printf("✓ Selected region %s (no '%s' instances)", region.Name, serviceName)
+			return region.Name, nil
+		}
+	}
+
+	return "", errors.New("no region available without '" + serviceName + "' - all test regions have instances")
+}
+
+// GetRegionWithLeastResources finds the region with the MINIMUM number of instances for the specified service.
+func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string) (string, error) {
+	log.Printf("Searching for region with least '%s' instances...", serviceName)
+
+	// Get all instances of this service using Resource Controller
+	instances, err := infoSvc.ListResourcesByCrnServiceName(serviceName)
+	if err != nil {
+		return "", errors.New("failed to list '" + serviceName + "' instances: " + err.Error())
+	}
+
+	log.Printf("Found %d '%s' instances total", len(instances), serviceName)
+
+	// Count instances per region
+	regionCounts := make(map[string]int)
+	for _, instance := range instances {
+		if instance.RegionID != nil && *instance.RegionID != "" {
+			regionCounts[*instance.RegionID]++
+		}
+	}
+
+	// Get priority-ordered available regions
+	regions, err := infoSvc.GetTestRegionsByPriority()
+	if err != nil {
+		return "", errors.New("failed to get test regions: " + err.Error())
+	}
+
+	// Find region with lowest count
+	var bestRegion string
+	minCount := int(^uint(0) >> 1) // max int
+
+	for _, region := range regions {
+		count := regionCounts[region.Name]
+		log.Printf("Region %s has %d '%s' instances", region.Name, count, serviceName)
+
+		if count < minCount {
+			minCount = count
+			bestRegion = region.Name
+		}
+
+		// Short-circuit if we find empty region (optimal case)
+		if count == 0 {
+			log.Printf("✓ Selected region %s (zero '%s' instances)", region.Name, serviceName)
+			return region.Name, nil
+		}
+	}
+
+	if bestRegion == "" {
+		return "", errors.New("no suitable region found for '" + serviceName + "'")
+	}
+
+	log.Printf("✓ Selected region %s (least '%s' instances: %d)", bestRegion, serviceName, minCount)
+	return bestRegion, nil
+}
+
+// GetRegionWithoutWatsonXGovernance
+func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance() (string, error) {
+	return infoSvc.GetRegionWithoutService("aiopenscale")
+}
+
+// GetRegionWithLeastTransitGateways finds the region with the minimum number of Transit Gateways.
+func (infoSvc *CloudInfoService) GetRegionWithLeastTransitGateways() (string, error) {
+	log.Printf("Searching for region with least Transit Gateways...")
+
+	// Get all Transit Gateways in the account
+	listOptions := &transitgatewayapisv1.ListTransitGatewaysOptions{}
+	tgCollection, _, err := infoSvc.transitGatewayService.ListTransitGateways(listOptions)
+	if err != nil {
+		return "", errors.New("failed to list Transit Gateways: " + err.Error())
+	}
+
+	log.Printf("Found %d Transit Gateways total", len(tgCollection.TransitGateways))
+
+	// Count Transit Gateways per region (location field)
+	regionCounts := make(map[string]int)
+	for _, tg := range tgCollection.TransitGateways {
+		if tg.Location != nil && *tg.Location != "" {
+			regionCounts[*tg.Location]++
+			log.Printf("Found Transit Gateway '%s' in region: %s", *tg.Name, *tg.Location)
+		}
+	}
+
+	log.Printf("Total regions with Transit Gateways: %d", len(regionCounts))
+
+	// Get priority-ordered available regions
+	regions, err := infoSvc.GetTestRegionsByPriority()
+	if err != nil {
+		return "", errors.New("failed to get test regions: " + err.Error())
+	}
+
+	// Find region with lowest count
+	var bestRegion string
+	minCount := int(^uint(0) >> 1) // max int
+
+	for _, region := range regions {
+		count := regionCounts[region.Name]
+		log.Printf("Region %s has %d Transit Gateways", region.Name, count)
+
+		if count < minCount {
+			minCount = count
+			bestRegion = region.Name
+		}
+
+		// Short-circuit if we find empty region (optimal case)
+		if count == 0 {
+			log.Printf("✓ Selected region %s (zero Transit Gateways)", region.Name)
+			return region.Name, nil
+		}
+	}
+
+	if bestRegion == "" {
+		return "", errors.New("no suitable region found for Transit Gateway")
+	}
+
+	log.Printf("✓ Selected region %s (least Transit Gateways: %d)", bestRegion, minCount)
+	return bestRegion, nil
 }
 
 // regionHasActivityTracker is a helper function to determine if a given region is represented in an array

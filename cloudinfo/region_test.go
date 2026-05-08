@@ -3,6 +3,7 @@ package cloudinfo
 import (
 	"testing"
 
+	"github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/stretchr/testify/assert"
 )
@@ -102,6 +103,118 @@ func TestLeastVpcAllAvailRegions(t *testing.T) {
 		if assert.Nil(t, regErr, "unexpected error returned") {
 			assert.Equal(t, "reg-3-3", bestregion, "Wrong VPC region returned")
 		}
+	})
+}
+
+// TestRegionSelector tests the new region selector functions
+func TestRegionSelector(t *testing.T) {
+	vpcService := new(vpcServiceMock)
+
+	t.Run("GetRegionWithoutService", func(t *testing.T) {
+		// Mock: us-south and jp-tok have WatsonX Governance, others don't
+		regionUSSouth := "us-south"
+		regionJPTok := "jp-tok"
+		instanceName1 := "governance-instance-1"
+		instanceName2 := "governance-instance-2"
+		var twoCount int64 = 2
+		governanceCrn1 := "crn:v1:bluemix:public:aiopenscale:us-south:a/account:::"
+		governanceCrn2 := "crn:v1:bluemix:public:aiopenscale:jp-tok:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &twoCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &governanceCrn1, RegionID: &regionUSSouth, Name: &instanceName1},
+					{CRN: &governanceCrn2, RegionID: &regionJPTok, Name: &instanceName2},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "au-syd", UseForTest: true, TestPriority: 1},
+				{Name: "us-south", UseForTest: true, TestPriority: 2},
+				{Name: "jp-tok", UseForTest: true, TestPriority: 3},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithoutService("aiopenscale")
+		assert.NoError(t, err)
+		assert.Equal(t, "au-syd", region, "Should select au-syd (no WatsonX Governance)")
+	})
+
+	t.Run("GetRegionWithLeastResources", func(t *testing.T) {
+		// Mock: us-south has 3, eu-de has 1, au-syd has 0 of a test service
+		regionUSSouth := "us-south"
+		regionEUDE := "eu-de"
+		serviceName1 := "test-service-1"
+		serviceName2 := "test-service-2"
+		serviceName3 := "test-service-3"
+		serviceName4 := "test-service-4"
+		var fourCount int64 = 4
+		serviceCrn1 := "crn:v1:bluemix:public:testservice:us-south:a/account:::"
+		serviceCrn2 := "crn:v1:bluemix:public:testservice:us-south:a/account:::"
+		serviceCrn3 := "crn:v1:bluemix:public:testservice:us-south:a/account:::"
+		serviceCrn4 := "crn:v1:bluemix:public:testservice:eu-de:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &fourCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &regionUSSouth, Name: &serviceName1},
+					{CRN: &serviceCrn2, RegionID: &regionUSSouth, Name: &serviceName2},
+					{CRN: &serviceCrn3, RegionID: &regionUSSouth, Name: &serviceName3},
+					{CRN: &serviceCrn4, RegionID: &regionEUDE, Name: &serviceName4},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "au-syd", UseForTest: true, TestPriority: 1},
+				{Name: "eu-de", UseForTest: true, TestPriority: 2},
+				{Name: "us-south", UseForTest: true, TestPriority: 3},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastResources("testservice")
+		assert.NoError(t, err)
+		assert.Equal(t, "au-syd", region, "Should select au-syd (zero test service instances)")
+	})
+
+	t.Run("GetRegionWithLeastTransitGateways", func(t *testing.T) {
+		// Mock: us-south has 2 Transit Gateways, eu-de has 0
+		regionUSSouth := "us-south"
+		tgName1 := "transit-gw-1"
+		tgName2 := "transit-gw-2"
+		tgID1 := "tg-id-1"
+		tgID2 := "tg-id-2"
+
+		transitGatewayService := &transitGatewayServiceMock{
+			mockTransitGatewayCollection: &transitgatewayapisv1.TransitGatewayCollection{
+				TransitGateways: []transitgatewayapisv1.TransitGateway{
+					{ID: &tgID1, Name: &tgName1, Location: &regionUSSouth},
+					{ID: &tgID2, Name: &tgName2, Location: &regionUSSouth},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:            vpcService,
+			transitGatewayService: transitGatewayService,
+			regionsData: []RegionData{
+				{Name: "eu-de", UseForTest: true, TestPriority: 1},
+				{Name: "us-south", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastTransitGateways()
+		assert.NoError(t, err)
+		assert.Equal(t, "eu-de", region, "Should select eu-de (zero Transit Gateways)")
 	})
 }
 
