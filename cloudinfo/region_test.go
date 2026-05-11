@@ -110,21 +110,21 @@ func TestRegionSelector(t *testing.T) {
 	vpcService := new(vpcServiceMock)
 
 	t.Run("GetRegionWithoutService", func(t *testing.T) {
-		// Mock: us-south and jp-tok have WatsonX Governance, others don't
-		regionUSSouth := "us-south"
-		regionJPTok := "jp-tok"
-		instanceName1 := "governance-instance-1"
-		instanceName2 := "governance-instance-2"
+		// Mock: reg-2 and reg-3 have test service, reg-1 doesn't
+		region2 := "reg-2-1"
+		region3 := "reg-3-1"
+		instanceName1 := "test-instance-1"
+		instanceName2 := "test-instance-2"
 		var twoCount int64 = 2
-		governanceCrn1 := "crn:v1:bluemix:public:aiopenscale:us-south:a/account:::"
-		governanceCrn2 := "crn:v1:bluemix:public:aiopenscale:jp-tok:a/account:::"
+		serviceCrn1 := "crn:v1:bluemix:public:aiopenscale:reg-2-1:a/account:::"
+		serviceCrn2 := "crn:v1:bluemix:public:aiopenscale:reg-3-1:a/account:::"
 
 		resourceControllerService := &resourceControllerServiceMock{
 			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
 				RowsCount: &twoCount,
 				Resources: []resourcecontrollerv2.ResourceInstance{
-					{CRN: &governanceCrn1, RegionID: &regionUSSouth, Name: &instanceName1},
-					{CRN: &governanceCrn2, RegionID: &regionJPTok, Name: &instanceName2},
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+					{CRN: &serviceCrn2, RegionID: &region3, Name: &instanceName2},
 				},
 			},
 		}
@@ -133,39 +133,39 @@ func TestRegionSelector(t *testing.T) {
 			vpcService:                vpcService,
 			resourceControllerService: resourceControllerService,
 			regionsData: []RegionData{
-				{Name: "au-syd", UseForTest: true, TestPriority: 1},
-				{Name: "us-south", UseForTest: true, TestPriority: 2},
-				{Name: "jp-tok", UseForTest: true, TestPriority: 3},
+				{Name: "reg-1-0", UseForTest: true, TestPriority: 1},
+				{Name: "reg-2-1", UseForTest: true, TestPriority: 2},
+				{Name: "reg-3-1", UseForTest: true, TestPriority: 3},
 			},
 		}
 
 		region, err := infoSvc.GetRegionWithoutService("aiopenscale")
 		assert.NoError(t, err)
-		assert.Equal(t, "au-syd", region, "Should select au-syd (no WatsonX Governance)")
+		assert.Equal(t, "reg-1-0", region, "Should select reg-1-0 (no service instances)")
 	})
 
 	t.Run("GetRegionWithLeastResources", func(t *testing.T) {
-		// Mock: us-south has 3, eu-de has 1, au-syd has 0 of a test service
-		regionUSSouth := "us-south"
-		regionEUDE := "eu-de"
+		// Mock: reg-3 has 3, reg-2 has 1, reg-1 has 0 of a test service
+		region2 := "reg-2-1"
+		region3 := "reg-3-3"
 		serviceName1 := "test-service-1"
 		serviceName2 := "test-service-2"
 		serviceName3 := "test-service-3"
 		serviceName4 := "test-service-4"
 		var fourCount int64 = 4
-		serviceCrn1 := "crn:v1:bluemix:public:testservice:us-south:a/account:::"
-		serviceCrn2 := "crn:v1:bluemix:public:testservice:us-south:a/account:::"
-		serviceCrn3 := "crn:v1:bluemix:public:testservice:us-south:a/account:::"
-		serviceCrn4 := "crn:v1:bluemix:public:testservice:eu-de:a/account:::"
+		serviceCrn1 := "crn:v1:bluemix:public:testservice:reg-3-3:a/account:::"
+		serviceCrn2 := "crn:v1:bluemix:public:testservice:reg-3-3:a/account:::"
+		serviceCrn3 := "crn:v1:bluemix:public:testservice:reg-3-3:a/account:::"
+		serviceCrn4 := "crn:v1:bluemix:public:testservice:reg-2-1:a/account:::"
 
 		resourceControllerService := &resourceControllerServiceMock{
 			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
 				RowsCount: &fourCount,
 				Resources: []resourcecontrollerv2.ResourceInstance{
-					{CRN: &serviceCrn1, RegionID: &regionUSSouth, Name: &serviceName1},
-					{CRN: &serviceCrn2, RegionID: &regionUSSouth, Name: &serviceName2},
-					{CRN: &serviceCrn3, RegionID: &regionUSSouth, Name: &serviceName3},
-					{CRN: &serviceCrn4, RegionID: &regionEUDE, Name: &serviceName4},
+					{CRN: &serviceCrn1, RegionID: &region3, Name: &serviceName1},
+					{CRN: &serviceCrn2, RegionID: &region3, Name: &serviceName2},
+					{CRN: &serviceCrn3, RegionID: &region3, Name: &serviceName3},
+					{CRN: &serviceCrn4, RegionID: &region2, Name: &serviceName4},
 				},
 			},
 		}
@@ -174,15 +174,15 @@ func TestRegionSelector(t *testing.T) {
 			vpcService:                vpcService,
 			resourceControllerService: resourceControllerService,
 			regionsData: []RegionData{
-				{Name: "au-syd", UseForTest: true, TestPriority: 1},
-				{Name: "eu-de", UseForTest: true, TestPriority: 2},
-				{Name: "us-south", UseForTest: true, TestPriority: 3},
+				{Name: "reg-1-0", UseForTest: true, TestPriority: 1},
+				{Name: "reg-2-1", UseForTest: true, TestPriority: 2},
+				{Name: "reg-3-3", UseForTest: true, TestPriority: 3},
 			},
 		}
 
 		region, err := infoSvc.GetRegionWithLeastResources("testservice")
 		assert.NoError(t, err)
-		assert.Equal(t, "au-syd", region, "Should select au-syd (zero test service instances)")
+		assert.Equal(t, "reg-1-0", region, "Should select reg-1-0 (zero test service instances)")
 	})
 
 }
