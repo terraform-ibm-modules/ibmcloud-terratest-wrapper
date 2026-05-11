@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 	"golang.org/x/sync/singleflight"
@@ -156,7 +155,6 @@ type CloudInfoService struct {
 	containerClient           containerClient
 	containerV1Client         containerV1Client
 	catalogService            catalogService
-	transitGatewayService     transitGatewayService
 	// stackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	stackDefinitionCreator StackDefinitionCreator
 	regionsData            []RegionData
@@ -184,7 +182,6 @@ type CloudInfoServiceI interface {
 	GetRegionWithoutService(string) (string, error)
 	GetRegionWithLeastResources(string) (string, error)
 	GetRegionWithoutWatsonXGovernance() (string, error)
-	GetRegionWithLeastTransitGateways() (string, error)
 	LoadRegionPrefsFromFile(string) error
 	HasRegionData() bool
 	RemoveRegionForTest(string)
@@ -293,7 +290,6 @@ type CloudInfoServiceOptions struct {
 	CbrService                cbrService
 	ContainerClient           containerClient
 	ContainerV1Client         containerV1Client
-	TransitGatewayService     transitGatewayService
 	RegionPrefs               []RegionData
 	IcdService                icdService
 	IcdRegion                 string
@@ -329,10 +325,6 @@ type vpcService interface {
 	NewGetRegionOptions(string) *vpcv1.GetRegionOptions
 	ListVpcs(*vpcv1.ListVpcsOptions) (*vpcv1.VPCCollection, *core.DetailedResponse, error)
 	SetServiceURL(string) error
-}
-
-type transitGatewayService interface {
-	ListTransitGateways(*transitgatewayapisv1.ListTransitGatewaysOptions) (*transitgatewayapisv1.TransitGatewayCollection, *core.DetailedResponse, error)
 }
 
 // iamIdentityService interface for an external IBM IAM Identity V1 Service API. Used for mocking.
@@ -579,24 +571,6 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.vpcService = vpcService
-	}
-
-	// Initialize Transit Gateway service
-	if options.TransitGatewayService != nil {
-		infoSvc.transitGatewayService = options.TransitGatewayService
-	} else {
-		// Instantiate the service with an API key based IAM authenticator
-		// Version format: YYYY-MM-DD (using a stable version)
-		transitGatewayService, tgErr := transitgatewayapisv1.NewTransitGatewayApisV1(&transitgatewayapisv1.TransitGatewayApisV1Options{
-			Authenticator: infoSvc.authenticator,
-			Version:       core.StringPtr("2020-03-31"), // API version
-		})
-		if tgErr != nil {
-			infoSvc.Logger.Error(fmt.Sprintf("Could not create TransitGatewayApisV1 service: %v", tgErr))
-			return nil, tgErr
-		}
-
-		infoSvc.transitGatewayService = transitGatewayService
 	}
 
 	// if CbrService is not supplied, use default of external service

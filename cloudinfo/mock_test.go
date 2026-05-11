@@ -11,7 +11,6 @@ import (
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
-	"github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
@@ -191,22 +190,6 @@ func (mock *resourceControllerServiceMock) RunReclamationAction(options *resourc
 	}
 
 	return reclamation, nil, nil
-}
-
-// TRANSIT GATEWAY SERVICE MOCK
-type transitGatewayServiceMock struct {
-	mock.Mock
-	mockTransitGatewayCollection *transitgatewayapisv1.TransitGatewayCollection
-}
-
-func (mock *transitGatewayServiceMock) ListTransitGateways(options *transitgatewayapisv1.ListTransitGatewaysOptions) (*transitgatewayapisv1.TransitGatewayCollection, *core.DetailedResponse, error) {
-	if mock.mockTransitGatewayCollection == nil {
-		// Return empty collection by default
-		return &transitgatewayapisv1.TransitGatewayCollection{
-			TransitGateways: []transitgatewayapisv1.TransitGateway{},
-		}, nil, nil
-	}
-	return mock.mockTransitGatewayCollection, nil, nil
 }
 
 // Resource Manager mock

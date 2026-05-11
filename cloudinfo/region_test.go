@@ -3,7 +3,6 @@ package cloudinfo
 import (
 	"testing"
 
-	"github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/stretchr/testify/assert"
 )
@@ -186,36 +185,6 @@ func TestRegionSelector(t *testing.T) {
 		assert.Equal(t, "au-syd", region, "Should select au-syd (zero test service instances)")
 	})
 
-	t.Run("GetRegionWithLeastTransitGateways", func(t *testing.T) {
-		// Mock: us-south has 2 Transit Gateways, eu-de has 0
-		regionUSSouth := "us-south"
-		tgName1 := "transit-gw-1"
-		tgName2 := "transit-gw-2"
-		tgID1 := "tg-id-1"
-		tgID2 := "tg-id-2"
-
-		transitGatewayService := &transitGatewayServiceMock{
-			mockTransitGatewayCollection: &transitgatewayapisv1.TransitGatewayCollection{
-				TransitGateways: []transitgatewayapisv1.TransitGateway{
-					{ID: &tgID1, Name: &tgName1, Location: &regionUSSouth},
-					{ID: &tgID2, Name: &tgName2, Location: &regionUSSouth},
-				},
-			},
-		}
-
-		infoSvc := CloudInfoService{
-			vpcService:            vpcService,
-			transitGatewayService: transitGatewayService,
-			regionsData: []RegionData{
-				{Name: "eu-de", UseForTest: true, TestPriority: 1},
-				{Name: "us-south", UseForTest: true, TestPriority: 2},
-			},
-		}
-
-		region, err := infoSvc.GetRegionWithLeastTransitGateways()
-		assert.NoError(t, err)
-		assert.Equal(t, "eu-de", region, "Should select eu-de (zero Transit Gateways)")
-	})
 }
 
 func TestLoadRegionPrefs(t *testing.T) {

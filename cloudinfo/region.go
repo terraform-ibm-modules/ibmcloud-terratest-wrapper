@@ -6,7 +6,6 @@ import (
 	"os"
 	"sort"
 
-	"github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"gopkg.in/yaml.v3"
@@ -246,64 +245,6 @@ func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string)
 // GetRegionWithoutWatsonXGovernance
 func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance() (string, error) {
 	return infoSvc.GetRegionWithoutService("aiopenscale")
-}
-
-// GetRegionWithLeastTransitGateways finds the region with the minimum number of Transit Gateways.
-func (infoSvc *CloudInfoService) GetRegionWithLeastTransitGateways() (string, error) {
-	log.Printf("Searching for region with least Transit Gateways...")
-
-	// Get all Transit Gateways in the account
-	listOptions := &transitgatewayapisv1.ListTransitGatewaysOptions{}
-	tgCollection, _, err := infoSvc.transitGatewayService.ListTransitGateways(listOptions)
-	if err != nil {
-		return "", errors.New("failed to list Transit Gateways: " + err.Error())
-	}
-
-	log.Printf("Found %d Transit Gateways total", len(tgCollection.TransitGateways))
-
-	// Count Transit Gateways per region (location field)
-	regionCounts := make(map[string]int)
-	for _, tg := range tgCollection.TransitGateways {
-		if tg.Location != nil && *tg.Location != "" {
-			regionCounts[*tg.Location]++
-			log.Printf("Found Transit Gateway '%s' in region: %s", *tg.Name, *tg.Location)
-		}
-	}
-
-	log.Printf("Total regions with Transit Gateways: %d", len(regionCounts))
-
-	// Get priority-ordered available regions
-	regions, err := infoSvc.GetTestRegionsByPriority()
-	if err != nil {
-		return "", errors.New("failed to get test regions: " + err.Error())
-	}
-
-	// Find region with lowest count
-	var bestRegion string
-	minCount := int(^uint(0) >> 1) // max int
-
-	for _, region := range regions {
-		count := regionCounts[region.Name]
-		log.Printf("Region %s has %d Transit Gateways", region.Name, count)
-
-		if count < minCount {
-			minCount = count
-			bestRegion = region.Name
-		}
-
-		// Short-circuit if we find empty region (optimal case)
-		if count == 0 {
-			log.Printf("✓ Selected region %s (zero Transit Gateways)", region.Name)
-			return region.Name, nil
-		}
-	}
-
-	if bestRegion == "" {
-		return "", errors.New("no suitable region found for Transit Gateway")
-	}
-
-	log.Printf("✓ Selected region %s (least Transit Gateways: %d)", bestRegion, minCount)
-	return bestRegion, nil
 }
 
 // regionHasActivityTracker is a helper function to determine if a given region is represented in an array
