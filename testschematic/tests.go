@@ -1,6 +1,7 @@
 package testschematic
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -267,7 +268,7 @@ func executeSchematicTest(options *TestSchematicOptions, performUpgradeTest bool
 					consistencyPlanJson, consistencyPlanJsonErr := svc.TestOptions.CloudInfoService.GetSchematicsJobPlanJson(*consistencyPlanResponse.Activityid, svc.WorkspaceLocation)
 					if assert.NoErrorf(options.Testing, consistencyPlanJsonErr, "error retrieving %s PLAN JSON - %s - %s", consistencyTypeForLog, consistencyPlanJsonErr, svc.WorkspaceNameForLog) {
 						// convert the json string into a terratest plan struct
-						planStruct, planStructErr := terraform.ParsePlanJSON(consistencyPlanJson)
+						planStruct, planStructErr := terraform.ParsePlanJSONContext(context.Background(), consistencyPlanJson)
 						if assert.NoErrorf(options.Testing, planStructErr, "error converting %s plan string into struct: %s -%s", consistencyTypeForLog, planStructErr, svc.WorkspaceNameForLog) {
 							// not consuming the boolean return from CheckConsistency on purpose, as it does not let us know what we need to know here
 							testhelper.CheckConsistency(planStruct, options)

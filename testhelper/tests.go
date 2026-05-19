@@ -1,7 +1,8 @@
 package testhelper
 
 import (
-	"fmt"
+	"context"
+"fmt"
 	"os"
 	"path"
 	"strconv"
@@ -48,7 +49,7 @@ func (options *TestOptions) testSetup() {
 		if options.TerraformOptions == nil {
 			// Construct the terraform options with default retryable errors to handle the most common
 			// retryable errors in terraform testing.
-			options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
+			options.TerraformOptions = terraform.WithDefaultRetryableErrorsContext(context.Background(), options.Testing, &terraform.Options{
 				// Set the path to the Terraform code that will be tested.
 				TerraformDir:    options.TerraformDir,
 				TerraformBinary: options.TerraformBinary,
@@ -105,7 +106,8 @@ func (options *TestOptions) testSetup() {
 		options.WorkspacePath = options.TerraformOptions.TerraformDir
 		if options.UseTerraformWorkspace {
 			// Always run in a new clean workspace to avoid reusing existing state files
-			options.WorkspaceName = terraform.WorkspaceSelectOrNew(options.Testing, options.TerraformOptions, options.Prefix)
+			options.WorkspaceName = options.TerraformOptions.Workspace = options.Prefix
+	terraform.WorkspaceSelectOrNewContext(context.Background(), options.Testing, options.TerraformOptions)
 			options.WorkspacePath = fmt.Sprintf("%s/terraform.tfstate.d/%s", options.WorkspacePath, options.Prefix)
 		}
 	} else {
@@ -130,7 +132,7 @@ func (options *TestOptions) testTearDown() {
 
 	// Turn off logging for this step so sensitive data is not logged
 	options.TerraformOptions.Logger = logger.Discard
-	options.LastTestTerraformOutputs, outputErr = terraform.OutputAllE(options.Testing, options.TerraformOptions)
+	options.LastTestTerraformOutputs, outputErr = terraform.OutputAllContextE(context.Background(), options.Testing, options.TerraformOptions)
 	options.TerraformOptions.Logger = logger.Default // turn log back on
 
 	if outputErr != nil {
@@ -202,7 +204,7 @@ func (options *TestOptions) testTearDown() {
 			logger.Log(options.Testing, "Destroying test resources")
 			logger.Log(options.Testing, fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
 			logger.Log(options.Testing, "START: Destroy")
-			destroyOutput, destroyError := terraform.DestroyE(options.Testing, options.TerraformOptions)
+			destroyOutput, destroyError := terraform.DestroyContextE(context.Background(), options.Testing, options.TerraformOptions)
 			if !assert.NoError(options.Testing, destroyError) {
 				logger.Log(options.Testing, destroyError)
 				// On destroy resource group failure, list remaining resources
@@ -276,7 +278,7 @@ func (options *TestOptions) testTearDown() {
 				logger.Log(options.Testing, destroyOutput)
 			}
 			if options.UseTerraformWorkspace {
-				terraform.WorkspaceDelete(options.Testing, options.TerraformOptions, options.Prefix)
+				terraform.WorkspaceDeleteContext(context.Background(), options.Testing, options.TerraformOptions, options.Prefix)
 			}
 			logger.Log(options.Testing, "END: Destroy")
 			if options.PostDestroyHook != nil {
@@ -482,7 +484,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		logger.Log(options.Testing, "Init / Apply on Base branch:", baseBranch)
 		logger.Log(options.Testing, "Init / Apply on Base branch dir:", options.TerraformOptions.TerraformDir)
 
-		_, resultErr = terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
+		_, resultErr = terraform.InitAndApplyContextE(context.Background(), options.Testing, options.TerraformOptions)
 		if resultErr != nil {
 			assert.Nilf(options.Testing, resultErr, "Terraform Apply on Base branch has failed")
 			options.testTearDown()
@@ -493,7 +495,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		var outputErr error
 		// Turn off logging for this step so sensitive data is not logged
 		options.TerraformOptions.Logger = logger.Discard
-		options.LastTestTerraformOutputs, outputErr = terraform.OutputAllE(options.Testing, options.TerraformOptions)
+		options.LastTestTerraformOutputs, outputErr = terraform.OutputAllContextE(context.Background(), options.Testing, options.TerraformOptions)
 		options.TerraformOptions.Logger = logger.Default // turn log back on
 
 		if outputErr != nil {
@@ -549,13 +551,13 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		hasConsistencyChanges := CheckConsistency(result, options)
 
 		if hasConsistencyChanges {
-			terraform.Plan(options.Testing, options.TerraformOptions)
+			terraform.PlanContext(context.Background(), options.Testing, options.TerraformOptions)
 		}
 
 		// Check if optional upgrade support on PR Branch is needed
 		if options.CheckApplyResultForUpgrade && !options.Testing.Failed() {
 			logger.Log(options.Testing, "Validating Optional upgrade on Current Branch (PR):", prBranch)
-			_, applyErr := terraform.ApplyE(options.Testing, options.TerraformOptions)
+			_, applyErr := terraform.ApplyContextE(context.Background(), options.Testing, options.TerraformOptions)
 			if applyErr != nil {
 				logger.Log(options.Testing, "Error during Terraform Apply on PR branch:", applyErr)
 				assert.Nilf(options.Testing, applyErr, "Terraform Apply on PR branch has failed")
@@ -601,7 +603,7 @@ func (options *TestOptions) RunTestConsistency() (*terraform.PlanStruct, error) 
 	hasConsistencyChanges := CheckConsistency(result, options)
 
 	if hasConsistencyChanges {
-		terraform.Plan(options.Testing, options.TerraformOptions)
+		terraform.PlanContext(context.Background(), options.Testing, options.TerraformOptions)
 	}
 
 	logger.Log(options.Testing, "FINISHED: Init / Apply / Consistency Check")
@@ -636,7 +638,7 @@ func (options *TestOptions) runTestPlan() (*terraform.PlanStruct, error) {
 	// The "show" command will produce a very large JSON to stdout which is printed by the logger.
 	// We are temporarily turning the terratest logger OFF (discard) while running "show" to prevent large JSON stdout.
 	options.TerraformOptions.Logger = logger.Discard
-	outputStruct, err := terraform.InitAndPlanAndShowWithStructE(options.Testing, options.TerraformOptions)
+	outputStruct, err := terraform.InitAndPlanAndShowWithStructContextE(context.Background(), options.Testing, options.TerraformOptions)
 
 	options.TerraformOptions.Logger = logger.Default // turn log back on
 
@@ -667,7 +669,7 @@ func (options *TestOptions) runTest() (string, error) {
 		logger.Log(options.Testing, "Finished PreApplyHook")
 	}
 	logger.Log(options.Testing, "START: Init / Apply")
-	output, err := terraform.InitAndApplyE(options.Testing, options.TerraformOptions)
+	output, err := terraform.InitAndApplyContextE(context.Background(), options.Testing, options.TerraformOptions)
 	assert.Nil(options.Testing, err, "Failed", err)
 	logger.Log(options.Testing, "FINISHED: Init / Apply")
 
@@ -677,7 +679,7 @@ func (options *TestOptions) runTest() (string, error) {
 
 		// Turn off logging for this step so sensitive data is not logged
 		options.TerraformOptions.Logger = logger.Discard
-		options.LastTestTerraformOutputs, outputErr = terraform.OutputAllE(options.Testing, options.TerraformOptions)
+		options.LastTestTerraformOutputs, outputErr = terraform.OutputAllContextE(context.Background(), options.Testing, options.TerraformOptions)
 		options.TerraformOptions.Logger = logger.Default // turn log back on
 
 		if outputErr != nil {
@@ -689,12 +691,12 @@ func (options *TestOptions) runTest() (string, error) {
 	if err == nil && options.ModifiedTerraformVars != nil {
 		logger.Log(options.Testing, "Running modified apply with terraform vars")
 		logger.Log(options.Testing, "START: Modify Apply")
-		options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
+		options.TerraformOptions = terraform.WithDefaultRetryableErrorsContext(context.Background(), options.Testing, &terraform.Options{
 			TerraformDir:    options.TerraformDir,
 			TerraformBinary: options.TerraformBinary,
 			Vars:            options.ModifiedTerraformVars,
 		})
-		_, err := terraform.ApplyE(options.Testing, options.TerraformOptions)
+		_, err := terraform.ApplyContextE(context.Background(), options.Testing, options.TerraformOptions)
 		assert.Nil(options.Testing, err, "Failed", err)
 		logger.Log(options.Testing, "FINISHED: Modify Apply")
 	}
