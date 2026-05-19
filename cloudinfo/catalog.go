@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -996,7 +997,7 @@ func buildHierarchicalDeploymentList(mainAddon *AddonConfig) []AddonConfig {
 			if dep.Enabled != nil && *dep.Enabled && !processedOfferings[offeringKey] {
 				// Generate a unique config name for this dependency if not already set
 				if dep.ConfigName == "" {
-					randomPostfix := strings.ToLower(random.UniqueId())
+					randomPostfix := strings.ToLower(random.UniqueID())
 					dep.ConfigName = fmt.Sprintf("%s-%s", dep.OfferingName, randomPostfix)
 				}
 

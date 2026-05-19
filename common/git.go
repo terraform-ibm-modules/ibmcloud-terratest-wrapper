@@ -2,6 +2,7 @@
 package common
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -447,7 +448,7 @@ func RetrievePrivateKey(sshPvtKey string) (interface{}, error) {
 func SkipUpgradeTest(testing *testing.T, source_repo string, source_branch string, branch string) bool {
 
 	// random string to use in remote name
-	remote := fmt.Sprintf("upstream-%s", strings.ToLower(random.UniqueId()))
+	remote := fmt.Sprintf("upstream-%s", strings.ToLower(random.UniqueID()))
 	logger.Log(testing, "Remote name:", remote)
 	// Set upstream to the source repo
 	remote_out, remote_err := exec.Command("/bin/sh", "-c", fmt.Sprintf("git remote add %s %s", remote, source_repo)).Output()
