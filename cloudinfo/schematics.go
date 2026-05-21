@@ -197,7 +197,7 @@ func GetSchematicServiceURLForRegion(region string) (string, error) {
 // Returns the full path to the created TAR file and any error encountered.
 func CreateSchematicsTar(projectPath string, includePatterns []string) (string, error) {
 	// create unique tar filename
-	target := filepath.Join(os.TempDir(), fmt.Sprintf("schematic-test-%s.tar", strings.ToLower(random.UniqueId())))
+	target := filepath.Join(os.TempDir(), fmt.Sprintf("schematic-test-%s.tar", strings.ToLower(random.UniqueID())))
 
 	// set up tarfile on filesystem
 	tarfile, fileErr := os.Create(target)
