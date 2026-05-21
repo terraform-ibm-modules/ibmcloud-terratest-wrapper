@@ -2,7 +2,6 @@ package cloudinfo
 
 import (
 	"archive/tar"
-	"context"
 	"fmt"
 	"io"
 	"math"
