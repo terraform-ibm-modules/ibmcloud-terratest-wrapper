@@ -66,7 +66,7 @@ type ProjectsConfig struct {
 	DestroyOnDelete    bool                             `json:"destroy_on_delete"`
 	MonitoringEnabled  bool                             `json:"monitoring_enabled"`
 	AutoDeploy         bool                             `json:"auto_deploy"`
-	AutoDeployMode     string                           `json:"auto_deloy_mode"`
+	AutoDeployMode     string                           `json:"auto_deploy_mode"`
 	Configs            []project.ProjectConfigPrototype `json:"configs,omitempty"`
 	Environments       []project.EnvironmentPrototype   `json:"environments,omitempty"`
 	Headers            map[string]string                `json:"headers,omitempty"`
