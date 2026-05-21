@@ -144,22 +144,61 @@ func (suite *ProjectsServiceTestSuite) TestGetConfig() {
 
 	testCases := []struct {
 		name             string
+		configDetails    *ConfigDetails
 		expectedError    error
 		mockError        error
 		expectedResult   *projects.ProjectConfig
 		expectedResponse *core.DetailedResponse
 	}{
 		{
-			name:             "Success case",
+			name: "Success case",
+			configDetails: &ConfigDetails{
+				ProjectID: "test-project-id",
+				ConfigID:  "test-config-id",
+			},
 			expectedError:    nil,
 			mockError:        nil,
 			expectedResult:   mockConfig,
 			expectedResponse: mockResponse,
 		},
 		{
-			name:             "Failure case",
+			name: "Failure case",
+			configDetails: &ConfigDetails{
+				ProjectID: "test-project-id",
+				ConfigID:  "test-config-id",
+			},
 			expectedError:    mockError,
 			mockError:        mockError,
+			expectedResult:   nil,
+			expectedResponse: nil,
+		},
+		{
+			name: "Empty ProjectID",
+			configDetails: &ConfigDetails{
+				ProjectID: "",
+				ConfigID:  "test-config-id",
+			},
+			expectedError:    fmt.Errorf("ProjectID cannot be empty"),
+			mockError:        nil,
+			expectedResult:   nil,
+			expectedResponse: nil,
+		},
+		{
+			name: "Empty ConfigID",
+			configDetails: &ConfigDetails{
+				ProjectID: "test-project-id",
+				ConfigID:  "",
+			},
+			expectedError:    fmt.Errorf("ConfigID cannot be empty"),
+			mockError:        nil,
+			expectedResult:   nil,
+			expectedResponse: nil,
+		},
+		{
+			name:             "Nil ConfigDetails",
+			configDetails:    nil,
+			expectedError:    fmt.Errorf("configDetails cannot be nil"),
+			mockError:        nil,
 			expectedResult:   nil,
 			expectedResponse: nil,
 		},
@@ -170,12 +209,15 @@ func (suite *ProjectsServiceTestSuite) TestGetConfig() {
 			// Clear previous expectations
 			suite.mockService.ExpectedCalls = nil
 
-			suite.mockService.On("GetConfig", mock.Anything).Return(tc.expectedResult, tc.expectedResponse, tc.mockError)
+			// Only set up mock if we expect it to be called (valid inputs)
+			if tc.configDetails != nil && tc.configDetails.ProjectID != "" && tc.configDetails.ConfigID != "" {
+				suite.mockService.On("GetConfig", mock.Anything).Return(tc.expectedResult, tc.expectedResponse, tc.mockError)
+			}
 
-			result, response, err := suite.infoSvc.GetConfig(&ConfigDetails{})
+			result, response, err := suite.infoSvc.GetConfig(tc.configDetails)
 			if tc.expectedError != nil {
 				assert.Error(suite.T(), err)
-				assert.Equal(suite.T(), tc.expectedError, err)
+				assert.Equal(suite.T(), tc.expectedError.Error(), err.Error())
 			} else {
 				assert.NoError(suite.T(), err)
 				assert.Equal(suite.T(), tc.expectedResult, result)
