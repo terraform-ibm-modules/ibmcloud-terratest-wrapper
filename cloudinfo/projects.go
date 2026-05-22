@@ -274,6 +274,19 @@ func (infoSvc *CloudInfoService) GetConfig(configDetails *ConfigDetails) (result
 		ProjectID: &configDetails.ProjectID,
 		ID:        &configDetails.ConfigID,
 	}
+
+	delay := 10
+	for i := 0; i < 5; i++ {
+		result, response, err = infoSvc.projectsService.GetConfig(getConfigOptions)
+		if err == nil {
+			return result, response, err
+		}
+		time.Sleep(time.Duration(delay) * time.Second)
+		delay = delay * 2
+		if delay > 60 {
+			delay = 60
+		}
+	}
 	return infoSvc.projectsService.GetConfig(getConfigOptions)
 }
 
