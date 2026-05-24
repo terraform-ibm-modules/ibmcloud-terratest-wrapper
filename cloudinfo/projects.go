@@ -275,19 +275,30 @@ func (infoSvc *CloudInfoService) GetConfig(configDetails *ConfigDetails) (result
 		ID:        &configDetails.ConfigID,
 	}
 
-	delay := 10
-	for i := 0; i < 5; i++ {
-		result, response, err = infoSvc.projectsService.GetConfig(getConfigOptions)
-		if err == nil {
-			return result, response, err
-		}
-		time.Sleep(time.Duration(delay) * time.Second)
-		delay = delay * 2
-		if delay > 60 {
-			delay = 60
-		}
+	// Use existing retry infrastructure with project-specific configuration
+	config := common.ProjectOperationRetryConfig()
+	config.MaxRetries = 6
+	config.InitialDelay = 10 * time.Second
+	config.MaxDelay = 60 * time.Second
+	config.OperationName = "GetConfig"
+	config.Logger = infoSvc.Logger
+
+	type resultType struct {
+		config   *project.ProjectConfig
+		response *core.DetailedResponse
 	}
-	return infoSvc.projectsService.GetConfig(getConfigOptions)
+
+	// doing retries because projects go SDK sometimes faces issues with IAM when calling GetConfig function
+	retryResult, err := common.RetryWithConfig(config, func() (resultType, error) {
+		cfg, resp, e := infoSvc.projectsService.GetConfig(getConfigOptions)
+		return resultType{config: cfg, response: resp}, e
+	})
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return retryResult.config, retryResult.response, nil
 }
 
 // UpdateConfig updates a project config

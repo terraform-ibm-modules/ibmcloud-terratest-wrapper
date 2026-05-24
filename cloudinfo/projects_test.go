@@ -226,6 +226,91 @@ func (suite *ProjectsServiceTestSuite) TestGetConfig() {
 		})
 	}
 }
+func (suite *ProjectsServiceTestSuite) TestGetConfigWithRetry() {
+	mockConfig := &projects.ProjectConfig{ID: core.StringPtr("mockConfigID")}
+	mockResponse := &core.DetailedResponse{StatusCode: 200}
+
+	testCases := []struct {
+		name             string
+		configDetails    *ConfigDetails
+		mockError        error
+		expectedError    bool
+		expectedResult   *projects.ProjectConfig
+		expectedResponse *core.DetailedResponse
+	}{
+		{
+			name: "Success on first attempt",
+			configDetails: &ConfigDetails{
+				ProjectID: "test-project-id",
+				ConfigID:  "test-config-id",
+			},
+			mockError:        nil,
+			expectedError:    false,
+			expectedResult:   mockConfig,
+			expectedResponse: mockResponse,
+		},
+		{
+			name: "IAM authorization error is retryable - succeeds on second attempt",
+			configDetails: &ConfigDetails{
+				ProjectID: "test-project-id",
+				ConfigID:  "test-config-id",
+			},
+			mockError: fmt.Errorf("An error occurred while asking authorization on IAM: error when asking authorization - errors array does not exist or is empty"),
+			// This test verifies the IAM error is retryable by having it succeed on the second attempt
+			// This proves the error was identified as retryable and a retry was attempted
+			expectedError:    false,
+			expectedResult:   mockConfig,
+			expectedResponse: mockResponse,
+		},
+		{
+			name: "Non-retryable 401 error fails immediately",
+			configDetails: &ConfigDetails{
+				ProjectID: "test-project-id",
+				ConfigID:  "test-config-id",
+			},
+			mockError:        fmt.Errorf("401 unauthorized"),
+			expectedError:    true,
+			expectedResult:   nil,
+			expectedResponse: nil,
+		},
+	}
+
+	for _, tc := range testCases {
+		suite.Run(tc.name, func() {
+			// Clear previous expectations
+			suite.mockService.ExpectedCalls = nil
+
+			if tc.mockError == nil {
+				// Success case - just return success
+				suite.mockService.On("GetConfig", mock.Anything).Return(mockConfig, mockResponse, nil).Once()
+			} else if tc.expectedError {
+				// Non-retryable error - will fail immediately, set up one call
+				suite.mockService.On("GetConfig", mock.Anything).Return((*projects.ProjectConfig)(nil), (*core.DetailedResponse)(nil), tc.mockError).Once()
+			} else {
+				// Retryable error - set up enough mocks to see how many calls are made
+				// First calls fail, then success
+				suite.mockService.On("GetConfig", mock.Anything).Return((*projects.ProjectConfig)(nil), (*core.DetailedResponse)(nil), tc.mockError).Once()
+				suite.mockService.On("GetConfig", mock.Anything).Return(mockConfig, mockResponse, nil).Once()
+			}
+
+			result, response, err := suite.infoSvc.GetConfig(tc.configDetails)
+
+			// Verify expectations
+			if tc.expectedError {
+				assert.Error(suite.T(), err)
+				assert.Nil(suite.T(), result)
+				assert.Nil(suite.T(), response)
+			} else {
+				assert.NoError(suite.T(), err)
+				assert.Equal(suite.T(), tc.expectedResult, result)
+				assert.Equal(suite.T(), tc.expectedResponse, response)
+			}
+
+			// Verify all expected calls were made
+			suite.mockService.AssertExpectations(suite.T())
+		})
+	}
+}
 
 func (suite *ProjectsServiceTestSuite) TestDeleteProject() {
 	mockResponse := &projects.ProjectDeleteResponse{}
