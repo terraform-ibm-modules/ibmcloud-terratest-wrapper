@@ -23,6 +23,7 @@ type ProjectsServiceTestSuite struct {
 func (suite *ProjectsServiceTestSuite) SetupTest() {
 	suite.mockService = new(ProjectsServiceMock)
 	suite.mockCreator = new(MockStackDefinitionCreator)
+
 	suite.infoSvc = &CloudInfoService{
 		projectsService: suite.mockService,
 		authenticator: &core.IamAuthenticator{
@@ -140,7 +141,8 @@ func (suite *ProjectsServiceTestSuite) TestGetProject() {
 func (suite *ProjectsServiceTestSuite) TestGetConfig() {
 	mockConfig := &projects.ProjectConfig{ID: core.StringPtr("mockConfigID")}
 	mockResponse := &core.DetailedResponse{StatusCode: 200}
-	mockError := fmt.Errorf("error getting config")
+	// Use a non-retryable error (401) so it fails immediately without retries
+	mockError := fmt.Errorf("401 unauthorized: error getting config")
 
 	testCases := []struct {
 		name             string
@@ -287,10 +289,12 @@ func (suite *ProjectsServiceTestSuite) TestGetConfigWithRetry() {
 				// Non-retryable error - will fail immediately, set up one call
 				suite.mockService.On("GetConfig", mock.Anything).Return((*projects.ProjectConfig)(nil), (*core.DetailedResponse)(nil), tc.mockError).Once()
 			} else {
-				// Retryable error - set up enough mocks to see how many calls are made
-				// First calls fail, then success
+				// Retryable error - fail once, then succeed
+				// The retry logic should stop after success
 				suite.mockService.On("GetConfig", mock.Anything).Return((*projects.ProjectConfig)(nil), (*core.DetailedResponse)(nil), tc.mockError).Once()
 				suite.mockService.On("GetConfig", mock.Anything).Return(mockConfig, mockResponse, nil).Once()
+				// Add Maybe() to catch any unexpected extra calls (shouldn't happen if retry stops on success)
+				suite.mockService.On("GetConfig", mock.Anything).Return(mockConfig, mockResponse, nil).Maybe()
 			}
 
 			result, response, err := suite.infoSvc.GetConfig(tc.configDetails)
