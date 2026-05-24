@@ -279,7 +279,7 @@ func (infoSvc *CloudInfoService) GetConfig(configDetails *ConfigDetails) (result
 	config := common.ProjectOperationRetryConfig()
 	config.MaxRetries = 6
 	config.InitialDelay = 5 * time.Second
-	config.MaxDelay = 60 * time.Second
+	config.MaxDelay = 90 * time.Second
 	config.OperationName = "GetConfig"
 	config.Logger = infoSvc.Logger
 
