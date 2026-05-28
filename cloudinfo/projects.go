@@ -259,11 +259,46 @@ func (infoSvc *CloudInfoService) GetProjectConfigVersion(configDetails *ConfigDe
 // GetConfig gets the current configuration state - CRITICAL for test validation
 // NOT CACHED: Configuration state can change and tests must always validate actual deployed state
 func (infoSvc *CloudInfoService) GetConfig(configDetails *ConfigDetails) (result *project.ProjectConfig, response *core.DetailedResponse, err error) {
+	// Validate input parameters to prevent IAM authorization errors
+	if configDetails == nil {
+		return nil, nil, fmt.Errorf("configDetails cannot be nil")
+	}
+	if configDetails.ProjectID == "" {
+		return nil, nil, fmt.Errorf("ProjectID cannot be empty")
+	}
+	if configDetails.ConfigID == "" {
+		return nil, nil, fmt.Errorf("ConfigID cannot be empty")
+	}
+
 	getConfigOptions := &project.GetConfigOptions{
 		ProjectID: &configDetails.ProjectID,
 		ID:        &configDetails.ConfigID,
 	}
-	return infoSvc.projectsService.GetConfig(getConfigOptions)
+
+	// Use existing retry infrastructure with project-specific configuration
+	config := common.ProjectOperationRetryConfig()
+	config.MaxRetries = 6
+	config.InitialDelay = 5 * time.Second
+	config.MaxDelay = 90 * time.Second
+	config.OperationName = "GetConfig"
+	config.Logger = infoSvc.Logger
+
+	type resultType struct {
+		config   *project.ProjectConfig
+		response *core.DetailedResponse
+	}
+
+	// doing retries because projects go SDK sometimes faces issues with IAM when calling GetConfig function
+	retryResult, err := common.RetryWithConfig(config, func() (resultType, error) {
+		cfg, resp, e := infoSvc.projectsService.GetConfig(getConfigOptions)
+		return resultType{config: cfg, response: resp}, e
+	})
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return retryResult.config, retryResult.response, nil
 }
 
 // UpdateConfig updates a project config
@@ -993,7 +1028,23 @@ func (infoSvc *CloudInfoService) GetStackMembers(stackConfig *ConfigDetails) (me
 		infoSvc.Logger.Debug(fmt.Sprintf("Fetching %d stack members", totalCount))
 	}
 
-	for _, member := range stackConfig.MemberConfigs {
+	for i, member := range stackConfig.MemberConfigs {
+		// Validate member has a ConfigID before attempting to fetch
+		if member.ConfigID == nil {
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Error(fmt.Sprintf("Failed to fetch member at index %d: ConfigID is nil", i))
+			}
+			return nil, fmt.Errorf("member at index %d has nil ConfigID", i)
+		}
+
+		// Validate ProjectID is set
+		if stackConfig.ProjectID == "" {
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Error(fmt.Sprintf("Failed to fetch member (ID: %s): ProjectID is empty", *member.ConfigID))
+			}
+			return nil, fmt.Errorf("ProjectID is empty when fetching member (ID: %s)", *member.ConfigID)
+		}
+
 		config, _, err := infoSvc.GetConfig(&ConfigDetails{
 			ProjectID: stackConfig.ProjectID,
 			ConfigID:  *member.ConfigID,
@@ -1004,6 +1055,15 @@ func (infoSvc *CloudInfoService) GetStackMembers(stackConfig *ConfigDetails) (me
 			}
 			return nil, err
 		}
+
+		// Validate the returned config is not nil
+		if config == nil {
+			if infoSvc.Logger != nil {
+				infoSvc.Logger.Error(fmt.Sprintf("Failed to fetch member (ID: %s): returned config is nil", *member.ConfigID))
+			}
+			return nil, fmt.Errorf("GetConfig returned nil for member (ID: %s)", *member.ConfigID)
+		}
+
 		members = append(members, config)
 	}
 
