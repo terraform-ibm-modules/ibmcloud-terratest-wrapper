@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// mockVpcServiceForImages extends vpcServiceMock with custom image listing behavior
 type mockVpcServiceForImages struct {
 	vpcServiceMock
 	images []vpcv1.Image
@@ -20,8 +19,6 @@ func (m *mockVpcServiceForImages) ListImages(options *vpcv1.ListImagesOptions) (
 
 func TestGetLatestVSIImageID(t *testing.T) {
 	t.Run("Success - Returns latest Red Hat image", func(t *testing.T) {
-		// Create mock images
-		// Note: Lexicographic sorting means "8-9" > "8-10" > "8-8"
 		image1Name := "ibm-redhat-8-8-minimal-amd64-3"
 		image1ID := "r006-12345678-1234-1234-1234-123456789abc"
 		image1Status := "available"

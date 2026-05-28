@@ -202,15 +202,12 @@ func GetLatestVSIImageIDWithPatternO(apiKey string, region string, pattern strin
 	return imageID, nil
 }
 
-// configureCloudInfoService is a private function that will configure and set up a new CloudInfoService for testhelper
 func configureCloudInfoService(apiKey string, prefsFilePath string, options TesthelperTerraformOptions) (cloudinfo.CloudInfoServiceI, error) {
 	var cloudSvc cloudinfo.CloudInfoServiceI
 
-	// configure new cloudinfosvc if required (not supplied in options)
 	if options.CloudInfoService != nil {
 		cloudSvc = options.CloudInfoService
 	} else {
-		// set up new service based on supplied values
 		svcOptions := cloudinfo.CloudInfoServiceOptions{
 			ApiKey: apiKey, //pragma: allowlist secret
 		}
@@ -222,15 +219,10 @@ func configureCloudInfoService(apiKey string, prefsFilePath string, options Test
 		cloudSvc = cloudSvcRef
 	}
 
-	// THREAD SAFE OPERATION
-	// Make this section thread safe with a mutex
-	// If multiple parallel tests are using a shared cloudinfo instance, we want this function to only serve them one-at-a-time
-	// so that they will not overwrite a previously loaded region list
 	lock := cloudSvc.GetThreadLock()
 	lock.Lock()
 	defer lock.Unlock()
 
-	// load a region prefs file if supplied and data does not already exist
 	if len(prefsFilePath) > 0 && !cloudSvc.HasRegionData() {
 		loadErr := cloudSvc.LoadRegionPrefsFromFile(prefsFilePath)
 		if loadErr != nil {
