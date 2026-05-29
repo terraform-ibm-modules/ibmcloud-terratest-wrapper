@@ -72,6 +72,21 @@ func (m *MockCloudInfoServiceForPermutation) GetLeastPowerConnectionZone() (stri
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockCloudInfoServiceForPermutation) GetRegionWithoutService(serviceName string) (string, error) {
+	args := m.Called(serviceName)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetRegionWithLeastResources(serviceName string) (string, error) {
+	args := m.Called(serviceName)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetRegionWithoutWatsonXGovernance() (string, error) {
+	args := m.Called()
+	return args.String(0), args.Error(1)
+}
+
 func (m *MockCloudInfoServiceForPermutation) LoadRegionPrefsFromFile(filepath string) error {
 	args := m.Called(filepath)
 	return args.Error(0)

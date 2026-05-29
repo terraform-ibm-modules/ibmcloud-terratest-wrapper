@@ -2,7 +2,9 @@ package cloudinfo
 
 import (
 	"errors"
+	"fmt"
 	"log"
+	"math"
 	"os"
 	"sort"
 
@@ -35,16 +37,14 @@ func (infoSvc *CloudInfoService) GetAvailableVpcRegions() ([]vpcv1.Region, error
 		log.Println("Failed LIST REGIONS:", err, "Full Response:", detailedResponse)
 		return nil, err
 	}
-	log.Println("Number of Regions available: ", len(regionCol.Regions))
-	log.Println("*** REGIONS AVAILABLE ***")
 
 	// loop through regions for account looking for status 'available'
 	for _, region := range regionCol.Regions {
-		log.Println(*region.Name, *region.Status, *region.Endpoint, *region.Href)
-		if *region.Status == regionStatusAvailable {
+		if region.Status != nil && *region.Status == regionStatusAvailable {
 			availRegions = append(availRegions, region)
 		}
 	}
+	log.Printf("Found %d available VPC regions", len(availRegions))
 
 	return availRegions, nil
 }
@@ -119,19 +119,16 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegionO(options GetTestRegionOpt
 			return "", err
 		}
 		region.ResourceCount = int(*vpcCol.TotalCount)
-		log.Println("Region", region.Name, "VPC count:", region.ResourceCount)
 
 		// region list is sorted by priority, so if vpc count is zero then short circuit and return, it is the best region
 		if region.ResourceCount == 0 {
 			bestregion = region
-			log.Println("--- new best region is", bestregion.Name)
+			log.Printf("Selected region %s (0 VPCs)", bestregion.Name)
 			break
 		} else if len(bestregion.Name) == 0 {
 			bestregion = region // always use first valid region in list
-			log.Println("--- new best region is", bestregion.Name)
 		} else if region.ResourceCount < bestregion.ResourceCount {
 			bestregion = region // use if lower count
-			log.Println("--- new best region is", bestregion.Name)
 		}
 	}
 
@@ -145,7 +142,111 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegionO(options GetTestRegionOpt
 		return "", errors.New("ERROR: No region could be determined")
 	}
 
+	log.Printf("Selected region %s with %d VPCs", bestregion.Name, bestregion.ResourceCount)
 	return bestregion.Name, nil
+}
+
+// GetRegionWithoutService finds a region with ZERO instances of the specified service.
+func (infoSvc *CloudInfoService) GetRegionWithoutService(serviceName string) (string, error) {
+	log.Printf("Searching for regions without '%s' instances...", serviceName)
+
+	// Get all instances of this service using Resource Controller
+	instances, err := infoSvc.ListResourcesByCrnServiceName(serviceName)
+	if err != nil {
+		return "", fmt.Errorf("failed to list '%s' instances: %w", serviceName, err)
+	}
+
+	log.Printf("Found %d '%s' instances total", len(instances), serviceName)
+
+	// Build set of regions that have this service
+	occupiedRegions := make(map[string]bool)
+	for _, instance := range instances {
+		if instance.RegionID != nil && *instance.RegionID != "" {
+			occupiedRegions[*instance.RegionID] = true
+			instanceName := "<unnamed>"
+			if instance.Name != nil {
+				instanceName = *instance.Name
+			}
+			log.Printf("Found '%s' instance '%s' in region: %s", serviceName, instanceName, *instance.RegionID)
+		}
+	}
+
+	log.Printf("Total regions with '%s': %d", serviceName, len(occupiedRegions))
+
+	// Get priority-ordered available regions
+	regions, err := infoSvc.GetTestRegionsByPriority()
+	if err != nil {
+		return "", fmt.Errorf("failed to get test regions: %w", err)
+	}
+
+	// Return first priority region WITHOUT this service
+	for _, region := range regions {
+		if !occupiedRegions[region.Name] {
+			log.Printf("✓ Selected region %s (no '%s' instances)", region.Name, serviceName)
+			return region.Name, nil
+		}
+	}
+
+	return "", fmt.Errorf("no region available without '%s' - all test regions have instances", serviceName)
+}
+
+// GetRegionWithLeastResources finds the region with the MINIMUM number of instances for the specified service.
+func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string) (string, error) {
+	log.Printf("Searching for region with least '%s' instances...", serviceName)
+
+	// Get all instances of this service using Resource Controller
+	instances, err := infoSvc.ListResourcesByCrnServiceName(serviceName)
+	if err != nil {
+		return "", fmt.Errorf("failed to list '%s' instances: %w", serviceName, err)
+	}
+
+	log.Printf("Found %d '%s' instances total", len(instances), serviceName)
+
+	// Count instances per region
+	regionCounts := make(map[string]int)
+	for _, instance := range instances {
+		if instance.RegionID != nil && *instance.RegionID != "" {
+			regionCounts[*instance.RegionID]++
+		}
+	}
+
+	// Get priority-ordered available regions
+	regions, err := infoSvc.GetTestRegionsByPriority()
+	if err != nil {
+		return "", fmt.Errorf("failed to get test regions: %w", err)
+	}
+
+	// Find region with lowest count
+	var bestRegion string
+	minCount := math.MaxInt
+
+	for _, region := range regions {
+		count := regionCounts[region.Name]
+		log.Printf("Region %s has %d '%s' instances", region.Name, count, serviceName)
+
+		if count < minCount {
+			minCount = count
+			bestRegion = region.Name
+		}
+
+		// Short-circuit if we find empty region (optimal case)
+		if count == 0 {
+			log.Printf("✓ Selected region %s (zero '%s' instances)", region.Name, serviceName)
+			return region.Name, nil
+		}
+	}
+
+	if bestRegion == "" {
+		return "", fmt.Errorf("no suitable region found for '%s'", serviceName)
+	}
+
+	log.Printf("✓ Selected region %s (least '%s' instances: %d)", bestRegion, serviceName, minCount)
+	return bestRegion, nil
+}
+
+// GetRegionWithoutWatsonXGovernance
+func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance() (string, error) {
+	return infoSvc.GetRegionWithoutService("aiopenscale")
 }
 
 // regionHasActivityTracker is a helper function to determine if a given region is represented in an array
@@ -159,7 +260,7 @@ func regionHasActivityTracker(region string, activityTrackerList []resourcecontr
 	}
 
 	for _, at := range activityTrackerList {
-		if *at.RegionID == region {
+		if at.RegionID != nil && *at.RegionID == region {
 			return true
 		}
 	}
@@ -194,8 +295,10 @@ func (infoSvc *CloudInfoService) GetTestRegionsByPriority() ([]RegionData, error
 				log.Println("Failed GET DETAILS for region", testregion.Name, ":", err, "Full Response:", detailedResponse)
 				return nil, err
 			}
-			if *regiondetail.Status == regionStatusAvailable {
-				testregion.Endpoint = *regiondetail.Endpoint + "/v1"
+			if regiondetail.Status != nil && *regiondetail.Status == regionStatusAvailable {
+				if regiondetail.Endpoint != nil {
+					testregion.Endpoint = *regiondetail.Endpoint + "/v1"
+				}
 				regions = append(regions, testregion)
 			}
 		}
@@ -243,12 +346,14 @@ func (infoSvc *CloudInfoService) LoadRegionsFromVpcAccount() error {
 	}
 
 	for _, vpcRegion := range availRegions {
-		newRegion := RegionData{
-			Name:         *vpcRegion.Name,
-			UseForTest:   true,
-			TestPriority: 100, // making larger value, in case we need to add regions prioitezed before
+		if vpcRegion.Name != nil {
+			newRegion := RegionData{
+				Name:         *vpcRegion.Name,
+				UseForTest:   true,
+				TestPriority: 100, // making larger value, in case we need to add regions prioitezed before
+			}
+			regionsData = append(regionsData, newRegion)
 		}
-		regionsData = append(regionsData, newRegion)
 	}
 
 	infoSvc.regionsData = regionsData
@@ -286,20 +391,17 @@ func (infoSvc *CloudInfoService) GetLeastPowerConnectionZone() (string, error) {
 		if region.UseForTest {
 			connCount := countPowerConnectionsInZone(region.Name, connections)
 			region.ResourceCount = connCount
-			log.Println("Region", region.Name, "Resource count:", region.ResourceCount)
 
 			// region list is sorted by priority, so if resource count is zero then short circuit and return, it is the best region
 			// NOTE: we will also make sure each region is not at total limit of connections, if it is we will move on to next
 			if region.ResourceCount == 0 {
 				bestregion = region
-				log.Println("--- new best region is", bestregion.Name)
+				log.Printf("Selected Power zone %s (0 connections)", bestregion.Name)
 				break
 			} else if region.ResourceCount < maxPowerConnectionsPerZone && len(bestregion.Name) == 0 {
 				bestregion = region // always use first VALID region found in list
-				log.Println("--- new best region is", bestregion.Name)
 			} else if region.ResourceCount < maxPowerConnectionsPerZone && region.ResourceCount < bestregion.ResourceCount {
 				bestregion = region // use if valid AND lower count than previous best
-				log.Println("--- new best region is", bestregion.Name)
 			}
 		}
 	}
@@ -309,6 +411,7 @@ func (infoSvc *CloudInfoService) GetLeastPowerConnectionZone() (string, error) {
 		return "", errors.New("no region could be determined")
 	}
 
+	log.Printf("Selected Power zone %s with %d connections", bestregion.Name, bestregion.ResourceCount)
 	return bestregion.Name, nil
 }
 
@@ -340,7 +443,7 @@ func countPowerConnectionsInZone(zone string, connections []*PowerCloudConnectio
 	count := 0
 
 	for _, conn := range connections {
-		if *conn.Zone == zone {
+		if conn.Zone != nil && *conn.Zone == zone {
 			count += 1
 		}
 	}

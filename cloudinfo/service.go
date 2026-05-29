@@ -179,6 +179,9 @@ type CloudInfoServiceI interface {
 	GetLeastVpcTestRegion() (string, error)
 	GetLeastVpcTestRegionWithoutActivityTracker() (string, error)
 	GetLeastPowerConnectionZone() (string, error)
+	GetRegionWithoutService(string) (string, error)
+	GetRegionWithLeastResources(string) (string, error)
+	GetRegionWithoutWatsonXGovernance() (string, error)
 	LoadRegionPrefsFromFile(string) error
 	HasRegionData() bool
 	RemoveRegionForTest(string)
