@@ -11,6 +11,7 @@ import (
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
+	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
@@ -268,6 +269,20 @@ func (mock *cbrServiceMock) GetZone(options *contextbasedrestrictionsv1.GetZoneO
 
 func (mock *cbrServiceMock) GetRule(options *contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error) {
 	return mock.rule, mock.detailedResponse, mock.err
+}
+
+// transitGatewayServiceMock is a mock implementation of the transitGatewayService interface
+type transitGatewayServiceMock struct {
+	mock.Mock
+	transitGateways []transitgatewayapisv1.TransitGateway
+}
+
+func (mock *transitGatewayServiceMock) ListTransitGateways(options *transitgatewayapisv1.ListTransitGatewaysOptions) (*transitgatewayapisv1.TransitGatewayCollection, *core.DetailedResponse, error) {
+	args := mock.Called(options)
+	if args.Get(0) == nil {
+		return nil, nil, args.Error(1)
+	}
+	return args.Get(0).(*transitgatewayapisv1.TransitGatewayCollection), nil, args.Error(1)
 }
 
 // Mock Container Client

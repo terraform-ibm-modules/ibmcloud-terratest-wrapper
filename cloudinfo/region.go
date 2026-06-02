@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 
+	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"gopkg.in/yaml.v3"
@@ -353,4 +354,75 @@ func NewGetTestRegionOptions() *GetTestRegionOptions {
 	return &GetTestRegionOptions{
 		ExcludeActivityTrackerRegions: false,
 	}
+}
+
+// GetRegionWithLeastTransitGateways is a method for receiver CloudInfoService that will determine a region available
+// to the caller account that currently contains the least amount of deployed Transit Gateways.
+// Returns a string representing an IBM Cloud region name, and error.
+func (infoSvc *CloudInfoService) GetRegionWithLeastTransitGateways() (string, error) {
+	log.Println("Searching for region with least Transit Gateways...")
+
+	// Get all transit gateways using Transit Gateway API
+	transitGateways, err := infoSvc.ListTransitGatewaysForAccount()
+	if err != nil {
+		return "", errors.New("failed to list transit gateways: " + err.Error())
+	}
+
+	log.Printf("Found %d transit gateways in account\n", len(transitGateways))
+
+	// Count transit gateways per region
+	regionCounts := make(map[string]int)
+	for _, tgw := range transitGateways {
+		if tgw.Location != nil {
+			regionCounts[*tgw.Location]++
+		}
+	}
+
+	// Get available regions
+	availRegions, err := infoSvc.GetAvailableVpcRegions()
+	if err != nil {
+		return "", errors.New("failed to get available regions: " + err.Error())
+	}
+
+	// Find region with least transit gateways
+	var bestRegion string
+	minCount := -1
+
+	for _, region := range availRegions {
+		regionName := *region.Name
+		count := regionCounts[regionName]
+
+		log.Printf("Region %s has %d transit gateways\n", regionName, count)
+
+		if minCount == -1 || count < minCount {
+			minCount = count
+			bestRegion = regionName
+		}
+	}
+
+	if bestRegion == "" {
+		return "", errors.New("no suitable region found")
+	}
+
+	log.Printf("Selected region %s with %d transit gateways\n", bestRegion, minCount)
+	return bestRegion, nil
+}
+
+// ListTransitGatewaysForAccount lists all transit gateways in the account
+func (infoSvc *CloudInfoService) ListTransitGatewaysForAccount() ([]transitgatewayapisv1.TransitGateway, error) {
+	if infoSvc.transitGatewayService == nil {
+		return nil, errors.New("transit gateway service not initialized")
+	}
+
+	options := &transitgatewayapisv1.ListTransitGatewaysOptions{}
+	result, _, err := infoSvc.transitGatewayService.ListTransitGateways(options)
+	if err != nil {
+		return nil, err
+	}
+
+	if result == nil || result.TransitGateways == nil {
+		return []transitgatewayapisv1.TransitGateway{}, nil
+	}
+
+	return result.TransitGateways, nil
 }

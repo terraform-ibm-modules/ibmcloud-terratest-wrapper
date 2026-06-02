@@ -73,6 +73,11 @@ func (m *MockCloudInfoServiceForPermutation) GetLeastPowerConnectionZone() (stri
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockCloudInfoServiceForPermutation) GetRegionWithLeastTransitGateways() (string, error) {
+	args := m.Called()
+	return args.String(0), args.Error(1)
+}
+
 func (m *MockCloudInfoServiceForPermutation) LoadRegionPrefsFromFile(filepath string) error {
 	args := m.Called(filepath)
 	return args.Error(0)

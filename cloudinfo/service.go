@@ -24,6 +24,7 @@ import (
 	ibmpimodels "github.com/IBM-Cloud/power-go-client/power/models"
 	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
+	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
@@ -155,6 +156,7 @@ type CloudInfoService struct {
 	containerClient           containerClient
 	containerV1Client         containerV1Client
 	catalogService            catalogService
+	transitGatewayService     transitGatewayService
 	// stackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	stackDefinitionCreator StackDefinitionCreator
 	regionsData            []RegionData
@@ -179,6 +181,7 @@ type CloudInfoServiceI interface {
 	GetLeastVpcTestRegion() (string, error)
 	GetLeastVpcTestRegionWithoutActivityTracker() (string, error)
 	GetLeastPowerConnectionZone() (string, error)
+	GetRegionWithLeastTransitGateways() (string, error)
 	LoadRegionPrefsFromFile(string) error
 	HasRegionData() bool
 	RemoveRegionForTest(string)
@@ -290,6 +293,7 @@ type CloudInfoServiceOptions struct {
 	CbrService                cbrService
 	ContainerClient           containerClient
 	ContainerV1Client         containerV1Client
+	TransitGatewayService     transitGatewayService
 	RegionPrefs               []RegionData
 	IcdService                icdService
 	IcdRegion                 string
@@ -379,6 +383,11 @@ type cbrService interface {
 	GetRule(*contextbasedrestrictionsv1.GetRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	ReplaceRule(*contextbasedrestrictionsv1.ReplaceRuleOptions) (*contextbasedrestrictionsv1.Rule, *core.DetailedResponse, error)
 	GetZone(*contextbasedrestrictionsv1.GetZoneOptions) (*contextbasedrestrictionsv1.Zone, *core.DetailedResponse, error)
+}
+
+// transitGatewayService interface for external Transit Gateway Service API. Used for mocking.
+type transitGatewayService interface {
+	ListTransitGateways(*transitgatewayapisv1.ListTransitGatewaysOptions) (*transitgatewayapisv1.TransitGatewayCollection, *core.DetailedResponse, error)
 }
 
 // icdService for external Cloud Database V5 Service API. Used for mocking.
@@ -590,6 +599,23 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.cbrService = cbrService
+	}
+
+	// if transitGatewayService is not supplied, use default external service
+	if options.TransitGatewayService != nil {
+		infoSvc.transitGatewayService = options.TransitGatewayService
+	} else {
+		// Create Transit Gateway service
+		transitGatewayService, tgErr := transitgatewayapisv1.NewTransitGatewayApisV1(&transitgatewayapisv1.TransitGatewayApisV1Options{
+			Authenticator: infoSvc.authenticator,
+			Version:       core.StringPtr("2020-03-31"), // API version
+		})
+		if tgErr != nil {
+			log.Println("ERROR: Could not create Transit Gateway service:", tgErr)
+			return nil, tgErr
+		}
+
+		infoSvc.transitGatewayService = transitGatewayService
 	}
 
 	// if containerClient is not supplied, use default external service
