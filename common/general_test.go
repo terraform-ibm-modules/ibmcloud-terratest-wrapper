@@ -1,6 +1,7 @@
 package common
 
 import (
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -277,9 +278,11 @@ func TestGenerateSshPrivateKey(t *testing.T) {
 	if assert.NotEmpty(t, newKey) {
 		// no trailing newline
 		assert.NotContains(t, newKey, "\n\n")
-		// must be OpenSSH PEM format
-		assert.Contains(t, newKey, "-----BEGIN OPENSSH PRIVATE KEY-----")
-		assert.Contains(t, newKey, "-----END OPENSSH PRIVATE KEY-----")
+		// must decode as a valid PEM block of the expected type
+		block, _ := pem.Decode([]byte(newKey))
+		if assert.NotNil(t, block, "key should be valid PEM") {
+			assert.Equal(t, "OPENSSH PRIVATE KEY", block.Type)
+		}
 	}
 }
 
