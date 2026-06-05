@@ -3,7 +3,6 @@ package cloudinfo
 import (
 	"testing"
 
-	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/stretchr/testify/assert"
 )
@@ -282,36 +281,20 @@ func TestRemoveRegionForTest(t *testing.T) {
 
 func TestGetRegionWithLeastTransitGateways(t *testing.T) {
 	vpcService := new(vpcServiceMock)
+	resourceControllerService := new(resourceControllerServiceMock)
 
-	t.Run("Success", func(t *testing.T) {
-		// Mock transit gateway service
-		tgwService := &transitGatewayServiceMock{
-			mockTransitGateways: []transitgatewayapisv1.TransitGateway{
-				{Location: stringPtr("us-south")},
-				{Location: stringPtr("us-south")},
-				{Location: stringPtr("us-east")},
-			},
-		}
+	infoSvc := CloudInfoService{
+		vpcService:                vpcService,
+		resourceControllerService: resourceControllerService,
+		regionsData: []RegionData{
+			{Name: "us-south", UseForTest: true, TestPriority: 1},
+			{Name: "us-east", UseForTest: true, TestPriority: 2},
+		},
+	}
 
-		infoSvc := CloudInfoService{
-			vpcService:            vpcService,
-			transitGatewayService: tgwService,
-		}
-
-		region, err := infoSvc.GetRegionWithLeastTransitGateways()
-		assert.NoError(t, err)
-		assert.NotEmpty(t, region)
-	})
-
-	t.Run("NoTransitGatewayService", func(t *testing.T) {
-		infoSvc := CloudInfoService{
-			vpcService: vpcService,
-		}
-
-		_, err := infoSvc.GetRegionWithLeastTransitGateways()
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to list transit gateways")
-	})
+	region, err := infoSvc.GetRegionWithLeastTransitGateways()
+	assert.NoError(t, err)
+	assert.NotEmpty(t, region)
 }
 
 func stringPtr(s string) *string {

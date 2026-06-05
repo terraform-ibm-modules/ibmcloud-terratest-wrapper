@@ -11,7 +11,6 @@ import (
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
-	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
@@ -455,22 +454,4 @@ func (m *KubeVersionsMock) List(target containerv1.ClusterTargetHeader) ([]conta
 func (m *KubeVersionsMock) ListV1(target containerv1.ClusterTargetHeader) (containerv1.V1Version, error) {
 	args := m.Called(target)
 	return args.Get(0).(containerv1.V1Version), args.Error(1)
-}
-
-// Transit Gateway Service Mock
-type transitGatewayServiceMock struct {
-	mock.Mock
-	mockTransitGateways []transitgatewayapisv1.TransitGateway
-}
-
-func (mock *transitGatewayServiceMock) ListTransitGateways(options *transitgatewayapisv1.ListTransitGatewaysOptions) (*transitgatewayapisv1.TransitGatewayCollection, *core.DetailedResponse, error) {
-	if mock.mockTransitGateways == nil {
-		return &transitgatewayapisv1.TransitGatewayCollection{
-			TransitGateways: []transitgatewayapisv1.TransitGateway{},
-		}, nil, nil
-	}
-
-	return &transitgatewayapisv1.TransitGatewayCollection{
-		TransitGateways: mock.mockTransitGateways,
-	}, nil, nil
 }
