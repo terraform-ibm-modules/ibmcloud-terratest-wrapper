@@ -19,6 +19,7 @@ import (
 const defaultRegion = "us-south"
 const defaultRegionYaml = "../common-dev-assets/common-go-assets/cloudinfo-region-vpc-gen2-prefs.yaml"
 const ibmcloudApiKeyVar = "TF_VAR_ibmcloud_api_key"
+const trustedProfileIDVar = "TRUSTED_PROFILE_ID"
 
 type TestProjectsOptions struct {
 	// REQUIRED: a pointer to an initialized testing object.
@@ -81,9 +82,15 @@ type TestProjectsOptions struct {
 	// Deprecated: Deploy groups are now determined by the project.
 	stackUndeployGroups [][]string
 
+	// TrustedProfileID The ID of a trusted profile to use for stack deployment authorization.
+	// When set (via this field or the TRUSTED_PROFILE_ID environment variable), the default
+	// StackAuthorizations will use the trusted_profile method instead of api_key.
+	// Note: TF_VAR_ibmcloud_api_key is still required for the CloudInfoService (test-runner API calls).
+	TrustedProfileID string
+
 	// StackAuthorizations The authorizations to use for the project.
-	// If not set, the default will be to use the TF_VAR_ibmcloud_api_key environment variable.
-	// Can be used to set Trusted Profile or API Key.
+	// If not set, defaults to trusted_profile when TrustedProfileID is set, otherwise
+	// falls back to api_key using the TF_VAR_ibmcloud_api_key environment variable.
 	StackAuthorizations *project.ProjectConfigAuth
 
 	// StackMemberInputs [ "primary-da": {["input1": "value1", "input2": 2]}, "secondary-da": {["input1": "value1", "input2": 2]}]
@@ -191,6 +198,11 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 
 	newOptions.Prefix = fmt.Sprintf("%s-%s", newOptions.Prefix, common.UniqueId())
 
+	// Resolve TrustedProfileID from env var if not set explicitly on the options
+	if newOptions.TrustedProfileID == "" {
+		newOptions.TrustedProfileID = os.Getenv(trustedProfileIDVar)
+	}
+
 	// Verify required environment variables are set - better to do this now rather than retry and fail with every attempt
 	checkVariables := []string{ibmcloudApiKeyVar}
 	newOptions.RequiredEnvironmentVars = common.GetRequiredEnvVars(newOptions.Testing, checkVariables)
@@ -246,9 +258,16 @@ func TestProjectOptionsDefault(originalOptions *TestProjectsOptions) *TestProjec
 	// a random location will be selected at project creation time in CreateProjectFromConfig
 
 	if newOptions.StackAuthorizations == nil {
-		newOptions.StackAuthorizations = &project.ProjectConfigAuth{
-			ApiKey: core.StringPtr(os.Getenv(ibmcloudApiKeyVar)),
-			Method: core.StringPtr("api_key"),
+		if newOptions.TrustedProfileID != "" {
+			newOptions.StackAuthorizations = &project.ProjectConfigAuth{
+				TrustedProfileID: core.StringPtr(newOptions.TrustedProfileID),
+				Method:           core.StringPtr("trusted_profile"),
+			}
+		} else {
+			newOptions.StackAuthorizations = &project.ProjectConfigAuth{
+				ApiKey: core.StringPtr(os.Getenv(ibmcloudApiKeyVar)),
+				Method: core.StringPtr("api_key"),
+			}
 		}
 	}
 
