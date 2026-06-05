@@ -8,6 +8,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -243,6 +244,28 @@ func GenerateSshRsaPublicKey() (string, error) {
 	pubKeyStrTrim := strings.TrimSpace(pubKeyStr)
 
 	return pubKeyStrTrim, nil
+}
+
+// Generate an SSH RSA Keypair (4096 bits), and return the PrivateKey in OpenSSH PEM format.
+// Used for tests to generate unique throw-away (but valid) SSH key to supply to test inputs.
+// SPECIAL NOTE: the newline character at end of key will be trimmed and not included!
+func GenerateSshRsaPrivateKey() (string, error) {
+	// generate a new RSA key
+	newkey, keyerr := rsa.GenerateKey(rand.Reader, 4096)
+	if keyerr != nil {
+		return "", keyerr
+	}
+
+	// marshal private key into OpenSSH PEM format
+	pemBlock, ssherr := ssh.MarshalPrivateKey(newkey, "")
+	if ssherr != nil {
+		return "", ssherr
+	}
+
+	// encode PEM block to string and trim trailing whitespace
+	privKeyStr := strings.TrimSpace(string(pem.EncodeToMemory(pemBlock)))
+
+	return privKeyStr, nil
 }
 
 // GenerateTempGPGKeyPairBase64 generates a temporary GPG key pair and returns the private and public keys in base64 format.

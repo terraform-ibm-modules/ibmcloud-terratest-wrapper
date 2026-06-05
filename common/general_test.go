@@ -271,6 +271,18 @@ func TestGenerateSshPublicKey(t *testing.T) {
 	}
 }
 
+func TestGenerateSshPrivateKey(t *testing.T) {
+	newKey, err := GenerateSshRsaPrivateKey()
+	assert.NoErrorf(t, err, "Failed to create key: %v", err)
+	if assert.NotEmpty(t, newKey) {
+		// no trailing newline
+		assert.NotContains(t, newKey, "\n\n")
+		// must be OpenSSH PEM format
+		assert.Contains(t, newKey, "-----BEGIN OPENSSH PRIVATE KEY-----")
+		assert.Contains(t, newKey, "-----END OPENSSH PRIVATE KEY-----")
+	}
+}
+
 func TestCopyDirectory(t *testing.T) {
 
 	// Create a temporary directory for testing
