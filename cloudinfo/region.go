@@ -1,6 +1,7 @@
 package cloudinfo
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -138,7 +139,7 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegionO(options GetTestRegionOpt
 
 	// if return val is still empty, then there were no regions available, send error
 	if len(bestregion.Name) == 0 {
-		return "", fmt.Errorf("no region could be determined")
+		return "", errors.New("ERROR: No region could be determined")
 	}
 
 	log.Printf("Selected region %s with %d VPCs", bestregion.Name, bestregion.ResourceCount)
@@ -149,6 +150,7 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegionO(options GetTestRegionOpt
 func (infoSvc *CloudInfoService) GetRegionWithoutService(serviceName string) (string, error) {
 	log.Printf("Searching for regions without '%s' instances...", serviceName)
 
+	// Get all instances of this service using Resource Controller
 	instances, err := infoSvc.ListResourcesByCrnServiceName(serviceName)
 	if err != nil {
 		return "", fmt.Errorf("failed to list '%s' instances: %w", serviceName, err)
@@ -156,20 +158,28 @@ func (infoSvc *CloudInfoService) GetRegionWithoutService(serviceName string) (st
 
 	log.Printf("Found %d '%s' instances total", len(instances), serviceName)
 
+	// Build set of regions that have this service
 	occupiedRegions := make(map[string]bool)
 	for _, instance := range instances {
 		if instance.RegionID != nil && *instance.RegionID != "" {
 			occupiedRegions[*instance.RegionID] = true
+			instanceName := "<unnamed>"
+			if instance.Name != nil {
+				instanceName = *instance.Name
+			}
+			log.Printf("Found '%s' instance '%s' in region: %s", serviceName, instanceName, *instance.RegionID)
 		}
 	}
 
 	log.Printf("Total regions with '%s': %d", serviceName, len(occupiedRegions))
 
+	// Get priority-ordered available regions
 	regions, err := infoSvc.GetTestRegionsByPriority()
 	if err != nil {
 		return "", fmt.Errorf("failed to get test regions: %w", err)
 	}
 
+	// Return first priority region WITHOUT this service
 	for _, region := range regions {
 		if !occupiedRegions[region.Name] {
 			log.Printf("✓ Selected region %s (no '%s' instances)", region.Name, serviceName)
@@ -184,6 +194,7 @@ func (infoSvc *CloudInfoService) GetRegionWithoutService(serviceName string) (st
 func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string) (string, error) {
 	log.Printf("Searching for region with least '%s' instances...", serviceName)
 
+	// Get all instances of this service using Resource Controller
 	instances, err := infoSvc.ListResourcesByCrnServiceName(serviceName)
 	if err != nil {
 		return "", fmt.Errorf("failed to list '%s' instances: %w", serviceName, err)
@@ -191,6 +202,7 @@ func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string)
 
 	log.Printf("Found %d '%s' instances total", len(instances), serviceName)
 
+	// Count instances per region
 	regionCounts := make(map[string]int)
 	for _, instance := range instances {
 		if instance.RegionID != nil && *instance.RegionID != "" {
@@ -198,11 +210,13 @@ func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string)
 		}
 	}
 
+	// Get priority-ordered available regions
 	regions, err := infoSvc.GetTestRegionsByPriority()
 	if err != nil {
 		return "", fmt.Errorf("failed to get test regions: %w", err)
 	}
 
+	// Find region with lowest count
 	var bestRegion string
 	minCount := math.MaxInt
 
@@ -215,6 +229,7 @@ func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string)
 			bestRegion = region.Name
 		}
 
+		// Short-circuit if we find empty region (optimal case)
 		if count == 0 {
 			log.Printf("✓ Selected region %s (zero '%s' instances)", region.Name, serviceName)
 			return region.Name, nil
@@ -363,7 +378,7 @@ func (infoSvc *CloudInfoService) GetLeastPowerConnectionZone() (string, error) {
 	// sort available regions/zones by priority
 	// for powercloud resources the available zone list needs to be supplied, otherwise error
 	if len(infoSvc.regionsData) == 0 {
-		return "", fmt.Errorf("no available zones were supplied for power systems")
+		return "", errors.New("no available zones were supplied for power systems")
 	}
 
 	regions := infoSvc.regionsData
@@ -398,7 +413,7 @@ func (infoSvc *CloudInfoService) GetLeastPowerConnectionZone() (string, error) {
 
 	// if return val is still empty, then there were no regions available, send error
 	if len(bestregion.Name) == 0 {
-		return "", fmt.Errorf("no region could be determined")
+		return "", errors.New("no region could be determined")
 	}
 
 	log.Printf("Selected Power zone %s with %d connections", bestregion.Name, bestregion.ResourceCount)
