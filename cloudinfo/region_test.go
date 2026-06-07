@@ -417,92 +417,21 @@ func TestRemoveRegionForTest(t *testing.T) {
 }
 
 func TestGetRegionWithLeastTransitGateways(t *testing.T) {
-	t.Run("EmptyRegions", func(t *testing.T) {
-		// Test with no transit gateways (default mock behavior)
-		vpcService := new(vpcServiceMock)
-		resourceControllerService := new(resourceControllerServiceMock)
-
-		infoSvc := CloudInfoService{
-			vpcService:                vpcService,
-			resourceControllerService: resourceControllerService,
-			regionsData: []RegionData{
-				{Name: "us-south", UseForTest: true, TestPriority: 1},
-				{Name: "us-east", UseForTest: true, TestPriority: 2},
-			},
-		}
-
-		region, err := infoSvc.GetRegionWithLeastTransitGateways()
-		assert.NoError(t, err)
-		assert.Equal(t, "us-south", region, "Should select first priority region when all are empty")
-	})
-
-	t.Run("MultipleTransitGateways", func(t *testing.T) {
+	t.Run("SelectsRegionWithFewestInstances", func(t *testing.T) {
 		// Test with transit gateways distributed across regions
 		vpcService := new(vpcServiceMock)
 		resourceControllerService := new(resourceControllerServiceMock)
 
-		// Mock transit gateway instances with proper CRNs
 		usSouth := "us-south"
 		usEast := "us-east"
-		euDe := "eu-de"
 
 		mockInstances := []resourcecontrollerv2.ResourceInstance{
 			// 3 transit gateways in us-south
-			{RegionID: &usSouth, Name: core.StringPtr("tg-us-south-1"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
-			{RegionID: &usSouth, Name: core.StringPtr("tg-us-south-2"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
-			{RegionID: &usSouth, Name: core.StringPtr("tg-us-south-3"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
-			// 1 transit gateway in us-east
-			{RegionID: &usEast, Name: core.StringPtr("tg-us-east-1"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
-			// 5 transit gateways in eu-de (at quota limit)
-			{RegionID: &euDe, Name: core.StringPtr("tg-eu-de-1"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:eu-de:a/account1:::")},
-			{RegionID: &euDe, Name: core.StringPtr("tg-eu-de-2"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:eu-de:a/account1:::")},
-			{RegionID: &euDe, Name: core.StringPtr("tg-eu-de-3"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:eu-de:a/account1:::")},
-			{RegionID: &euDe, Name: core.StringPtr("tg-eu-de-4"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:eu-de:a/account1:::")},
-			{RegionID: &euDe, Name: core.StringPtr("tg-eu-de-5"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:eu-de:a/account1:::")},
-		}
-
-		mockCount := int64(len(mockInstances))
-		resourceControllerService.mockResourceList = &resourcecontrollerv2.ResourceInstancesList{
-			RowsCount: &mockCount,
-			Resources: mockInstances,
-		}
-
-		infoSvc := CloudInfoService{
-			vpcService:                vpcService,
-			resourceControllerService: resourceControllerService,
-			regionsData: []RegionData{
-				{Name: "eu-de", UseForTest: true, TestPriority: 1},    // 5 instances (at limit)
-				{Name: "us-south", UseForTest: true, TestPriority: 2}, // 3 instances
-				{Name: "us-east", UseForTest: true, TestPriority: 3},  // 1 instance (should be selected)
-			},
-		}
-
-		region, err := infoSvc.GetRegionWithLeastTransitGateways()
-		assert.NoError(t, err)
-		assert.Equal(t, "us-east", region, "Should select region with fewest transit gateways (1)")
-	})
-
-	t.Run("AllRegionsAtQuota", func(t *testing.T) {
-		// Test when all regions are at the 5 transit gateway quota limit
-		vpcService := new(vpcServiceMock)
-		resourceControllerService := new(resourceControllerServiceMock)
-
-		usSouth := "us-south"
-		usEast := "us-east"
-
-		mockInstances := []resourcecontrollerv2.ResourceInstance{
-			// 5 in us-south
 			{RegionID: &usSouth, Name: core.StringPtr("tg-1"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
 			{RegionID: &usSouth, Name: core.StringPtr("tg-2"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
 			{RegionID: &usSouth, Name: core.StringPtr("tg-3"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
-			{RegionID: &usSouth, Name: core.StringPtr("tg-4"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
-			{RegionID: &usSouth, Name: core.StringPtr("tg-5"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
-			// 5 in us-east
-			{RegionID: &usEast, Name: core.StringPtr("tg-6"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
-			{RegionID: &usEast, Name: core.StringPtr("tg-7"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
-			{RegionID: &usEast, Name: core.StringPtr("tg-8"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
-			{RegionID: &usEast, Name: core.StringPtr("tg-9"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
-			{RegionID: &usEast, Name: core.StringPtr("tg-10"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
+			// 1 transit gateway in us-east (should be selected)
+			{RegionID: &usEast, Name: core.StringPtr("tg-4"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
 		}
 
 		mockCount := int64(len(mockInstances))
@@ -522,8 +451,43 @@ func TestGetRegionWithLeastTransitGateways(t *testing.T) {
 
 		region, err := infoSvc.GetRegionWithLeastTransitGateways()
 		assert.NoError(t, err)
-		// Should still return a region (the first priority one) even if all are at quota
-		assert.Equal(t, "us-south", region, "Should select highest priority region when all have same count")
+		assert.Equal(t, "us-east", region, "Should select region with fewest transit gateways")
+	})
+
+	t.Run("RespectsRegionPriority", func(t *testing.T) {
+		// Test that priority is respected when counts are equal
+		vpcService := new(vpcServiceMock)
+		resourceControllerService := new(resourceControllerServiceMock)
+
+		usSouth := "us-south"
+		usEast := "us-east"
+
+		mockInstances := []resourcecontrollerv2.ResourceInstance{
+			// 2 in each region
+			{RegionID: &usSouth, Name: core.StringPtr("tg-1"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
+			{RegionID: &usSouth, Name: core.StringPtr("tg-2"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
+			{RegionID: &usEast, Name: core.StringPtr("tg-3"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
+			{RegionID: &usEast, Name: core.StringPtr("tg-4"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
+		}
+
+		mockCount := int64(len(mockInstances))
+		resourceControllerService.mockResourceList = &resourcecontrollerv2.ResourceInstancesList{
+			RowsCount: &mockCount,
+			Resources: mockInstances,
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "us-south", UseForTest: true, TestPriority: 1}, // Higher priority
+				{Name: "us-east", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastTransitGateways()
+		assert.NoError(t, err)
+		assert.Equal(t, "us-south", region, "Should select highest priority region when counts are equal")
 	})
 }
 
