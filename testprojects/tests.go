@@ -1048,7 +1048,25 @@ func (options *TestProjectsOptions) TestTearDown() {
 					options.Logger.ShortInfo("Deleted Test Project")
 				} else {
 					projectURL := fmt.Sprintf("https://cloud.ibm.com/projects/%s", *options.currentProject.ID)
-					options.Logger.ShortError(fmt.Sprintf("Error deleting Test Project: %s\nProject Console: %s", err, projectURL))
+
+					// Try to extract detailed error information from SDKProblem
+					var sdkProblem *core.SDKProblem
+					errorMsg := fmt.Sprintf("Error deleting Test Project: %s", err)
+
+					if errors.As(err, &sdkProblem) {
+						// SDKProblem contains additional details that can help diagnose the issue
+						if sdkProblem.Summary != "" {
+							errorMsg += fmt.Sprintf("\nError Summary: %s", sdkProblem.Summary)
+						}
+						if sdkProblem.GetConsoleMessage() != "" {
+							errorMsg += fmt.Sprintf("\nConsole Message: %s", sdkProblem.GetConsoleMessage())
+						}
+						// Print the full error details using %+v to get all fields including nested details
+						errorMsg += fmt.Sprintf("\nFull Error Details: %+v", sdkProblem)
+					}
+
+					errorMsg += fmt.Sprintf("\nProject Console: %s", projectURL)
+					options.Logger.ShortError(errorMsg)
 				}
 			} else {
 				options.Logger.ShortInfo("No project ID found to delete")
