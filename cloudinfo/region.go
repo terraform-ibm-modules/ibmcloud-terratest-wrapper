@@ -146,6 +146,89 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegionO(options GetTestRegionOpt
 	return bestregion.Name, nil
 }
 
+// GetLeastSdnlbTestRegion is a method for receiver CloudInfoService that will determine a region available
+// to the caller account that currently contains the least amount of deployed SDN load balancers.
+// This helps avoid hitting quota limits when deploying resources like PAG that require load balancers.
+// If no region can be determined, returns the provided defaultRegion.
+// Returns a string representing an IBM Cloud region name, and error.
+func (infoSvc *CloudInfoService) GetLeastSdnlbTestRegion(defaultRegion string) (string, error) {
+	// get default options
+	options := NewGetTestRegionOptions()
+
+	return infoSvc.GetLeastSdnlbTestRegionO(defaultRegion, *options)
+}
+
+// GetLeastSdnlbTestRegionO is a method for receiver CloudInfoService that will determine a region available
+// to the caller account that currently contains the least amount of deployed SDN load balancers.
+// The determination can be influenced by specifying CloudInfoService.regionsData and supplying appropriate options.
+// If no CloudInfoService.regionsData exists, it will simply loop through all available regions for the caller account
+// and choose a region with lowest SDN load balancer count.
+// If no region can be determined, returns the provided defaultRegion.
+// Returns a string representing an IBM Cloud region name, and error.
+func (infoSvc *CloudInfoService) GetLeastSdnlbTestRegionO(defaultRegion string, options GetTestRegionOptions) (string, error) {
+	var bestregion RegionData
+
+	regions, err := infoSvc.GetTestRegionsByPriority()
+	if err != nil {
+		return "", err
+	}
+
+	// if we need to filter out regions by activity tracker existence, prepare a list of those regions
+	// NOTE: we only want to do this once at beginning and then use results below
+	var atInstanceList []resourcecontrollerv2.ResourceInstance
+	var atListErr error
+	if options.ExcludeActivityTrackerRegions {
+		atInstanceList, atListErr = infoSvc.ListResourcesByCrnServiceName("logdnaat")
+		if atListErr != nil {
+			log.Println("WARNING: Error retrieving Activity Tracker instances! Ignoring when selecting.")
+			atInstanceList = []resourcecontrollerv2.ResourceInstance{}
+		}
+	}
+
+	for _, region := range regions {
+		// if option is set, ignore region if there is existing activity tracker
+		if options.ExcludeActivityTrackerRegions {
+			if regionHasActivityTracker(region.Name, atInstanceList) {
+				continue // ignore and move to next region
+			}
+		}
+
+		setErr := infoSvc.vpcService.SetServiceURL(region.Endpoint)
+		if setErr != nil {
+			return "", setErr
+		}
+
+		lbCol, detailedResponse, err := infoSvc.vpcService.ListLoadBalancers(&vpcv1.ListLoadBalancersOptions{})
+		if err != nil {
+			log.Println("Failed LIST Load Balancers for region", region.Name, ":", err, "Full Response:", detailedResponse)
+			return "", err
+		}
+		region.ResourceCount = int(*lbCol.TotalCount)
+
+		// region list is sorted by priority, so if load balancer count is zero then short circuit and return, it is the best region
+		if region.ResourceCount == 0 {
+			bestregion = region
+			break
+		} else if len(bestregion.Name) == 0 {
+			bestregion = region // always use first valid region in list
+		} else if region.ResourceCount < bestregion.ResourceCount {
+			bestregion = region // use if lower count
+		}
+	}
+
+	// after this is done need to set serviceURL back to default
+	defer func() {
+		err = infoSvc.vpcService.SetServiceURL(vpcv1.DefaultServiceURL)
+	}()
+
+	// if return val is still empty, then there were no regions available, return default region
+	if len(bestregion.Name) == 0 {
+		return defaultRegion, nil
+	}
+
+	return bestregion.Name, nil
+}
+
 // GetRegionWithoutService finds a region with ZERO instances of the specified service.
 func (infoSvc *CloudInfoService) GetRegionWithoutService(serviceName string) (string, error) {
 	log.Printf("Searching for regions without '%s' instances...", serviceName)
