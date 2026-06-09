@@ -1,13 +1,13 @@
 package cloudinfo
 
 import (
-	"errors"
 	"fmt"
 	"log"
 	"math"
 	"os"
 	"sort"
 
+	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"gopkg.in/yaml.v3"
@@ -139,7 +139,7 @@ func (infoSvc *CloudInfoService) GetLeastVpcTestRegionO(options GetTestRegionOpt
 
 	// if return val is still empty, then there were no regions available, send error
 	if len(bestregion.Name) == 0 {
-		return "", errors.New("ERROR: No region could be determined")
+		return "", fmt.Errorf("no region could be determined")
 	}
 
 	log.Printf("Selected region %s with %d VPCs", bestregion.Name, bestregion.ResourceCount)
@@ -247,6 +247,74 @@ func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string)
 // GetRegionWithoutWatsonXGovernance
 func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance() (string, error) {
 	return infoSvc.GetRegionWithoutService("aiopenscale")
+}
+
+// GetRegionWithLeastTransitGateways returns the region with the minimum number of transit gateways.
+func (infoSvc *CloudInfoService) GetRegionWithLeastTransitGateways() (string, error) {
+	log.Println("Searching for region with least Transit Gateways...")
+
+	transitGateways, err := infoSvc.ListTransitGatewaysForAccount()
+	if err != nil {
+		return "", fmt.Errorf("failed to list transit gateways: %w", err)
+	}
+
+	log.Printf("Found %d transit gateways in account\n", len(transitGateways))
+
+	regionCounts := make(map[string]int)
+	for _, tgw := range transitGateways {
+		if tgw.Location != nil {
+			regionCounts[*tgw.Location]++
+		}
+	}
+
+	availRegions, err := infoSvc.GetAvailableVpcRegions()
+	if err != nil {
+		return "", fmt.Errorf("failed to get available regions: %w", err)
+	}
+
+	var bestRegion string
+	minCount := math.MaxInt
+
+	for _, region := range availRegions {
+		if region.Name == nil {
+			continue
+		}
+		regionName := *region.Name
+		count := regionCounts[regionName]
+
+		log.Printf("Region %s has %d transit gateways\n", regionName, count)
+
+		if count < minCount {
+			minCount = count
+			bestRegion = regionName
+		}
+	}
+
+	if bestRegion == "" {
+		return "", fmt.Errorf("no suitable region found")
+	}
+
+	log.Printf("✓ Selected region %s with %d transit gateways\n", bestRegion, minCount)
+	return bestRegion, nil
+}
+
+// ListTransitGatewaysForAccount returns all transit gateways in the account.
+func (infoSvc *CloudInfoService) ListTransitGatewaysForAccount() ([]transitgatewayapisv1.TransitGateway, error) {
+	if infoSvc.transitGatewayService == nil {
+		return nil, fmt.Errorf("transit gateway service not initialized")
+	}
+
+	options := &transitgatewayapisv1.ListTransitGatewaysOptions{}
+	result, _, err := infoSvc.transitGatewayService.ListTransitGateways(options)
+	if err != nil {
+		return nil, err
+	}
+
+	if result == nil || result.TransitGateways == nil {
+		return []transitgatewayapisv1.TransitGateway{}, nil
+	}
+
+	return result.TransitGateways, nil
 }
 
 // regionHasActivityTracker is a helper function to determine if a given region is represented in an array
@@ -373,7 +441,7 @@ func (infoSvc *CloudInfoService) GetLeastPowerConnectionZone() (string, error) {
 	// sort available regions/zones by priority
 	// for powercloud resources the available zone list needs to be supplied, otherwise error
 	if len(infoSvc.regionsData) == 0 {
-		return "", errors.New("no available zones were supplied for power systems")
+		return "", fmt.Errorf("no available zones were supplied for power systems")
 	}
 
 	regions := infoSvc.regionsData
@@ -408,7 +476,7 @@ func (infoSvc *CloudInfoService) GetLeastPowerConnectionZone() (string, error) {
 
 	// if return val is still empty, then there were no regions available, send error
 	if len(bestregion.Name) == 0 {
-		return "", errors.New("no region could be determined")
+		return "", fmt.Errorf("no region could be determined")
 	}
 
 	log.Printf("Selected Power zone %s with %d connections", bestregion.Name, bestregion.ResourceCount)
