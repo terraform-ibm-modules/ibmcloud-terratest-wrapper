@@ -3,6 +3,7 @@ package cloudinfo
 import (
 	"testing"
 
+	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/stretchr/testify/assert"
 )
@@ -277,4 +278,83 @@ func TestRemoveRegionForTest(t *testing.T) {
 		assert.False(t, infoSvc.regionsData[1].UseForTest)
 		assert.True(t, infoSvc.regionsData[2].UseForTest)
 	})
+}
+
+func TestGetRegionWithLeastTransitGateways(t *testing.T) {
+	t.Run("SelectsRegionWithFewestInstances", func(t *testing.T) {
+		// Test with transit gateways distributed across regions
+		vpcService := new(vpcServiceMock)
+		resourceControllerService := new(resourceControllerServiceMock)
+
+		usSouth := "us-south"
+		usEast := "us-east"
+
+		mockInstances := []resourcecontrollerv2.ResourceInstance{
+			// 3 transit gateways in us-south
+			{RegionID: &usSouth, Name: core.StringPtr("tg-1"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
+			{RegionID: &usSouth, Name: core.StringPtr("tg-2"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
+			{RegionID: &usSouth, Name: core.StringPtr("tg-3"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
+			// 1 transit gateway in us-east (should be selected)
+			{RegionID: &usEast, Name: core.StringPtr("tg-4"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
+		}
+
+		mockCount := int64(len(mockInstances))
+		resourceControllerService.mockResourceList = &resourcecontrollerv2.ResourceInstancesList{
+			RowsCount: &mockCount,
+			Resources: mockInstances,
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "us-south", UseForTest: true, TestPriority: 1},
+				{Name: "us-east", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastTransitGateways()
+		assert.NoError(t, err)
+		assert.Equal(t, "us-east", region, "Should select region with fewest transit gateways")
+	})
+
+	t.Run("RespectsRegionPriority", func(t *testing.T) {
+		// Test that priority is respected when counts are equal
+		vpcService := new(vpcServiceMock)
+		resourceControllerService := new(resourceControllerServiceMock)
+
+		usSouth := "us-south"
+		usEast := "us-east"
+
+		mockInstances := []resourcecontrollerv2.ResourceInstance{
+			// 2 in each region
+			{RegionID: &usSouth, Name: core.StringPtr("tg-1"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
+			{RegionID: &usSouth, Name: core.StringPtr("tg-2"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-south:a/account1:::")},
+			{RegionID: &usEast, Name: core.StringPtr("tg-3"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
+			{RegionID: &usEast, Name: core.StringPtr("tg-4"), CRN: core.StringPtr("crn:v1:bluemix:public:transit:us-east:a/account1:::")},
+		}
+
+		mockCount := int64(len(mockInstances))
+		resourceControllerService.mockResourceList = &resourcecontrollerv2.ResourceInstancesList{
+			RowsCount: &mockCount,
+			Resources: mockInstances,
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "us-south", UseForTest: true, TestPriority: 1}, // Higher priority
+				{Name: "us-east", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastTransitGateways()
+		assert.NoError(t, err)
+		assert.Equal(t, "us-south", region, "Should select highest priority region when counts are equal")
+	})
+}
+
+func stringPtr(s string) *string {
+	return &s
 }

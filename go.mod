@@ -7,6 +7,7 @@ require (
 	github.com/IBM-Cloud/power-go-client v1.15.0
 	github.com/IBM/cloud-databases-go-sdk v0.8.1
 	github.com/IBM/go-sdk-core/v5 v5.21.4
+	github.com/IBM/networking-go-sdk v0.49.0
 	github.com/IBM/platform-services-go-sdk v0.99.0
 	github.com/IBM/project-go-sdk v0.4.0
 	github.com/IBM/schematics-go-sdk v0.4.0

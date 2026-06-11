@@ -222,7 +222,6 @@ func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string)
 
 	for _, region := range regions {
 		count := regionCounts[region.Name]
-		log.Printf("Region %s has %d '%s' instances", region.Name, count, serviceName)
 
 		if count < minCount {
 			minCount = count
@@ -247,6 +246,11 @@ func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string)
 // GetRegionWithoutWatsonXGovernance
 func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance() (string, error) {
 	return infoSvc.GetRegionWithoutService("aiopenscale")
+}
+
+// GetRegionWithLeastTransitGateways returns the region with the minimum number of transit gateways.
+func (infoSvc *CloudInfoService) GetRegionWithLeastTransitGateways() (string, error) {
+	return infoSvc.GetRegionWithLeastResources("transit")
 }
 
 // regionHasActivityTracker is a helper function to determine if a given region is represented in an array
