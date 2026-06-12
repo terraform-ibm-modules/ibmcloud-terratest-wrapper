@@ -218,7 +218,9 @@ func (infoSvc *CloudInfoService) GetLeastSdnlbTestRegionO(defaultRegion string, 
 
 	// after this is done need to set serviceURL back to default
 	defer func() {
-		err = infoSvc.vpcService.SetServiceURL(vpcv1.DefaultServiceURL)
+		if resetErr := infoSvc.vpcService.SetServiceURL(vpcv1.DefaultServiceURL); resetErr != nil {
+			log.Println("Warning: failed to reset service URL to default:", resetErr)
+		}
 	}()
 
 	// if return val is still empty, then there were no regions available, return default region
