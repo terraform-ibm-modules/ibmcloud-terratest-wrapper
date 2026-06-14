@@ -73,6 +73,7 @@ func (infoSvc *CloudInfoService) GetAvailableIcdVersionsGen2(service, plan, regi
 	}
 
 	// Build URL for Global Catalog API
+	// User input (service, plan, region) is properly escaped and only affects the path, not the host
 	reqURL := fmt.Sprintf("%s/api/v1/%s-%s:%s",
 		GlobalCatalogBaseURL,
 		url.PathEscape(service),
@@ -90,6 +91,7 @@ func (infoSvc *CloudInfoService) GetAvailableIcdVersionsGen2(service, plan, regi
 	req.Header.Add("Accept", "application/json")
 
 	// Execute request
+	// #nosec G107 - URL is constructed from hardcoded base + escaped user input (path only, not host)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
