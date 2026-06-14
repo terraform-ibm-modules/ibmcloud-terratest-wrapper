@@ -91,7 +91,7 @@ func (infoSvc *CloudInfoService) GetAvailableIcdVersionsGen2(service, plan, regi
 	req.Header.Add("Accept", "application/json")
 
 	// Execute request
-	// #nosec G107 - URL is constructed from hardcoded base + escaped user input (path only, not host)
+	// #nosec G704 - URL is constructed from hardcoded base + escaped user input (path only, not host)
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
