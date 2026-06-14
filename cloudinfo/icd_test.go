@@ -101,6 +101,10 @@ func TestGetAvailableIcdVersions(t *testing.T) {
 
 
 func TestGetAvailableIcdVersionsGen2(t *testing.T) {
+
+	// tests are ran sequentially here because we are using mockServer and globalCatalogBaseURL is set to mockServer.URL for testing purpose
+	// Tests running in parallel will cause race conditions to update the globalCatalogBaseURL
+	
 	t.Run("Gen2ServiceExists", func(t *testing.T) {
 		// Create mock HTTP server with successful Gen2 response
 		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -125,19 +129,23 @@ func TestGetAvailableIcdVersionsGen2(t *testing.T) {
 		}))
 		defer mockServer.Close()
 
+		// Override the base URL to point to mock server
+		originalURL := GlobalCatalogBaseURL
+		GlobalCatalogBaseURL = mockServer.URL
+		defer func() { GlobalCatalogBaseURL = originalURL }()
+
 		// Create CloudInfoService with mock authenticator
-		_ = CloudInfoService{
+		infoSvc := CloudInfoService{
 			authenticator: &MockAuthenticator{Token: "mock-token"},
-			Logger:        &common.TestLogger{},
+			Logger:        common.NewTestLogger(t.Name()),
 		}
 
-		// Note: In real implementation, we'd need to override the URL
-		// For now, this test demonstrates the structure
-		// The actual test would need URL injection or environment variable override
-
-		// Test would call: versions, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
-		// assert.Nil(t, err)
-		// assert.Equal(t, []string{"16", "17", "18"}, versions)
+		// Call the function
+		versions, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
+		
+		// Assert results
+		assert.Nil(t, err)
+		assert.Equal(t, []string{"16", "17", "18"}, versions)
 	})
 
 	t.Run("Gen2ServiceNotFound404", func(t *testing.T) {
@@ -149,15 +157,20 @@ func TestGetAvailableIcdVersionsGen2(t *testing.T) {
 		}))
 		defer mockServer.Close()
 
-		_ = CloudInfoService{
+		// Override the base URL to point to mock server
+		originalURL := GlobalCatalogBaseURL
+		GlobalCatalogBaseURL = mockServer.URL
+		defer func() { GlobalCatalogBaseURL = originalURL }()
+
+		infoSvc := CloudInfoService{
 			authenticator: &MockAuthenticator{Token: "mock-token"},
-			Logger:        &common.TestLogger{},
+			Logger:        common.NewTestLogger(t.Name()),
 		}
 
 		// Should return empty list, no error for 404
-		// versions, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "invalid-region")
-		// assert.Nil(t, err)
-		// assert.Equal(t, []string{}, versions)
+		versions, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "invalid-region")
+		assert.Nil(t, err)
+		assert.Equal(t, []string{}, versions)
 	})
 
 	t.Run("Gen2FilterDeadAndHiddenVersions", func(t *testing.T) {
@@ -180,15 +193,20 @@ func TestGetAvailableIcdVersionsGen2(t *testing.T) {
 		}))
 		defer mockServer.Close()
 
-		_ = CloudInfoService{
+		// Override the base URL to point to mock server
+		originalURL := GlobalCatalogBaseURL
+		GlobalCatalogBaseURL = mockServer.URL
+		defer func() { GlobalCatalogBaseURL = originalURL }()
+
+		infoSvc := CloudInfoService{
 			authenticator: &MockAuthenticator{Token: "mock-token"},
-			Logger:        &common.TestLogger{},
+			Logger:        common.NewTestLogger(t.Name()),
 		}
 
 		// Should return only versions 16 and 17 (not dead/hidden)
-		// versions, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
-		// assert.Nil(t, err)
-		// assert.Equal(t, []string{"16", "17"}, versions)
+		versions, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
+		assert.Nil(t, err)
+		assert.Equal(t, []string{"16", "17"}, versions)
 	})
 
 	t.Run("Gen2InvalidJSON", func(t *testing.T) {
@@ -199,15 +217,20 @@ func TestGetAvailableIcdVersionsGen2(t *testing.T) {
 		}))
 		defer mockServer.Close()
 
-		_ = CloudInfoService{
+		// Override the base URL to point to mock server
+		originalURL := GlobalCatalogBaseURL
+		GlobalCatalogBaseURL = mockServer.URL
+		defer func() { GlobalCatalogBaseURL = originalURL }()
+
+		infoSvc := CloudInfoService{
 			authenticator: &MockAuthenticator{Token: "mock-token"},
-			Logger:        &common.TestLogger{},
+			Logger:        common.NewTestLogger(t.Name()),
 		}
 
 		// Should return error
-		// _, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
-		// assert.NotNil(t, err)
-		// assert.Contains(t, err.Error(), "error parsing JSON")
+		_, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "error parsing JSON")
 	})
 
 	t.Run("Gen2ServerError500", func(t *testing.T) {
@@ -218,30 +241,20 @@ func TestGetAvailableIcdVersionsGen2(t *testing.T) {
 		}))
 		defer mockServer.Close()
 
-		_ = CloudInfoService{
+		// Override the base URL to point to mock server
+		originalURL := GlobalCatalogBaseURL
+		GlobalCatalogBaseURL = mockServer.URL
+		defer func() { GlobalCatalogBaseURL = originalURL }()
+
+		infoSvc := CloudInfoService{
 			authenticator: &MockAuthenticator{Token: "mock-token"},
-			Logger:        &common.TestLogger{},
+			Logger:        common.NewTestLogger(t.Name()),
 		}
 
 		// Should return error
-		// _, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
-		// assert.NotNil(t, err)
-		// assert.Contains(t, err.Error(), "API request failed with status 500")
-	})
-
-	t.Run("Gen2AuthenticationError", func(t *testing.T) {
-		// Note: The existing MockAuthenticator always succeeds
-		// To test auth failures, we'd need a different mock or error injection
-		// For now, this test is a placeholder showing the test structure
-		_ = CloudInfoService{
-			authenticator: &MockAuthenticator{Token: "mock-token"},
-			Logger:        &common.TestLogger{},
-		}
-
-		// In a real scenario with auth failure:
-		// _, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
-		// assert.NotNil(t, err)
-		// assert.Contains(t, err.Error(), "error getting auth token")
+		_, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "API request failed with status 500")
 	})
 
 	t.Run("Gen2NoValidVersions", func(t *testing.T) {
@@ -262,14 +275,19 @@ func TestGetAvailableIcdVersionsGen2(t *testing.T) {
 		}))
 		defer mockServer.Close()
 
-		_ = CloudInfoService{
+		// Override the base URL to point to mock server
+		originalURL := GlobalCatalogBaseURL
+		GlobalCatalogBaseURL = mockServer.URL
+		defer func() { GlobalCatalogBaseURL = originalURL }()
+
+		infoSvc := CloudInfoService{
 			authenticator: &MockAuthenticator{Token: "mock-token"},
-			Logger:        &common.TestLogger{},
+			Logger:        common.NewTestLogger(t.Name()),
 		}
 
 		// Should return error - no valid versions
-		// _, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
-		// assert.NotNil(t, err)
-		// assert.Contains(t, err.Error(), "no valid versions found")
+		_, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
+		assert.NotNil(t, err)
+		assert.Contains(t, err.Error(), "no valid versions found")
 	})
 }

@@ -8,6 +8,10 @@ import (
 	"net/url"
 )
 
+// GlobalCatalogBaseURL is the base URL for the Global Catalog API
+// This can be overridden in tests to point to a mock server
+var GlobalCatalogBaseURL = "https://globalcatalog.cloud.ibm.com"
+
 // GetAvailableIcdVersions will retrieve the available versions of a specified ICD type.
 // icdType is the type of the ICD
 // returns a list of stable versions of a specified ICD type.
@@ -69,7 +73,8 @@ func (infoSvc *CloudInfoService) GetAvailableIcdVersionsGen2(service, plan, regi
 	}
 
 	// Build URL for Global Catalog API
-	reqURL := fmt.Sprintf("https://globalcatalog.cloud.ibm.com/api/v1/%s-%s:%s",
+	reqURL := fmt.Sprintf("%s/api/v1/%s-%s:%s",
+		GlobalCatalogBaseURL,
 		url.PathEscape(service),
 		url.PathEscape(plan),
 		url.PathEscape(region))
