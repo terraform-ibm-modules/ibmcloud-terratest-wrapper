@@ -99,12 +99,11 @@ func TestGetAvailableIcdVersions(t *testing.T) {
 	})
 }
 
-
 func TestGetAvailableIcdVersionsGen2(t *testing.T) {
 
 	// tests are ran sequentially here because we are using mockServer and globalCatalogBaseURL is set to mockServer.URL for testing purpose
 	// Tests running in parallel will cause race conditions to update the globalCatalogBaseURL
-	
+
 	t.Run("Gen2ServiceExists", func(t *testing.T) {
 		// Create mock HTTP server with successful Gen2 response
 		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +141,7 @@ func TestGetAvailableIcdVersionsGen2(t *testing.T) {
 
 		// Call the function
 		versions, err := infoSvc.GetAvailableIcdVersionsGen2("databases-for-postgresql", "standard-gen2", "ca-tor")
-		
+
 		// Assert results
 		assert.Nil(t, err)
 		assert.Equal(t, []string{"16", "17", "18"}, versions)
