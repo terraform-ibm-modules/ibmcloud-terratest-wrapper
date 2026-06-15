@@ -67,6 +67,16 @@ func (m *MockCloudInfoServiceForPermutation) GetLeastVpcTestRegionWithoutActivit
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockCloudInfoServiceForPermutation) GetLeastSdnlbTestRegion(defaultRegion string) (string, error) {
+	args := m.Called(defaultRegion)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetLeastSdnlbTestRegionO(defaultRegion string, options GetTestRegionOptions) (string, error) {
+	args := m.Called(defaultRegion, options)
+	return args.String(0), args.Error(1)
+}
+
 func (m *MockCloudInfoServiceForPermutation) GetLeastPowerConnectionZone() (string, error) {
 	args := m.Called()
 	return args.String(0), args.Error(1)
