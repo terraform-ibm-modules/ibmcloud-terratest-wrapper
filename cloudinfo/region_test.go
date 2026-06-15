@@ -1,6 +1,7 @@
 package cloudinfo
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
@@ -102,6 +103,141 @@ func TestLeastVpcAllAvailRegions(t *testing.T) {
 		if assert.Nil(t, regErr, "unexpected error returned") {
 			assert.Equal(t, "reg-3-3", bestregion, "Wrong VPC region returned")
 		}
+	})
+}
+func TestLeastSdnlbAllAvailRegions(t *testing.T) {
+	vpcService := new(vpcServiceMock)
+	resourceControllerService := new(resourceControllerServiceMock)
+
+	//create main cloud service objects with mock service and region data
+	infoSvc := CloudInfoService{
+		vpcService:                vpcService,
+		resourceControllerService: resourceControllerService,
+		regionsData: []RegionData{
+			{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
+			{Name: "reg-2-5", UseForTest: true, TestPriority: 2},
+			{Name: "reg-3-5", UseForTest: true, TestPriority: 3},
+		},
+	}
+	// first test, low priority wins
+	t.Run("LowestPriorityWins", func(t *testing.T) {
+		bestregion, regErr := infoSvc.GetLeastSdnlbTestRegion("us-south")
+		if assert.Nil(t, regErr) {
+			assert.Equal(t, "reg-2-5", bestregion, "Wrong SDN LB region returned")
+		}
+	})
+
+	// second test, region with zero wins no matter
+	infoSvc.regionsData = []RegionData{
+		{Name: "reg-1-0", UseForTest: true, TestPriority: 1},
+		{Name: "reg-2-5", UseForTest: true, TestPriority: 2},
+		{Name: "reg-3-3", UseForTest: true, TestPriority: 3},
+	}
+
+	t.Run("FirstZeroWins", func(t *testing.T) {
+		bestregion, regErr := infoSvc.GetLeastSdnlbTestRegion("us-south")
+		if assert.Nil(t, regErr) {
+			assert.Equal(t, "reg-1-0", bestregion, "Wrong SDN LB region returned")
+		}
+	})
+
+	// third test, do not include non test regions
+	infoSvc.regionsData = []RegionData{
+		{Name: "reg-3-3", UseForTest: true, TestPriority: 3},
+		{Name: "reg-2-1", UseForTest: false, TestPriority: 2},
+		{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
+	}
+
+	t.Run("ExcludeRegions", func(t *testing.T) {
+		bestregion, regErr := infoSvc.GetLeastSdnlbTestRegion("us-south")
+		if assert.Nil(t, regErr) {
+			assert.Equal(t, "reg-3-3", bestregion, "Wrong SDN LB region returned")
+		}
+	})
+
+	// fourth test, use all avail regions if no prefs
+	infoSvc.regionsData = []RegionData{}
+
+	t.Run("UseAllAvailRegions", func(t *testing.T) {
+		bestregion, regErr := infoSvc.GetLeastSdnlbTestRegion("us-south")
+		if assert.Nil(t, regErr) {
+			assert.Equal(t, "regavail-3-1", bestregion, "Wrong SDN LB region returned")
+		}
+	})
+
+	// fifth test, nothing available - should return default region
+	infoSvc.regionsData = []RegionData{
+		{Name: "reg-1-10", UseForTest: false, TestPriority: 1},
+		{Name: "reg-2-1", UseForTest: false, TestPriority: 2},
+		{Name: "reg-3-3", UseForTest: false, TestPriority: 3},
+	}
+
+	t.Run("NoRegionsAvailable", func(t *testing.T) {
+		bestregion, regErr := infoSvc.GetLeastSdnlbTestRegion("us-south")
+		assert.Nil(t, regErr, "should not error when default region provided")
+		assert.Equal(t, "us-south", bestregion, "should return default region when no regions available")
+	})
+
+	// sixth test, forced failure
+	t.Run("ErrorFromGetTestRegionsByPriority", func(t *testing.T) {
+		// Create a mock that will fail on GetRegion call
+		vpcServiceErr := &vpcServiceMock{
+			shouldFailGetRegion: true,
+			getRegionError:      errors.New("failed to get region details"),
+		}
+
+		infoSvcErr := CloudInfoService{
+			vpcService:                vpcServiceErr,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
+			},
+		}
+
+		_, err := infoSvcErr.GetLeastSdnlbTestRegion("us-south")
+		assert.NotNil(t, err, "expected error from GetTestRegionsByPriority")
+	})
+
+	// seventh test, error from SetServiceURL
+	t.Run("ErrorFromSetServiceURL", func(t *testing.T) {
+		// Create a mock that will fail on SetServiceURL call
+		vpcServiceErr := &vpcServiceMock{
+			shouldFailSetServiceURL: true,
+			setServiceURLError:      errors.New("failed to set service URL"),
+		}
+
+		infoSvcErr := CloudInfoService{
+			vpcService:                vpcServiceErr,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
+			},
+		}
+
+		_, err := infoSvcErr.GetLeastSdnlbTestRegion("us-south")
+		assert.NotNil(t, err, "expected error from SetServiceURL")
+		assert.Contains(t, err.Error(), "failed to set service URL")
+	})
+
+	// eighth test, error from ListLoadBalancers
+	t.Run("ErrorFromListLoadBalancers", func(t *testing.T) {
+		// Create a mock that will fail on ListLoadBalancers call
+		vpcServiceErr := &vpcServiceMock{
+			shouldFailListLoadBalancers: true,
+			listLoadBalancersError:      errors.New("failed to list load balancers"),
+		}
+
+		infoSvcErr := CloudInfoService{
+			vpcService:                vpcServiceErr,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
+			},
+		}
+
+		_, err := infoSvcErr.GetLeastSdnlbTestRegion("us-south")
+		assert.NotNil(t, err, "expected error from ListLoadBalancers")
+		assert.Contains(t, err.Error(), "failed to list load balancers")
 	})
 }
 
