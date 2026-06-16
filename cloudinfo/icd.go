@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 // GetAvailableIcdVersions will retrieve the available versions of a specified ICD type.
