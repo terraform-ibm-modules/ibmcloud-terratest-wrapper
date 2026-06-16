@@ -89,7 +89,9 @@ func (infoSvc *CloudInfoService) GetAvailableIcdVersionsGen2(service, plan, regi
 	req.Header.Add("Accept", "application/json")
 
 	// Execute request
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
 	resp, err := client.Do(req) // #nosec G704 -- URL is constructed from hardcoded base + escaped user input (path only, not host)
 	if err != nil {
 		return nil, fmt.Errorf("error executing request: %w", err)
