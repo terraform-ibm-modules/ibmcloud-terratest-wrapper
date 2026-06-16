@@ -179,6 +179,8 @@ type CloudInfoService struct {
 type CloudInfoServiceI interface {
 	GetLeastVpcTestRegion() (string, error)
 	GetLeastVpcTestRegionWithoutActivityTracker() (string, error)
+	GetLeastSdnlbTestRegion(defaultRegion string) (string, error)
+	GetLeastSdnlbTestRegionO(defaultRegion string, options GetTestRegionOptions) (string, error)
 	GetLeastPowerConnectionZone() (string, error)
 	GetRegionWithoutService(string) (string, error)
 	GetRegionWithLeastResources(string) (string, error)
@@ -324,6 +326,7 @@ type RegionData struct {
 type vpcService interface {
 	ListRegions(*vpcv1.ListRegionsOptions) (*vpcv1.RegionCollection, *core.DetailedResponse, error)
 	GetRegion(*vpcv1.GetRegionOptions) (*vpcv1.Region, *core.DetailedResponse, error)
+	ListLoadBalancers(*vpcv1.ListLoadBalancersOptions) (*vpcv1.LoadBalancerCollection, *core.DetailedResponse, error)
 	NewGetRegionOptions(string) *vpcv1.GetRegionOptions
 	ListVpcs(*vpcv1.ListVpcsOptions) (*vpcv1.VPCCollection, *core.DetailedResponse, error)
 	SetServiceURL(string) error
