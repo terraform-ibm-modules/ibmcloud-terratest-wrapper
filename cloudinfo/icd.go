@@ -8,10 +8,6 @@ import (
 	"net/url"
 )
 
-// GlobalCatalogBaseURL is the base URL for the Global Catalog API
-// This can be overridden in tests to point to a mock server
-var GlobalCatalogBaseURL = "https://globalcatalog.cloud.ibm.com"
-
 // GetAvailableIcdVersions will retrieve the available versions of a specified ICD type.
 // icdType is the type of the ICD
 // returns a list of stable versions of a specified ICD type.
@@ -72,10 +68,12 @@ func (infoSvc *CloudInfoService) GetAvailableIcdVersionsGen2(service, plan, regi
 		return nil, fmt.Errorf("error getting auth token: %w", err)
 	}
 
+	globalCatalogBaseURL := infoSvc.globalCatalogBaseURL
+
 	// Build URL for Global Catalog API
 	// User input (service, plan, region) is properly escaped and only affects the path, not the host
 	reqURL := fmt.Sprintf("%s/api/v1/%s-%s:%s",
-		GlobalCatalogBaseURL,
+		globalCatalogBaseURL,
 		url.PathEscape(service),
 		url.PathEscape(plan),
 		url.PathEscape(region))
@@ -110,10 +108,9 @@ func (infoSvc *CloudInfoService) GetAvailableIcdVersionsGen2(service, plan, regi
 		return nil, fmt.Errorf("error reading response body: %w", err)
 	}
 
-	// Handle 404 gracefully - service not available in this region/plan
 	if resp.StatusCode == 404 {
 		infoSvc.Logger.ShortWarn(fmt.Sprintf("Gen2 service %s-%s not available in region %s (404)", service, plan, region))
-		return []string{}, nil // Return empty list, not an error
+		return nil, fmt.Errorf("service not found. Probably it is not yet supported in this region")
 	}
 
 	// Check other error status codes
@@ -140,7 +137,7 @@ func (infoSvc *CloudInfoService) GetAvailableIcdVersionsGen2(service, plan, regi
 	// Extract valid versions (filter out dead and hidden)
 	versions := []string{}
 	for _, version := range gen2Response.Metadata.Other.Versions {
-		if version.Status != "dead" && version.Status != "hidden" {
+		if version.Status == "stable" {
 			versions = append(versions, version.Version)
 		}
 	}
