@@ -60,7 +60,6 @@ func (infoSvc *CloudInfoService) GetAvailableIcdVersions(icdType string) ([]stri
 // service is the service name (e.g., "databases-for-postgresql")
 // plan is the plan name (e.g., "standard-gen2")
 // region is the region (e.g., "ca-tor")
-// returns a list of versions (excluding dead and hidden) of the specified Gen2 ICD service.
 func (infoSvc *CloudInfoService) GetAvailableIcdVersionsGen2(service, plan, region string) ([]string, error) {
 	// Get access token using existing authenticator
 	token, err := infoSvc.authenticator.GetToken()
