@@ -155,6 +155,7 @@ type CloudInfoService struct {
 	containerClient           containerClient
 	containerV1Client         containerV1Client
 	catalogService            catalogService
+	globalCatalogBaseURL      string
 	// stackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	stackDefinitionCreator StackDefinitionCreator
 	regionsData            []RegionData
@@ -297,6 +298,7 @@ type CloudInfoServiceOptions struct {
 	IcdRegion                 string
 	ProjectsService           projectsService
 	CatalogService            catalogService
+	GlobalCatalogBaseURL      string
 	SchematicsServices        map[string]schematicsService
 	// StackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	StackDefinitionCreator StackDefinitionCreator
@@ -721,6 +723,12 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 
 		infoSvc.catalogService = catalogClient
 
+	}
+
+	if options.GlobalCatalogBaseURL != "" {
+		infoSvc.globalCatalogBaseURL = options.GlobalCatalogBaseURL
+	} else {
+		infoSvc.globalCatalogBaseURL = "https://globalcatalog.cloud.ibm.com"
 	}
 
 	// Schematics is a regional endpoint service, and cross-location API calls do not work.
