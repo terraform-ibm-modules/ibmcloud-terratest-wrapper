@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 
+	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"gopkg.in/yaml.v3"
@@ -335,7 +336,55 @@ func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance() (string, er
 
 // GetRegionWithLeastTransitGateways returns the region with the minimum number of transit gateways.
 func (infoSvc *CloudInfoService) GetRegionWithLeastTransitGateways() (string, error) {
-	return infoSvc.GetRegionWithLeastResources("transit")
+	// Get all transit gateways using Transit Gateway SDK
+	listOptions := &transitgatewayapisv1.ListTransitGatewaysOptions{}
+	result, _, err := infoSvc.transitGatewayService.ListTransitGateways(listOptions)
+	if err != nil {
+		return "", fmt.Errorf("failed to list transit gateways: %w", err)
+	}
+
+	// Count transit gateways per location (region)
+	regionCounts := make(map[string]int)
+	for _, gateway := range result.TransitGateways {
+		// Check both Location and Name for nil
+		if gateway.Location != nil && *gateway.Location != "" {
+			if gateway.Name != nil {
+				regionCounts[*gateway.Location]++
+			}
+		}
+	}
+
+	// Get priority-ordered available regions
+	regions, err := infoSvc.GetTestRegionsByPriority()
+	if err != nil {
+		return "", fmt.Errorf("failed to get test regions: %w", err)
+	}
+
+	// Find region with lowest count
+	var bestRegion string
+	minCount := math.MaxInt
+
+	for _, region := range regions {
+		count := regionCounts[region.Name]
+
+		if count < minCount {
+			minCount = count
+			bestRegion = region.Name
+		}
+
+		// if we find empty region
+		if count == 0 {
+			log.Printf("Selected region %s with %d transit gateways", region.Name, count)
+			return region.Name, nil
+		}
+	}
+
+	if bestRegion == "" {
+		return "", fmt.Errorf("no suitable region found for transit gateways")
+	}
+
+	log.Printf("Selected region %s with %d transit gateways", bestRegion, minCount)
+	return bestRegion, nil
 }
 
 // regionHasActivityTracker is a helper function to determine if a given region is represented in an array

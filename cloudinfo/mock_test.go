@@ -11,6 +11,7 @@ import (
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
+	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
@@ -465,6 +466,21 @@ func (s *icdServiceMock) NewListDeployablesOptions() *clouddatabasesv5.ListDeplo
 
 func (s *icdServiceMock) ListDeployables(*clouddatabasesv5.ListDeployablesOptions) (*clouddatabasesv5.ListDeployablesResponse, *core.DetailedResponse, error) {
 	return s.mockListDeployablesResponse, nil, nil
+}
+
+// Transit Gateway Service mock
+type transitGatewayServiceMock struct {
+	mock.Mock
+	mockTransitGateways *transitgatewayapisv1.TransitGatewayCollection
+}
+
+func (mock *transitGatewayServiceMock) ListTransitGateways(*transitgatewayapisv1.ListTransitGatewaysOptions) (*transitgatewayapisv1.TransitGatewayCollection, *core.DetailedResponse, error) {
+	if mock.mockTransitGateways != nil {
+		return mock.mockTransitGateways, nil, nil
+	}
+	return &transitgatewayapisv1.TransitGatewayCollection{
+		TransitGateways: []transitgatewayapisv1.TransitGateway{},
+	}, nil, nil
 }
 
 // Mock ContainerV1 Client
