@@ -336,21 +336,49 @@ func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance() (string, er
 
 // GetRegionWithLeastTransitGateways returns the region with the minimum number of transit gateways.
 func (infoSvc *CloudInfoService) GetRegionWithLeastTransitGateways() (string, error) {
-	// Get all transit gateways using Transit Gateway SDK
+	// Get all transit gateways using Transit Gateway SDK with pagination support
+	maxPages := 100
+	countPages := 0
+	allGateways := []transitgatewayapisv1.TransitGateway{}
+	moreData := true
+
 	listOptions := &transitgatewayapisv1.ListTransitGatewaysOptions{}
-	result, _, err := infoSvc.transitGatewayService.ListTransitGateways(listOptions)
-	if err != nil {
-		return "", fmt.Errorf("failed to list transit gateways: %w", err)
+	listOptions.SetLimit(100)
+
+	for moreData {
+		result, _, err := infoSvc.transitGatewayService.ListTransitGateways(listOptions)
+		if err != nil {
+			return "", fmt.Errorf("failed to list transit gateways: %w", err)
+		}
+		countPages++
+
+		// Add all gateways to the list
+		allGateways = append(allGateways, result.TransitGateways...)
+
+		// Check if there are more pages
+		if (countPages < maxPages) && result.Next != nil {
+			// Get the start token for the next page
+			nextStart, err := result.GetNextStart()
+			if err != nil {
+				return "", fmt.Errorf("error getting next page start token: %w", err)
+			}
+			if nextStart != nil {
+				listOptions.SetStart(*nextStart)
+				moreData = true
+			} else {
+				moreData = false
+			}
+		} else {
+			moreData = false
+		}
 	}
 
 	// Count transit gateways per location (region)
 	regionCounts := make(map[string]int)
-	for _, gateway := range result.TransitGateways {
-		// Check both Location and Name for nil
+	for _, gateway := range allGateways {
+		// Count all gateways by location
 		if gateway.Location != nil && *gateway.Location != "" {
-			if gateway.Name != nil {
-				regionCounts[*gateway.Location]++
-			}
+			regionCounts[*gateway.Location]++
 		}
 	}
 
