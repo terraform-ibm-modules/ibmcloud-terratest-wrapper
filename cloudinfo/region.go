@@ -399,12 +399,6 @@ func (infoSvc *CloudInfoService) GetRegionWithLeastTransitGateways() (string, er
 			minCount = count
 			bestRegion = region.Name
 		}
-
-		// if we find empty region
-		if count == 0 {
-			log.Printf("Selected region %s with %d transit gateways", region.Name, count)
-			return region.Name, nil
-		}
 	}
 
 	if bestRegion == "" {

@@ -47,13 +47,6 @@ func GetBestVpcRegionO(apiKey string, prefsFilePath string, defaultRegion string
 		return forceRegion, nil
 	}
 
-	// If a non-empty defaultRegion is provided (and not the generic "us-south"), use it directly
-	// This allows tests to specify their own region selection logic (e.g., for transit gateways)
-	if defaultRegion != "" && defaultRegion != "us-south" {
-		log.Printf("Using provided default region: %s (skipping VPC region selection)", defaultRegion)
-		return defaultRegion, nil
-	}
-
 	cloudSvc, cloudSvcErr := configureCloudInfoService(apiKey, prefsFilePath, options)
 	if cloudSvcErr != nil {
 		log.Println("Error creating CloudInfoService for testhelper")
