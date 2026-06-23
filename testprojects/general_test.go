@@ -75,3 +75,66 @@ func TestGetVersionLocatorFromStackDefinitionForMemberName(t *testing.T) {
 		})
 	}
 }
+
+func TestProjectOptionsDefaultAuthDefaultsToApiKey(t *testing.T) {
+	t.Setenv(ibmcloudApiKeyVar, "test-api-key")
+
+	options := TestProjectOptionsDefault(&TestProjectsOptions{
+		Testing: t,
+		Prefix:  "test",
+	})
+
+	if assert.NotNil(t, options.StackAuthorizations) {
+		assert.Equal(t, "api_key", *options.StackAuthorizations.Method)
+		assert.Equal(t, "test-api-key", *options.StackAuthorizations.ApiKey)
+		assert.Nil(t, options.StackAuthorizations.TrustedProfileID)
+	}
+}
+
+func TestProjectOptionsDefaultAuthUsesTrustedProfileField(t *testing.T) {
+	t.Setenv(ibmcloudApiKeyVar, "test-api-key")
+
+	options := TestProjectOptionsDefault(&TestProjectsOptions{
+		Testing:          t,
+		Prefix:           "test",
+		TrustedProfileID: "profile-123",
+	})
+
+	if assert.NotNil(t, options.StackAuthorizations) {
+		assert.Equal(t, "trusted_profile", *options.StackAuthorizations.Method)
+		assert.Equal(t, "profile-123", *options.StackAuthorizations.TrustedProfileID)
+		assert.Nil(t, options.StackAuthorizations.ApiKey)
+	}
+}
+
+func TestProjectOptionsDefaultAuthUsesTrustedProfileEnvVar(t *testing.T) {
+	t.Setenv(ibmcloudApiKeyVar, "test-api-key")
+	t.Setenv(trustedProfileIDVar, "env-profile-456")
+
+	options := TestProjectOptionsDefault(&TestProjectsOptions{
+		Testing: t,
+		Prefix:  "test",
+	})
+
+	if assert.NotNil(t, options.StackAuthorizations) {
+		assert.Equal(t, "trusted_profile", *options.StackAuthorizations.Method)
+		assert.Equal(t, "env-profile-456", *options.StackAuthorizations.TrustedProfileID)
+		assert.Nil(t, options.StackAuthorizations.ApiKey)
+	}
+}
+
+func TestProjectOptionsDefaultAuthFieldTakesPrecedenceOverEnvVar(t *testing.T) {
+	t.Setenv(ibmcloudApiKeyVar, "test-api-key")
+	t.Setenv(trustedProfileIDVar, "env-profile-456")
+
+	options := TestProjectOptionsDefault(&TestProjectsOptions{
+		Testing:          t,
+		Prefix:           "test",
+		TrustedProfileID: "field-profile-123",
+	})
+
+	if assert.NotNil(t, options.StackAuthorizations) {
+		assert.Equal(t, "trusted_profile", *options.StackAuthorizations.Method)
+		assert.Equal(t, "field-profile-123", *options.StackAuthorizations.TrustedProfileID)
+	}
+}
