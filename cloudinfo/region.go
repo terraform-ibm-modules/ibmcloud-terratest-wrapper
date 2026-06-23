@@ -309,6 +309,7 @@ func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string)
 	for _, region := range regions {
 		count := regionCounts[region.Name]
 		log.Printf("Region %s has %d '%s' instances", region.Name, count, serviceName)
+
 		if count < minCount {
 			minCount = count
 			bestRegion = region.Name
