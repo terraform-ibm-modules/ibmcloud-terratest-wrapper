@@ -472,9 +472,13 @@ func (s *icdServiceMock) ListDeployables(*clouddatabasesv5.ListDeployablesOption
 type transitGatewayServiceMock struct {
 	mock.Mock
 	mockTransitGateways *transitgatewayapisv1.TransitGatewayCollection
+	mockError           error
 }
 
 func (mock *transitGatewayServiceMock) ListTransitGateways(*transitgatewayapisv1.ListTransitGatewaysOptions) (*transitgatewayapisv1.TransitGatewayCollection, *core.DetailedResponse, error) {
+	if mock.mockError != nil {
+		return nil, nil, mock.mockError
+	}
 	if mock.mockTransitGateways != nil {
 		return mock.mockTransitGateways, nil, nil
 	}

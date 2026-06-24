@@ -2,6 +2,7 @@ package cloudinfo
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/IBM/go-sdk-core/v5/core"
@@ -480,5 +481,28 @@ func TestGetRegionWithLeastTransitGateways(t *testing.T) {
 		region, err := infoSvc.GetRegionWithLeastTransitGateways()
 		assert.NoError(t, err)
 		assert.Equal(t, "us-south", region, "Should select highest priority region when counts are equal")
+	})
+
+	t.Run("HandlesListTransitGatewaysError", func(t *testing.T) {
+		// Test error handling when ListTransitGateways fails
+		vpcService := new(vpcServiceMock)
+		transitGatewayService := new(transitGatewayServiceMock)
+
+		// Set mock to return an error
+		transitGatewayService.mockError = fmt.Errorf("API error: failed to list transit gateways")
+
+		infoSvc := CloudInfoService{
+			vpcService:            vpcService,
+			transitGatewayService: transitGatewayService,
+			regionsData: []RegionData{
+				{Name: "us-south", UseForTest: true, TestPriority: 1},
+				{Name: "us-east", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastTransitGateways()
+		assert.Error(t, err)
+		assert.Empty(t, region, "Should return empty region on error")
+		assert.Contains(t, err.Error(), "failed to list transit gateways", "Error message should indicate the failure")
 	})
 }
