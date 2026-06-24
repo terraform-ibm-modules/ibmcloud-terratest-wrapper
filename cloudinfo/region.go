@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 
+	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"gopkg.in/yaml.v3"
@@ -332,6 +333,81 @@ func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string)
 // GetRegionWithoutWatsonXGovernance
 func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance() (string, error) {
 	return infoSvc.GetRegionWithoutService("aiopenscale")
+}
+
+// GetRegionWithLeastTransitGateways returns the region with the minimum number of transit gateways.
+func (infoSvc *CloudInfoService) GetRegionWithLeastTransitGateways() (string, error) {
+	// Get all transit gateways using Transit Gateway SDK with pagination support
+	maxPages := 100
+	countPages := 0
+	allGateways := []transitgatewayapisv1.TransitGateway{}
+	moreData := true
+
+	listOptions := &transitgatewayapisv1.ListTransitGatewaysOptions{}
+	listOptions.SetLimit(100)
+
+	for moreData {
+		result, _, err := infoSvc.transitGatewayService.ListTransitGateways(listOptions)
+		if err != nil {
+			return "", fmt.Errorf("failed to list transit gateways: %w", err)
+		}
+		countPages++
+
+		// Add all gateways to the list
+		allGateways = append(allGateways, result.TransitGateways...)
+
+		// Check if there are more pages
+		if (countPages < maxPages) && result.Next != nil {
+			// Get the start token for the next page
+			nextStart, err := result.GetNextStart()
+			if err != nil {
+				return "", fmt.Errorf("error getting next page start token: %w", err)
+			}
+			if nextStart != nil {
+				listOptions.SetStart(*nextStart)
+				moreData = true
+			} else {
+				moreData = false
+			}
+		} else {
+			moreData = false
+		}
+	}
+
+	// Count transit gateways per location (region)
+	regionCounts := make(map[string]int)
+	for _, gateway := range allGateways {
+		// Count all gateways by location
+		if gateway.Location != nil && *gateway.Location != "" {
+			regionCounts[*gateway.Location]++
+		}
+	}
+
+	// Get priority-ordered available regions
+	regions, err := infoSvc.GetTestRegionsByPriority()
+	if err != nil {
+		return "", fmt.Errorf("failed to get test regions: %w", err)
+	}
+
+	// Find region with lowest count
+	var bestRegion string
+	minCount := math.MaxInt
+
+	for _, region := range regions {
+		count := regionCounts[region.Name]
+
+		if count < minCount {
+			minCount = count
+			bestRegion = region.Name
+		}
+	}
+
+	if bestRegion == "" {
+		return "", fmt.Errorf("no suitable region found for transit gateways")
+	}
+
+	log.Printf("Selected region %s with %d transit gateways", bestRegion, minCount)
+	return bestRegion, nil
 }
 
 // regionHasActivityTracker is a helper function to determine if a given region is represented in an array

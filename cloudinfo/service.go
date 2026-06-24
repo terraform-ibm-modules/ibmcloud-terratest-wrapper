@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 	"golang.org/x/sync/singleflight"
@@ -156,6 +157,7 @@ type CloudInfoService struct {
 	containerV1Client         containerV1Client
 	catalogService            catalogService
 	globalCatalogBaseURL      string
+	transitGatewayService     transitGatewayService
 	// stackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	stackDefinitionCreator StackDefinitionCreator
 	regionsData            []RegionData
@@ -300,6 +302,7 @@ type CloudInfoServiceOptions struct {
 	CatalogService            catalogService
 	GlobalCatalogBaseURL      string
 	SchematicsServices        map[string]schematicsService
+	TransitGatewayService     transitGatewayService
 	// StackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	StackDefinitionCreator StackDefinitionCreator
 	Logger                 common.Logger // Logger option for CloudInfoService
@@ -450,6 +453,11 @@ type schematicsService interface {
 	PlanWorkspaceCommand(*schematics.PlanWorkspaceCommandOptions) (*schematics.WorkspaceActivityPlanResult, *core.DetailedResponse, error)
 	ApplyWorkspaceCommand(*schematics.ApplyWorkspaceCommandOptions) (*schematics.WorkspaceActivityApplyResult, *core.DetailedResponse, error)
 	DestroyWorkspaceCommand(*schematics.DestroyWorkspaceCommandOptions) (*schematics.WorkspaceActivityDestroyResult, *core.DetailedResponse, error)
+}
+
+// transitGatewayService for external Transit Gateway Service API. Used for mocking.
+type transitGatewayService interface {
+	ListTransitGateways(*transitgatewayapisv1.ListTransitGatewaysOptions) (*transitgatewayapisv1.TransitGatewayCollection, *core.DetailedResponse, error)
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -729,6 +737,21 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		infoSvc.globalCatalogBaseURL = options.GlobalCatalogBaseURL
 	} else {
 		infoSvc.globalCatalogBaseURL = "https://globalcatalog.cloud.ibm.com"
+	}
+
+	if options.TransitGatewayService != nil {
+		infoSvc.transitGatewayService = options.TransitGatewayService
+	} else {
+		tgwClient, tgwErr := transitgatewayapisv1.NewTransitGatewayApisV1(&transitgatewayapisv1.TransitGatewayApisV1Options{
+			Authenticator: infoSvc.authenticator,
+			Version:       core.StringPtr("2024-03-01"),
+		})
+		if tgwErr != nil {
+			log.Println("Error creating transit gateway client:", tgwErr)
+			return nil, tgwErr
+		}
+
+		infoSvc.transitGatewayService = tgwClient
 	}
 
 	// Schematics is a regional endpoint service, and cross-location API calls do not work.

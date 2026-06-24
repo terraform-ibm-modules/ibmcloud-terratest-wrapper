@@ -2,8 +2,11 @@ package cloudinfo
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/IBM/go-sdk-core/v5/core"
+	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/stretchr/testify/assert"
 )
@@ -412,5 +415,94 @@ func TestRemoveRegionForTest(t *testing.T) {
 		assert.True(t, infoSvc.regionsData[0].UseForTest)
 		assert.False(t, infoSvc.regionsData[1].UseForTest)
 		assert.True(t, infoSvc.regionsData[2].UseForTest)
+	})
+}
+
+func TestGetRegionWithLeastTransitGateways(t *testing.T) {
+	t.Run("SelectsRegionWithFewestInstances", func(t *testing.T) {
+		// Test with transit gateways distributed across regions
+		vpcService := new(vpcServiceMock)
+		transitGatewayService := new(transitGatewayServiceMock)
+
+		usSouth := "us-south"
+		usEast := "us-east"
+
+		// Mock transit gateways: 3 in us-south, 1 in us-east
+		transitGatewayService.mockTransitGateways = &transitgatewayapisv1.TransitGatewayCollection{
+			TransitGateways: []transitgatewayapisv1.TransitGateway{
+				{Location: &usSouth, Name: core.StringPtr("tg-1")},
+				{Location: &usSouth, Name: core.StringPtr("tg-2")},
+				{Location: &usSouth, Name: core.StringPtr("tg-3")},
+				{Location: &usEast, Name: core.StringPtr("tg-4")},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:            vpcService,
+			transitGatewayService: transitGatewayService,
+			regionsData: []RegionData{
+				{Name: "us-south", UseForTest: true, TestPriority: 1},
+				{Name: "us-east", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastTransitGateways()
+		assert.NoError(t, err)
+		assert.Equal(t, "us-east", region, "Should select region with fewest transit gateways")
+	})
+
+	t.Run("RespectsRegionPriority", func(t *testing.T) {
+		// Test that priority is respected when counts are equal
+		vpcService := new(vpcServiceMock)
+		transitGatewayService := new(transitGatewayServiceMock)
+
+		usSouth := "us-south"
+		usEast := "us-east"
+
+		// Mock transit gateways: 2 in each region
+		transitGatewayService.mockTransitGateways = &transitgatewayapisv1.TransitGatewayCollection{
+			TransitGateways: []transitgatewayapisv1.TransitGateway{
+				{Location: &usSouth, Name: core.StringPtr("tg-1")},
+				{Location: &usSouth, Name: core.StringPtr("tg-2")},
+				{Location: &usEast, Name: core.StringPtr("tg-3")},
+				{Location: &usEast, Name: core.StringPtr("tg-4")},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:            vpcService,
+			transitGatewayService: transitGatewayService,
+			regionsData: []RegionData{
+				{Name: "us-south", UseForTest: true, TestPriority: 1}, // Higher priority
+				{Name: "us-east", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastTransitGateways()
+		assert.NoError(t, err)
+		assert.Equal(t, "us-south", region, "Should select highest priority region when counts are equal")
+	})
+
+	t.Run("HandlesListTransitGatewaysError", func(t *testing.T) {
+		// Test error handling when ListTransitGateways fails
+		vpcService := new(vpcServiceMock)
+		transitGatewayService := new(transitGatewayServiceMock)
+
+		// Set mock to return an error
+		transitGatewayService.mockError = fmt.Errorf("API error: failed to list transit gateways")
+
+		infoSvc := CloudInfoService{
+			vpcService:            vpcService,
+			transitGatewayService: transitGatewayService,
+			regionsData: []RegionData{
+				{Name: "us-south", UseForTest: true, TestPriority: 1},
+				{Name: "us-east", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastTransitGateways()
+		assert.Error(t, err)
+		assert.Empty(t, region, "Should return empty region on error")
+		assert.Contains(t, err.Error(), "failed to list transit gateways", "Error message should indicate the failure")
 	})
 }
