@@ -16,7 +16,7 @@ require (
 	github.com/go-openapi/errors v0.22.8
 	github.com/go-openapi/strfmt v0.26.3
 	github.com/google/go-cmp v0.7.0
-	github.com/gruntwork-io/terratest v1.0.0
+	github.com/gruntwork-io/terratest v1.0.1
 	github.com/hashicorp/terraform-json v0.27.2
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.11.1
