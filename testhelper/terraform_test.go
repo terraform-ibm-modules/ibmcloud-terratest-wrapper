@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestIsSanitizationSensitiveValue unit-tests the isSanitizationSensitiveValue helper directly.
+// TestIsSanitizationSensitiveValue unit-tests
 func TestIsSanitizationSensitiveValue(t *testing.T) {
 	t.Parallel()
 
@@ -31,15 +31,14 @@ func TestIsSanitizationSensitiveValue(t *testing.T) {
 			expected: false,
 		},
 		{
-			// This is the exact shape Terraform emits for event_notifications / object_storage
-			// in ibm_scc_instance_settings: [{}] means the block exists but no sub-field is sensitive.
+			// ibm_scc_instance_settings: [{}] means the block exists but no sub-field is sensitive.
 			name:     "slice of empty maps is not sensitive",
 			value:    []interface{}{map[string]interface{}{}},
 			expected: false,
 		},
 		{
 			name:     "slice with non-empty map is sensitive",
-			value:    []interface{}{map[string]interface{}{"password": true}},
+			value:    []interface{}{map[string]interface{}{"password": true}}, // pragma: allowlist secret
 			expected: true,
 		},
 		{

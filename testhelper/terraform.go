@@ -293,10 +293,9 @@ func isSanitizationSensitiveValue(value interface{}) bool {
 	case bool:
 		isSensitive = true
 	case map[string]interface{}:
-		// if a map, check if length > 0 to see if this map has at least one sensitive field
+		// check if length > 0 to see if this map has at least one sensitive field
 		isSensitive = len(v) > 0
 	case []interface{}:
-		// Terraform represents block-type attributes as a slice of sensitive descriptors.
 		// Each element is a map whose keys are the sub-fields that are sensitive.
 		// If every element is an empty map (no sub-fields are sensitive), the attribute is not sensitive.
 		isSensitive = false
@@ -307,13 +306,13 @@ func isSanitizationSensitiveValue(value interface{}) bool {
 					break
 				}
 			} else {
-				// Non-map element — take the safe route.
+				// Non-map element
 				isSensitive = true
 				break
 			}
 		}
 	default:
-		// take the safe route and assume anything else is sensitive
+		// assume anything else is sensitive
 		isSensitive = true
 	}
 
