@@ -293,7 +293,7 @@ func isSanitizationSensitiveValue(value interface{}) bool {
 	case bool:
 		isSensitive = true
 	case map[string]interface{}:
-		// check if length > 0 to see if this map has at least one sensitive field
+		// if a map, check if length > 0 to see if this map has at least one sensitive field
 		isSensitive = len(v) > 0
 	case []interface{}:
 		// Each element is a map whose keys are the sub-fields that are sensitive.
@@ -312,7 +312,7 @@ func isSanitizationSensitiveValue(value interface{}) bool {
 			}
 		}
 	default:
-		// assume anything else is sensitive
+		// take the safe route and assume anything else is sensitive
 		isSensitive = true
 	}
 
