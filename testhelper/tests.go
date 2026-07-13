@@ -2,9 +2,11 @@ package testhelper
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,6 +24,31 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
+
+// writeTerraformVarsFile writes the TerraformVars map to a .tfvars.json file
+// Returns the path to the created file
+func writeTerraformVarsFile(terraformDir string, vars map[string]interface{}) (string, error) {
+	if vars == nil || len(vars) == 0 {
+		return "", nil
+	}
+
+	// Create the tfvars file path
+	tfvarsPath := filepath.Join(terraformDir, "terraform.tfvars.json")
+
+	// Create tfvars.json file data
+	jsonData, err := json.MarshalIndent(vars, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to create JSON data: %w", err)
+	}
+
+	// Write the JSON data to the file
+	err = os.WriteFile(tfvarsPath, jsonData, 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to write tfvars.json file: %w", err)
+	}
+
+	return tfvarsPath, nil
+}
 
 // Function to setup testing environment.
 //
@@ -47,13 +74,26 @@ func (options *TestOptions) testSetup() {
 		}
 		// If calling test had not provided its own TerraformOptions, use the default settings
 		if options.TerraformOptions == nil {
+			// Write TerraformVars to a tfvars.json file if vars are provided
+			var varFiles []string
+			if len(options.TerraformVars) > 0 {
+				tfvarsPath, err := writeTerraformVarsFile(options.TerraformDir, options.TerraformVars)
+				if err != nil {
+					require.Nil(options.Testing, err, "Error creating tfvars.json file: ", err)
+				}
+				if tfvarsPath != "" {
+					varFiles = []string{tfvarsPath}
+					logger.Log(options.Testing, "Created tfvars.json file: ", tfvarsPath)
+				}
+			}
+
 			// Construct the terraform options with default retryable errors to handle the most common
 			// retryable errors in terraform testing.
 			options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
 				// Set the path to the Terraform code that will be tested.
 				TerraformDir:    options.TerraformDir,
 				TerraformBinary: options.TerraformBinary,
-				Vars:            options.TerraformVars,
+				VarFiles:        varFiles,
 				// Set Upgrade to true to ensure the latest version of providers and modules are used by terratest.
 				// This is the same as setting the -upgrade=true flag with terraform.
 				Upgrade: true,
@@ -690,10 +730,24 @@ func (options *TestOptions) runTest() (string, error) {
 	if err == nil && options.ModifiedTerraformVars != nil {
 		logger.Log(options.Testing, "Running modified apply with terraform vars")
 		logger.Log(options.Testing, "START: Modify Apply")
+
+		// Write ModifiedTerraformVars to a tfvars.json file
+		var modifiedVarFiles []string
+		if len(options.ModifiedTerraformVars) > 0 {
+			tfvarsPath, tfvarsErr := writeTerraformVarsFile(options.TerraformDir, options.ModifiedTerraformVars)
+			if tfvarsErr != nil {
+				require.Nil(options.Testing, tfvarsErr, "Error creating modified tfvars.json file: ", tfvarsErr)
+			}
+			if tfvarsPath != "" {
+				modifiedVarFiles = []string{tfvarsPath}
+				logger.Log(options.Testing, "Created modified tfvars.json file: ", tfvarsPath)
+			}
+		}
+
 		options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
 			TerraformDir:    options.TerraformDir,
 			TerraformBinary: options.TerraformBinary,
-			Vars:            options.ModifiedTerraformVars,
+			VarFiles:        modifiedVarFiles,
 		})
 		_, err := terraform.ApplyContextE(options.Testing, context.Background(), options.TerraformOptions)
 		assert.Nil(options.Testing, err, "Failed", err)
