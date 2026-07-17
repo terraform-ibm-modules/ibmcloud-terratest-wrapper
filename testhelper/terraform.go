@@ -160,11 +160,7 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 		if beforeSensitiveOK {
 			// Copy the keys and values from BeforeSensitive to the mergedSensitive map.
 			for key, value := range beforeSensitive {
-				// if value is non boolean, that means the terraform attribute was a map.
-				// if a map, then it is only valid if it has fields assigned.
-				// Terraform will leave the map empty if there are no sensitive fields, but still list the map itself.
 				if isSanitizationSensitiveValue(value) {
-					// take the safe route and assume anything else is sensitive
 					mergedSensitive[key] = value
 				}
 			}
@@ -174,9 +170,6 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 		if afterSensitiveOK {
 			// Copy the keys and values from AfterSensitive to the mergedSensitive map.
 			for key, value := range afterSensitive {
-				// if value is non boolean, that means the terraform attribute was a map.
-				// if a map, then it is only valid if it has fields assigned.
-				// Terraform will leave the map empty if there are no sensitive fields, but still list the map itself.
 				if isSanitizationSensitiveValue(value) {
 					mergedSensitive[key] = value
 				}
