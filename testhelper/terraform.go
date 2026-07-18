@@ -101,6 +101,7 @@ func CleanTerraformDir(directory string) {
 		".terraform.lock.hcl",
 		"terraform.tfstate",
 		"terraform.tfstate.backup",
+		"terraform.tfvars.json",
 	}
 
 	// Define a regular expression pattern to match the desired file format
