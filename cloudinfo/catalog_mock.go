@@ -68,9 +68,34 @@ func (m *MockCloudInfoServiceForPermutation) GetLeastVpcTestRegionWithoutActivit
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockCloudInfoServiceForPermutation) GetLeastSdnlbTestRegion(defaultRegion string) (string, error) {
+	args := m.Called(defaultRegion)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetLeastSdnlbTestRegionO(defaultRegion string, options GetTestRegionOptions) (string, error) {
+	args := m.Called(defaultRegion, options)
+	return args.String(0), args.Error(1)
+}
+
 func (m *MockCloudInfoServiceForPermutation) GetLeastPowerConnectionZone() (string, error) {
 	args := m.Called()
 	return args.String(0), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetRegionWithoutService(serviceName string, supportedRegions ...string) ([]string, error) {
+	args := m.Called(serviceName, supportedRegions)
+	return args.Get(0).([]string), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetRegionWithLeastResources(serviceName string) (string, error) {
+	args := m.Called(serviceName)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockCloudInfoServiceForPermutation) GetRegionWithoutWatsonXGovernance(supportedRegions ...string) ([]string, error) {
+	args := m.Called(supportedRegions)
+	return args.Get(0).([]string), args.Error(1)
 }
 
 func (m *MockCloudInfoServiceForPermutation) LoadRegionPrefsFromFile(filepath string) error {

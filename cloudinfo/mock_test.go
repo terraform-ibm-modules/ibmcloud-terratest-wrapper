@@ -11,6 +11,7 @@ import (
 	"github.com/IBM-Cloud/bluemix-go/api/container/containerv2"
 	"github.com/IBM/cloud-databases-go-sdk/clouddatabasesv5"
 	"github.com/IBM/go-sdk-core/v5/core"
+	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/contextbasedrestrictionsv1"
 	"github.com/IBM/platform-services-go-sdk/iamidentityv1"
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
@@ -23,7 +24,13 @@ import (
 // VPC SERVICE INTERFACE MOCK
 type vpcServiceMock struct {
 	mock.Mock
-	mockRegionUrl string
+	mockRegionUrl               string
+	shouldFailGetRegion         bool
+	shouldFailSetServiceURL     bool
+	shouldFailListLoadBalancers bool
+	getRegionError              error
+	setServiceURLError          error
+	listLoadBalancersError      error
 }
 
 func (mock *vpcServiceMock) ListRegions(options *vpcv1.ListRegionsOptions) (*vpcv1.RegionCollection, *core.DetailedResponse, error) {
@@ -47,6 +54,12 @@ func (mock *vpcServiceMock) ListRegions(options *vpcv1.ListRegionsOptions) (*vpc
 }
 
 func (mock *vpcServiceMock) GetRegion(options *vpcv1.GetRegionOptions) (*vpcv1.Region, *core.DetailedResponse, error) {
+	if mock.shouldFailGetRegion {
+		if mock.getRegionError != nil {
+			return nil, &core.DetailedResponse{StatusCode: 500}, mock.getRegionError
+		}
+		return nil, &core.DetailedResponse{StatusCode: 500}, errors.New("mock GetRegion error")
+	}
 	status := regionStatusAvailable
 	// keep it simple for the mock, the url is just the name
 	region := vpcv1.Region{
@@ -77,7 +90,31 @@ func (mock *vpcServiceMock) ListVpcs(options *vpcv1.ListVpcsOptions) (*vpcv1.VPC
 	return &vpcCol, nil, nil
 }
 
+func (mock *vpcServiceMock) ListLoadBalancers(options *vpcv1.ListLoadBalancersOptions) (*vpcv1.LoadBalancerCollection, *core.DetailedResponse, error) {
+	if mock.shouldFailListLoadBalancers {
+		if mock.listLoadBalancersError != nil {
+			return nil, &core.DetailedResponse{StatusCode: 500}, mock.listLoadBalancersError
+		}
+		return nil, &core.DetailedResponse{StatusCode: 500}, errors.New("mock ListLoadBalancers error")
+	}
+
+	// the "count" of Load Balancers for a region in the mock will just be the suffix of the region url (which is a simple name)
+	urlParts := strings.Split(mock.mockRegionUrl, "/") // we only want first part of url pathing
+	nameParts := strings.Split(urlParts[0], "-")
+	count, _ := strconv.ParseInt(nameParts[len(nameParts)-1], 0, 64)
+	log.Println("Load Balancer Count of", mock.mockRegionUrl, " = ", count)
+	lbCol := vpcv1.LoadBalancerCollection{
+		TotalCount: &count,
+	}
+	return &lbCol, nil, nil
+}
 func (mock *vpcServiceMock) SetServiceURL(url string) error {
+	if mock.shouldFailSetServiceURL {
+		if mock.setServiceURLError != nil {
+			return mock.setServiceURLError
+		}
+		return errors.New("mock SetServiceURL error")
+	}
 	mock.mockRegionUrl = url
 	return nil
 }
@@ -167,7 +204,6 @@ func (mock *resourceControllerServiceMock) ListResourceInstances(options *resour
 }
 
 func (mock *resourceControllerServiceMock) ListReclamations(options *resourcecontrollerv2.ListReclamationsOptions) (*resourcecontrollerv2.ReclamationsList, *core.DetailedResponse, error) {
-	recList := &resourcecontrollerv2.ReclamationsList{}
 	mockID := "mock-reclamation-id"
 	mockReclamation := resourcecontrollerv2.Reclamation{ID: &mockID}
 	mockReclamationList := []resourcecontrollerv2.Reclamation{mockReclamation}
@@ -175,7 +211,7 @@ func (mock *resourceControllerServiceMock) ListReclamations(options *resourcecon
 	if options.ResourceInstanceID != nil && *options.ResourceInstanceID == "ERROR" {
 		return nil, nil, errors.New("mock Resource is error")
 	}
-
+	var recList *resourcecontrollerv2.ReclamationsList
 	if mock.mockReclamationList == nil {
 		recList = &resourcecontrollerv2.ReclamationsList{
 			Resources: mockReclamationList,
@@ -439,6 +475,25 @@ func (s *icdServiceMock) NewListDeployablesOptions() *clouddatabasesv5.ListDeplo
 
 func (s *icdServiceMock) ListDeployables(*clouddatabasesv5.ListDeployablesOptions) (*clouddatabasesv5.ListDeployablesResponse, *core.DetailedResponse, error) {
 	return s.mockListDeployablesResponse, nil, nil
+}
+
+// Transit Gateway Service mock
+type transitGatewayServiceMock struct {
+	mock.Mock
+	mockTransitGateways *transitgatewayapisv1.TransitGatewayCollection
+	mockError           error
+}
+
+func (mock *transitGatewayServiceMock) ListTransitGateways(*transitgatewayapisv1.ListTransitGatewaysOptions) (*transitgatewayapisv1.TransitGatewayCollection, *core.DetailedResponse, error) {
+	if mock.mockError != nil {
+		return nil, nil, mock.mockError
+	}
+	if mock.mockTransitGateways != nil {
+		return mock.mockTransitGateways, nil, nil
+	}
+	return &transitgatewayapisv1.TransitGatewayCollection{
+		TransitGateways: []transitgatewayapisv1.TransitGateway{},
+	}, nil, nil
 }
 
 // Mock ContainerV1 Client

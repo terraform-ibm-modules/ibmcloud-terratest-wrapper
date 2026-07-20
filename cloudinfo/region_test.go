@@ -1,8 +1,12 @@
 package cloudinfo
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/IBM/go-sdk-core/v5/core"
+	transitgatewayapisv1 "github.com/IBM/networking-go-sdk/transitgatewayapisv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/stretchr/testify/assert"
 )
@@ -104,6 +108,342 @@ func TestLeastVpcAllAvailRegions(t *testing.T) {
 		}
 	})
 }
+func TestLeastSdnlbAllAvailRegions(t *testing.T) {
+	vpcService := new(vpcServiceMock)
+	resourceControllerService := new(resourceControllerServiceMock)
+
+	//create main cloud service objects with mock service and region data
+	infoSvc := CloudInfoService{
+		vpcService:                vpcService,
+		resourceControllerService: resourceControllerService,
+		regionsData: []RegionData{
+			{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
+			{Name: "reg-2-5", UseForTest: true, TestPriority: 2},
+			{Name: "reg-3-5", UseForTest: true, TestPriority: 3},
+		},
+	}
+	// first test, low priority wins
+	t.Run("LowestPriorityWins", func(t *testing.T) {
+		bestregion, regErr := infoSvc.GetLeastSdnlbTestRegion("us-south")
+		if assert.Nil(t, regErr) {
+			assert.Equal(t, "reg-2-5", bestregion, "Wrong SDN LB region returned")
+		}
+	})
+
+	// second test, region with zero wins no matter
+	infoSvc.regionsData = []RegionData{
+		{Name: "reg-1-0", UseForTest: true, TestPriority: 1},
+		{Name: "reg-2-5", UseForTest: true, TestPriority: 2},
+		{Name: "reg-3-3", UseForTest: true, TestPriority: 3},
+	}
+
+	t.Run("FirstZeroWins", func(t *testing.T) {
+		bestregion, regErr := infoSvc.GetLeastSdnlbTestRegion("us-south")
+		if assert.Nil(t, regErr) {
+			assert.Equal(t, "reg-1-0", bestregion, "Wrong SDN LB region returned")
+		}
+	})
+
+	// third test, do not include non test regions
+	infoSvc.regionsData = []RegionData{
+		{Name: "reg-3-3", UseForTest: true, TestPriority: 3},
+		{Name: "reg-2-1", UseForTest: false, TestPriority: 2},
+		{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
+	}
+
+	t.Run("ExcludeRegions", func(t *testing.T) {
+		bestregion, regErr := infoSvc.GetLeastSdnlbTestRegion("us-south")
+		if assert.Nil(t, regErr) {
+			assert.Equal(t, "reg-3-3", bestregion, "Wrong SDN LB region returned")
+		}
+	})
+
+	// fourth test, use all avail regions if no prefs
+	infoSvc.regionsData = []RegionData{}
+
+	t.Run("UseAllAvailRegions", func(t *testing.T) {
+		bestregion, regErr := infoSvc.GetLeastSdnlbTestRegion("us-south")
+		if assert.Nil(t, regErr) {
+			assert.Equal(t, "regavail-3-1", bestregion, "Wrong SDN LB region returned")
+		}
+	})
+
+	// fifth test, nothing available - should return default region
+	infoSvc.regionsData = []RegionData{
+		{Name: "reg-1-10", UseForTest: false, TestPriority: 1},
+		{Name: "reg-2-1", UseForTest: false, TestPriority: 2},
+		{Name: "reg-3-3", UseForTest: false, TestPriority: 3},
+	}
+
+	t.Run("NoRegionsAvailable", func(t *testing.T) {
+		bestregion, regErr := infoSvc.GetLeastSdnlbTestRegion("us-south")
+		assert.Nil(t, regErr, "should not error when default region provided")
+		assert.Equal(t, "us-south", bestregion, "should return default region when no regions available")
+	})
+
+	// sixth test, forced failure
+	t.Run("ErrorFromGetTestRegionsByPriority", func(t *testing.T) {
+		// Create a mock that will fail on GetRegion call
+		vpcServiceErr := &vpcServiceMock{
+			shouldFailGetRegion: true,
+			getRegionError:      errors.New("failed to get region details"),
+		}
+
+		infoSvcErr := CloudInfoService{
+			vpcService:                vpcServiceErr,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
+			},
+		}
+
+		_, err := infoSvcErr.GetLeastSdnlbTestRegion("us-south")
+		assert.NotNil(t, err, "expected error from GetTestRegionsByPriority")
+	})
+
+	// seventh test, error from SetServiceURL
+	t.Run("ErrorFromSetServiceURL", func(t *testing.T) {
+		// Create a mock that will fail on SetServiceURL call
+		vpcServiceErr := &vpcServiceMock{
+			shouldFailSetServiceURL: true,
+			setServiceURLError:      errors.New("failed to set service URL"),
+		}
+
+		infoSvcErr := CloudInfoService{
+			vpcService:                vpcServiceErr,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
+			},
+		}
+
+		_, err := infoSvcErr.GetLeastSdnlbTestRegion("us-south")
+		assert.NotNil(t, err, "expected error from SetServiceURL")
+		assert.Contains(t, err.Error(), "failed to set service URL")
+	})
+
+	// eighth test, error from ListLoadBalancers
+	t.Run("ErrorFromListLoadBalancers", func(t *testing.T) {
+		// Create a mock that will fail on ListLoadBalancers call
+		vpcServiceErr := &vpcServiceMock{
+			shouldFailListLoadBalancers: true,
+			listLoadBalancersError:      errors.New("failed to list load balancers"),
+		}
+
+		infoSvcErr := CloudInfoService{
+			vpcService:                vpcServiceErr,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "reg-1-10", UseForTest: true, TestPriority: 1},
+			},
+		}
+
+		_, err := infoSvcErr.GetLeastSdnlbTestRegion("us-south")
+		assert.NotNil(t, err, "expected error from ListLoadBalancers")
+		assert.Contains(t, err.Error(), "failed to list load balancers")
+	})
+}
+
+// TestRegionSelector tests the new region selector functions
+func TestRegionSelector(t *testing.T) {
+	vpcService := new(vpcServiceMock)
+
+	t.Run("GetRegionWithoutService", func(t *testing.T) {
+		// Mock: reg-2 and reg-3 have test service, reg-1 doesn't
+		region2 := "reg-2-1"
+		region3 := "reg-3-1"
+		instanceName1 := "test-instance-1"
+		instanceName2 := "test-instance-2"
+		var twoCount int64 = 2
+		serviceCrn1 := "crn:v1:bluemix:public:aiopenscale:reg-2-1:a/account:::"
+		serviceCrn2 := "crn:v1:bluemix:public:aiopenscale:reg-3-1:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &twoCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+					{CRN: &serviceCrn2, RegionID: &region3, Name: &instanceName2},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "reg-1-0", UseForTest: true, TestPriority: 1},
+				{Name: "reg-2-1", UseForTest: true, TestPriority: 2},
+				{Name: "reg-3-1", UseForTest: true, TestPriority: 3},
+			},
+		}
+
+		// No supportedRegions: returns a single-element slice with the highest-priority region.
+		regions, err := infoSvc.GetRegionWithoutService("aiopenscale")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"reg-1-0"}, regions, "Should select reg-1-0 (no service instances)")
+	})
+
+	t.Run("GetRegionWithoutServiceWithSupportedRegions", func(t *testing.T) {
+		// Mock: reg-2 and reg-3 have the service; reg-1 and reg-4 don't.
+		region2 := "reg-2-1"
+		region3 := "reg-3-1"
+		instanceName1 := "test-instance-1"
+		instanceName2 := "test-instance-2"
+		var twoCount int64 = 2
+		serviceCrn1 := "crn:v1:bluemix:public:aiopenscale:reg-2-1:a/account:::"
+		serviceCrn2 := "crn:v1:bluemix:public:aiopenscale:reg-3-1:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &twoCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+					{CRN: &serviceCrn2, RegionID: &region3, Name: &instanceName2},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+		}
+
+		// All regions in the provided list that have no service instance are returned.
+		regions, err := infoSvc.GetRegionWithoutService("aiopenscale", "reg-1-0", "reg-2-1", "reg-4-0")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"reg-1-0", "reg-4-0"}, regions, "Should return reg-1-0 and reg-4-0 (no service instances)")
+	})
+
+	t.Run("GetRegionWithoutServiceAllOccupied", func(t *testing.T) {
+		// Mock: all provided supported regions have the service — should return an error.
+		region2 := "reg-2-1"
+		region3 := "reg-3-1"
+		instanceName1 := "test-instance-1"
+		instanceName2 := "test-instance-2"
+		var twoCount int64 = 2
+		serviceCrn1 := "crn:v1:bluemix:public:aiopenscale:reg-2-1:a/account:::"
+		serviceCrn2 := "crn:v1:bluemix:public:aiopenscale:reg-3-1:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &twoCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+					{CRN: &serviceCrn2, RegionID: &region3, Name: &instanceName2},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+		}
+
+		regions, err := infoSvc.GetRegionWithoutService("aiopenscale", "reg-2-1", "reg-3-1")
+		assert.Error(t, err)
+		assert.Nil(t, regions)
+		assert.Contains(t, err.Error(), "all supported regions have instances")
+	})
+
+	t.Run("GetRegionWithoutWatsonXGovernance", func(t *testing.T) {
+		// No supportedRegions: returns a single-element slice with the highest-priority region.
+		region2 := "reg-2-1"
+		instanceName1 := "wx-gov-instance"
+		var oneCount int64 = 1
+		serviceCrn1 := "crn:v1:bluemix:public:aiopenscale:reg-2-1:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &oneCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "reg-1-0", UseForTest: true, TestPriority: 1},
+				{Name: "reg-2-1", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		regions, err := infoSvc.GetRegionWithoutWatsonXGovernance()
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"reg-1-0"}, regions)
+	})
+
+	t.Run("GetRegionWithoutWatsonXGovernanceWithSupportedRegions", func(t *testing.T) {
+		// supportedRegions provided: returns all regions from the list without an instance.
+		region2 := "reg-2-1"
+		instanceName1 := "wx-gov-instance"
+		var oneCount int64 = 1
+		serviceCrn1 := "crn:v1:bluemix:public:aiopenscale:reg-2-1:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &oneCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+		}
+
+		regions, err := infoSvc.GetRegionWithoutWatsonXGovernance("reg-1-0", "reg-2-1", "reg-3-0")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"reg-1-0", "reg-3-0"}, regions)
+	})
+
+	t.Run("GetRegionWithLeastResources", func(t *testing.T) {
+		// Mock: reg-3 has 3, reg-2 has 1, reg-1 has 0 of a test service
+		region2 := "reg-2-1"
+		region3 := "reg-3-3"
+		serviceName1 := "test-service-1"
+		serviceName2 := "test-service-2"
+		serviceName3 := "test-service-3"
+		serviceName4 := "test-service-4"
+		var fourCount int64 = 4
+		serviceCrn1 := "crn:v1:bluemix:public:testservice:reg-3-3:a/account:::"
+		serviceCrn2 := "crn:v1:bluemix:public:testservice:reg-3-3:a/account:::"
+		serviceCrn3 := "crn:v1:bluemix:public:testservice:reg-3-3:a/account:::"
+		serviceCrn4 := "crn:v1:bluemix:public:testservice:reg-2-1:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &fourCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region3, Name: &serviceName1},
+					{CRN: &serviceCrn2, RegionID: &region3, Name: &serviceName2},
+					{CRN: &serviceCrn3, RegionID: &region3, Name: &serviceName3},
+					{CRN: &serviceCrn4, RegionID: &region2, Name: &serviceName4},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "reg-1-0", UseForTest: true, TestPriority: 1},
+				{Name: "reg-2-1", UseForTest: true, TestPriority: 2},
+				{Name: "reg-3-3", UseForTest: true, TestPriority: 3},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastResources("testservice")
+		assert.NoError(t, err)
+		assert.Equal(t, "reg-1-0", region, "Should select reg-1-0 (zero test service instances)")
+	})
+
+}
 
 func TestLoadRegionPrefs(t *testing.T) {
 	infoSvc := CloudInfoService{}
@@ -194,5 +534,94 @@ func TestRemoveRegionForTest(t *testing.T) {
 		assert.True(t, infoSvc.regionsData[0].UseForTest)
 		assert.False(t, infoSvc.regionsData[1].UseForTest)
 		assert.True(t, infoSvc.regionsData[2].UseForTest)
+	})
+}
+
+func TestGetRegionWithLeastTransitGateways(t *testing.T) {
+	t.Run("SelectsRegionWithFewestInstances", func(t *testing.T) {
+		// Test with transit gateways distributed across regions
+		vpcService := new(vpcServiceMock)
+		transitGatewayService := new(transitGatewayServiceMock)
+
+		usSouth := "us-south"
+		usEast := "us-east"
+
+		// Mock transit gateways: 3 in us-south, 1 in us-east
+		transitGatewayService.mockTransitGateways = &transitgatewayapisv1.TransitGatewayCollection{
+			TransitGateways: []transitgatewayapisv1.TransitGateway{
+				{Location: &usSouth, Name: core.StringPtr("tg-1")},
+				{Location: &usSouth, Name: core.StringPtr("tg-2")},
+				{Location: &usSouth, Name: core.StringPtr("tg-3")},
+				{Location: &usEast, Name: core.StringPtr("tg-4")},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:            vpcService,
+			transitGatewayService: transitGatewayService,
+			regionsData: []RegionData{
+				{Name: "us-south", UseForTest: true, TestPriority: 1},
+				{Name: "us-east", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastTransitGateways()
+		assert.NoError(t, err)
+		assert.Equal(t, "us-east", region, "Should select region with fewest transit gateways")
+	})
+
+	t.Run("RespectsRegionPriority", func(t *testing.T) {
+		// Test that priority is respected when counts are equal
+		vpcService := new(vpcServiceMock)
+		transitGatewayService := new(transitGatewayServiceMock)
+
+		usSouth := "us-south"
+		usEast := "us-east"
+
+		// Mock transit gateways: 2 in each region
+		transitGatewayService.mockTransitGateways = &transitgatewayapisv1.TransitGatewayCollection{
+			TransitGateways: []transitgatewayapisv1.TransitGateway{
+				{Location: &usSouth, Name: core.StringPtr("tg-1")},
+				{Location: &usSouth, Name: core.StringPtr("tg-2")},
+				{Location: &usEast, Name: core.StringPtr("tg-3")},
+				{Location: &usEast, Name: core.StringPtr("tg-4")},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:            vpcService,
+			transitGatewayService: transitGatewayService,
+			regionsData: []RegionData{
+				{Name: "us-south", UseForTest: true, TestPriority: 1}, // Higher priority
+				{Name: "us-east", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastTransitGateways()
+		assert.NoError(t, err)
+		assert.Equal(t, "us-south", region, "Should select highest priority region when counts are equal")
+	})
+
+	t.Run("HandlesListTransitGatewaysError", func(t *testing.T) {
+		// Test error handling when ListTransitGateways fails
+		vpcService := new(vpcServiceMock)
+		transitGatewayService := new(transitGatewayServiceMock)
+
+		// Set mock to return an error
+		transitGatewayService.mockError = fmt.Errorf("API error: failed to list transit gateways")
+
+		infoSvc := CloudInfoService{
+			vpcService:            vpcService,
+			transitGatewayService: transitGatewayService,
+			regionsData: []RegionData{
+				{Name: "us-south", UseForTest: true, TestPriority: 1},
+				{Name: "us-east", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		region, err := infoSvc.GetRegionWithLeastTransitGateways()
+		assert.Error(t, err)
+		assert.Empty(t, region, "Should return empty region on error")
+		assert.Contains(t, err.Error(), "failed to list transit gateways", "Error message should indicate the failure")
 	})
 }
