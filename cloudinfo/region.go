@@ -232,19 +232,21 @@ func (infoSvc *CloudInfoService) GetLeastSdnlbTestRegionO(defaultRegion string, 
 	return bestregion.Name, nil
 }
 
-// GetRegionWithoutService finds a region with ZERO instances of the specified service.
-func (infoSvc *CloudInfoService) GetRegionWithoutService(serviceName string) (string, error) {
+// GetRegionWithoutService finds regions with ZERO instances of the specified service.
+// When supportedRegions is not provided, the method returns a single-element slice containing the
+// highest-priority available region that has no instance of the service.
+// When supportedRegions is provided, the method returns all regions from that list
+// that have no instance of the service.
+func (infoSvc *CloudInfoService) GetRegionWithoutService(serviceName string, supportedRegions ...string) ([]string, error) {
 	log.Printf("Searching for regions without '%s' instances...", serviceName)
 
-	// Get all instances of this service using Resource Controller
 	instances, err := infoSvc.ListResourcesByCrnServiceName(serviceName)
 	if err != nil {
-		return "", fmt.Errorf("failed to list '%s' instances: %w", serviceName, err)
+		return nil, fmt.Errorf("failed to list '%s' instances: %w", serviceName, err)
 	}
 
 	log.Printf("Found %d '%s' instances total", len(instances), serviceName)
 
-	// Build set of regions that have this service
 	occupiedRegions := make(map[string]bool)
 	for _, instance := range instances {
 		if instance.RegionID != nil && *instance.RegionID != "" {
@@ -259,21 +261,35 @@ func (infoSvc *CloudInfoService) GetRegionWithoutService(serviceName string) (st
 
 	log.Printf("Total regions with '%s': %d", serviceName, len(occupiedRegions))
 
-	// Get priority-ordered available regions
-	regions, err := infoSvc.GetTestRegionsByPriority()
-	if err != nil {
-		return "", fmt.Errorf("failed to get test regions: %w", err)
+	// When supportedRegions are provided, return all of them that have no service instance.
+	if len(supportedRegions) > 0 {
+		var available []string
+		for _, r := range supportedRegions {
+			if !occupiedRegions[r] {
+				log.Printf("✓ Region %s has no '%s' instances", r, serviceName)
+				available = append(available, r)
+			}
+		}
+		if len(available) == 0 {
+			return nil, fmt.Errorf("no region available without '%s' - all supported regions have instances", serviceName)
+		}
+		return available, nil
 	}
 
-	// Return first priority region WITHOUT this service
+	// No supportedRegions: use priority-ordered regions and return the first match.
+	regions, err := infoSvc.GetTestRegionsByPriority()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get test regions: %w", err)
+	}
+
 	for _, region := range regions {
 		if !occupiedRegions[region.Name] {
 			log.Printf("✓ Selected region %s (no '%s' instances)", region.Name, serviceName)
-			return region.Name, nil
+			return []string{region.Name}, nil
 		}
 	}
 
-	return "", fmt.Errorf("no region available without '%s' - all test regions have instances", serviceName)
+	return nil, fmt.Errorf("no region available without '%s' - all test regions have instances", serviceName)
 }
 
 // GetRegionWithLeastResources finds the region with the MINIMUM number of instances for the specified service.
@@ -330,9 +346,12 @@ func (infoSvc *CloudInfoService) GetRegionWithLeastResources(serviceName string)
 	return bestRegion, nil
 }
 
-// GetRegionWithoutWatsonXGovernance
-func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance() (string, error) {
-	return infoSvc.GetRegionWithoutService("aiopenscale")
+// GetRegionWithoutWatsonXGovernance returns regions that have no watsonx.governance (aiopenscale) instance.
+// When supportedRegions is not provided, a single-element slice containing the highest-priority
+// available region without an instance is returned.
+// When supportedRegions is provided, all regions from that list without an instance are returned.
+func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance(supportedRegions ...string) ([]string, error) {
+	return infoSvc.GetRegionWithoutService("aiopenscale", supportedRegions...)
 }
 
 // GetRegionWithLeastTransitGateways returns the region with the minimum number of transit gateways.

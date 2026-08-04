@@ -278,9 +278,128 @@ func TestRegionSelector(t *testing.T) {
 			},
 		}
 
-		region, err := infoSvc.GetRegionWithoutService("aiopenscale")
+		// No supportedRegions: returns a single-element slice with the highest-priority region.
+		regions, err := infoSvc.GetRegionWithoutService("aiopenscale")
 		assert.NoError(t, err)
-		assert.Equal(t, "reg-1-0", region, "Should select reg-1-0 (no service instances)")
+		assert.Equal(t, []string{"reg-1-0"}, regions, "Should select reg-1-0 (no service instances)")
+	})
+
+	t.Run("GetRegionWithoutServiceWithSupportedRegions", func(t *testing.T) {
+		// Mock: reg-2 and reg-3 have the service; reg-1 and reg-4 don't.
+		region2 := "reg-2-1"
+		region3 := "reg-3-1"
+		instanceName1 := "test-instance-1"
+		instanceName2 := "test-instance-2"
+		var twoCount int64 = 2
+		serviceCrn1 := "crn:v1:bluemix:public:aiopenscale:reg-2-1:a/account:::"
+		serviceCrn2 := "crn:v1:bluemix:public:aiopenscale:reg-3-1:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &twoCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+					{CRN: &serviceCrn2, RegionID: &region3, Name: &instanceName2},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+		}
+
+		// All regions in the provided list that have no service instance are returned.
+		regions, err := infoSvc.GetRegionWithoutService("aiopenscale", "reg-1-0", "reg-2-1", "reg-4-0")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"reg-1-0", "reg-4-0"}, regions, "Should return reg-1-0 and reg-4-0 (no service instances)")
+	})
+
+	t.Run("GetRegionWithoutServiceAllOccupied", func(t *testing.T) {
+		// Mock: all provided supported regions have the service — should return an error.
+		region2 := "reg-2-1"
+		region3 := "reg-3-1"
+		instanceName1 := "test-instance-1"
+		instanceName2 := "test-instance-2"
+		var twoCount int64 = 2
+		serviceCrn1 := "crn:v1:bluemix:public:aiopenscale:reg-2-1:a/account:::"
+		serviceCrn2 := "crn:v1:bluemix:public:aiopenscale:reg-3-1:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &twoCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+					{CRN: &serviceCrn2, RegionID: &region3, Name: &instanceName2},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+		}
+
+		regions, err := infoSvc.GetRegionWithoutService("aiopenscale", "reg-2-1", "reg-3-1")
+		assert.Error(t, err)
+		assert.Nil(t, regions)
+		assert.Contains(t, err.Error(), "all supported regions have instances")
+	})
+
+	t.Run("GetRegionWithoutWatsonXGovernance", func(t *testing.T) {
+		// No supportedRegions: returns a single-element slice with the highest-priority region.
+		region2 := "reg-2-1"
+		instanceName1 := "wx-gov-instance"
+		var oneCount int64 = 1
+		serviceCrn1 := "crn:v1:bluemix:public:aiopenscale:reg-2-1:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &oneCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "reg-1-0", UseForTest: true, TestPriority: 1},
+				{Name: "reg-2-1", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		regions, err := infoSvc.GetRegionWithoutWatsonXGovernance()
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"reg-1-0"}, regions)
+	})
+
+	t.Run("GetRegionWithoutWatsonXGovernanceWithSupportedRegions", func(t *testing.T) {
+		// supportedRegions provided: returns all regions from the list without an instance.
+		region2 := "reg-2-1"
+		instanceName1 := "wx-gov-instance"
+		var oneCount int64 = 1
+		serviceCrn1 := "crn:v1:bluemix:public:aiopenscale:reg-2-1:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &oneCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+		}
+
+		regions, err := infoSvc.GetRegionWithoutWatsonXGovernance("reg-1-0", "reg-2-1", "reg-3-0")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"reg-1-0", "reg-3-0"}, regions)
 	})
 
 	t.Run("GetRegionWithLeastResources", func(t *testing.T) {

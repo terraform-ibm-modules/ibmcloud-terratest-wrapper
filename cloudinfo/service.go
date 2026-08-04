@@ -184,9 +184,9 @@ type CloudInfoServiceI interface {
 	GetLeastSdnlbTestRegion(defaultRegion string) (string, error)
 	GetLeastSdnlbTestRegionO(defaultRegion string, options GetTestRegionOptions) (string, error)
 	GetLeastPowerConnectionZone() (string, error)
-	GetRegionWithoutService(string) (string, error)
+	GetRegionWithoutService(serviceName string, supportedRegions ...string) ([]string, error)
 	GetRegionWithLeastResources(string) (string, error)
-	GetRegionWithoutWatsonXGovernance() (string, error)
+	GetRegionWithoutWatsonXGovernance(supportedRegions ...string) ([]string, error)
 	LoadRegionPrefsFromFile(string) error
 	HasRegionData() bool
 	RemoveRegionForTest(string)
