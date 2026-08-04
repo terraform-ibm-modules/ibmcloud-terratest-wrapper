@@ -187,6 +187,7 @@ type CloudInfoServiceI interface {
 	GetRegionWithoutService(serviceName string, supportedRegions ...string) ([]string, error)
 	GetRegionWithLeastResources(string) (string, error)
 	GetRegionWithoutWatsonXGovernance(supportedRegions ...string) ([]string, error)
+	GetRegionWithoutLoggingTenant(supportedRegions ...string) ([]string, error)
 	LoadRegionPrefsFromFile(string) error
 	HasRegionData() bool
 	RemoveRegionForTest(string)
