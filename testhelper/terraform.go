@@ -160,11 +160,7 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 		if beforeSensitiveOK {
 			// Copy the keys and values from BeforeSensitive to the mergedSensitive map.
 			for key, value := range beforeSensitive {
-				// if value is non boolean, that means the terraform attribute was a map.
-				// if a map, then it is only valid if it has fields assigned.
-				// Terraform will leave the map empty if there are no sensitive fields, but still list the map itself.
 				if isSanitizationSensitiveValue(value) {
-					// take the safe route and assume anything else is sensitive
 					mergedSensitive[key] = value
 				}
 			}
@@ -174,9 +170,6 @@ func CheckConsistency(plan *terraform.PlanStruct, testOptions CheckConsistencyOp
 		if afterSensitiveOK {
 			// Copy the keys and values from AfterSensitive to the mergedSensitive map.
 			for key, value := range afterSensitive {
-				// if value is non boolean, that means the terraform attribute was a map.
-				// if a map, then it is only valid if it has fields assigned.
-				// Terraform will leave the map empty if there are no sensitive fields, but still list the map itself.
 				if isSanitizationSensitiveValue(value) {
 					mergedSensitive[key] = value
 				}
@@ -282,22 +275,34 @@ func handleSanitizationError(err error, location string, options *CheckConsisten
 
 // isSanitizationSensitiveValue will look at the value data type of an attribute identified as sensitive in a TF plan
 // only boolean values or maps with one or more fields are considered sensitive.
+// For slices (block attributes), it is only sensitive if at least one element is a non-empty map,
 func isSanitizationSensitiveValue(value interface{}) bool {
 	isSensitive := true // take safe route
 	// if value is non boolean, that means the terraform attribute was a map.
 	// if a map, then it is only valid if it has fields assigned.
 	// Terraform will leave the map empty if there are no sensitive fields, but still list the map itself.
 
-	//lint:ignore S1034 we do not have need for the value of the type
-	switch value.(type) {
+	switch v := value.(type) {
 	case bool:
 		isSensitive = true
 	case map[string]interface{}:
 		// if a map, check if length > 0 to see if this map has at least one sensitive field
-		if len(value.(map[string]interface{})) > 0 {
-			isSensitive = true
-		} else {
-			isSensitive = false
+		isSensitive = len(v) > 0
+	case []interface{}:
+		// Each element is a map whose keys are the sub-fields that are sensitive.
+		// If every element is an empty map (no sub-fields are sensitive), the attribute is not sensitive.
+		isSensitive = false
+		for _, item := range v {
+			if m, ok := item.(map[string]interface{}); ok {
+				if len(m) > 0 {
+					isSensitive = true
+					break
+				}
+			} else {
+				// Non-map element
+				isSensitive = true
+				break
+			}
 		}
 	default:
 		// take the safe route and assume anything else is sensitive
