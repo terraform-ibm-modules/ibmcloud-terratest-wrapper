@@ -152,8 +152,27 @@ func GetBestPowerSystemsRegionO(apiKey string, prefsFilePath string, defaultRegi
 	return bestregion, nil
 }
 
-// configureCloudInfoService is a private function that will configure and set up a new CloudInfoService for testhelper
-func configureCloudInfoService(apiKey string, prefsFilePath string, options TesthelperTerraformOptions) (cloudinfo.CloudInfoServiceI, error) {
+// GetLatestVSIImageID retrieves the latest available VSI image ID for a given region
+// using the default image pattern (Red Hat 8.x minimal).
+// Returns the image ID string and error.
+func GetLatestVSIImageID(apiKey string, region string) (string, error) {
+	return GetLatestVSIImageIDWithPattern(apiKey, region, cloudinfo.DefaultVSIImagePattern)
+}
+
+// GetLatestVSIImageIDWithPattern retrieves the latest available VSI image ID for a given region
+// based on a custom regex pattern.
+// The pattern parameter should be a valid regex string to match against image names.
+// Returns the image ID string and error.
+func GetLatestVSIImageIDWithPattern(apiKey string, region string, pattern string) (string, error) {
+	return GetLatestVSIImageIDWithPatternO(apiKey, region, pattern, TesthelperTerraformOptions{})
+}
+
+// GetLatestVSIImageIDWithPatternO retrieves the latest available VSI image ID for a given region
+// based on a custom regex pattern, with options for mocking.
+// The pattern parameter should be a valid regex string to match against image names.
+// Options data can be supplied to provide a service that implements the correct interface.
+// Returns the image ID string and error.
+func GetLatestVSIImageIDWithPatternO(apiKey string, region string, pattern string, options TesthelperTerraformOptions) (string, error) {
 	var cloudSvc cloudinfo.CloudInfoServiceI
 
 	// configure new cloudinfosvc if required (not supplied in options)
@@ -166,21 +185,44 @@ func configureCloudInfoService(apiKey string, prefsFilePath string, options Test
 		}
 		cloudSvcRef, svcErr := cloudinfo.NewCloudInfoServiceWithKey(svcOptions)
 		if svcErr != nil {
+			log.Println("Error creating new CloudInfoService for VSI image lookup")
+			return "", svcErr
+		}
+		cloudSvc = cloudSvcRef
+	}
+
+	// Get the latest VSI image ID
+	imageID, err := cloudSvc.GetLatestVSIImageIDWithPattern(region, pattern)
+	if err != nil {
+		log.Printf("Error getting latest VSI image ID for region %s: %v", region, err)
+		return "", err
+	}
+
+	log.Printf("Found latest VSI image ID for region %s: %s", region, imageID)
+	return imageID, nil
+}
+
+func configureCloudInfoService(apiKey string, prefsFilePath string, options TesthelperTerraformOptions) (cloudinfo.CloudInfoServiceI, error) {
+	var cloudSvc cloudinfo.CloudInfoServiceI
+
+	if options.CloudInfoService != nil {
+		cloudSvc = options.CloudInfoService
+	} else {
+		svcOptions := cloudinfo.CloudInfoServiceOptions{
+			ApiKey: apiKey, //pragma: allowlist secret
+		}
+		cloudSvcRef, svcErr := cloudinfo.NewCloudInfoServiceWithKey(svcOptions)
+		if svcErr != nil {
 			log.Println("Error creating new CloudInfoService, using default region:", defaultRegion)
 			return nil, svcErr
 		}
 		cloudSvc = cloudSvcRef
 	}
 
-	// THREAD SAFE OPERATION
-	// Make this section thread safe with a mutex
-	// If multiple parallel tests are using a shared cloudinfo instance, we want this function to only serve them one-at-a-time
-	// so that they will not overwrite a previously loaded region list
 	lock := cloudSvc.GetThreadLock()
 	lock.Lock()
 	defer lock.Unlock()
 
-	// load a region prefs file if supplied and data does not already exist
 	if len(prefsFilePath) > 0 && !cloudSvc.HasRegionData() {
 		loadErr := cloudSvc.LoadRegionPrefsFromFile(prefsFilePath)
 		if loadErr != nil {
