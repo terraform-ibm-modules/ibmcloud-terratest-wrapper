@@ -402,6 +402,93 @@ func TestRegionSelector(t *testing.T) {
 		assert.Equal(t, []string{"reg-1-0", "reg-3-0"}, regions)
 	})
 
+	t.Run("GetRegionWithoutLoggingTenant", func(t *testing.T) {
+		// No supportedRegions: returns a single-element slice with the highest-priority region.
+		region2 := "us-south"
+		instanceName1 := "logging-tenant-1"
+		var oneCount int64 = 1
+		serviceCrn1 := "crn:v1:bluemix:public:logs:us-south:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &oneCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+			regionsData: []RegionData{
+				{Name: "us-east", UseForTest: true, TestPriority: 1},
+				{Name: "us-south", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		regions, err := infoSvc.GetRegionWithoutLoggingTenant()
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"us-east"}, regions)
+	})
+
+	t.Run("GetRegionWithoutLoggingTenantWithSupportedRegions", func(t *testing.T) {
+		// supportedRegions provided: returns all regions from the list without a logging tenant.
+		region2 := "us-south"
+		instanceName1 := "logging-tenant-1"
+		var oneCount int64 = 1
+		serviceCrn1 := "crn:v1:bluemix:public:logs:us-south:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &oneCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+		}
+
+		regions, err := infoSvc.GetRegionWithoutLoggingTenant("us-east", "us-south", "eu-de")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"us-east", "eu-de"}, regions)
+	})
+
+	t.Run("GetRegionWithoutLoggingTenantAllOccupied", func(t *testing.T) {
+		// All provided supported regions have a logging tenant — should return an error.
+		region1 := "us-east"
+		region2 := "us-south"
+		instanceName1 := "logging-tenant-east"
+		instanceName2 := "logging-tenant-south"
+		var twoCount int64 = 2
+		serviceCrn1 := "crn:v1:bluemix:public:logs:us-east:a/account:::"
+		serviceCrn2 := "crn:v1:bluemix:public:logs:us-south:a/account:::"
+
+		resourceControllerService := &resourceControllerServiceMock{
+			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
+				RowsCount: &twoCount,
+				Resources: []resourcecontrollerv2.ResourceInstance{
+					{CRN: &serviceCrn1, RegionID: &region1, Name: &instanceName1},
+					{CRN: &serviceCrn2, RegionID: &region2, Name: &instanceName2},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:                vpcService,
+			resourceControllerService: resourceControllerService,
+		}
+
+		regions, err := infoSvc.GetRegionWithoutLoggingTenant("us-east", "us-south")
+		assert.Error(t, err)
+		assert.Nil(t, regions)
+		assert.Contains(t, err.Error(), "all supported regions have instances")
+	})
+
 	t.Run("GetRegionWithLeastResources", func(t *testing.T) {
 		// Mock: reg-3 has 3, reg-2 has 1, reg-1 has 0 of a test service
 		region2 := "reg-2-1"

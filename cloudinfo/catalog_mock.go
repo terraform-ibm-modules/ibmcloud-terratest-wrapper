@@ -97,6 +97,11 @@ func (m *MockCloudInfoServiceForPermutation) GetRegionWithoutWatsonXGovernance(s
 	return args.Get(0).([]string), args.Error(1)
 }
 
+func (m *MockCloudInfoServiceForPermutation) GetRegionWithoutLoggingTenant(supportedRegions ...string) ([]string, error) {
+	args := m.Called(supportedRegions)
+	return args.Get(0).([]string), args.Error(1)
+}
+
 func (m *MockCloudInfoServiceForPermutation) LoadRegionPrefsFromFile(filepath string) error {
 	args := m.Called(filepath)
 	return args.Error(0)
