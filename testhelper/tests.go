@@ -2,9 +2,11 @@ package testhelper
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,6 +24,74 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
+
+// writeTerraformVarsFile writes the TerraformVars map to a .tfvars.json file
+// Returns the path to the created file
+func writeTerraformVarsFile(terraformDir string, vars map[string]interface{}, prefix string) (string, error) {
+	if len(vars) == 0 {
+		return "", nil
+	}
+
+	// Create a unique tfvars file path using the test prefix to avoid parallel test conflicts when DisableTempWorkingDir is true
+	tfvarsFilename := fmt.Sprintf("terraform-%s.tfvars.json", prefix)
+	tfvarsPath := filepath.Join(terraformDir, tfvarsFilename)
+
+	// Process vars to handle jsonencoded strings from terraform outputs
+	processedVars := make(map[string]interface{})
+	for key, value := range vars {
+		if value == nil {
+			// Skip nil values - let Terraform use variable defaults
+			continue
+		}
+		processedVars[key] = processValue(value)
+	}
+
+	// Create tfvars.json file data
+	jsonData, err := json.MarshalIndent(processedVars, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to create JSON data: %w", err)
+	}
+
+	// Write the JSON data to the file
+	err = os.WriteFile(tfvarsPath, jsonData, 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to write tfvars.json file: %w", err)
+	}
+
+	return tfvarsPath, nil
+}
+
+// processValue recursively processes values to handle JSON-encoded strings and complex types
+func processValue(value interface{}) interface{} {
+	switch v := value.(type) {
+	case string:
+		// Try to parse JSON-encoded strings
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(v), &parsed); err == nil {
+			// Successfully parsed as JSON, recursively process the parsed value
+			return processValue(parsed)
+		}
+		// Not JSON, return as-is
+		return v
+	case map[string]interface{}:
+		// Recursively process map values
+		processed := make(map[string]interface{})
+		for k, val := range v {
+			processed[k] = processValue(val)
+		}
+		return processed
+	case []interface{}:
+		// Recursively process slice elements
+		processed := make([]interface{}, len(v))
+		for i, val := range v {
+			processed[i] = processValue(val)
+		}
+		return processed
+	default:
+		// For other types (numbers, bools, nil, etc.), return as-is
+		return v
+	}
+}
 
 // Function to setup testing environment.
 //
@@ -53,20 +123,19 @@ func (options *TestOptions) testSetup() {
 				// Set the path to the Terraform code that will be tested.
 				TerraformDir:    options.TerraformDir,
 				TerraformBinary: options.TerraformBinary,
-				Vars:            options.TerraformVars,
 				// Set Upgrade to true to ensure the latest version of providers and modules are used by terratest.
 				// This is the same as setting the -upgrade=true flag with terraform.
 				Upgrade: true,
 			})
 		}
 
-		if !options.DisableTempWorkingDir {
-			// Ensure always running from git root
-			gitRoot, err := common.GitRootPath(".")
+		// Ensure always running from git root
+		gitRoot, err := common.GitRootPath(".")
+		if err != nil {
+			require.Nil(options.Testing, err, "Error getting git root path")
+		}
 
-			if err != nil {
-				require.Nil(options.Testing, err, "Error getting git root path")
-			}
+		if !options.DisableTempWorkingDir {
 
 			// Create a temporary directory
 			tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
@@ -100,6 +169,24 @@ func (options *TestOptions) testSetup() {
 
 				// Update Terraform options with the full path of the new temp location
 				options.setTerraformDir(path.Join(dstDir, options.TerraformDir))
+			}
+		} else {
+			// When temp working dir is disabled, ensure TerraformDir is an absolute path
+			// by joining it with the git root if it's not already absolute
+			if !filepath.IsAbs(options.TerraformOptions.TerraformDir) {
+				options.setTerraformDir(filepath.Join(gitRoot, options.TerraformDir))
+			}
+		}
+
+		// Write TerraformVars to a tfvars.json file after temp directory is set up
+		if len(options.TerraformVars) > 0 {
+			tfvarsPath, err := writeTerraformVarsFile(options.TerraformOptions.TerraformDir, options.TerraformVars, options.Prefix)
+			if err != nil {
+				require.Nil(options.Testing, err, "Error creating tfvars.json file: ", err)
+			}
+			if tfvarsPath != "" {
+				options.TerraformOptions.VarFiles = []string{tfvarsPath}
+				logger.Log(options.Testing, "Created tfvars.json file: ", tfvarsPath)
 			}
 		}
 
@@ -690,10 +777,24 @@ func (options *TestOptions) runTest() (string, error) {
 	if err == nil && options.ModifiedTerraformVars != nil {
 		logger.Log(options.Testing, "Running modified apply with terraform vars")
 		logger.Log(options.Testing, "START: Modify Apply")
+
+		// Write ModifiedTerraformVars to a tfvars.json file
+		var modifiedVarFiles []string
+		if len(options.ModifiedTerraformVars) > 0 {
+			tfvarsPath, tfvarsErr := writeTerraformVarsFile(options.TerraformOptions.TerraformDir, options.ModifiedTerraformVars, options.Prefix)
+			if tfvarsErr != nil {
+				require.Nil(options.Testing, tfvarsErr, "Error creating modified tfvars.json file: ", tfvarsErr)
+			}
+			if tfvarsPath != "" {
+				modifiedVarFiles = []string{tfvarsPath}
+				logger.Log(options.Testing, "Created modified tfvars.json file: ", tfvarsPath)
+			}
+		}
+
 		options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
 			TerraformDir:    options.TerraformDir,
 			TerraformBinary: options.TerraformBinary,
-			Vars:            options.ModifiedTerraformVars,
+			VarFiles:        modifiedVarFiles,
 		})
 		_, err := terraform.ApplyContextE(options.Testing, context.Background(), options.TerraformOptions)
 		assert.Nil(options.Testing, err, "Failed", err)

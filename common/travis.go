@@ -9,7 +9,8 @@ import (
 // Returns empty list if not in Travis
 func GetTagsFromTravis() []string {
 	// List of tags to add to created resources
-	var tags []string
+	// Initialize as empty slice (not nil) so it serializes to [] in JSON, not null
+	tags := []string{}
 
 	// If running in Travis add tags
 	travisBuild, inTravis := os.LookupEnv("TRAVIS_BUILD_NUMBER")
