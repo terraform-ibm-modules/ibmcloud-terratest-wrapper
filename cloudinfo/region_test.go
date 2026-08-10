@@ -407,7 +407,7 @@ func TestRegionSelector(t *testing.T) {
 		region2 := "us-south"
 		instanceName1 := "logging-tenant-1"
 		var oneCount int64 = 1
-		serviceCrn1 := "crn:v1:bluemix:public:logs:us-south:a/account:::"
+		serviceCrn1 := "crn:v1:bluemix:public:logs-router:us-south:a/account:::"
 
 		resourceControllerService := &resourceControllerServiceMock{
 			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
@@ -434,16 +434,16 @@ func TestRegionSelector(t *testing.T) {
 
 	t.Run("GetRegionWithoutLoggingTenantWithSupportedRegions", func(t *testing.T) {
 		// supportedRegions provided: returns all regions from the list without a logging tenant.
-		region2 := "us-south"
+		region1 := "us-south"
 		instanceName1 := "logging-tenant-1"
 		var oneCount int64 = 1
-		serviceCrn1 := "crn:v1:bluemix:public:logs:us-south:a/account:::"
+		serviceCrn1 := "crn:v1:bluemix:public:logs-router:us-south:a/account:::"
 
 		resourceControllerService := &resourceControllerServiceMock{
 			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{
 				RowsCount: &oneCount,
 				Resources: []resourcecontrollerv2.ResourceInstance{
-					{CRN: &serviceCrn1, RegionID: &region2, Name: &instanceName1},
+					{CRN: &serviceCrn1, RegionID: &region1, Name: &instanceName1},
 				},
 			},
 		}
@@ -465,8 +465,8 @@ func TestRegionSelector(t *testing.T) {
 		instanceName1 := "logging-tenant-east"
 		instanceName2 := "logging-tenant-south"
 		var twoCount int64 = 2
-		serviceCrn1 := "crn:v1:bluemix:public:logs:us-east:a/account:::"
-		serviceCrn2 := "crn:v1:bluemix:public:logs:us-south:a/account:::"
+		serviceCrn1 := "crn:v1:bluemix:public:logs-router:us-east:a/account:::"
+		serviceCrn2 := "crn:v1:bluemix:public:logs-router:us-south:a/account:::"
 
 		resourceControllerService := &resourceControllerServiceMock{
 			mockResourceList: &resourcecontrollerv2.ResourceInstancesList{

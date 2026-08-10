@@ -354,14 +354,14 @@ func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance(supportedRegi
 	return infoSvc.GetRegionWithoutService("aiopenscale", supportedRegions...)
 }
 
-// GetRegionWithoutLoggingTenant returns regions that have no IBM Cloud Logs (logs) tenant configured.
+// GetRegionWithoutLoggingTenant returns regions that have no account-level logging tenants configured.
 // Because only one account-level logging tenant can exist per region, tests that create logging
 // tenants must be directed to regions that are not already occupied.
 // When supportedRegions is not provided, a single-element slice containing the highest-priority
 // available region without a logging tenant is returned.
 // When supportedRegions is provided, all regions from that list without a logging tenant are returned.
 func (infoSvc *CloudInfoService) GetRegionWithoutLoggingTenant(supportedRegions ...string) ([]string, error) {
-	return infoSvc.GetRegionWithoutService("logs", supportedRegions...)
+	return infoSvc.GetRegionWithoutService("logs-router", supportedRegions...)
 }
 
 // GetRegionWithLeastTransitGateways returns the region with the minimum number of transit gateways.
