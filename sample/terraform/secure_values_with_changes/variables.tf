@@ -12,9 +12,9 @@ variable "region" {
 
 # tflint-ignore: terraform_unused_declarations
 variable "resource_tags" {
-  type        = string
+  type        = list(string)
   description = "used for tests"
-  default     = "123"
+  default     = []
 }
 # tflint-ignore: terraform_unused_declarations
 variable "resource_group" {
