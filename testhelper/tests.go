@@ -25,8 +25,9 @@ import (
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
 
-// writeTerraformVarsFile writes the TerraformVars map to a .tfvars.json file
-// Returns the path to the created file
+// writeTerraformVarsFile writes the TerraformVars map to a .tfvars.json file.
+// Returns the path to the created file.
+// A unique filename using prefix is used to avoid collisions when DisableTempWorkingDir is true.
 func writeTerraformVarsFile(terraformDir string, vars map[string]interface{}, prefix string) (string, error) {
 	if len(vars) == 0 {
 		return "", nil
@@ -36,61 +37,24 @@ func writeTerraformVarsFile(terraformDir string, vars map[string]interface{}, pr
 	tfvarsFilename := fmt.Sprintf("terraform-%s.tfvars.json", prefix)
 	tfvarsPath := filepath.Join(terraformDir, tfvarsFilename)
 
-	// Process vars to handle jsonencoded strings from terraform outputs
-	processedVars := make(map[string]interface{})
+	// Filter out nil values — let Terraform use variable defaults for those.
+	filteredVars := make(map[string]interface{})
 	for key, value := range vars {
-		if value == nil {
-			// Skip nil values - let Terraform use variable defaults
-			continue
+		if value != nil {
+			filteredVars[key] = value
 		}
-		processedVars[key] = processValue(value)
 	}
 
-	// Create tfvars.json file data
-	jsonData, err := json.MarshalIndent(processedVars, "", "  ")
+	jsonData, err := json.MarshalIndent(filteredVars, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to create JSON data: %w", err)
 	}
 
-	// Write the JSON data to the file
-	err = os.WriteFile(tfvarsPath, jsonData, 0644)
-	if err != nil {
+	if err = os.WriteFile(tfvarsPath, jsonData, 0644); err != nil {
 		return "", fmt.Errorf("failed to write tfvars.json file: %w", err)
 	}
 
 	return tfvarsPath, nil
-}
-
-// processValue recursively processes values to handle JSON-encoded strings and complex types
-func processValue(value interface{}) interface{} {
-	switch v := value.(type) {
-	case string:
-		// Try to parse JSON-encoded strings
-		var parsed interface{}
-		if err := json.Unmarshal([]byte(v), &parsed); err == nil {
-			// Successfully parsed as JSON, recursively process the parsed value
-			return processValue(parsed)
-		}
-		// Not JSON, return as-is
-		return v
-	case map[string]interface{}:
-		// Recursively process map values
-		processed := make(map[string]interface{})
-		for k, val := range v {
-			processed[k] = processValue(val)
-		}
-		return processed
-	case []interface{}:
-		// Recursively process slice elements
-		processed := make([]interface{}, len(v))
-		for i, val := range v {
-			processed[i] = processValue(val)
-		}
-		return processed
-	default:
-		// For other types (numbers, bools, nil, etc.), return as-is
-		return v
-	}
 }
 
 // Function to setup testing environment.
