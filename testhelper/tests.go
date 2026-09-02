@@ -145,8 +145,10 @@ func (options *TestOptions) testSetup() {
 			}
 		}
 
-		// Write TerraformVars to a tfvars.json file after temp directory is set up
-		if len(options.TerraformVars) > 0 {
+		// Write TerraformVars to a tfvars.json file after temp directory is set up.
+		// Skipped for upgrade tests: the upgrade test manages its own temp dirs and
+		// calls writeTerraformVarsFile itself after each setTerraformDir.
+		if len(options.TerraformVars) > 0 && !options.IsUpgradeTest {
 			tfvarsPath, err := writeTerraformVarsFile(options.TerraformOptions.TerraformDir, options.TerraformVars, options.Prefix)
 			if err != nil {
 				require.Nil(options.Testing, err, "Error creating tfvars.json file: ", err)
@@ -345,8 +347,14 @@ func (options *TestOptions) testTearDown() {
 					logger.Log(options.Testing, "END: PostDestroyHook")
 				}
 			}
-			//Clean up terraform files
+			// Clean up terraform-generated files
 			CleanTerraformDir(options.TerraformDir)
+		}
+		// Delete tfvars files after destroy (regardless of success/failure)
+		for _, varFile := range options.TerraformOptions.VarFiles {
+			if err := os.Remove(varFile); err != nil && !os.IsNotExist(err) {
+				logger.Log(options.Testing, fmt.Sprintf("Error removing tfvars file %s: %s", varFile, err))
+			}
 		}
 	} else {
 		logger.Log(options.Testing, "Skipping automatic Test Teardown")
@@ -523,6 +531,18 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Set TerraformDir to the appropriate directory within baseTempDir
 		options.setTerraformDir(path.Join(baseTempDir, relativeTestSampleDir))
 
+		// Write vars into the base temp dir now that TerraformDir points to it
+		if len(options.TerraformVars) > 0 {
+			tfvarsPath, err := writeTerraformVarsFile(options.TerraformOptions.TerraformDir, options.TerraformVars, options.Prefix)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create tfvars.json for base branch: %w", err)
+			}
+			if tfvarsPath != "" {
+				options.TerraformOptions.VarFiles = append(options.TerraformOptions.VarFiles, tfvarsPath)
+				logger.Log(options.Testing, "Created tfvars.json file for base branch: ", tfvarsPath)
+			}
+		}
+
 		if options.PreApplyHook != nil {
 			logger.Log(options.Testing, "Running PreApplyHook")
 			hookErr := options.PreApplyHook(options)
@@ -570,6 +590,18 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		// Set TerraformDir to the appropriate directory within prTempDir
 		options.setTerraformDir(path.Join(prTempDir, relativeTestSampleDir))
+
+		// Write vars into the PR temp dir now that TerraformDir points to it
+		if len(options.TerraformVars) > 0 {
+			tfvarsPath, err := writeTerraformVarsFile(options.TerraformOptions.TerraformDir, options.TerraformVars, options.Prefix)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create tfvars.json for PR branch: %w", err)
+			}
+			if tfvarsPath != "" {
+				options.TerraformOptions.VarFiles = append(options.TerraformOptions.VarFiles, tfvarsPath)
+				logger.Log(options.Testing, "Created tfvars.json file for PR branch: ", tfvarsPath)
+			}
+		}
 
 		// ensure terraform working files/folders are removed before copying state file ie .terraform, .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup
 		CleanTerraformDir(options.TerraformOptions.TerraformDir)
