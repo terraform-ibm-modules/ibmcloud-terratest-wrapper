@@ -149,7 +149,7 @@ func (options *TestOptions) testSetup() {
 				require.Nil(options.Testing, err, "Error creating tfvars.json file: ", err)
 			}
 			if tfvarsPath != "" {
-				options.TerraformOptions.VarFiles = []string{tfvarsPath}
+				options.TerraformOptions.VarFiles = append(options.TerraformOptions.VarFiles, tfvarsPath)
 				logger.Log(options.Testing, "Created tfvars.json file: ", tfvarsPath)
 			}
 		}
