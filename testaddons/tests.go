@@ -1931,6 +1931,8 @@ func (options *TestAddonOptions) runAddonTestMatrix(matrix AddonTestMatrix) {
 				// Allow BaseSetupFunc to customize the copied options
 				if matrix.BaseSetupFunc != nil {
 					testOptions = matrix.BaseSetupFunc(testOptions, tc)
+					// Re-assert regardless of what BaseSetupFunc returned, since a consumer's closure can accidentally capture the parent's *testing.T instead.
+					testOptions.Testing = t
 				}
 
 				// Apply test case specific prefix if provided
