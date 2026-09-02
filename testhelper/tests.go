@@ -93,13 +93,12 @@ func (options *TestOptions) testSetup() {
 			})
 		}
 
-		// Ensure always running from git root
-		gitRoot, err := common.GitRootPath(".")
-		if err != nil {
-			require.Nil(options.Testing, err, "Error getting git root path")
-		}
-
 		if !options.DisableTempWorkingDir {
+			// Ensure always running from git root
+			gitRoot, err := common.GitRootPath(".")
+			if err != nil {
+				require.Nil(options.Testing, err, "Error getting git root path")
+			}
 
 			// Create a temporary directory
 			tempDir, err := os.MkdirTemp("", fmt.Sprintf("terraform-%s", options.Prefix))
@@ -138,7 +137,11 @@ func (options *TestOptions) testSetup() {
 			// When temp working dir is disabled, ensure TerraformDir is an absolute path
 			// by joining it with the git root if it's not already absolute
 			if !filepath.IsAbs(options.TerraformOptions.TerraformDir) {
-				options.setTerraformDir(filepath.Join(gitRoot, options.TerraformDir))
+				gitRoot, err := common.GitRootPath(".")
+				if err != nil {
+					require.Nil(options.Testing, err, "Error getting git root path")
+				}
+				options.setTerraformDir(filepath.Join(gitRoot, options.TerraformOptions.TerraformDir))
 			}
 		}
 
