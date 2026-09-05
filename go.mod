@@ -4,23 +4,23 @@ go 1.26.1
 
 require (
 	github.com/IBM-Cloud/bluemix-go v0.0.0-20240719075425-078fcb3a55be
-	github.com/IBM-Cloud/power-go-client v1.16.2
+	github.com/IBM-Cloud/power-go-client v1.17.0
 	github.com/IBM/cloud-databases-go-sdk v0.8.1
-	github.com/IBM/go-sdk-core/v5 v5.23.2
+	github.com/IBM/go-sdk-core/v5 v5.23.3
 	github.com/IBM/networking-go-sdk v0.53.10
-	github.com/IBM/platform-services-go-sdk v0.103.0
+	github.com/IBM/platform-services-go-sdk v0.103.1
 	github.com/IBM/project-go-sdk v0.4.0
 	github.com/IBM/schematics-go-sdk v0.4.0
 	github.com/IBM/vpc-go-sdk v1.0.2
 	github.com/go-git/go-git/v5 v5.19.2
 	github.com/go-openapi/errors v0.22.8
-	github.com/go-openapi/strfmt v0.27.0
+	github.com/go-openapi/strfmt v0.27.2
 	github.com/google/go-cmp v0.7.0
 	github.com/gruntwork-io/terratest v1.0.1
 	github.com/hashicorp/terraform-json v0.28.0
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/sync v0.22.0
 	gopkg.in/yaml.v3 v3.0.1
 )
