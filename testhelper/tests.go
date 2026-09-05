@@ -2,9 +2,11 @@ package testhelper
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -22,6 +24,38 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
 )
+
+// writeTerraformVarsFile writes the TerraformVars map to a .tfvars.json file.
+// Returns the path to the created file.
+// A unique filename using prefix is used to avoid collisions when DisableTempWorkingDir is true.
+func writeTerraformVarsFile(terraformDir string, vars map[string]interface{}, prefix string) (string, error) {
+	if len(vars) == 0 {
+		return "", nil
+	}
+
+	// Create a unique tfvars file path using the test prefix to avoid parallel test conflicts when DisableTempWorkingDir is true
+	tfvarsFilename := fmt.Sprintf("terraform-%s.tfvars.json", prefix)
+	tfvarsPath := filepath.Join(terraformDir, tfvarsFilename)
+
+	// Filter out nil values — let Terraform use variable defaults for those.
+	filteredVars := make(map[string]interface{})
+	for key, value := range vars {
+		if value != nil {
+			filteredVars[key] = value
+		}
+	}
+
+	jsonData, err := json.MarshalIndent(filteredVars, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to create JSON data: %w", err)
+	}
+
+	if err = os.WriteFile(tfvarsPath, jsonData, 0644); err != nil {
+		return "", fmt.Errorf("failed to write tfvars.json file: %w", err)
+	}
+
+	return tfvarsPath, nil
+}
 
 // Function to setup testing environment.
 //
@@ -53,7 +87,6 @@ func (options *TestOptions) testSetup() {
 				// Set the path to the Terraform code that will be tested.
 				TerraformDir:    options.TerraformDir,
 				TerraformBinary: options.TerraformBinary,
-				Vars:            options.TerraformVars,
 				// Set Upgrade to true to ensure the latest version of providers and modules are used by terratest.
 				// This is the same as setting the -upgrade=true flag with terraform.
 				Upgrade: true,
@@ -63,7 +96,6 @@ func (options *TestOptions) testSetup() {
 		if !options.DisableTempWorkingDir {
 			// Ensure always running from git root
 			gitRoot, err := common.GitRootPath(".")
-
 			if err != nil {
 				require.Nil(options.Testing, err, "Error getting git root path")
 			}
@@ -100,6 +132,30 @@ func (options *TestOptions) testSetup() {
 
 				// Update Terraform options with the full path of the new temp location
 				options.setTerraformDir(path.Join(dstDir, options.TerraformDir))
+			}
+		} else {
+			// When temp working dir is disabled, ensure TerraformDir is an absolute path
+			// by joining it with the git root if it's not already absolute
+			if !filepath.IsAbs(options.TerraformOptions.TerraformDir) {
+				gitRoot, err := common.GitRootPath(".")
+				if err != nil {
+					require.Nil(options.Testing, err, "Error getting git root path")
+				}
+				options.setTerraformDir(filepath.Join(gitRoot, options.TerraformOptions.TerraformDir))
+			}
+		}
+
+		// Write TerraformVars to a tfvars.json file after temp directory is set up.
+		// Skipped for upgrade tests: the upgrade test manages its own temp dirs and
+		// calls writeTerraformVarsFile itself after each setTerraformDir.
+		if len(options.TerraformVars) > 0 && !options.IsUpgradeTest {
+			tfvarsPath, err := writeTerraformVarsFile(options.TerraformOptions.TerraformDir, options.TerraformVars, options.Prefix)
+			if err != nil {
+				require.Nil(options.Testing, err, "Error creating tfvars.json file: ", err)
+			}
+			if tfvarsPath != "" {
+				options.TerraformOptions.VarFiles = append(options.TerraformOptions.VarFiles, tfvarsPath)
+				logger.Log(options.Testing, "Created tfvars.json file: ", tfvarsPath)
 			}
 		}
 
@@ -291,8 +347,14 @@ func (options *TestOptions) testTearDown() {
 					logger.Log(options.Testing, "END: PostDestroyHook")
 				}
 			}
-			//Clean up terraform files
+			// Clean up terraform-generated files
 			CleanTerraformDir(options.TerraformDir)
+		}
+		// Delete tfvars files after destroy (regardless of success/failure)
+		for _, varFile := range options.TerraformOptions.VarFiles {
+			if err := os.Remove(varFile); err != nil && !os.IsNotExist(err) {
+				logger.Log(options.Testing, fmt.Sprintf("Error removing tfvars file %s: %s", varFile, err))
+			}
 		}
 	} else {
 		logger.Log(options.Testing, "Skipping automatic Test Teardown")
@@ -469,6 +531,18 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 		// Set TerraformDir to the appropriate directory within baseTempDir
 		options.setTerraformDir(path.Join(baseTempDir, relativeTestSampleDir))
 
+		// Write vars into the base temp dir now that TerraformDir points to it
+		if len(options.TerraformVars) > 0 {
+			tfvarsPath, err := writeTerraformVarsFile(options.TerraformOptions.TerraformDir, options.TerraformVars, options.Prefix)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create tfvars.json for base branch: %w", err)
+			}
+			if tfvarsPath != "" {
+				options.TerraformOptions.VarFiles = append(options.TerraformOptions.VarFiles, tfvarsPath)
+				logger.Log(options.Testing, "Created tfvars.json file for base branch: ", tfvarsPath)
+			}
+		}
+
 		if options.PreApplyHook != nil {
 			logger.Log(options.Testing, "Running PreApplyHook")
 			hookErr := options.PreApplyHook(options)
@@ -516,6 +590,18 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 
 		// Set TerraformDir to the appropriate directory within prTempDir
 		options.setTerraformDir(path.Join(prTempDir, relativeTestSampleDir))
+
+		// Write vars into the PR temp dir now that TerraformDir points to it
+		if len(options.TerraformVars) > 0 {
+			tfvarsPath, err := writeTerraformVarsFile(options.TerraformOptions.TerraformDir, options.TerraformVars, options.Prefix)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create tfvars.json for PR branch: %w", err)
+			}
+			if tfvarsPath != "" {
+				options.TerraformOptions.VarFiles = append(options.TerraformOptions.VarFiles, tfvarsPath)
+				logger.Log(options.Testing, "Created tfvars.json file for PR branch: ", tfvarsPath)
+			}
+		}
 
 		// ensure terraform working files/folders are removed before copying state file ie .terraform, .terraform.lock.hcl, terraform.tfstate, terraform.tfstate.backup
 		CleanTerraformDir(options.TerraformOptions.TerraformDir)
@@ -690,10 +776,24 @@ func (options *TestOptions) runTest() (string, error) {
 	if err == nil && options.ModifiedTerraformVars != nil {
 		logger.Log(options.Testing, "Running modified apply with terraform vars")
 		logger.Log(options.Testing, "START: Modify Apply")
+
+		// Write ModifiedTerraformVars to a tfvars.json file
+		var modifiedVarFiles []string
+		if len(options.ModifiedTerraformVars) > 0 {
+			tfvarsPath, tfvarsErr := writeTerraformVarsFile(options.TerraformOptions.TerraformDir, options.ModifiedTerraformVars, options.Prefix)
+			if tfvarsErr != nil {
+				require.Nil(options.Testing, tfvarsErr, "Error creating modified tfvars.json file: ", tfvarsErr)
+			}
+			if tfvarsPath != "" {
+				modifiedVarFiles = []string{tfvarsPath}
+				logger.Log(options.Testing, "Created modified tfvars.json file: ", tfvarsPath)
+			}
+		}
+
 		options.TerraformOptions = terraform.WithDefaultRetryableErrors(options.Testing, &terraform.Options{
 			TerraformDir:    options.TerraformDir,
 			TerraformBinary: options.TerraformBinary,
-			Vars:            options.ModifiedTerraformVars,
+			VarFiles:        modifiedVarFiles,
 		})
 		_, err := terraform.ApplyContextE(options.Testing, context.Background(), options.TerraformOptions)
 		assert.Nil(options.Testing, err, "Failed", err)

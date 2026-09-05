@@ -104,8 +104,8 @@ func CleanTerraformDir(directory string) {
 	}
 
 	// Define a regular expression pattern to match the desired file format
-	pattern := `^terratest-plan-file-\d+$`
-	re := regexp.MustCompile(pattern)
+	planFilePattern := `^terratest-plan-file-\d+$`
+	planFileRe := regexp.MustCompile(planFilePattern)
 
 	// List files in the directory
 	files, err := os.ReadDir(directory)
@@ -118,8 +118,9 @@ func CleanTerraformDir(directory string) {
 		fileName := file.Name()
 		filePath := filepath.Join(directory, fileName)
 
-		// Check if it's one of the known Terraform files or a file matching the format
-		if common.StrArrayContains(terraformFilesAndDirectories, fileName) || re.MatchString(fileName) {
+		// Check if it's one of the known Terraform files or a file matching the plan file pattern
+		if common.StrArrayContains(terraformFilesAndDirectories, fileName) ||
+			planFileRe.MatchString(fileName) {
 			if err := os.RemoveAll(filePath); err != nil {
 				// Ignore errors, just log them
 				log.Printf("Error removing file %s: %s", fileName, err)
