@@ -155,6 +155,7 @@ func (options *TestOptions) testSetup() {
 			}
 			if tfvarsPath != "" {
 				options.TerraformOptions.VarFiles = append(options.TerraformOptions.VarFiles, tfvarsPath)
+				options.generatedVarFiles = append(options.generatedVarFiles, tfvarsPath)
 				logger.Log(options.Testing, "Created tfvars.json file: ", tfvarsPath)
 			}
 		}
@@ -350,8 +351,7 @@ func (options *TestOptions) testTearDown() {
 			// Clean up terraform-generated files
 			CleanTerraformDir(options.TerraformDir)
 		}
-		// Delete tfvars files after destroy (regardless of success/failure)
-		for _, varFile := range options.TerraformOptions.VarFiles {
+		for _, varFile := range options.generatedVarFiles {
 			if err := os.Remove(varFile); err != nil && !os.IsNotExist(err) {
 				logger.Log(options.Testing, fmt.Sprintf("Error removing tfvars file %s: %s", varFile, err))
 			}
@@ -539,6 +539,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			}
 			if tfvarsPath != "" {
 				options.TerraformOptions.VarFiles = append(options.TerraformOptions.VarFiles, tfvarsPath)
+				options.generatedVarFiles = append(options.generatedVarFiles, tfvarsPath)
 				logger.Log(options.Testing, "Created tfvars.json file for base branch: ", tfvarsPath)
 			}
 		}
@@ -599,6 +600,7 @@ func (options *TestOptions) RunTestUpgrade() (*terraform.PlanStruct, error) {
 			}
 			if tfvarsPath != "" {
 				options.TerraformOptions.VarFiles = append(options.TerraformOptions.VarFiles, tfvarsPath)
+				options.generatedVarFiles = append(options.generatedVarFiles, tfvarsPath)
 				logger.Log(options.Testing, "Created tfvars.json file for PR branch: ", tfvarsPath)
 			}
 		}

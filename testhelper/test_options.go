@@ -171,6 +171,10 @@ type TestOptions struct {
 	IsUpgradeTest      bool // Identifies if current test is an UPGRADE test, used for special processing
 	UpgradeTestSkipped bool // Informs the calling test that conditions were met to skip the upgrade test
 
+	// generatedVarFiles tracks tfvars.json files created by this library so that only
+	// those files are deleted at teardown, leaving any caller-supplied var files untouched.
+	generatedVarFiles []string
+
 	// Hooks These allow us to inject custom code into the test process
 	// example to set a hook:
 	// options.PreApplyHook = func(options *TestOptions) error {
