@@ -19,6 +19,7 @@ require (
 	github.com/gruntwork-io/terratest v1.0.1
 	github.com/hashicorp/terraform-json v0.28.0
 	github.com/jinzhu/copier v0.4.0
+
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/crypto v0.56.0
 	golang.org/x/sync v0.22.0
