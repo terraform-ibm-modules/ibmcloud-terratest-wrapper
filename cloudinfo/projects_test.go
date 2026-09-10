@@ -1508,6 +1508,10 @@ func SortStackDefinitionMemberInputs(inputs []projects.StackDefinitionMemberInpu
 // processMembers become readable. That 404 is retried; anything else is not, because
 // creating a stack definition is not idempotent.
 func (suite *ProjectsServiceTestSuite) TestCreateStackDefinitionWrapperRetry() {
+	// Keep the retry counting but skip the backoff sleeps.
+	// common.calculateDelay skips when SKIP_RETRY_DELAYS == "true"
+	suite.T().Setenv("SKIP_RETRY_DELAYS", "true")
+
 	mockResponse := &core.DetailedResponse{StatusCode: 201}
 	stackDefOptions := &projects.CreateStackDefinitionOptions{
 		ProjectID: core.StringPtr("test-project-id"),
