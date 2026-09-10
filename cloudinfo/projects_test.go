@@ -1502,3 +1502,69 @@ func SortStackDefinitionMemberInputs(inputs []projects.StackDefinitionMemberInpu
 	})
 	return inputs
 }
+
+// TestCreateStackDefinitionWrapperRetry covers the transient "The config cannot be found"
+// response the Projects API can return while the configs created moments earlier in
+// processMembers become readable. That 404 is retried; anything else is not, because
+// creating a stack definition is not idempotent.
+func (suite *ProjectsServiceTestSuite) TestCreateStackDefinitionWrapperRetry() {
+	mockResponse := &core.DetailedResponse{StatusCode: 201}
+	stackDefOptions := &projects.CreateStackDefinitionOptions{
+		ProjectID: core.StringPtr("test-project-id"),
+		ID:        core.StringPtr("test-config-id"),
+		StackDefinition: &projects.StackDefinitionBlockPrototype{
+			Inputs: []projects.StackDefinitionInputVariable{},
+		},
+	}
+
+	suite.Run("ConfigNotFoundIsRetriedThenSucceeds", func() {
+		suite.mockService.ExpectedCalls = nil
+		suite.mockService.Calls = nil
+		notFound := core.SDKErrorf(nil, "The config cannot be found", "http-request-err",
+			core.NewProblemComponent("project", "v1"))
+
+		suite.mockService.On("CreateStackDefinition", mock.Anything).
+			Return([]projects.StackDefinitionMember{}, (*core.DetailedResponse)(nil), notFound).Once()
+		suite.mockService.On("CreateStackDefinition", mock.Anything).
+			Return([]projects.StackDefinitionMember{}, mockResponse, nil).Once()
+
+		result, response, err := suite.infoSvc.CreateStackDefinitionWrapper(stackDefOptions, nil)
+
+		assert.NoError(suite.T(), err)
+		assert.NotNil(suite.T(), result)
+		assert.Equal(suite.T(), mockResponse, response)
+		suite.mockService.AssertExpectations(suite.T())
+	})
+
+	suite.Run("OtherErrorIsNotRetried", func() {
+		suite.mockService.ExpectedCalls = nil
+		suite.mockService.Calls = nil
+		// A non-idempotent create must not be re-sent on an ambiguous failure.
+		otherErr := core.SDKErrorf(nil, "A stack definition member input foo was not found in the configuration bar.",
+			"http-request-err", core.NewProblemComponent("project", "v1"))
+
+		suite.mockService.On("CreateStackDefinition", mock.Anything).
+			Return([]projects.StackDefinitionMember{}, (*core.DetailedResponse)(nil), otherErr).Once()
+
+		_, _, err := suite.infoSvc.CreateStackDefinitionWrapper(stackDefOptions, nil)
+
+		assert.Error(suite.T(), err)
+		assert.Contains(suite.T(), err.Error(), "was not found in the configuration")
+		// Exactly one call: no retry was attempted.
+		suite.mockService.AssertNumberOfCalls(suite.T(), "CreateStackDefinition", 1)
+	})
+
+	suite.Run("SuccessOnFirstAttemptMakesOneCall", func() {
+		suite.mockService.ExpectedCalls = nil
+		suite.mockService.Calls = nil
+		suite.mockService.On("CreateStackDefinition", mock.Anything).
+			Return([]projects.StackDefinitionMember{}, mockResponse, nil).Once()
+
+		result, response, err := suite.infoSvc.CreateStackDefinitionWrapper(stackDefOptions, nil)
+
+		assert.NoError(suite.T(), err)
+		assert.NotNil(suite.T(), result)
+		assert.Equal(suite.T(), mockResponse, response)
+		suite.mockService.AssertNumberOfCalls(suite.T(), "CreateStackDefinition", 1)
+	})
+}
