@@ -213,10 +213,37 @@ func (infoSvc *CloudInfoService) CreateStackDefinitionWrapper(stackDefOptions *p
 	// dummy use of members
 	_ = members
 
-	result, response, err = infoSvc.projectsService.CreateStackDefinition(stackDefOptions)
+	// The stack definition references the parent config and every member config created
+	// moments earlier in processMembers, so the API can briefly report "The config cannot
+	// be found" before those IDs are consistently readable. Retry only that lookup
+	// failure: creating a stack definition is not idempotent, so re-sending it after any
+	// other error risks acting on a definition the first attempt already applied.
+	retryConfig := common.ProjectOperationRetryConfig()
+	retryConfig.OperationName = "CreateStackDefinition"
+	retryConfig.Logger = infoSvc.Logger
+	retryConfig.RetryableErrorChecker = isConfigNotFoundError
 
-	return result, response, err
+	var lastResponse *core.DetailedResponse
+	result, err = common.RetryWithConfig(retryConfig, func() (*project.StackDefinition, error) {
+		definition, resp, createErr := infoSvc.projectsService.CreateStackDefinition(stackDefOptions)
+		lastResponse = resp
+		return definition, createErr
+	})
 
+	return result, lastResponse, err
+
+}
+
+// isConfigNotFoundError reports whether err is the transient "config cannot be found"
+// response the Projects API returns while a newly created config becomes readable.
+func isConfigNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if !common.IsProjectRetryableError(err) {
+		return false
+	}
+	return common.StringContainsIgnoreCase(err.Error(), "config cannot be found")
 }
 
 func (infoSvc *CloudInfoService) UpdateStackFromConfig(stackConfig *ConfigDetails) (result *project.StackDefinition, response *core.DetailedResponse, err error) {
