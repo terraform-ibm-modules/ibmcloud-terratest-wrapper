@@ -354,6 +354,63 @@ func (infoSvc *CloudInfoService) GetRegionWithoutWatsonXGovernance(supportedRegi
 	return infoSvc.GetRegionWithoutService("aiopenscale", supportedRegions...)
 }
 
+// GetRegionWithoutLoggingTenant returns regions that have no account-level logging tenants configured.
+// Because only one account-level logging tenant can exist per region, tests that create logging
+// tenants must be directed to regions that are not already occupied.
+// When supportedRegions is not provided, a single-element slice containing the highest-priority
+// available region without a logging tenant is returned.
+// When supportedRegions is provided, all regions from that list without a logging tenant are returned.
+func (infoSvc *CloudInfoService) GetRegionWithoutLoggingTenant(supportedRegions ...string) ([]string, error) {
+	log.Println("Searching for regions without logging tenants...")
+
+	if infoSvc.logsRouterService == nil {
+		return nil, errors.New("logsRouterService is not initialized")
+	}
+
+	// Determine candidate regions
+	var candidateRegions []string
+	if len(supportedRegions) > 0 {
+		candidateRegions = supportedRegions
+	} else {
+		regions, err := infoSvc.GetTestRegionsByPriority()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get test regions: %w", err)
+		}
+		for _, r := range regions {
+			candidateRegions = append(candidateRegions, r.Name)
+		}
+	}
+
+	var available []string
+	for _, region := range candidateRegions {
+		tenants, _, err := infoSvc.logsRouterService.ListTenants(region)
+		if err != nil {
+			log.Printf("Failed to list logging tenants for region %s: %v", region, err)
+			return nil, fmt.Errorf("failed to list logging tenants for region %s: %w", region, err)
+		}
+
+		if len(tenants) == 0 {
+			log.Printf("✓ Region %s has no logging tenants", region)
+			available = append(available, region)
+			// If caller did not specify supportedRegions, return the first (highest priority) matching region
+			if len(supportedRegions) == 0 {
+				return available, nil
+			}
+		} else {
+			log.Printf("Region %s has %d logging tenant(s)", region, len(tenants))
+		}
+	}
+
+	if len(available) == 0 {
+		if len(supportedRegions) > 0 {
+			return nil, fmt.Errorf("no region available without logging tenants - all supported regions have instances")
+		}
+		return nil, fmt.Errorf("no region available without logging tenants - all test regions have instances")
+	}
+
+	return available, nil
+}
+
 // GetRegionWithLeastTransitGateways returns the region with the minimum number of transit gateways.
 func (infoSvc *CloudInfoService) GetRegionWithLeastTransitGateways() (string, error) {
 	// Get all transit gateways using Transit Gateway SDK with pagination support

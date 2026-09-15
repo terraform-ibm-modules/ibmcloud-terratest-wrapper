@@ -402,6 +402,105 @@ func TestRegionSelector(t *testing.T) {
 		assert.Equal(t, []string{"reg-1-0", "reg-3-0"}, regions)
 	})
 
+	t.Run("GetRegionWithoutLoggingTenant", func(t *testing.T) {
+		// No supportedRegions: returns a single-element slice with the highest-priority region without tenants.
+		tenantName := "logging-tenant-1"
+		tenantCRN := "crn:v1:bluemix:public:logs-router:us-south:a/account:::"
+
+		logsRouterMock := &logsRouterServiceMock{
+			mockTenantsByRegion: map[string][]LogsRouterTenant{
+				"us-south": {
+					{Name: &tenantName, CRN: &tenantCRN},
+				},
+				"us-east": {},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:        vpcService,
+			logsRouterService: logsRouterMock,
+			regionsData: []RegionData{
+				{Name: "us-east", UseForTest: true, TestPriority: 1},
+				{Name: "us-south", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		regions, err := infoSvc.GetRegionWithoutLoggingTenant()
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"us-east"}, regions)
+	})
+
+	t.Run("GetRegionWithoutLoggingTenantWithSupportedRegions", func(t *testing.T) {
+		// supportedRegions provided: returns all regions from the list without a logging tenant.
+		tenantName := "logging-tenant-1"
+		tenantCRN := "crn:v1:bluemix:public:logs-router:us-south:a/account:::"
+
+		logsRouterMock := &logsRouterServiceMock{
+			mockTenantsByRegion: map[string][]LogsRouterTenant{
+				"us-south": {
+					{Name: &tenantName, CRN: &tenantCRN},
+				},
+				"us-east": {},
+				"eu-de":   {},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:        vpcService,
+			logsRouterService: logsRouterMock,
+		}
+
+		regions, err := infoSvc.GetRegionWithoutLoggingTenant("us-east", "us-south", "eu-de")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"us-east", "eu-de"}, regions)
+	})
+
+	t.Run("GetRegionWithoutLoggingTenantAllOccupied", func(t *testing.T) {
+		// All provided supported regions have a logging tenant — should return an error.
+		tenantNameEast := "logging-tenant-east"
+		tenantCRNEast := "crn:v1:bluemix:public:logs-router:us-east:a/account:::"
+		tenantNameSouth := "logging-tenant-south"
+		tenantCRNSouth := "crn:v1:bluemix:public:logs-router:us-south:a/account:::"
+
+		logsRouterMock := &logsRouterServiceMock{
+			mockTenantsByRegion: map[string][]LogsRouterTenant{
+				"us-east": {
+					{Name: &tenantNameEast, CRN: &tenantCRNEast},
+				},
+				"us-south": {
+					{Name: &tenantNameSouth, CRN: &tenantCRNSouth},
+				},
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:        vpcService,
+			logsRouterService: logsRouterMock,
+		}
+
+		regions, err := infoSvc.GetRegionWithoutLoggingTenant("us-east", "us-south")
+		assert.Error(t, err)
+		assert.Nil(t, regions)
+		assert.Contains(t, err.Error(), "all supported regions have instances")
+	})
+
+	t.Run("GetRegionWithoutLoggingTenantServiceError", func(t *testing.T) {
+		// When logs router service returns an error, the function should return the error.
+		logsRouterMock := &logsRouterServiceMock{
+			mockError: fmt.Errorf("API error: failed to list tenants"),
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:        vpcService,
+			logsRouterService: logsRouterMock,
+		}
+
+		regions, err := infoSvc.GetRegionWithoutLoggingTenant("us-east")
+		assert.Error(t, err)
+		assert.Nil(t, regions)
+		assert.Contains(t, err.Error(), "failed to list logging tenants for region us-east")
+	})
+
 	t.Run("GetRegionWithLeastResources", func(t *testing.T) {
 		// Mock: reg-3 has 3, reg-2 has 1, reg-1 has 0 of a test service
 		region2 := "reg-2-1"
