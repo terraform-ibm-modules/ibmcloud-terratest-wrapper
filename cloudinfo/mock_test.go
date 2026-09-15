@@ -487,6 +487,25 @@ func (mock *transitGatewayServiceMock) ListTransitGateways(*transitgatewayapisv1
 	}, nil, nil
 }
 
+// Logs Router Service mock
+type logsRouterServiceMock struct {
+	mock.Mock
+	mockTenantsByRegion map[string][]LogsRouterTenant
+	mockError           error
+}
+
+func (mock *logsRouterServiceMock) ListTenants(region string) ([]LogsRouterTenant, *core.DetailedResponse, error) {
+	if mock.mockError != nil {
+		return nil, nil, mock.mockError
+	}
+	if mock.mockTenantsByRegion != nil {
+		if tenants, ok := mock.mockTenantsByRegion[region]; ok {
+			return tenants, nil, nil
+		}
+	}
+	return []LogsRouterTenant{}, nil, nil
+}
+
 // Mock ContainerV1 Client
 type containerV1ClientMock struct {
 	mock.Mock
