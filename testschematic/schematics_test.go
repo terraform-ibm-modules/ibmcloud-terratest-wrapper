@@ -475,3 +475,86 @@ func TestSchematicGetJobDetail(t *testing.T) {
 
 // TestSchematicApiRetry has been removed as retryApiCall method was migrated to cloudinfo
 // and now uses common.RetryWithConfig internally
+
+func TestRunImplicitDestroyCommands(t *testing.T) {
+	zero := 0
+	schematicSvc := new(schematicServiceMock)
+	authSvc := new(iamAuthenticatorMock)
+	mockCloudInfo := new(cloudInfoServiceMock)
+
+	newSvc := func() *SchematicsTestService {
+		return &SchematicsTestService{
+			SchematicsApiSvc:  schematicSvc,
+			ApiAuthenticator:  authSvc,
+			WorkspaceID:       mockWorkspaceID,
+			WorkspaceLocation: "us-south",
+			TemplateID:        mockTemplateID,
+			CloudInfoService:  mockCloudInfo,
+			WorkspaceNameForLog: mockWorkspaceName,
+			TestOptions: &TestSchematicOptions{
+				Testing:                      new(testing.T),
+				SchematicSvcRetryCount:       &zero,
+				SchematicSvcRetryWaitSeconds: &zero,
+				WaitJobCompleteMinutes:       1,
+			},
+		}
+	}
+
+	t.Run("NoOp_EmptyImplicitDestroy", func(t *testing.T) {
+		svc := newSvc()
+		options := svc.TestOptions
+		options.ImplicitDestroy = []string{}
+		// should return immediately without calling RunWorkspaceCommands
+		svc.RunImplicitDestroyCommands(options)
+		// no assertions needed — if it panics or hangs the test fails
+	})
+
+	t.Run("Success_SingleAddress", func(t *testing.T) {
+		schematicSvc.failRunWorkspaceCommands = false
+		svc := newSvc()
+		options := svc.TestOptions
+		options.ImplicitDestroy = []string{"module.foo.null_resource.bar"}
+		options.ImplicitRequired = false
+		svc.RunImplicitDestroyCommands(options)
+		assert.False(t, options.Testing.Failed(), "test should not be marked failed on success")
+	})
+
+	t.Run("Success_MultipleAddresses", func(t *testing.T) {
+		schematicSvc.failRunWorkspaceCommands = false
+		svc := newSvc()
+		options := svc.TestOptions
+		options.ImplicitDestroy = []string{
+			"module.foo.null_resource.bar",
+			"module.baz.ibm_resource_group.rg",
+		}
+		options.ImplicitRequired = false
+		svc.RunImplicitDestroyCommands(options)
+		assert.False(t, options.Testing.Failed(), "test should not be marked failed on success")
+	})
+
+	t.Run("APIError_ImplicitRequired_False", func(t *testing.T) {
+		schematicSvc.failRunWorkspaceCommands = true
+		svc := newSvc()
+		options := svc.TestOptions
+		options.ImplicitDestroy = []string{"module.foo.null_resource.bar"}
+		options.ImplicitRequired = false
+		// with ImplicitRequired=false, error should only be logged — test must NOT be marked failed
+		svc.RunImplicitDestroyCommands(options)
+		assert.False(t, options.Testing.Failed(), "test should not be marked failed when ImplicitRequired=false")
+		schematicSvc.failRunWorkspaceCommands = false
+	})
+
+	t.Run("APIError_ImplicitRequired_True", func(t *testing.T) {
+		schematicSvc.failRunWorkspaceCommands = true
+		svc := newSvc()
+		innerT := new(testing.T)
+		options := svc.TestOptions
+		options.Testing = innerT
+		options.ImplicitDestroy = []string{"module.foo.null_resource.bar"}
+		options.ImplicitRequired = true
+		// with ImplicitRequired=true, error should mark the test as failed
+		svc.RunImplicitDestroyCommands(options)
+		assert.True(t, innerT.Failed(), "test should be marked failed when ImplicitRequired=true and API errors")
+		schematicSvc.failRunWorkspaceCommands = false
+	})
+}
