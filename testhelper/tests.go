@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -38,11 +39,18 @@ func writeTerraformVarsFile(terraformDir string, vars map[string]interface{}, pr
 	tfvarsPath := filepath.Join(terraformDir, tfvarsFilename)
 
 	// Filter out nil values — let Terraform use variable defaults for those.
+	// Use reflect to also catch typed nils which pass the nil check but would serialize to JSON null.
+	// Both bare nil and typed nil are omitted so Terraform can apply its variable default.
 	filteredVars := make(map[string]interface{})
 	for key, value := range vars {
-		if value != nil {
-			filteredVars[key] = value
+		if value == nil {
+			continue
 		}
+		rv := reflect.ValueOf(value)
+		if (rv.Kind() == reflect.Slice || rv.Kind() == reflect.Map) && rv.IsNil() {
+			continue
+		}
+		filteredVars[key] = value
 	}
 
 	jsonData, err := json.MarshalIndent(filteredVars, "", "  ")

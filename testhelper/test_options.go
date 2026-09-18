@@ -336,6 +336,11 @@ func TestOptionsDefault(originalOptions *TestOptions) *TestOptions {
 		newOptions.PostCreateDelay = &delay
 	}
 
+	// Ensure Tags is always initialized
+	if newOptions.Tags == nil {
+		newOptions.Tags = []string{}
+	}
+
 	return newOptions
 
 }
