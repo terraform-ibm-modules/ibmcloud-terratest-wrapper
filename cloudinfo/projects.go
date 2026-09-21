@@ -762,11 +762,16 @@ func readCatalogConfig(catalogJsonPath string, stackConfig *ConfigDetails, error
 	if stackConfig.CatalogProductName == "" {
 		catalogProductIndex = 0
 	} else {
+		found := false
 		for i, product := range catalogConfig.Products {
 			if product.Name == stackConfig.CatalogProductName {
 				catalogProductIndex = i
+				found = true
 				break
 			}
+		}
+		if !found {
+			return CatalogJson{}, 0, 0, fmt.Errorf("product name '%s' not found in catalog JSON", stackConfig.CatalogProductName)
 		}
 	}
 
@@ -774,11 +779,16 @@ func readCatalogConfig(catalogJsonPath string, stackConfig *ConfigDetails, error
 	if stackConfig.CatalogFlavorName == "" {
 		catalogFlavorIndex = 0
 	} else {
+		found := false
 		for i, flavor := range catalogConfig.Products[catalogProductIndex].Flavors {
 			if flavor.Name == stackConfig.CatalogFlavorName {
 				catalogFlavorIndex = i
+				found = true
 				break
 			}
+		}
+		if !found {
+			return CatalogJson{}, 0, 0, fmt.Errorf("flavor name '%s' not found in catalog JSON for product '%s'", stackConfig.CatalogFlavorName, catalogConfig.Products[catalogProductIndex].Name)
 		}
 	}
 

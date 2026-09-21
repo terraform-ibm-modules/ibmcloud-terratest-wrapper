@@ -1256,6 +1256,31 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 					"extra catalog input variable not found in stack definition in product 'Product Name', flavor 'Flavor Name': input5"),
 		},
 		{
+			name: "invalid product name, should return an error",
+			stackConfig: &ConfigDetails{
+				ProjectID:          "mockProjectID",
+				ConfigID:           "54321",
+				CatalogProductName: "Non-Existent Product",
+			},
+			stackConfigPath: "testdata/stack_definition_stack_inputs.json",
+			catalogJsonPath: "testdata/ibm_catalog_multiple_products_flavors.json",
+			expectedConfig:  nil,
+			expectedError:   fmt.Errorf("product name 'Non-Existent Product' not found in catalog JSON"),
+		},
+		{
+			name: "invalid flavor name, should return an error",
+			stackConfig: &ConfigDetails{
+				ProjectID:          "mockProjectID",
+				ConfigID:           "54321",
+				CatalogProductName: "Second Product Name",
+				CatalogFlavorName:  "Non-Existent Flavor",
+			},
+			stackConfigPath: "testdata/stack_definition_stack_inputs.json",
+			catalogJsonPath: "testdata/ibm_catalog_multiple_products_flavors.json",
+			expectedConfig:  nil,
+			expectedError:   fmt.Errorf("flavor name 'Non-Existent Flavor' not found in catalog JSON for product 'Second Product Name'"),
+		},
+		{
 			name: "catalog with HCL string defaults for array/object types, should pass validation",
 			stackConfig: &ConfigDetails{
 				ProjectID: "mockProjectID",
