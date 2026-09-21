@@ -158,6 +158,7 @@ type CloudInfoService struct {
 	catalogService            catalogService
 	globalCatalogBaseURL      string
 	transitGatewayService     transitGatewayService
+	logsRouterService         logsRouterService
 	// stackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	stackDefinitionCreator StackDefinitionCreator
 	regionsData            []RegionData
@@ -187,6 +188,7 @@ type CloudInfoServiceI interface {
 	GetRegionWithoutService(serviceName string, supportedRegions ...string) ([]string, error)
 	GetRegionWithLeastResources(string) (string, error)
 	GetRegionWithoutWatsonXGovernance(supportedRegions ...string) ([]string, error)
+	GetRegionWithoutLoggingTenant(supportedRegions ...string) ([]string, error)
 	LoadRegionPrefsFromFile(string) error
 	HasRegionData() bool
 	RemoveRegionForTest(string)
@@ -303,6 +305,7 @@ type CloudInfoServiceOptions struct {
 	GlobalCatalogBaseURL      string
 	SchematicsServices        map[string]schematicsService
 	TransitGatewayService     transitGatewayService
+	LogsRouterService         logsRouterService
 	// StackDefinitionCreator is used to create stack definitions and only added to support testing/mocking
 	StackDefinitionCreator StackDefinitionCreator
 	Logger                 common.Logger // Logger option for CloudInfoService
@@ -458,6 +461,75 @@ type schematicsService interface {
 // transitGatewayService for external Transit Gateway Service API. Used for mocking.
 type transitGatewayService interface {
 	ListTransitGateways(*transitgatewayapisv1.ListTransitGatewaysOptions) (*transitgatewayapisv1.TransitGatewayCollection, *core.DetailedResponse, error)
+}
+
+// logsRouterService for external Logs Router API. Used for mocking.
+type logsRouterService interface {
+	ListTenants(region string) ([]LogsRouterTenant, *core.DetailedResponse, error)
+}
+
+// LogsRouterTenant represents a tenant object returned by the Logs Routing API.
+type LogsRouterTenant struct {
+	ID        *string `json:"id,omitempty"`
+	Name      *string `json:"name,omitempty"`
+	CRN       *string `json:"crn,omitempty"`
+	CreatedAt *string `json:"created_at,omitempty"`
+	UpdatedAt *string `json:"updated_at,omitempty"`
+}
+
+// LogsRouterTenantCollection represents a collection of tenants returned by the Logs Routing API.
+type LogsRouterTenantCollection struct {
+	Tenants []LogsRouterTenant `json:"tenants,omitempty"`
+}
+
+// defaultLogsRouterService is the default implementation of logsRouterService using core.BaseService.
+type defaultLogsRouterService struct {
+	authenticator IiamAuthenticator
+	// urlTemplate allows overriding the Logs Router URL for testing.
+	// Defaults to "https://management.%s.logs-router.cloud.ibm.com" if empty.
+	urlTemplate string
+}
+
+func (s *defaultLogsRouterService) getServiceURL(region string) string {
+	if s.urlTemplate != "" {
+		if strings.Contains(s.urlTemplate, "%s") {
+			return fmt.Sprintf(s.urlTemplate, region)
+		}
+		return s.urlTemplate
+	}
+	return fmt.Sprintf("https://management.%s.logs-router.cloud.ibm.com", region)
+}
+
+func (s *defaultLogsRouterService) ListTenants(region string) ([]LogsRouterTenant, *core.DetailedResponse, error) {
+	serviceURL := s.getServiceURL(region)
+	baseService, err := core.NewBaseService(&core.ServiceOptions{
+		URL:           serviceURL,
+		Authenticator: s.authenticator,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	builder := core.NewRequestBuilder(core.GET)
+	_, err = builder.ResolveRequestURL(serviceURL, `/v1/tenants`, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	builder.AddHeader("Accept", "application/json")
+	builder.AddHeader("IBM-API-Version", "2024-03-01")
+
+	request, err := builder.Build()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var tenantCollection LogsRouterTenantCollection
+	resp, err := baseService.Request(request, &tenantCollection)
+	if err != nil {
+		return nil, resp, err
+	}
+
+	return tenantCollection.Tenants, resp, nil
 }
 
 // ReplaceCBRRule replaces a CBR rule using the provided options.
@@ -752,6 +824,14 @@ func NewCloudInfoServiceWithKey(options CloudInfoServiceOptions) (*CloudInfoServ
 		}
 
 		infoSvc.transitGatewayService = tgwClient
+	}
+
+	if options.LogsRouterService != nil {
+		infoSvc.logsRouterService = options.LogsRouterService
+	} else {
+		infoSvc.logsRouterService = &defaultLogsRouterService{
+			authenticator: infoSvc.authenticator,
+		}
 	}
 
 	// Schematics is a regional endpoint service, and cross-location API calls do not work.
