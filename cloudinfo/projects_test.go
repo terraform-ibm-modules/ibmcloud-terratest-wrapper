@@ -1473,6 +1473,61 @@ func TestProjectsServiceTestSuite(t *testing.T) {
 	suite.Run(t, new(ProjectsServiceTestSuite))
 }
 
+func TestValidateCatalogNames(t *testing.T) {
+	catalog := "testdata/ibm_catalog_multiple_products_flavors.json"
+
+	tests := []struct {
+		name        string
+		productName string
+		flavorName  string
+		expectErr   string
+	}{
+		{
+			name:        "valid product and flavor",
+			productName: "Second Product Name",
+			flavorName:  "Second Flavor Name",
+			expectErr:   "",
+		},
+		{
+			name:        "valid product, empty flavor defaults to first",
+			productName: "First Product Name",
+			flavorName:  "",
+			expectErr:   "",
+		},
+		{
+			name:        "empty product and flavor, defaults to first of each",
+			productName: "",
+			flavorName:  "",
+			expectErr:   "",
+		},
+		{
+			name:        "invalid product name",
+			productName: "Non-Existent Product",
+			flavorName:  "",
+			expectErr:   "product name 'Non-Existent Product' not found in catalog JSON",
+		},
+		{
+			name:        "valid product, invalid flavor name",
+			productName: "Second Product Name",
+			flavorName:  "Non-Existent Flavor",
+			expectErr:   "flavor name 'Non-Existent Flavor' not found in catalog JSON for product 'Second Product Name'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateCatalogNames(catalog, tt.productName, tt.flavorName)
+			if tt.expectErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tt.expectErr)
+			}
+		})
+	}
+}
+
+
+
 // SortStackDefinition Helper function to sort the StackDefinition and all nested slices
 // Sorts StackDefinition and all nested slices, this is needed because the order of the elements in the JSON file is not guaranteed
 // and the order of the elements in the StackDefinition is important for the tests

@@ -855,6 +855,14 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 		return fmt.Errorf("test setup has failed:%w", setupErr)
 	}
 
+	// Validate product and flavor names against the local ibm_catalog.json before any
+	// IBM Cloud API call or resource creation, so mismatches are caught immediately.
+	if options.CatalogProductName != "" || options.CatalogFlavorName != "" {
+		if err := cloudinfo.ValidateCatalogNames(options.StackCatalogJsonPath, options.CatalogProductName, options.CatalogFlavorName); err != nil {
+			return err
+		}
+	}
+
 	// First, validate that the branch exists in the remote repository BEFORE creating any resources
 	// Use the new cloudinfo helper for offering import preparation
 	branchUrl, repo, branch, prepErr := options.CloudInfoService.PrepareOfferingImport()
