@@ -382,13 +382,18 @@ func (infoSvc *CloudInfoService) GetRegionWithoutLoggingTenant(supportedRegions 
 	}
 
 	var available []string
+	var checkedCount int
+	var lastErr error
+
 	for _, region := range candidateRegions {
 		tenants, _, err := infoSvc.logsRouterService.ListTenants(region)
 		if err != nil {
-			log.Printf("Failed to list logging tenants for region %s: %v", region, err)
-			return nil, fmt.Errorf("failed to list logging tenants for region %s: %w", region, err)
+			log.Printf("Failed to list logging tenants for region %s: %v (skipping region)", region, err)
+			lastErr = err
+			continue
 		}
 
+		checkedCount++
 		if len(tenants) == 0 {
 			log.Printf("✓ Region %s has no logging tenants", region)
 			available = append(available, region)
@@ -402,6 +407,9 @@ func (infoSvc *CloudInfoService) GetRegionWithoutLoggingTenant(supportedRegions 
 	}
 
 	if len(available) == 0 {
+		if checkedCount == 0 {
+			return nil, fmt.Errorf("failed to check logging tenants for any region: %w", lastErr)
+		}
 		if len(supportedRegions) > 0 {
 			return nil, fmt.Errorf("no region available without logging tenants - all supported regions have instances")
 		}

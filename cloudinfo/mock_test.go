@@ -17,9 +17,46 @@ import (
 	"github.com/IBM/platform-services-go-sdk/iampolicymanagementv1"
 	"github.com/IBM/platform-services-go-sdk/resourcecontrollerv2"
 	"github.com/IBM/platform-services-go-sdk/resourcemanagerv2"
+	"net/http"
+
 	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"github.com/stretchr/testify/mock"
 )
+
+// mockAuthenticator implements IiamAuthenticator for tests
+type mockAuthenticator struct {
+	token string
+}
+
+func (m *mockAuthenticator) GetToken() (string, error) {
+	if m.token != "" {
+		return m.token, nil
+	}
+	return "mock-token", nil // pragma: allowlist secret
+}
+
+func (m *mockAuthenticator) AuthenticationType() string {
+	return "iam"
+}
+
+func (m *mockAuthenticator) Authenticate(request *http.Request) error {
+	token := m.token
+	if token == "" {
+		token = "mock-token" // pragma: allowlist secret
+	}
+	request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	return nil
+}
+
+func (m *mockAuthenticator) Validate() error {
+	return nil
+}
+
+func (m *mockAuthenticator) RequestToken() (*core.IamTokenServerResponse, error) {
+	return &core.IamTokenServerResponse{
+		AccessToken: "mock-token", // pragma: allowlist secret
+	}, nil
+}
 
 // VPC SERVICE INTERFACE MOCK
 type vpcServiceMock struct {
@@ -497,6 +534,27 @@ type logsRouterServiceMock struct {
 func (mock *logsRouterServiceMock) ListTenants(region string) ([]LogsRouterTenant, *core.DetailedResponse, error) {
 	if mock.mockError != nil {
 		return nil, nil, mock.mockError
+	}
+	if mock.mockTenantsByRegion != nil {
+		if tenants, ok := mock.mockTenantsByRegion[region]; ok {
+			return tenants, nil, nil
+		}
+	}
+	return []LogsRouterTenant{}, nil, nil
+}
+
+// Logs Router Service mock with per-region errors
+type logsRouterServiceMockWithErrors struct {
+	mock.Mock
+	mockTenantsByRegion map[string][]LogsRouterTenant
+	mockErrorsByRegion  map[string]error
+}
+
+func (mock *logsRouterServiceMockWithErrors) ListTenants(region string) ([]LogsRouterTenant, *core.DetailedResponse, error) {
+	if mock.mockErrorsByRegion != nil {
+		if err, ok := mock.mockErrorsByRegion[region]; ok {
+			return nil, nil, err
+		}
 	}
 	if mock.mockTenantsByRegion != nil {
 		if tenants, ok := mock.mockTenantsByRegion[region]; ok {

@@ -484,8 +484,8 @@ func TestRegionSelector(t *testing.T) {
 		assert.Contains(t, err.Error(), "all supported regions have instances")
 	})
 
-	t.Run("GetRegionWithoutLoggingTenantServiceError", func(t *testing.T) {
-		// When logs router service returns an error, the function should return the error.
+	t.Run("GetRegionWithoutLoggingTenantServiceError_AllFail", func(t *testing.T) {
+		// When logs router service returns an error for all candidate regions, return error.
 		logsRouterMock := &logsRouterServiceMock{
 			mockError: fmt.Errorf("API error: failed to list tenants"),
 		}
@@ -498,7 +498,32 @@ func TestRegionSelector(t *testing.T) {
 		regions, err := infoSvc.GetRegionWithoutLoggingTenant("us-east")
 		assert.Error(t, err)
 		assert.Nil(t, regions)
-		assert.Contains(t, err.Error(), "failed to list logging tenants for region us-east")
+		assert.Contains(t, err.Error(), "failed to check logging tenants for any region")
+	})
+
+	t.Run("GetRegionWithoutLoggingTenantServiceError_SkipFailingRegion", func(t *testing.T) {
+		// When a high-priority region fails API check (e.g., 5xx), it should skip it and proceed to the next available region.
+		logsRouterMock := &logsRouterServiceMockWithErrors{
+			mockTenantsByRegion: map[string][]LogsRouterTenant{
+				"us-south": {},
+			},
+			mockErrorsByRegion: map[string]error{
+				"us-east": fmt.Errorf("500 Internal Server Error"),
+			},
+		}
+
+		infoSvc := CloudInfoService{
+			vpcService:        vpcService,
+			logsRouterService: logsRouterMock,
+			regionsData: []RegionData{
+				{Name: "us-east", UseForTest: true, TestPriority: 1},
+				{Name: "us-south", UseForTest: true, TestPriority: 2},
+			},
+		}
+
+		regions, err := infoSvc.GetRegionWithoutLoggingTenant()
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"us-south"}, regions)
 	})
 
 	t.Run("GetRegionWithLeastResources", func(t *testing.T) {

@@ -485,10 +485,23 @@ type LogsRouterTenantCollection struct {
 // defaultLogsRouterService is the default implementation of logsRouterService using core.BaseService.
 type defaultLogsRouterService struct {
 	authenticator IiamAuthenticator
+	// urlTemplate allows overriding the Logs Router URL for testing.
+	// Defaults to "https://management.%s.logs-router.cloud.ibm.com" if empty.
+	urlTemplate string
+}
+
+func (s *defaultLogsRouterService) getServiceURL(region string) string {
+	if s.urlTemplate != "" {
+		if strings.Contains(s.urlTemplate, "%s") {
+			return fmt.Sprintf(s.urlTemplate, region)
+		}
+		return s.urlTemplate
+	}
+	return fmt.Sprintf("https://management.%s.logs-router.cloud.ibm.com", region)
 }
 
 func (s *defaultLogsRouterService) ListTenants(region string) ([]LogsRouterTenant, *core.DetailedResponse, error) {
-	serviceURL := fmt.Sprintf("https://management.%s.logs-router.cloud.ibm.com", region)
+	serviceURL := s.getServiceURL(region)
 	baseService, err := core.NewBaseService(&core.ServiceOptions{
 		URL:           serviceURL,
 		Authenticator: s.authenticator,
