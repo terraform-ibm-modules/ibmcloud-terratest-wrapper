@@ -740,6 +740,43 @@ func defineStackIO(stackJson Stack, stackConfig *ConfigDetails, doNotOverrideInp
 	return stackInputsDef, stackOutputsDef
 }
 
+// lookupCatalogIndices finds the product and flavor indices in the parsed catalog for the
+// given names. Returns index 0 for any empty name (default behaviour). Both readCatalogConfig
+// and ValidateCatalogNames delegate to this function to avoid duplicating the lookup logic.
+func lookupCatalogIndices(catalogConfig CatalogJson, productName, flavorName string) (int, int, error) {
+	productIndex := 0
+	if productName != "" {
+		found := false
+		for i, product := range catalogConfig.Products {
+			if product.Name == productName {
+				productIndex = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			return 0, 0, fmt.Errorf("product name '%s' not found in catalog JSON", productName)
+		}
+	}
+
+	flavorIndex := 0
+	if flavorName != "" {
+		found := false
+		for i, flavor := range catalogConfig.Products[productIndex].Flavors {
+			if flavor.Name == flavorName {
+				flavorIndex = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			return 0, 0, fmt.Errorf("flavor name '%s' not found in catalog JSON for product '%s'",
+				flavorName, catalogConfig.Products[productIndex].Name)
+		}
+	}
+	return productIndex, flavorIndex, nil
+}
+
 // ValidateCatalogNames validates that the given product name and flavor name exist in the
 // local ibm_catalog.json file before any IBM Cloud API calls are made. This allows tests
 // to fail fast with a clear error if a product or flavor name is invalid or has been renamed,
@@ -753,36 +790,8 @@ func ValidateCatalogNames(catalogJsonPath, productName, flavorName string) error
 	if err := json.Unmarshal(jsonFile, &catalogConfig); err != nil {
 		return fmt.Errorf("cannot parse catalog JSON at '%s': %w", catalogJsonPath, err)
 	}
-
-	productIndex := 0
-	if productName != "" {
-		found := false
-		for i, product := range catalogConfig.Products {
-			if product.Name == productName {
-				productIndex = i
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("product name '%s' not found in catalog JSON", productName)
-		}
-	}
-
-	if flavorName != "" {
-		found := false
-		for _, flavor := range catalogConfig.Products[productIndex].Flavors {
-			if flavor.Name == flavorName {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("flavor name '%s' not found in catalog JSON for product '%s'",
-				flavorName, catalogConfig.Products[productIndex].Name)
-		}
-	}
-	return nil
+	_, _, err = lookupCatalogIndices(catalogConfig, productName, flavorName)
+	return err
 }
 
 // readCatalogConfig reads the catalog configuration from a JSON file.
@@ -803,38 +812,10 @@ func readCatalogConfig(catalogJsonPath string, stackConfig *ConfigDetails, error
 		return CatalogJson{}, 0, 0, err
 	}
 
-	var catalogProductIndex int
-	if stackConfig.CatalogProductName == "" {
-		catalogProductIndex = 0
-	} else {
-		found := false
-		for i, product := range catalogConfig.Products {
-			if product.Name == stackConfig.CatalogProductName {
-				catalogProductIndex = i
-				found = true
-				break
-			}
-		}
-		if !found {
-			return CatalogJson{}, 0, 0, fmt.Errorf("product name '%s' not found in catalog JSON", stackConfig.CatalogProductName)
-		}
-	}
-
-	var catalogFlavorIndex int
-	if stackConfig.CatalogFlavorName == "" {
-		catalogFlavorIndex = 0
-	} else {
-		found := false
-		for i, flavor := range catalogConfig.Products[catalogProductIndex].Flavors {
-			if flavor.Name == stackConfig.CatalogFlavorName {
-				catalogFlavorIndex = i
-				found = true
-				break
-			}
-		}
-		if !found {
-			return CatalogJson{}, 0, 0, fmt.Errorf("flavor name '%s' not found in catalog JSON for product '%s'", stackConfig.CatalogFlavorName, catalogConfig.Products[catalogProductIndex].Name)
-		}
+	// Reuse ValidateCatalogNames for product/flavor lookup to avoid duplicating logic
+	catalogProductIndex, catalogFlavorIndex, err := lookupCatalogIndices(catalogConfig, stackConfig.CatalogProductName, stackConfig.CatalogFlavorName)
+	if err != nil {
+		return CatalogJson{}, 0, 0, err
 	}
 
 	catalogInputNames := make(map[string]bool)
