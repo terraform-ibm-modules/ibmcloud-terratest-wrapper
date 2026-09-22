@@ -136,7 +136,7 @@ func (options *TestProjectsOptions) ConfigureTestStack() error {
 	}
 	if !assert.Equal(options.Testing, 201, stackResp.StatusCode) {
 		options.Logger.ShortError("Failed to configure Test Stack")
-		return fmt.Errorf("error configuring test stack response code: %d\nrespone:%s", stackResp.StatusCode, stackResp.Result)
+		return fmt.Errorf("error configuring test stack response code: %d\nresponse:%s", stackResp.StatusCode, stackResp.Result)
 	}
 	// Callers dereference options.currentStack.Configuration.ID, so confirm the
 	// response actually carried one instead of panicking further up the stack.
