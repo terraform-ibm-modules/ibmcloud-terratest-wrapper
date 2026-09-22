@@ -120,15 +120,32 @@ func (options *TestProjectsOptions) ConfigureTestStack() error {
 				}
 
 				sdkProblem.Summary = fmt.Sprintf("%s Inputs possibly removed or renamed.\n%s", sdkProblem.Summary, validInputs)
-				return sdkProblem
 			}
-		} else if assert.Equal(options.Testing, 201, stackResp.StatusCode) {
-			options.Logger.ShortInfo("Configured Test Stack")
-		} else {
-			options.Logger.ShortError("Failed to configure Test Stack")
-			return fmt.Errorf("error configuring test stack response code: %d\nrespone:%s", stackResp.StatusCode, stackResp.Result)
+			// Return every SDK problem, not just the member input case above. Falling
+			// through here used to reach "return nil", which hid the real API error and
+			// left options.currentStack nil for the caller to dereference.
+			return sdkProblem
 		}
+		return stackErr
 	}
+
+	// stackErr is nil from here on, so the stack creation request itself succeeded.
+	if stackResp == nil {
+		options.Logger.ShortError("Failed to configure Test Stack")
+		return fmt.Errorf("error configuring test stack: no response returned")
+	}
+	if !assert.Equal(options.Testing, 201, stackResp.StatusCode) {
+		options.Logger.ShortError("Failed to configure Test Stack")
+		return fmt.Errorf("error configuring test stack response code: %d\nresponse:%s", stackResp.StatusCode, stackResp.Result)
+	}
+	// Callers dereference options.currentStack.Configuration.ID, so confirm the
+	// response actually carried one instead of panicking further up the stack.
+	if options.currentStack == nil || options.currentStack.Configuration == nil || options.currentStack.Configuration.ID == nil {
+		options.Logger.ShortError("Failed to configure Test Stack")
+		return fmt.Errorf("error configuring test stack: response did not contain a stack configuration ID")
+	}
+
+	options.Logger.ShortInfo("Configured Test Stack")
 	return nil
 }
 
@@ -911,7 +928,8 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 	options.currentProject = project
 	options.currentProjectConfig = projectConfig
 
-	if assert.NoError(options.Testing, options.ConfigureTestStack()) {
+	stackConfigErr := options.ConfigureTestStack()
+	if assert.NoError(options.Testing, stackConfigErr) {
 		options.Logger.ShortInfo(fmt.Sprintf("Configured Test Stack - %s \n- %s %s \n- %s %s", *options.currentProject.Definition.Name, common.ColorizeString(common.Colors.Blue, "Project ID:"), *options.currentProject.ID, common.ColorizeString(common.Colors.Blue, "Config ID:"), *options.currentStack.Configuration.ID))
 		if options.PreDeployHook != nil {
 			options.Logger.ShortInfo("Running PreDeployHook")
@@ -957,7 +975,9 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 			return nil
 		}
 	}
-	return nil
+	// Only reached when ConfigureTestStack failed. Returning nil here used to report a
+	// passing run to callers even though the assertion had already failed the test.
+	return stackConfigErr
 }
 
 func (options *TestProjectsOptions) TestTearDown() {
