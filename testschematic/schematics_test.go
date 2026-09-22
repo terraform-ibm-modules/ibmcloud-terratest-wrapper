@@ -484,12 +484,12 @@ func TestRunImplicitDestroyCommands(t *testing.T) {
 
 	newSvc := func() *SchematicsTestService {
 		return &SchematicsTestService{
-			SchematicsApiSvc:  schematicSvc,
-			ApiAuthenticator:  authSvc,
-			WorkspaceID:       mockWorkspaceID,
-			WorkspaceLocation: "us-south",
-			TemplateID:        mockTemplateID,
-			CloudInfoService:  mockCloudInfo,
+			SchematicsApiSvc:    schematicSvc,
+			ApiAuthenticator:    authSvc,
+			WorkspaceID:         mockWorkspaceID,
+			WorkspaceLocation:   "us-south",
+			TemplateID:          mockTemplateID,
+			CloudInfoService:    mockCloudInfo,
 			WorkspaceNameForLog: mockWorkspaceName,
 			TestOptions: &TestSchematicOptions{
 				Testing:                      new(testing.T),
