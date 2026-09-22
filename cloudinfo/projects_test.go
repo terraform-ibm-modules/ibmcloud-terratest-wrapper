@@ -1,6 +1,7 @@
 package cloudinfo
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -1474,36 +1475,33 @@ func TestProjectsServiceTestSuite(t *testing.T) {
 }
 
 func TestValidateCatalogNames(t *testing.T) {
-	catalog := "testdata/ibm_catalog_multiple_products_flavors.json"
+	catalogPath := "testdata/ibm_catalog_multiple_products_flavors.json"
 
 	tests := []struct {
 		name        string
 		productName string
 		flavorName  string
-		expectErr   string
+		// jsonInput is set for edge cases that need an inline catalog struct
+		// instead of the file-based catalogPath. When set, lookupCatalogIndices
+		// is called directly to avoid needing fixture files.
+		jsonInput string
+		expectErr string
 	}{
 		{
 			name:        "valid product and flavor",
 			productName: "Second Product Name",
 			flavorName:  "Second Flavor Name",
-			expectErr:   "",
 		},
 		{
 			name:        "valid product, empty flavor defaults to first",
 			productName: "First Product Name",
-			flavorName:  "",
-			expectErr:   "",
 		},
 		{
-			name:        "empty product and flavor, defaults to first of each",
-			productName: "",
-			flavorName:  "",
-			expectErr:   "",
+			name: "empty product and flavor, defaults to first of each",
 		},
 		{
 			name:        "invalid product name",
 			productName: "Non-Existent Product",
-			flavorName:  "",
 			expectErr:   "product name 'Non-Existent Product' not found in catalog JSON",
 		},
 		{
@@ -1512,11 +1510,31 @@ func TestValidateCatalogNames(t *testing.T) {
 			flavorName:  "Non-Existent Flavor",
 			expectErr:   "flavor name 'Non-Existent Flavor' not found in catalog JSON for product 'Second Product Name'",
 		},
+		{
+			name:      "catalog with no products returns error not panic",
+			jsonInput: `{"products":[]}`,
+			expectErr: "catalog JSON contains no products",
+		},
+		{
+			name:      "catalog with no flavors returns error not panic",
+			jsonInput: `{"products":[{"name":"Empty Product","flavors":[]}]}`,
+			expectErr: "catalog JSON contains no flavors for product 'Empty Product'",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateCatalogNames(catalog, tt.productName, tt.flavorName)
+			var err error
+			if tt.jsonInput != "" {
+				var catalog CatalogJson
+				if assert.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &catalog)) {
+					_, _, err = lookupCatalogIndices(catalog, "", "")
+				} else {
+					return
+				}
+			} else {
+				err = ValidateCatalogNames(catalogPath, tt.productName, tt.flavorName)
+			}
 			if tt.expectErr == "" {
 				assert.NoError(t, err)
 			} else {
@@ -1525,8 +1543,6 @@ func TestValidateCatalogNames(t *testing.T) {
 		})
 	}
 }
-
-
 
 // SortStackDefinition Helper function to sort the StackDefinition and all nested slices
 // Sorts StackDefinition and all nested slices, this is needed because the order of the elements in the JSON file is not guaranteed

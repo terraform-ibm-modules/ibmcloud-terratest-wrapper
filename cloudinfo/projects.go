@@ -771,6 +771,10 @@ func defineStackIO(stackJson Stack, stackConfig *ConfigDetails, doNotOverrideInp
 // given names. Returns index 0 for any empty name (default behaviour). Both readCatalogConfig
 // and ValidateCatalogNames delegate to this function to avoid duplicating the lookup logic.
 func lookupCatalogIndices(catalogConfig CatalogJson, productName, flavorName string) (int, int, error) {
+	if len(catalogConfig.Products) == 0 {
+		return 0, 0, fmt.Errorf("catalog JSON contains no products")
+	}
+
 	productIndex := 0
 	if productName != "" {
 		found := false
@@ -784,6 +788,10 @@ func lookupCatalogIndices(catalogConfig CatalogJson, productName, flavorName str
 		if !found {
 			return 0, 0, fmt.Errorf("product name '%s' not found in catalog JSON", productName)
 		}
+	}
+
+	if len(catalogConfig.Products[productIndex].Flavors) == 0 {
+		return 0, 0, fmt.Errorf("catalog JSON contains no flavors for product '%s'", catalogConfig.Products[productIndex].Name)
 	}
 
 	flavorIndex := 0
@@ -839,7 +847,7 @@ func readCatalogConfig(catalogJsonPath string, stackConfig *ConfigDetails, error
 		return CatalogJson{}, 0, 0, err
 	}
 
-	// Reuse ValidateCatalogNames for product/flavor lookup to avoid duplicating logic
+	// Use the shared lookupCatalogIndices helper for product/flavor lookup to keep validation logic consistent
 	catalogProductIndex, catalogFlavorIndex, err := lookupCatalogIndices(catalogConfig, stackConfig.CatalogProductName, stackConfig.CatalogFlavorName)
 	if err != nil {
 		return CatalogJson{}, 0, 0, err
