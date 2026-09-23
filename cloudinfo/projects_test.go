@@ -1328,6 +1328,65 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			expectedError: nil,
 		},
 		{
+			// Fields with both top-level type:"string" and custom_config.type:"region", required, no default should resolve to "string".
+			name: "catalog with top-level type:string and custom_config.type:region (no default), should resolve to string",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_custom_config_region.json",
+			catalogJsonPath: "testdata/ibm_catalog_custom_config_with_type.json",
+			expectedConfig: &projects.StackDefinition{
+				ID: core.StringPtr("mockProjectID"),
+				StackDefinition: &projects.StackDefinitionBlock{
+					Inputs: []projects.StackDefinitionInputVariable{
+						{
+							Name:        core.StringPtr("cos_region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+					},
+					Outputs: []projects.StackDefinitionOutputVariable{
+						{Name: core.StringPtr("output1"), Value: core.StringPtr("ref:../members/member1/outputs/output1")},
+					},
+					Members: []projects.StackDefinitionMember{
+						{
+							Name:           core.StringPtr("member1"),
+							VersionLocator: core.StringPtr("version1"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("region"), Value: core.StringPtr("ref:../../inputs/region")},
+							},
+						},
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			// Proves the effectiveCatalogType fallback is active: without it, type "" skips the mismatch
+			// check silently; with it, type "string" is compared against stack "int" and an error is returned.
+			name: "catalog with custom_config region fields (no top-level type) mismatching stack int type, should return error",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_custom_config_region_type_mismatch.json",
+			catalogJsonPath: "testdata/ibm_catalog_custom_config_region.json",
+			expectedConfig:  nil,
+			expectedError:   fmt.Errorf("catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': cos_region expected type: int, got: string\ncatalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': region expected type: int, got: string"),
+		},
+		{
 			name: "catalog with HCL string defaults for array/object types, should pass validation",
 			stackConfig: &ConfigDetails{
 				ProjectID: "mockProjectID",
