@@ -1282,9 +1282,7 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			expectedError:   fmt.Errorf("flavor name 'Non-Existent Flavor' not found in catalog JSON for product 'Second Product Name'"),
 		},
 		{
-			// Fields with custom_config.type (e.g. "region", "vpc_region") have no top-level "type"
-			// and no default_value. They must be treated as "string" so type validation passes and
-			// they can be appended to the stack definition with the correct type.
+			// custom_config widget types with no top-level type and no default should resolve to "string".
 			name: "catalog with custom_config region fields (no top-level type, no default), should resolve to string",
 			stackConfig: &ConfigDetails{
 				ProjectID: "mockProjectID",

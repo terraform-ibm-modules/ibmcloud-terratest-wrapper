@@ -933,8 +933,7 @@ func updateInputsFromCatalog(stackConfig *ConfigDetails, catalogConfig CatalogJs
 			}
 		}
 		if !found {
-			// Resolve the effective type: fall back to "string" for custom_config widget types
-			// (e.g. "region", "vpc_region") that carry no top-level type field.
+			// Fall back to "string" for custom_config widget types (e.g. "region", "vpc_region").
 			effectiveType := input.Type
 			if effectiveType == "" && input.CustomConfig.Type != "" {
 				effectiveType = "string"
@@ -984,9 +983,7 @@ func validateCatalogInputsInStackDefinition(stackJson Stack, catalogConfig Catal
 			continue
 		}
 
-		// Resolve the effective catalog type: prefer the top-level "type" field; if absent, fall back
-		// to custom_config.type (e.g. "region", "vpc_region", "resource_group"). These custom widget
-		// types carry string values at runtime, so they resolve to "string".
+		// Fall back to "string" when only custom_config.type is set (e.g. "region", "vpc_region").
 		effectiveCatalogType := catalogInput.Type
 		if effectiveCatalogType == "" && catalogInput.CustomConfig.Type != "" {
 			effectiveCatalogType = "string"
