@@ -1282,6 +1282,54 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			expectedError:   fmt.Errorf("flavor name 'Non-Existent Flavor' not found in catalog JSON for product 'Second Product Name'"),
 		},
 		{
+			// Fields with custom_config.type (e.g. "region", "vpc_region") have no top-level "type"
+			// and no default_value. They must be treated as "string" so type validation passes and
+			// they can be appended to the stack definition with the correct type.
+			name: "catalog with custom_config region fields (no top-level type, no default), should resolve to string",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_custom_config_region.json",
+			catalogJsonPath: "testdata/ibm_catalog_custom_config_region.json",
+			expectedConfig: &projects.StackDefinition{
+				ID: core.StringPtr("mockProjectID"),
+				StackDefinition: &projects.StackDefinitionBlock{
+					Inputs: []projects.StackDefinitionInputVariable{
+						{
+							Name:        core.StringPtr("cos_region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+					},
+					Outputs: []projects.StackDefinitionOutputVariable{
+						{Name: core.StringPtr("output1"), Value: core.StringPtr("ref:../members/member1/outputs/output1")},
+					},
+					Members: []projects.StackDefinitionMember{
+						{
+							Name:           core.StringPtr("member1"),
+							VersionLocator: core.StringPtr("version1"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("region"), Value: core.StringPtr("ref:../../inputs/region")},
+							},
+						},
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
 			name: "catalog with HCL string defaults for array/object types, should pass validation",
 			stackConfig: &ConfigDetails{
 				ProjectID: "mockProjectID",
