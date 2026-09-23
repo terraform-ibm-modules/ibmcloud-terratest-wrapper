@@ -66,8 +66,10 @@ func (options *TestProjectsOptions) ConfigureTestStack() error {
 	var stackResp *core.DetailedResponse
 	var stackErr error
 	options.currentStackConfig = &cloudinfo.ConfigDetails{
-		ProjectID: *options.currentProject.ID,
-		Inputs:    options.StackInputs,
+		ProjectID:          *options.currentProject.ID,
+		Inputs:             options.StackInputs,
+		CatalogProductName: options.CatalogProductName,
+		CatalogFlavorName:  options.CatalogFlavorName,
 	}
 	// set member inputs
 	if options.StackMemberInputs != nil {
@@ -868,6 +870,14 @@ func (options *TestProjectsOptions) RunProjectsTest() error {
 	if !assert.NoError(options.Testing, setupErr) {
 		options.Testing.Fail()
 		return fmt.Errorf("test setup has failed:%w", setupErr)
+	}
+
+	// Validate product and flavor names against the local ibm_catalog.json before any
+	// IBM Cloud API call or resource creation, so mismatches are caught immediately.
+	if options.CatalogProductName != "" || options.CatalogFlavorName != "" {
+		if err := cloudinfo.ValidateCatalogNames(options.StackCatalogJsonPath, options.CatalogProductName, options.CatalogFlavorName); err != nil {
+			return err
+		}
 	}
 
 	// First, validate that the branch exists in the remote repository BEFORE creating any resources

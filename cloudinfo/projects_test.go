@@ -1,6 +1,7 @@
 package cloudinfo
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -1256,6 +1257,31 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 					"extra catalog input variable not found in stack definition in product 'Product Name', flavor 'Flavor Name': input5"),
 		},
 		{
+			name: "invalid product name, should return an error",
+			stackConfig: &ConfigDetails{
+				ProjectID:          "mockProjectID",
+				ConfigID:           "54321",
+				CatalogProductName: "Non-Existent Product",
+			},
+			stackConfigPath: "testdata/stack_definition_stack_inputs.json",
+			catalogJsonPath: "testdata/ibm_catalog_multiple_products_flavors.json",
+			expectedConfig:  nil,
+			expectedError:   fmt.Errorf("product name 'Non-Existent Product' not found in catalog JSON"),
+		},
+		{
+			name: "invalid flavor name, should return an error",
+			stackConfig: &ConfigDetails{
+				ProjectID:          "mockProjectID",
+				ConfigID:           "54321",
+				CatalogProductName: "Second Product Name",
+				CatalogFlavorName:  "Non-Existent Flavor",
+			},
+			stackConfigPath: "testdata/stack_definition_stack_inputs.json",
+			catalogJsonPath: "testdata/ibm_catalog_multiple_products_flavors.json",
+			expectedConfig:  nil,
+			expectedError:   fmt.Errorf("flavor name 'Non-Existent Flavor' not found in catalog JSON for product 'Second Product Name'"),
+		},
+		{
 			name: "catalog with HCL string defaults for array/object types, should pass validation",
 			stackConfig: &ConfigDetails{
 				ProjectID: "mockProjectID",
@@ -1446,6 +1472,76 @@ func (suite *ProjectsServiceTestSuite) TestGetMemberWithWorkspaceInfo_EventualCo
 
 func TestProjectsServiceTestSuite(t *testing.T) {
 	suite.Run(t, new(ProjectsServiceTestSuite))
+}
+
+func TestValidateCatalogNames(t *testing.T) {
+	catalogPath := "testdata/ibm_catalog_multiple_products_flavors.json"
+
+	tests := []struct {
+		name        string
+		productName string
+		flavorName  string
+		// jsonInput is set for edge cases that need an inline catalog struct
+		// instead of the file-based catalogPath. When set, lookupCatalogIndices
+		// is called directly to avoid needing fixture files.
+		jsonInput string
+		expectErr string
+	}{
+		{
+			name:        "valid product and flavor",
+			productName: "Second Product Name",
+			flavorName:  "Second Flavor Name",
+		},
+		{
+			name:        "valid product, empty flavor defaults to first",
+			productName: "First Product Name",
+		},
+		{
+			name: "empty product and flavor, defaults to first of each",
+		},
+		{
+			name:        "invalid product name",
+			productName: "Non-Existent Product",
+			expectErr:   "product name 'Non-Existent Product' not found in catalog JSON",
+		},
+		{
+			name:        "valid product, invalid flavor name",
+			productName: "Second Product Name",
+			flavorName:  "Non-Existent Flavor",
+			expectErr:   "flavor name 'Non-Existent Flavor' not found in catalog JSON for product 'Second Product Name'",
+		},
+		{
+			name:      "catalog with no products returns error not panic",
+			jsonInput: `{"products":[]}`,
+			expectErr: "catalog JSON contains no products",
+		},
+		{
+			name:      "catalog with no flavors returns error not panic",
+			jsonInput: `{"products":[{"name":"Empty Product","flavors":[]}]}`,
+			expectErr: "catalog JSON contains no flavors for product 'Empty Product'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			if tt.jsonInput != "" {
+				var catalog CatalogJson
+				if assert.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &catalog)) {
+					_, _, err = lookupCatalogIndices(catalog, "", "")
+				} else {
+					return
+				}
+			} else {
+				err = ValidateCatalogNames(catalogPath, tt.productName, tt.flavorName)
+			}
+			if tt.expectErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tt.expectErr)
+			}
+		})
+	}
 }
 
 // SortStackDefinition Helper function to sort the StackDefinition and all nested slices

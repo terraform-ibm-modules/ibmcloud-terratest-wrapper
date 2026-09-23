@@ -767,6 +767,68 @@ func defineStackIO(stackJson Stack, stackConfig *ConfigDetails, doNotOverrideInp
 	return stackInputsDef, stackOutputsDef
 }
 
+// lookupCatalogIndices finds the product and flavor indices in the parsed catalog for the
+// given names. Returns index 0 for any empty name (default behaviour). Both readCatalogConfig
+// and ValidateCatalogNames delegate to this function to avoid duplicating the lookup logic.
+func lookupCatalogIndices(catalogConfig CatalogJson, productName, flavorName string) (int, int, error) {
+	if len(catalogConfig.Products) == 0 {
+		return 0, 0, fmt.Errorf("catalog JSON contains no products")
+	}
+
+	productIndex := 0
+	if productName != "" {
+		found := false
+		for i, product := range catalogConfig.Products {
+			if product.Name == productName {
+				productIndex = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			return 0, 0, fmt.Errorf("product name '%s' not found in catalog JSON", productName)
+		}
+	}
+
+	if len(catalogConfig.Products[productIndex].Flavors) == 0 {
+		return 0, 0, fmt.Errorf("catalog JSON contains no flavors for product '%s'", catalogConfig.Products[productIndex].Name)
+	}
+
+	flavorIndex := 0
+	if flavorName != "" {
+		found := false
+		for i, flavor := range catalogConfig.Products[productIndex].Flavors {
+			if flavor.Name == flavorName {
+				flavorIndex = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			return 0, 0, fmt.Errorf("flavor name '%s' not found in catalog JSON for product '%s'",
+				flavorName, catalogConfig.Products[productIndex].Name)
+		}
+	}
+	return productIndex, flavorIndex, nil
+}
+
+// ValidateCatalogNames validates that the given product name and flavor name exist in the
+// local ibm_catalog.json file before any IBM Cloud API calls are made. This allows tests
+// to fail fast with a clear error if a product or flavor name is invalid or has been renamed,
+// without creating any IBM Cloud resources.
+func ValidateCatalogNames(catalogJsonPath, productName, flavorName string) error {
+	jsonFile, err := os.ReadFile(catalogJsonPath)
+	if err != nil {
+		return fmt.Errorf("cannot read catalog JSON at '%s': %w", catalogJsonPath, err)
+	}
+	var catalogConfig CatalogJson
+	if err := json.Unmarshal(jsonFile, &catalogConfig); err != nil {
+		return fmt.Errorf("cannot parse catalog JSON at '%s': %w", catalogJsonPath, err)
+	}
+	_, _, err = lookupCatalogIndices(catalogConfig, productName, flavorName)
+	return err
+}
+
 // readCatalogConfig reads the catalog configuration from a JSON file.
 // This function reads and unmarshals the catalog configuration, and identifies the product and flavor indices based on the stack configuration.
 func readCatalogConfig(catalogJsonPath string, stackConfig *ConfigDetails, errorMessages *[]string) (CatalogJson, int, int, error) {
@@ -785,28 +847,10 @@ func readCatalogConfig(catalogJsonPath string, stackConfig *ConfigDetails, error
 		return CatalogJson{}, 0, 0, err
 	}
 
-	var catalogProductIndex int
-	if stackConfig.CatalogProductName == "" {
-		catalogProductIndex = 0
-	} else {
-		for i, product := range catalogConfig.Products {
-			if product.Name == stackConfig.CatalogProductName {
-				catalogProductIndex = i
-				break
-			}
-		}
-	}
-
-	var catalogFlavorIndex int
-	if stackConfig.CatalogFlavorName == "" {
-		catalogFlavorIndex = 0
-	} else {
-		for i, flavor := range catalogConfig.Products[catalogProductIndex].Flavors {
-			if flavor.Name == stackConfig.CatalogFlavorName {
-				catalogFlavorIndex = i
-				break
-			}
-		}
+	// Use the shared lookupCatalogIndices helper for product/flavor lookup to keep validation logic consistent
+	catalogProductIndex, catalogFlavorIndex, err := lookupCatalogIndices(catalogConfig, stackConfig.CatalogProductName, stackConfig.CatalogFlavorName)
+	if err != nil {
+		return CatalogJson{}, 0, 0, err
 	}
 
 	catalogInputNames := make(map[string]bool)
