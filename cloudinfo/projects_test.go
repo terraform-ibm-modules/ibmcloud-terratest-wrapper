@@ -11,6 +11,7 @@ import (
 	projects "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -1772,4 +1773,60 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackDefinitionWrapperRetry() {
 		assert.Equal(suite.T(), mockResponse, response)
 		suite.mockService.AssertNumberOfCalls(suite.T(), "CreateStackDefinition", 1)
 	})
+}
+
+// TestUpdateInputsFromCatalog_CustomConfigFallback directly exercises the !found branch of
+// updateInputsFromCatalog with a catalog input that has only custom_config.type set (no top-level
+// type). The stack definition intentionally omits the key so found stays false, triggering the
+// effectiveType fallback that resolves "" → "string".
+func TestUpdateInputsFromCatalog_CustomConfigFallback(t *testing.T) {
+	defaultVal := "us-south"
+	stackConfig := &ConfigDetails{
+		ProjectID: "mockProjectID",
+		ConfigID:  "test-config",
+		Inputs:    map[string]interface{}{"cos_region": defaultVal},
+		StackDefinition: &projects.StackDefinitionBlockPrototype{
+			Inputs: []projects.StackDefinitionInputVariable{
+				// region is present; cos_region is intentionally absent → triggers !found
+				{
+					Name:     core.StringPtr("region"),
+					Type:     core.StringPtr("string"),
+					Required: core.BoolPtr(true),
+					Hidden:   core.BoolPtr(false),
+				},
+			},
+		},
+	}
+
+	// CatalogJson uses anonymous inline structs — build using struct literals matching catalog_types.go
+	catalog := CatalogJson{}
+	if err := json.Unmarshal([]byte(`{
+		"products": [{
+			"name": "Product Name",
+			"flavors": [{
+				"name": "Flavor Name",
+				"configuration": [{
+					"key": "cos_region",
+					"required": true,
+					"custom_config": { "type": "region" }
+				}],
+				"outputs": [],
+				"install_type": "fullstack"
+			}]
+		}]
+	}`), &catalog); err != nil {
+		t.Fatalf("failed to build catalog fixture: %v", err)
+	}
+
+	updateInputsFromCatalog(stackConfig, catalog, 0, 0, map[string]map[string]interface{}{
+		"stack":  {},
+		"member": {},
+	})
+
+	// The key assertion: cos_region appended with Type:"string", not "" (the bug).
+	require.Len(t, stackConfig.StackDefinition.Inputs, 2, "cos_region should have been appended by !found branch")
+	appended := stackConfig.StackDefinition.Inputs[1]
+	assert.Equal(t, "cos_region", *appended.Name)
+	assert.Equal(t, "string", *appended.Type, "effectiveType fallback must resolve custom_config.type:region → string, not empty string")
+	assert.True(t, *appended.Required)
 }
