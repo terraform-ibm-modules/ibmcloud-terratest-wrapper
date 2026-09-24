@@ -62,7 +62,7 @@ func TestGetTagsInTravisPrRepo(t *testing.T) {
 }
 
 func TestGetTagsOutsideTravis(t *testing.T) {
-	var expected []string
+	expected := []string{}
 
 	assert.Equal(t, expected, GetTagsFromTravis())
 }

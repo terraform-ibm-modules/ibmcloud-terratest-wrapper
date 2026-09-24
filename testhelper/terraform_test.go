@@ -6,6 +6,72 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// TestIsSanitizationSensitiveValue unit-tests
+func TestIsSanitizationSensitiveValue(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		value    interface{}
+		expected bool
+	}{
+		{
+			name:     "bool is sensitive",
+			value:    true,
+			expected: true,
+		},
+		{
+			name:     "non-empty map is sensitive",
+			value:    map[string]interface{}{"field": true},
+			expected: true,
+		},
+		{
+			name:     "empty map is not sensitive",
+			value:    map[string]interface{}{},
+			expected: false,
+		},
+		{
+			// ibm_scc_instance_settings: [{}] means the block exists but no sub-field is sensitive.
+			name:     "slice of empty maps is not sensitive",
+			value:    []interface{}{map[string]interface{}{}},
+			expected: false,
+		},
+		{
+			name:     "slice with non-empty map is sensitive",
+			value:    []interface{}{map[string]interface{}{"password": true}}, // pragma: allowlist secret
+			expected: true,
+		},
+		{
+			name:     "slice with mixed maps — any non-empty makes it sensitive",
+			value:    []interface{}{map[string]interface{}{}, map[string]interface{}{"field": true}},
+			expected: true,
+		},
+		{
+			name:     "empty slice is not sensitive",
+			value:    []interface{}{},
+			expected: false,
+		},
+		{
+			name:     "slice with non-map element takes safe route",
+			value:    []interface{}{"unexpected"},
+			expected: true,
+		},
+		{
+			name:     "unknown type takes safe route",
+			value:    42,
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.expected, isSanitizationSensitiveValue(tc.value))
+		})
+	}
+}
+
 func TestGetTerraformOutputs(t *testing.T) {
 	t.Parallel()
 	t.Run("All outputs exist", func(t *testing.T) {
