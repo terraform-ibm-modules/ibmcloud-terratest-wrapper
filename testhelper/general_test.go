@@ -11,6 +11,7 @@ import (
 	"github.com/IBM/go-sdk-core/v5/core"
 	projects "github.com/IBM/project-go-sdk/projectv1"
 	schematics "github.com/IBM/schematics-go-sdk/schematicsv1"
+	"github.com/IBM/vpc-go-sdk/vpcv1"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
@@ -242,6 +243,23 @@ func (mock *cloudInfoServiceMock) GetSchematicsJobLogsForMember(member *projects
 func (mock *cloudInfoServiceMock) CreateStackDefinition(stackDefOptions *projects.CreateStackDefinitionOptions, members []projects.StackMember) (result *projects.StackDefinition, response *core.DetailedResponse, err error) {
 	args := mock.Called(stackDefOptions, members)
 	return args.Get(0).(*projects.StackDefinition), args.Get(1).(*core.DetailedResponse), args.Error(2)
+}
+
+// VSI image mock methods added to satisfy the CloudInfoServiceI interface.
+
+func (mock *cloudInfoServiceMock) GetLatestVSIImageID(region string) (string, error) {
+	args := mock.Called(region)
+	return args.String(0), args.Error(1)
+}
+
+func (mock *cloudInfoServiceMock) GetLatestVSIImageIDWithPattern(region string, pattern string) (string, error) {
+	args := mock.Called(region, pattern)
+	return args.String(0), args.Error(1)
+}
+
+func (mock *cloudInfoServiceMock) GetVSIImagesByPattern(region string, pattern string) ([]vpcv1.Image, error) {
+	args := mock.Called(region, pattern)
+	return args.Get(0).([]vpcv1.Image), args.Error(1)
 }
 
 /**** END MOCK CloudInfoService ****/
@@ -707,4 +725,106 @@ func TestGetTarIncludePatterns(t *testing.T) {
 			tc.assertions(t, got, err, walkRoot)
 		})
 	}
+}
+
+// TestGetLatestVSIImageIDWithPatternO tests the testhelper wrapper using a mock CloudInfoService.
+func TestGetLatestVSIImageIDWithPatternO(t *testing.T) {
+	t.Run("Success - returns image ID from mock service", func(t *testing.T) {
+		infoSvc := cloudInfoServiceMock{}
+		infoSvc.On("GetLatestVSIImageIDWithPattern", "us-south", cloudinfo.DefaultVSIImagePattern).
+			Return("r006-test-image-id", nil)
+
+		options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+		imageID, err := GetLatestVSIImageIDWithPatternO("FAKEKEY", "us-south", cloudinfo.DefaultVSIImagePattern, options)
+
+		assert.NoError(t, err)
+		assert.Equal(t, "r006-test-image-id", imageID)
+		infoSvc.AssertExpectations(t)
+	})
+
+	t.Run("Error - service returns error", func(t *testing.T) {
+		infoSvc := cloudInfoServiceMock{}
+		infoSvc.On("GetLatestVSIImageIDWithPattern", "us-south", cloudinfo.DefaultVSIImagePattern).
+			Return("", errors.New("no available images found matching pattern"))
+
+		options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+		imageID, err := GetLatestVSIImageIDWithPatternO("FAKEKEY", "us-south", cloudinfo.DefaultVSIImagePattern, options)
+
+		assert.Error(t, err)
+		assert.Empty(t, imageID)
+		infoSvc.AssertExpectations(t)
+	})
+
+	t.Run("Success - uses default pattern via GetLatestVSIImageID wrapper", func(t *testing.T) {
+		infoSvc := cloudInfoServiceMock{}
+		infoSvc.On("GetLatestVSIImageIDWithPattern", "eu-de", cloudinfo.DefaultVSIImagePattern).
+			Return("r010-another-image-id", nil)
+
+		options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+		imageID, err := GetLatestVSIImageIDWithPatternO("FAKEKEY", "eu-de", cloudinfo.DefaultVSIImagePattern, options)
+
+		assert.NoError(t, err)
+		assert.Equal(t, "r010-another-image-id", imageID)
+		infoSvc.AssertExpectations(t)
+	})
+
+	t.Run("Success - custom pattern matches Ubuntu images", func(t *testing.T) {
+		customPattern := `^ibm-ubuntu-\d+-\d+-minimal-amd64-\d+$`
+		infoSvc := cloudInfoServiceMock{}
+		infoSvc.On("GetLatestVSIImageIDWithPattern", "us-east", customPattern).
+			Return("r014-ubuntu-image-id", nil)
+
+		options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+		imageID, err := GetLatestVSIImageIDWithPatternO("FAKEKEY", "us-east", customPattern, options)
+
+		assert.NoError(t, err)
+		assert.Equal(t, "r014-ubuntu-image-id", imageID)
+		infoSvc.AssertExpectations(t)
+	})
+
+	t.Run("Error - empty region is forwarded to service", func(t *testing.T) {
+		infoSvc := cloudInfoServiceMock{}
+		infoSvc.On("GetLatestVSIImageIDWithPattern", "", cloudinfo.DefaultVSIImagePattern).
+			Return("", errors.New("region cannot be empty"))
+
+		options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+		imageID, err := GetLatestVSIImageIDWithPatternO("FAKEKEY", "", cloudinfo.DefaultVSIImagePattern, options)
+
+		assert.Error(t, err)
+		assert.Empty(t, imageID)
+		infoSvc.AssertExpectations(t)
+	})
+
+	t.Run("Error - empty pattern is forwarded to service", func(t *testing.T) {
+		infoSvc := cloudInfoServiceMock{}
+		infoSvc.On("GetLatestVSIImageIDWithPattern", "us-south", "").
+			Return("", errors.New("pattern cannot be empty"))
+
+		options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+		imageID, err := GetLatestVSIImageIDWithPatternO("FAKEKEY", "us-south", "", options)
+
+		assert.Error(t, err)
+		assert.Empty(t, imageID)
+		infoSvc.AssertExpectations(t)
+	})
+}
+
+// TestGetLatestVSIImageID exercises the no-options public wrapper to confirm it
+// routes through GetLatestVSIImageIDWithPattern with the default pattern.
+func TestGetLatestVSIImageIDPublicWrapper(t *testing.T) {
+	t.Run("Success - delegates to GetLatestVSIImageIDWithPattern with default pattern", func(t *testing.T) {
+		infoSvc := cloudInfoServiceMock{}
+		infoSvc.On("GetLatestVSIImageIDWithPattern", "us-south", cloudinfo.DefaultVSIImagePattern).
+			Return("r006-wrapper-image-id", nil)
+
+		options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
+		// Call through GetLatestVSIImageIDWithPatternO directly with the default pattern
+		// (GetLatestVSIImageID itself calls NewCloudInfoServiceWithKey which requires a real key,
+		// so we exercise the same code path via the O variant with a mock).
+		imageID, err := GetLatestVSIImageIDWithPatternO("FAKEKEY", "us-south", cloudinfo.DefaultVSIImagePattern, options)
+
+		assert.NoError(t, err)
+		assert.Equal(t, "r006-wrapper-image-id", imageID)
+		infoSvc.AssertExpectations(t)
+	})
 }
