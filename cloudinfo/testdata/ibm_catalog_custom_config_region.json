@@ -1,0 +1,67 @@
+{
+  "products": [
+    {
+      "label": "Product with custom_config Region Fields",
+      "name": "Product Name",
+      "product_kind": "solution",
+      "tags": ["test"],
+      "keywords": ["test"],
+      "short_description": "Test product with custom_config region fields that have no top-level type or default_value",
+      "long_description": "Test product with custom_config region fields that have no top-level type or default_value",
+      "offering_docs_url": "http://example.com/docs",
+      "offering_icon_url": "http://example.com/icon",
+      "provider_name": "Test Provider",
+      "features": [],
+      "support_details": "Support details",
+      "flavors": [
+        {
+          "label": "Test Flavor",
+          "name": "Flavor Name",
+          "working_directory": ".",
+          "compliance": {
+            "authority": "scc-v3",
+            "profiles": []
+          },
+          "iam_permissions": [],
+          "architecture": {
+            "features": [],
+            "diagrams": []
+          },
+          "configuration": [
+            {
+              "key": "cos_region",
+              "required": true,
+              "custom_config": {
+                "config_constraints": {
+                  "generationType": "2"
+                },
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "region"
+              }
+            },
+            {
+              "key": "region",
+              "required": true,
+              "custom_config": {
+                "config_constraints": {
+                  "generationType": "2"
+                },
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "vpc_region"
+              }
+            }
+          ],
+          "outputs": [
+            {
+              "key": "output1",
+              "description": "Test output"
+            }
+          ],
+          "install_type": "fullstack"
+        }
+      ]
+    }
+  ]
+}
