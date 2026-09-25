@@ -451,6 +451,8 @@ func testTearDown(svc *SchematicsTestService, options *TestSchematicOptions) {
 				options.Testing.Log("Performing Teardown")
 				options.Testing.Log(fmt.Sprintf("Test Passed: %t", !options.Testing.Failed()))
 
+				svc.RunImplicitDestroyCommands(options)
+
 				destroySuccess := false // will only flip to true if job completes
 				destroyResponse, destroyErr := svc.CreateDestroyJob()
 				if assert.NoErrorf(options.Testing, destroyErr, "error creating DESTROY - %s", svc.WorkspaceName) {
