@@ -11,6 +11,7 @@ import (
 	projects "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -1282,6 +1283,111 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 			expectedError:   fmt.Errorf("flavor name 'Non-Existent Flavor' not found in catalog JSON for product 'Second Product Name'"),
 		},
 		{
+			// custom_config widget types with no top-level type and no default should resolve to "string".
+			name: "catalog with custom_config region fields (no top-level type, no default), should resolve to string",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_custom_config_region.json",
+			catalogJsonPath: "testdata/ibm_catalog_custom_config_region.json",
+			expectedConfig: &projects.StackDefinition{
+				ID: core.StringPtr("mockProjectID"),
+				StackDefinition: &projects.StackDefinitionBlock{
+					Inputs: []projects.StackDefinitionInputVariable{
+						{
+							Name:        core.StringPtr("cos_region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+					},
+					Outputs: []projects.StackDefinitionOutputVariable{
+						{Name: core.StringPtr("output1"), Value: core.StringPtr("ref:../members/member1/outputs/output1")},
+					},
+					Members: []projects.StackDefinitionMember{
+						{
+							Name:           core.StringPtr("member1"),
+							VersionLocator: core.StringPtr("version1"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("region"), Value: core.StringPtr("ref:../../inputs/region")},
+							},
+						},
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			// Fields with both top-level type:"string" and custom_config.type:"region", required, no default should resolve to "string".
+			name: "catalog with top-level type:string and custom_config.type:region (no default), should resolve to string",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_custom_config_region.json",
+			catalogJsonPath: "testdata/ibm_catalog_custom_config_with_type.json",
+			expectedConfig: &projects.StackDefinition{
+				ID: core.StringPtr("mockProjectID"),
+				StackDefinition: &projects.StackDefinitionBlock{
+					Inputs: []projects.StackDefinitionInputVariable{
+						{
+							Name:        core.StringPtr("cos_region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+					},
+					Outputs: []projects.StackDefinitionOutputVariable{
+						{Name: core.StringPtr("output1"), Value: core.StringPtr("ref:../members/member1/outputs/output1")},
+					},
+					Members: []projects.StackDefinitionMember{
+						{
+							Name:           core.StringPtr("member1"),
+							VersionLocator: core.StringPtr("version1"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("region"), Value: core.StringPtr("ref:../../inputs/region")},
+							},
+						},
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			// Proves the effectiveCatalogType fallback is active: without it, type "" skips the mismatch
+			// check silently; with it, type "string" is compared against stack "int" and an error is returned.
+			name: "catalog with custom_config region fields (no top-level type) mismatching stack int type, should return error",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_custom_config_region_type_mismatch.json",
+			catalogJsonPath: "testdata/ibm_catalog_custom_config_region.json",
+			expectedConfig:  nil,
+			expectedError:   fmt.Errorf("catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': cos_region expected type: int, got: string\ncatalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': region expected type: int, got: string"),
+		},
+		{
 			name: "catalog with HCL string defaults for array/object types, should pass validation",
 			stackConfig: &ConfigDetails{
 				ProjectID: "mockProjectID",
@@ -1667,4 +1773,60 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackDefinitionWrapperRetry() {
 		assert.Equal(suite.T(), mockResponse, response)
 		suite.mockService.AssertNumberOfCalls(suite.T(), "CreateStackDefinition", 1)
 	})
+}
+
+// TestUpdateInputsFromCatalog_CustomConfigFallback directly exercises the !found branch of
+// updateInputsFromCatalog with a catalog input that has only custom_config.type set (no top-level
+// type). The stack definition intentionally omits the key so found stays false, triggering the
+// effectiveType fallback that resolves "" → "string".
+func TestUpdateInputsFromCatalog_CustomConfigFallback(t *testing.T) {
+	defaultVal := "us-south"
+	stackConfig := &ConfigDetails{
+		ProjectID: "mockProjectID",
+		ConfigID:  "test-config",
+		Inputs:    map[string]interface{}{"cos_region": defaultVal},
+		StackDefinition: &projects.StackDefinitionBlockPrototype{
+			Inputs: []projects.StackDefinitionInputVariable{
+				// region is present; cos_region is intentionally absent → triggers !found
+				{
+					Name:     core.StringPtr("region"),
+					Type:     core.StringPtr("string"),
+					Required: core.BoolPtr(true),
+					Hidden:   core.BoolPtr(false),
+				},
+			},
+		},
+	}
+
+	// CatalogJson uses anonymous inline structs — build using struct literals matching catalog_types.go
+	catalog := CatalogJson{}
+	if err := json.Unmarshal([]byte(`{
+		"products": [{
+			"name": "Product Name",
+			"flavors": [{
+				"name": "Flavor Name",
+				"configuration": [{
+					"key": "cos_region",
+					"required": true,
+					"custom_config": { "type": "region" }
+				}],
+				"outputs": [],
+				"install_type": "fullstack"
+			}]
+		}]
+	}`), &catalog); err != nil {
+		t.Fatalf("failed to build catalog fixture: %v", err)
+	}
+
+	updateInputsFromCatalog(stackConfig, catalog, 0, 0, map[string]map[string]interface{}{
+		"stack":  {},
+		"member": {},
+	})
+
+	// The key assertion: cos_region appended with Type:"string", not "" (the bug).
+	require.Len(t, stackConfig.StackDefinition.Inputs, 2, "cos_region should have been appended by !found branch")
+	appended := stackConfig.StackDefinition.Inputs[1]
+	assert.Equal(t, "cos_region", *appended.Name)
+	assert.Equal(t, "string", *appended.Type, "effectiveType fallback must resolve custom_config.type:region → string, not empty string")
+	assert.True(t, *appended.Required)
 }

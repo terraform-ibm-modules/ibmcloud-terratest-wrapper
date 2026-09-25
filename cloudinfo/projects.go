@@ -933,9 +933,14 @@ func updateInputsFromCatalog(stackConfig *ConfigDetails, catalogConfig CatalogJs
 			}
 		}
 		if !found {
+			// Fall back to "string" for custom_config widget types (e.g. "region", "vpc_region").
+			effectiveType := input.Type
+			if effectiveType == "" && input.CustomConfig.Type != "" {
+				effectiveType = "string"
+			}
 			stackConfig.StackDefinition.Inputs = append(stackConfig.StackDefinition.Inputs, project.StackDefinitionInputVariable{
 				Name:        core.StringPtr(input.Key),
-				Type:        core.StringPtr(input.Type),
+				Type:        core.StringPtr(effectiveType),
 				Required:    core.BoolPtr(input.Required),
 				Default:     &input.DefaultValue,
 				Description: core.StringPtr(input.Description),
@@ -977,6 +982,13 @@ func validateCatalogInputsInStackDefinition(stackJson Stack, catalogConfig Catal
 		if catalogInput.Key == "ibmcloud_api_key" {
 			continue
 		}
+
+		// Fall back to "string" when only custom_config.type is set (e.g. "region", "vpc_region").
+		effectiveCatalogType := catalogInput.Type
+		if effectiveCatalogType == "" && catalogInput.CustomConfig.Type != "" {
+			effectiveCatalogType = "string"
+		}
+
 		found := false
 		for _, stackInput := range stackJson.Inputs {
 			if catalogInput.Key == stackInput.Name {
@@ -986,8 +998,8 @@ func validateCatalogInputsInStackDefinition(stackJson Stack, catalogConfig Catal
 					expectedType = stackInput.TypeMetadata
 				}
 				expectedType = convertGoTypeToExpectedType(expectedType)
-				if catalogInput.Type != "" && !isValidType(catalogInput.Type, expectedType) {
-					typeMismatches = append(typeMismatches, fmt.Sprintf("catalog configuration type mismatch in product '%s', flavor '%s': %s expected type: %s, got: %s", productName, flavorName, catalogInput.Key, expectedType, catalogInput.Type))
+				if effectiveCatalogType != "" && !isValidType(effectiveCatalogType, expectedType) {
+					typeMismatches = append(typeMismatches, fmt.Sprintf("catalog configuration type mismatch in product '%s', flavor '%s': %s expected type: %s, got: %s", productName, flavorName, catalogInput.Key, expectedType, effectiveCatalogType))
 				}
 				if catalogInput.TypeMetadata != "" && !isValidType(catalogInput.TypeMetadata, expectedType) {
 					typeMismatches = append(typeMismatches, fmt.Sprintf("catalog configuration type_metadata mismatch in product '%s', flavor '%s': %s expected type: %s, got: %s", productName, flavorName, catalogInput.Key, expectedType, catalogInput.TypeMetadata))
