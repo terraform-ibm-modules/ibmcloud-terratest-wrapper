@@ -128,6 +128,23 @@ type TestSchematicOptions struct {
 	IgnoreDestroys testhelper.Exemptions
 	IgnoreUpdates  testhelper.Exemptions
 
+	// ImplicitDestroy can be used to speed up the schematics `destroy` job by removing resources from the
+	// workspace state before the destroy is executed, using `terraform state rm` via the Schematics
+	// RunWorkspaceCommands API.
+	//
+	// Use this for resources that are destroyed as part of a parent resource and do not need to be
+	// individually destroyed. For example: most helm releases inside an OCP instance do not need to be
+	// individually destroyed — they will be destroyed when the OCP instance is destroyed.
+	//
+	// Name format is terraform style, for example: `module.some_module.null_resource.foo`
+	// NOTE: can specify at any layer of name, all children will also be removed, for example:
+	// `module.some_module` will remove all resources for that module.
+	ImplicitDestroy []string
+
+	// ImplicitRequired controls whether the test will fail if any resource in the ImplicitDestroy list
+	// cannot be removed from the workspace state.
+	ImplicitRequired bool
+
 	// Use these options to specify a base terraform repo and branch to use for upgrade tests.
 	// If not supplied, the default logic will be used to determine the base repo and branch.
 	// Will be overridden by environment variables BASE_TERRAFORM_REPO and BASE_TERRAFORM_BRANCH if set.
