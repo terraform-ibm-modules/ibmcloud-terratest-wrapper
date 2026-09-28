@@ -1475,6 +1475,10 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 			for _, err := range errorList {
 				options.Logger.ShortError(fmt.Sprintf("  %v", err))
 			}
+
+			// Fetch and display the actual Schematics/Terraform error logs for failed configurations
+			options.displayFailedMemberSchematicsLogs()
+
 			options.Logger.MarkFailed()
 			options.Logger.FlushOnFailure()
 			options.Testing.Fail()
@@ -1514,6 +1518,65 @@ func (options *TestAddonOptions) runAddonTest(enhancedReporting bool) error {
 	}
 
 	return nil
+}
+
+// displayFailedMemberSchematicsLogs fetches and logs Schematics/Terraform error logs
+// for any project configurations that are in a failed deployment or validation state.
+// This surfaces the root-cause error directly in the pipeline output before the workspace is nuked.
+func (options *TestAddonOptions) displayFailedMemberSchematicsLogs() {
+	if options.currentProjectConfig == nil || options.currentProjectConfig.ProjectID == "" || len(options.currentProjectConfig.Location) < 2 {
+		return
+	}
+	projectConfigs, getConfigsErr := options.CloudInfoService.GetProjectConfigs(options.currentProjectConfig.ProjectID)
+	if getConfigsErr != nil {
+		options.Logger.ShortWarn(fmt.Sprintf("Could not retrieve project configs to fetch error logs: %v", getConfigsErr))
+		return
+	}
+	for _, configSummary := range projectConfigs {
+		if configSummary.ID == nil {
+			continue
+		}
+		// Skip healthy configurations early before calling GetConfig API
+		if configSummary.State != nil &&
+			*configSummary.State != projectv1.ProjectConfig_State_DeployingFailed &&
+			*configSummary.State != projectv1.ProjectConfig_State_ValidatingFailed {
+			continue
+		}
+		configDetails := &cloudinfo.ConfigDetails{
+			ProjectID: options.currentProjectConfig.ProjectID,
+			ConfigID:  *configSummary.ID,
+		}
+		config, _, getConfigErr := options.CloudInfoService.GetConfig(configDetails)
+		if getConfigErr != nil {
+			configName := "unknown"
+			if configSummary.Definition != nil && configSummary.Definition.Name != nil {
+				configName = *configSummary.Definition.Name
+			}
+			options.Logger.ShortWarn(fmt.Sprintf("Could not retrieve config details for %s (ID: %s): %v", configName, *configSummary.ID, getConfigErr))
+			continue
+		}
+		if config != nil && cloudinfo.ProjectsMemberIsDeployFailed(config) {
+			configName := "unknown"
+			if configSummary.Definition != nil && configSummary.Definition.Name != nil {
+				configName = *configSummary.Definition.Name
+			} else if resp, ok := config.Definition.(*projectv1.ProjectConfigDefinitionResponse); ok && resp.Name != nil {
+				configName = *resp.Name
+			}
+			_, terraLogs := options.CloudInfoService.GetSchematicsJobLogsForMember(
+				config,
+				configName,
+				options.currentProjectConfig.Location,
+				options.currentProjectConfig.ProjectID,
+				*config.ID,
+			)
+			if strings.TrimSpace(terraLogs) != "" {
+				options.Logger.ShortError("\n==================== SCHEMATICS / TERRAFORM LOGS ====================")
+				options.Logger.ShortError(fmt.Sprintf("Logs for failed member: %s (ID: %s)", configName, *config.ID))
+				options.Logger.ShortError(terraLogs)
+				options.Logger.ShortError("=====================================================================\n")
+			}
+		}
+	}
 }
 
 func (options *TestAddonOptions) RunPostUndeployHook() error {
