@@ -1,6 +1,7 @@
 package cloudinfo
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -10,6 +11,7 @@ import (
 	projects "github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -1256,6 +1258,136 @@ func (suite *ProjectsServiceTestSuite) TestCreateStackFromConfigFile() {
 					"extra catalog input variable not found in stack definition in product 'Product Name', flavor 'Flavor Name': input5"),
 		},
 		{
+			name: "invalid product name, should return an error",
+			stackConfig: &ConfigDetails{
+				ProjectID:          "mockProjectID",
+				ConfigID:           "54321",
+				CatalogProductName: "Non-Existent Product",
+			},
+			stackConfigPath: "testdata/stack_definition_stack_inputs.json",
+			catalogJsonPath: "testdata/ibm_catalog_multiple_products_flavors.json",
+			expectedConfig:  nil,
+			expectedError:   fmt.Errorf("product name 'Non-Existent Product' not found in catalog JSON"),
+		},
+		{
+			name: "invalid flavor name, should return an error",
+			stackConfig: &ConfigDetails{
+				ProjectID:          "mockProjectID",
+				ConfigID:           "54321",
+				CatalogProductName: "Second Product Name",
+				CatalogFlavorName:  "Non-Existent Flavor",
+			},
+			stackConfigPath: "testdata/stack_definition_stack_inputs.json",
+			catalogJsonPath: "testdata/ibm_catalog_multiple_products_flavors.json",
+			expectedConfig:  nil,
+			expectedError:   fmt.Errorf("flavor name 'Non-Existent Flavor' not found in catalog JSON for product 'Second Product Name'"),
+		},
+		{
+			// custom_config widget types with no top-level type and no default should resolve to "string".
+			name: "catalog with custom_config region fields (no top-level type, no default), should resolve to string",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_custom_config_region.json",
+			catalogJsonPath: "testdata/ibm_catalog_custom_config_region.json",
+			expectedConfig: &projects.StackDefinition{
+				ID: core.StringPtr("mockProjectID"),
+				StackDefinition: &projects.StackDefinitionBlock{
+					Inputs: []projects.StackDefinitionInputVariable{
+						{
+							Name:        core.StringPtr("cos_region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+					},
+					Outputs: []projects.StackDefinitionOutputVariable{
+						{Name: core.StringPtr("output1"), Value: core.StringPtr("ref:../members/member1/outputs/output1")},
+					},
+					Members: []projects.StackDefinitionMember{
+						{
+							Name:           core.StringPtr("member1"),
+							VersionLocator: core.StringPtr("version1"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("region"), Value: core.StringPtr("ref:../../inputs/region")},
+							},
+						},
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			// Fields with both top-level type:"string" and custom_config.type:"region", required, no default should resolve to "string".
+			name: "catalog with top-level type:string and custom_config.type:region (no default), should resolve to string",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_custom_config_region.json",
+			catalogJsonPath: "testdata/ibm_catalog_custom_config_with_type.json",
+			expectedConfig: &projects.StackDefinition{
+				ID: core.StringPtr("mockProjectID"),
+				StackDefinition: &projects.StackDefinitionBlock{
+					Inputs: []projects.StackDefinitionInputVariable{
+						{
+							Name:        core.StringPtr("cos_region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+						{
+							Name:        core.StringPtr("region"),
+							Type:        core.StringPtr("string"),
+							Required:    core.BoolPtr(true),
+							Default:     core.StringPtr("__NULL__"),
+							Description: core.StringPtr(""),
+							Hidden:      core.BoolPtr(false),
+						},
+					},
+					Outputs: []projects.StackDefinitionOutputVariable{
+						{Name: core.StringPtr("output1"), Value: core.StringPtr("ref:../members/member1/outputs/output1")},
+					},
+					Members: []projects.StackDefinitionMember{
+						{
+							Name:           core.StringPtr("member1"),
+							VersionLocator: core.StringPtr("version1"),
+							Inputs: []projects.StackDefinitionMemberInput{
+								{Name: core.StringPtr("region"), Value: core.StringPtr("ref:../../inputs/region")},
+							},
+						},
+					},
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			// Proves the effectiveCatalogType fallback is active: without it, type "" skips the mismatch
+			// check silently; with it, type "string" is compared against stack "int" and an error is returned.
+			name: "catalog with custom_config region fields (no top-level type) mismatching stack int type, should return error",
+			stackConfig: &ConfigDetails{
+				ProjectID: "mockProjectID",
+				ConfigID:  "54321",
+			},
+			stackConfigPath: "testdata/stack_definition_custom_config_region_type_mismatch.json",
+			catalogJsonPath: "testdata/ibm_catalog_custom_config_region.json",
+			expectedConfig:  nil,
+			expectedError:   fmt.Errorf("catalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': cos_region expected type: int, got: string\ncatalog configuration type mismatch in product 'Product Name', flavor 'Flavor Name': region expected type: int, got: string"),
+		},
+		{
 			name: "catalog with HCL string defaults for array/object types, should pass validation",
 			stackConfig: &ConfigDetails{
 				ProjectID: "mockProjectID",
@@ -1448,6 +1580,76 @@ func TestProjectsServiceTestSuite(t *testing.T) {
 	suite.Run(t, new(ProjectsServiceTestSuite))
 }
 
+func TestValidateCatalogNames(t *testing.T) {
+	catalogPath := "testdata/ibm_catalog_multiple_products_flavors.json"
+
+	tests := []struct {
+		name        string
+		productName string
+		flavorName  string
+		// jsonInput is set for edge cases that need an inline catalog struct
+		// instead of the file-based catalogPath. When set, lookupCatalogIndices
+		// is called directly to avoid needing fixture files.
+		jsonInput string
+		expectErr string
+	}{
+		{
+			name:        "valid product and flavor",
+			productName: "Second Product Name",
+			flavorName:  "Second Flavor Name",
+		},
+		{
+			name:        "valid product, empty flavor defaults to first",
+			productName: "First Product Name",
+		},
+		{
+			name: "empty product and flavor, defaults to first of each",
+		},
+		{
+			name:        "invalid product name",
+			productName: "Non-Existent Product",
+			expectErr:   "product name 'Non-Existent Product' not found in catalog JSON",
+		},
+		{
+			name:        "valid product, invalid flavor name",
+			productName: "Second Product Name",
+			flavorName:  "Non-Existent Flavor",
+			expectErr:   "flavor name 'Non-Existent Flavor' not found in catalog JSON for product 'Second Product Name'",
+		},
+		{
+			name:      "catalog with no products returns error not panic",
+			jsonInput: `{"products":[]}`,
+			expectErr: "catalog JSON contains no products",
+		},
+		{
+			name:      "catalog with no flavors returns error not panic",
+			jsonInput: `{"products":[{"name":"Empty Product","flavors":[]}]}`,
+			expectErr: "catalog JSON contains no flavors for product 'Empty Product'",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			if tt.jsonInput != "" {
+				var catalog CatalogJson
+				if assert.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &catalog)) {
+					_, _, err = lookupCatalogIndices(catalog, "", "")
+				} else {
+					return
+				}
+			} else {
+				err = ValidateCatalogNames(catalogPath, tt.productName, tt.flavorName)
+			}
+			if tt.expectErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.EqualError(t, err, tt.expectErr)
+			}
+		})
+	}
+}
+
 // SortStackDefinition Helper function to sort the StackDefinition and all nested slices
 // Sorts StackDefinition and all nested slices, this is needed because the order of the elements in the JSON file is not guaranteed
 // and the order of the elements in the StackDefinition is important for the tests
@@ -1501,4 +1703,130 @@ func SortStackDefinitionMemberInputs(inputs []projects.StackDefinitionMemberInpu
 		return *inputs[i].Name < *inputs[j].Name
 	})
 	return inputs
+}
+
+// TestCreateStackDefinitionWrapperRetry covers the transient "The config cannot be found"
+// response the Projects API can return while the configs created moments earlier in
+// processMembers become readable. That 404 is retried; anything else is not, because
+// creating a stack definition is not idempotent.
+func (suite *ProjectsServiceTestSuite) TestCreateStackDefinitionWrapperRetry() {
+	// Keep the retry counting but skip the backoff sleeps.
+	// common.calculateDelay skips when SKIP_RETRY_DELAYS == "true"
+	suite.T().Setenv("SKIP_RETRY_DELAYS", "true")
+
+	mockResponse := &core.DetailedResponse{StatusCode: 201}
+	stackDefOptions := &projects.CreateStackDefinitionOptions{
+		ProjectID: core.StringPtr("test-project-id"),
+		ID:        core.StringPtr("test-config-id"),
+		StackDefinition: &projects.StackDefinitionBlockPrototype{
+			Inputs: []projects.StackDefinitionInputVariable{},
+		},
+	}
+
+	suite.Run("ConfigNotFoundIsRetriedThenSucceeds", func() {
+		suite.mockService.ExpectedCalls = nil
+		suite.mockService.Calls = nil
+		notFound := core.SDKErrorf(nil, "The config cannot be found", "http-request-err",
+			core.NewProblemComponent("project", "v1"))
+
+		suite.mockService.On("CreateStackDefinition", mock.Anything).
+			Return([]projects.StackDefinitionMember{}, (*core.DetailedResponse)(nil), notFound).Once()
+		suite.mockService.On("CreateStackDefinition", mock.Anything).
+			Return([]projects.StackDefinitionMember{}, mockResponse, nil).Once()
+
+		result, response, err := suite.infoSvc.CreateStackDefinitionWrapper(stackDefOptions, nil)
+
+		assert.NoError(suite.T(), err)
+		assert.NotNil(suite.T(), result)
+		assert.Equal(suite.T(), mockResponse, response)
+		suite.mockService.AssertExpectations(suite.T())
+	})
+
+	suite.Run("OtherErrorIsNotRetried", func() {
+		suite.mockService.ExpectedCalls = nil
+		suite.mockService.Calls = nil
+		// A non-idempotent create must not be re-sent on an ambiguous failure.
+		otherErr := core.SDKErrorf(nil, "A stack definition member input foo was not found in the configuration bar.",
+			"http-request-err", core.NewProblemComponent("project", "v1"))
+
+		suite.mockService.On("CreateStackDefinition", mock.Anything).
+			Return([]projects.StackDefinitionMember{}, (*core.DetailedResponse)(nil), otherErr).Once()
+
+		_, _, err := suite.infoSvc.CreateStackDefinitionWrapper(stackDefOptions, nil)
+
+		assert.Error(suite.T(), err)
+		assert.Contains(suite.T(), err.Error(), "was not found in the configuration")
+		// Exactly one call: no retry was attempted.
+		suite.mockService.AssertNumberOfCalls(suite.T(), "CreateStackDefinition", 1)
+	})
+
+	suite.Run("SuccessOnFirstAttemptMakesOneCall", func() {
+		suite.mockService.ExpectedCalls = nil
+		suite.mockService.Calls = nil
+		suite.mockService.On("CreateStackDefinition", mock.Anything).
+			Return([]projects.StackDefinitionMember{}, mockResponse, nil).Once()
+
+		result, response, err := suite.infoSvc.CreateStackDefinitionWrapper(stackDefOptions, nil)
+
+		assert.NoError(suite.T(), err)
+		assert.NotNil(suite.T(), result)
+		assert.Equal(suite.T(), mockResponse, response)
+		suite.mockService.AssertNumberOfCalls(suite.T(), "CreateStackDefinition", 1)
+	})
+}
+
+// TestUpdateInputsFromCatalog_CustomConfigFallback directly exercises the !found branch of
+// updateInputsFromCatalog with a catalog input that has only custom_config.type set (no top-level
+// type). The stack definition intentionally omits the key so found stays false, triggering the
+// effectiveType fallback that resolves "" → "string".
+func TestUpdateInputsFromCatalog_CustomConfigFallback(t *testing.T) {
+	defaultVal := "us-south"
+	stackConfig := &ConfigDetails{
+		ProjectID: "mockProjectID",
+		ConfigID:  "test-config",
+		Inputs:    map[string]interface{}{"cos_region": defaultVal},
+		StackDefinition: &projects.StackDefinitionBlockPrototype{
+			Inputs: []projects.StackDefinitionInputVariable{
+				// region is present; cos_region is intentionally absent → triggers !found
+				{
+					Name:     core.StringPtr("region"),
+					Type:     core.StringPtr("string"),
+					Required: core.BoolPtr(true),
+					Hidden:   core.BoolPtr(false),
+				},
+			},
+		},
+	}
+
+	// CatalogJson uses anonymous inline structs — build using struct literals matching catalog_types.go
+	catalog := CatalogJson{}
+	if err := json.Unmarshal([]byte(`{
+		"products": [{
+			"name": "Product Name",
+			"flavors": [{
+				"name": "Flavor Name",
+				"configuration": [{
+					"key": "cos_region",
+					"required": true,
+					"custom_config": { "type": "region" }
+				}],
+				"outputs": [],
+				"install_type": "fullstack"
+			}]
+		}]
+	}`), &catalog); err != nil {
+		t.Fatalf("failed to build catalog fixture: %v", err)
+	}
+
+	updateInputsFromCatalog(stackConfig, catalog, 0, 0, map[string]map[string]interface{}{
+		"stack":  {},
+		"member": {},
+	})
+
+	// The key assertion: cos_region appended with Type:"string", not "" (the bug).
+	require.Len(t, stackConfig.StackDefinition.Inputs, 2, "cos_region should have been appended by !found branch")
+	appended := stackConfig.StackDefinition.Inputs[1]
+	assert.Equal(t, "cos_region", *appended.Name)
+	assert.Equal(t, "string", *appended.Type, "effectiveType fallback must resolve custom_config.type:region → string, not empty string")
+	assert.True(t, *appended.Required)
 }

@@ -1,0 +1,69 @@
+{
+  "products": [
+    {
+      "label": "Product with custom_config and top-level type",
+      "name": "Product Name",
+      "product_kind": "solution",
+      "tags": ["test"],
+      "keywords": ["test"],
+      "short_description": "Test product with custom_config and top-level type:string",
+      "long_description": "Test product with fields that have both top-level type:string and custom_config.type:region, required, no default_value",
+      "offering_docs_url": "http://example.com/docs",
+      "offering_icon_url": "http://example.com/icon",
+      "provider_name": "Test Provider",
+      "features": [],
+      "support_details": "Support details",
+      "flavors": [
+        {
+          "label": "Test Flavor",
+          "name": "Flavor Name",
+          "working_directory": ".",
+          "compliance": {
+            "authority": "scc-v3",
+            "profiles": []
+          },
+          "iam_permissions": [],
+          "architecture": {
+            "features": [],
+            "diagrams": []
+          },
+          "configuration": [
+            {
+              "key": "cos_region",
+              "type": "string",
+              "required": true,
+              "custom_config": {
+                "config_constraints": {
+                  "generationType": "2"
+                },
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "region"
+              }
+            },
+            {
+              "key": "region",
+              "type": "string",
+              "required": true,
+              "custom_config": {
+                "config_constraints": {
+                  "generationType": "2"
+                },
+                "grouping": "deployment",
+                "original_grouping": "deployment",
+                "type": "region"
+              }
+            }
+          ],
+          "outputs": [
+            {
+              "key": "output1",
+              "description": "Test output"
+            }
+          ],
+          "install_type": "fullstack"
+        }
+      ]
+    }
+  ]
+}
