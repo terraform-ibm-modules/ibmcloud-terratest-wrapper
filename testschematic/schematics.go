@@ -44,6 +44,7 @@ type SchematicsApiSvcI interface {
 	DestroyWorkspaceCommand(*schematics.DestroyWorkspaceCommandOptions) (*schematics.WorkspaceActivityDestroyResult, *core.DetailedResponse, error)
 	ReplaceWorkspace(*schematics.ReplaceWorkspaceOptions) (*schematics.WorkspaceResponse, *core.DetailedResponse, error)
 	GetWorkspaceOutputs(*schematics.GetWorkspaceOutputsOptions) ([]schematics.OutputValuesInner, *core.DetailedResponse, error)
+	RunWorkspaceCommands(*schematics.RunWorkspaceCommandsOptions) (*schematics.WorkspaceActivityCommandResult, *core.DetailedResponse, error)
 }
 
 // interface for external IBMCloud IAM Authenticator api. Can be mocked for tests
@@ -465,4 +466,91 @@ func (svc *SchematicsTestService) validateVariables(terraformDir string) error {
 	}
 	return nil
 
+}
+
+// RunImplicitDestroyCommands removes resources listed in options.ImplicitDestroy from the
+// Schematics workspace state before the destroy job runs. This mirrors the ImplicitDestroy loop
+// in testhelper.testTearDown, adapted for Schematics remote state via RunWorkspaceCommands.
+//
+// Each address is submitted as a separate `terraform state rm <address>` command in a single
+// RunWorkspaceCommands job. The method waits for that job to complete before returning.
+// Errors are logged and, when ImplicitRequired is true, also fail the test.
+// The caller always proceeds to the destroy job regardless of errors here.
+func (svc *SchematicsTestService) RunImplicitDestroyCommands(options *TestSchematicOptions) {
+	if len(options.ImplicitDestroy) == 0 {
+		return
+	}
+
+	options.Testing.Log("[SCHEMATICS] Processing ImplicitDestroy: removing resources from workspace state")
+
+	refreshToken, tokenErr := svc.GetRefreshToken()
+	if tokenErr != nil {
+		msg := fmt.Sprintf("[SCHEMATICS] ImplicitDestroy: could not obtain refresh token: %s", tokenErr)
+		if options.ImplicitRequired {
+			options.Testing.Error(msg)
+		} else {
+			options.Testing.Log(msg)
+		}
+		return
+	}
+
+	commands := make([]schematics.TerraformCommand, 0, len(options.ImplicitDestroy))
+	for i, address := range options.ImplicitDestroy {
+		commands = append(commands, schematics.TerraformCommand{
+			Command:        core.StringPtr("state rm"),
+			CommandParams:  core.StringPtr(address),
+			CommandName:    core.StringPtr(fmt.Sprintf("implicit-destroy-%d", i)),
+			CommandDesc:    core.StringPtr(fmt.Sprintf("Remove %s from state for implicit destroy", address)),
+			CommandOnError: core.StringPtr("continue"),
+		})
+	}
+
+	result, _, cmdErr := svc.SchematicsApiSvc.RunWorkspaceCommands(&schematics.RunWorkspaceCommandsOptions{
+		WID:          core.StringPtr(svc.WorkspaceID),
+		RefreshToken: core.StringPtr(refreshToken),
+		Commands:     commands,
+	})
+	if cmdErr != nil {
+		msg := fmt.Sprintf("[SCHEMATICS] ImplicitDestroy: error submitting state commands: %s - %s", cmdErr, svc.WorkspaceNameForLog)
+		if options.ImplicitRequired {
+			options.Testing.Error(msg)
+		} else {
+			options.Testing.Log(msg)
+		}
+		return
+	}
+
+	if result == nil || result.Activityid == nil {
+		msg := fmt.Sprintf("[SCHEMATICS] ImplicitDestroy: RunWorkspaceCommands returned no activity ID - %s", svc.WorkspaceNameForLog)
+		if options.ImplicitRequired {
+			options.Testing.Error(msg)
+		} else {
+			options.Testing.Log(msg)
+		}
+		return
+	}
+
+	options.Testing.Logf("[SCHEMATICS] Waiting for ImplicitDestroy state commands job (%s) ...", *result.Activityid)
+	jobStatus, statusErr := svc.WaitForFinalJobStatus(*result.Activityid)
+	if statusErr != nil {
+		msg := fmt.Sprintf("[SCHEMATICS] ImplicitDestroy: error waiting for state commands job: %s - %s", statusErr, svc.WorkspaceNameForLog)
+		if options.ImplicitRequired {
+			options.Testing.Error(msg)
+		} else {
+			options.Testing.Log(msg)
+		}
+		return
+	}
+
+	if jobStatus != SchematicsJobStatusCompleted {
+		msg := fmt.Sprintf("[SCHEMATICS] ImplicitDestroy: state commands job finished with status %s - %s", jobStatus, svc.WorkspaceNameForLog)
+		if options.ImplicitRequired {
+			options.Testing.Error(msg)
+		} else {
+			options.Testing.Log(msg)
+		}
+		return
+	}
+
+	options.Testing.Log("[SCHEMATICS] ImplicitDestroy state commands completed successfully")
 }

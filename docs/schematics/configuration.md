@@ -184,6 +184,41 @@ Control which resources to ignore during plan consistency checks:
 - **`IgnoreDestroys`** - List of resource names to ignore when checking for destroyed resources
   - Example: `[]string{"null_resource.temp"}`
 
+## Implicit Destroy Configuration
+
+### Removing Resources from State Before Destroy
+
+These options speed up the `destroy` job by removing specific resources from the workspace state file before the destroy runs, using `terraform state rm` via the Schematics `RunWorkspaceCommands` API. Resources removed from state are not individually destroyed — they are expected to be cleaned up automatically when a parent resource is destroyed (for example, Helm releases inside an OCP cluster).
+
+- **`ImplicitDestroy`** - List of Terraform resource addresses to remove from workspace state before destroy
+  - Name format is terraform style: `module.some_module.resource_type.resource_name`
+  - Specifying a module address removes all resources within that module
+  - Example: `[]string{"module.ocp_cluster.helm_release.ingress", "module.vpc"}`
+
+- **`ImplicitRequired`** - Controls whether a failure to remove a resource from state fails the test
+  - Defaults to `false` (errors are logged but the test continues and destroy still runs)
+  - Set to `true` if the state removal is critical to the correctness of the test
+
+### Implicit Destroy Example
+
+```golang
+options := testschematic.TestSchematicOptionsDefault(&testschematic.TestSchematicOptions{
+    Testing: t,
+    Prefix:  "my-test",
+
+    // Remove these resources from Schematics workspace state before destroy runs.
+    // They will be cleaned up implicitly when their parent resources are destroyed.
+    ImplicitDestroy: []string{
+        "module.ocp_cluster.helm_release.cert_manager",
+        "module.ocp_cluster.helm_release.ingress_nginx",
+    },
+
+    // Set to true if the test should fail when a state removal is unsuccessful.
+    // Defaults to false — errors are only logged and destroy proceeds regardless.
+    ImplicitRequired: false,
+})
+```
+
 ## Hook Configuration
 
 The framework provides several hook points for custom code injection:
