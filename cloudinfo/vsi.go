@@ -6,6 +6,7 @@ import (
 	"log"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/IBM/go-sdk-core/v5/core"
@@ -19,6 +20,33 @@ const (
 	// VSIImageStatusAvailable is the only image status safe to use in tests.
 	VSIImageStatusAvailable = "available"
 )
+
+// imageNameChunkRegex splits an image name into alternating runs of digits and non-digits.
+var imageNameChunkRegex = regexp.MustCompile(`\d+|\D+`)
+
+// compareImageNames compares two image names in natural order, treating runs of digits as numbers,
+// so "ibm-redhat-8-10-minimal-amd64-1" sorts after "ibm-redhat-8-9-minimal-amd64-5" and build "-10" after "-9".
+// Returns a negative number if a < b, zero if equal, and a positive number if a > b.
+func compareImageNames(a string, b string) int {
+	aChunks := imageNameChunkRegex.FindAllString(a, -1)
+	bChunks := imageNameChunkRegex.FindAllString(b, -1)
+
+	for i := 0; i < len(aChunks) && i < len(bChunks); i++ {
+		aNum, aErr := strconv.Atoi(aChunks[i])
+		bNum, bErr := strconv.Atoi(bChunks[i])
+		if aErr == nil && bErr == nil {
+			if aNum != bNum {
+				return aNum - bNum
+			}
+			continue
+		}
+		if c := strings.Compare(aChunks[i], bChunks[i]); c != 0 {
+			return c
+		}
+	}
+
+	return len(aChunks) - len(bChunks)
+}
 
 // listAllPublicImages fetches all pages of public images from the VPC API.
 // The API returns at most 50 images per page; this follows Next.Href until exhausted.
@@ -82,43 +110,11 @@ func (infoSvc *CloudInfoService) GetLatestVSIImageID(region string) (string, err
 // GetLatestVSIImageIDWithPattern returns the latest available image ID matching the given regex pattern.
 // Fetches all pages of public images, filters by pattern and "available" status, returns the newest name.
 func (infoSvc *CloudInfoService) GetLatestVSIImageIDWithPattern(region string, pattern string) (string, error) {
-	if region == "" {
-		return "", errors.New("region cannot be empty")
-	}
-	if pattern == "" {
-		return "", errors.New("pattern cannot be empty")
-	}
-
-	imageRegex, err := regexp.Compile(pattern)
-	if err != nil {
-		return "", fmt.Errorf("invalid regex pattern '%s': %w", pattern, err)
-	}
-
-	restore, err := infoSvc.setRegionEndpoint(region)
-	if err != nil {
-		return "", err
-	}
-	defer restore()
-
 	log.Printf("Retrieving VSI images for region %s with pattern: %s", region, pattern)
 
-	allImages, err := infoSvc.listAllPublicImages()
+	matchingImages, err := infoSvc.GetVSIImagesByPattern(region, pattern)
 	if err != nil {
-		log.Printf("Failed to list images for region %s: %v", region, err)
 		return "", err
-	}
-
-	log.Printf("Found %d total images in region %s", len(allImages), region)
-
-	var matchingImages []vpcv1.Image
-	for _, image := range allImages {
-		if image.Name == nil || image.Status == nil || image.ID == nil {
-			continue
-		}
-		if imageRegex.MatchString(*image.Name) && *image.Status == VSIImageStatusAvailable {
-			matchingImages = append(matchingImages, image)
-			log.Printf("Matched image: %s (ID: %s, Status: %s)", *image.Name, *image.ID, *image.Status)
-		}
 	}
 
 	if len(matchingImages) == 0 {
@@ -127,17 +123,14 @@ func (infoSvc *CloudInfoService) GetLatestVSIImageIDWithPattern(region string, p
 
 	log.Printf("Found %d matching available images", len(matchingImages))
 
-	sort.Slice(matchingImages, func(i, j int) bool {
-		return *matchingImages[i].Name > *matchingImages[j].Name
-	})
-
 	latestImage := matchingImages[0]
 	log.Printf("Selected latest image: %s (ID: %s)", *latestImage.Name, *latestImage.ID)
 
 	return *latestImage.ID, nil
 }
 
-// GetVSIImagesByPattern returns all available images matching the regex pattern, sorted newest first.
+// GetVSIImagesByPattern returns all available images matching the regex pattern, sorted newest first
+// (see compareImageNames for ordering).
 // Use GetLatestVSIImageID when only one image ID is needed.
 func (infoSvc *CloudInfoService) GetVSIImagesByPattern(region string, pattern string) ([]vpcv1.Image, error) {
 	if region == "" {
@@ -175,7 +168,7 @@ func (infoSvc *CloudInfoService) GetVSIImagesByPattern(region string, pattern st
 	}
 
 	sort.Slice(matchingImages, func(i, j int) bool {
-		return strings.Compare(*matchingImages[i].Name, *matchingImages[j].Name) > 0
+		return compareImageNames(*matchingImages[i].Name, *matchingImages[j].Name) > 0
 	})
 
 	return matchingImages, nil

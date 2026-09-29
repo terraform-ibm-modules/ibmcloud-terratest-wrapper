@@ -71,8 +71,8 @@ func TestGetLatestVSIImageID(t *testing.T) {
 		imageID, err := infoSvc.GetLatestVSIImageID("us-south")
 
 		assert.NoError(t, err)
-		// Lexicographically, "8-9" > "8-10", so 8-9 is selected
-		assert.Equal(t, image3ID, imageID, "Should return the lexicographically latest image (8-9)")
+		// Numeric segments compare as numbers, so 8-10 is newer than 8-9
+		assert.Equal(t, image2ID, imageID, "Should return the latest image (8-10)")
 	})
 
 	t.Run("Error - Empty region", func(t *testing.T) {
@@ -367,10 +367,10 @@ func TestGetVSIImagesByPattern(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Len(t, images, 3)
-		// Should be sorted in descending lexicographic order: 8-9 > 8-8 > 8-10
-		assert.Equal(t, image3Name, *images[0].Name)
-		assert.Equal(t, image1Name, *images[1].Name)
-		assert.Equal(t, image2Name, *images[2].Name)
+		// Should be sorted newest first: 8-10 > 8-9 > 8-8
+		assert.Equal(t, image2Name, *images[0].Name)
+		assert.Equal(t, image3Name, *images[1].Name)
+		assert.Equal(t, image1Name, *images[2].Name)
 	})
 
 	t.Run("Success - Filters by pattern", func(t *testing.T) {
@@ -498,4 +498,34 @@ func TestListAllPublicImagesPagination(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Len(t, images, 2, "Should collect matching images from both pages")
 	})
+}
+
+func TestCompareImageNames(t *testing.T) {
+	tests := []struct {
+		name     string
+		a        string
+		b        string
+		expected int // sign only: -1, 0, 1
+	}{
+		{"Minor version 10 newer than 9", "ibm-redhat-8-10-minimal-amd64-1", "ibm-redhat-8-9-minimal-amd64-5", 1},
+		{"Minor version 8 older than 10", "ibm-redhat-8-8-minimal-amd64-3", "ibm-redhat-8-10-minimal-amd64-5", -1},
+		{"Build 10 newer than build 9", "ibm-redhat-8-10-minimal-amd64-10", "ibm-redhat-8-10-minimal-amd64-9", 1},
+		{"Identical names", "ibm-redhat-8-10-minimal-amd64-5", "ibm-redhat-8-10-minimal-amd64-5", 0},
+		{"Non-numeric segments compare as strings", "ibm-ubuntu-24-04-minimal-amd64-1", "ibm-redhat-8-10-minimal-amd64-1", 1},
+		{"Longer name with same prefix is greater", "ibm-redhat-8-10-minimal-amd64-1", "ibm-redhat-8-10-minimal-amd64", 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := compareImageNames(tt.a, tt.b)
+			switch {
+			case tt.expected > 0:
+				assert.Positive(t, got)
+			case tt.expected < 0:
+				assert.Negative(t, got)
+			default:
+				assert.Zero(t, got)
+			}
+		})
+	}
 }

@@ -191,6 +191,13 @@ func GetLatestVSIImageIDWithPatternO(apiKey string, region string, pattern strin
 		cloudSvc = cloudSvcRef
 	}
 
+	// THREAD SAFE OPERATION
+	// The lookup temporarily points the shared VPC client at the target region's endpoint,
+	// so serialize access when parallel tests share a cloudinfo instance
+	lock := cloudSvc.GetThreadLock()
+	lock.Lock()
+	defer lock.Unlock()
+
 	// Get the latest VSI image ID
 	imageID, err := cloudSvc.GetLatestVSIImageIDWithPattern(region, pattern)
 	if err != nil {
