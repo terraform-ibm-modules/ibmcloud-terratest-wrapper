@@ -305,7 +305,7 @@ func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
 
 	_, _, err := svc.SchematicsApiSvc.TemplateRepoUpload(uploadTarOptions)
 	if err != nil {
-		return err
+		return fmt.Errorf("TemplateRepoUpload failed: %w", err)
 	}
 
 	svc.TestOptions.Testing.Logf("[SCHEMATICS] Uploaded TAR to workspace: %s", svc.WorkspaceID)
