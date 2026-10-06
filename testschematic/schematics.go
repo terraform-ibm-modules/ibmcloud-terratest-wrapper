@@ -306,7 +306,10 @@ func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
 	_, resp, err := svc.SchematicsApiSvc.TemplateRepoUpload(uploadTarOptions)
 	if err != nil {
 		if resp != nil {
-			return fmt.Errorf("TemplateRepoUpload failed (HTTP %d): %v: %w", resp.StatusCode, resp, err)
+			if resp.Result != nil {
+				return fmt.Errorf("TemplateRepoUpload failed (HTTP %d): %v: %w", resp.StatusCode, resp.Result, err)
+			}
+			return fmt.Errorf("TemplateRepoUpload failed (HTTP %d): %s: %w", resp.StatusCode, resp.RawResult, err)
 		}
 		return fmt.Errorf("TemplateRepoUpload failed: %w", err)
 	}
