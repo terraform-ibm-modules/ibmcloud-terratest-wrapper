@@ -7,6 +7,7 @@ import (
 
 	"github.com/IBM/go-sdk-core/v5/core"
 	"github.com/IBM/platform-services-go-sdk/catalogmanagementv1"
+	"github.com/IBM/project-go-sdk/projectv1"
 	"github.com/stretchr/testify/assert"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/cloudinfo"
 	"github.com/terraform-ibm-modules/ibmcloud-terratest-wrapper/common"
@@ -1863,4 +1864,223 @@ func TestAPIErrorDetector(t *testing.T) {
 				"Error skippable determination should be %v", tc.shouldSkip)
 		})
 	}
+}
+
+// TestDisplayFailedMemberSchematicsLogs tests the displayFailedMemberSchematicsLogs helper
+func TestDisplayFailedMemberSchematicsLogs(t *testing.T) {
+	t.Run("returns early if project config is nil", func(t *testing.T) {
+		mockSvc := &cloudinfo.MockCloudInfoServiceForPermutation{}
+		options := &TestAddonOptions{
+			Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+			CloudInfoService: mockSvc,
+		}
+		options.displayFailedMemberSchematicsLogs()
+		mockSvc.AssertNotCalled(t, "GetProjectConfigs")
+	})
+
+	t.Run("returns early if location is shorter than 2 chars", func(t *testing.T) {
+		mockSvc := &cloudinfo.MockCloudInfoServiceForPermutation{}
+		options := &TestAddonOptions{
+			Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+			CloudInfoService: mockSvc,
+			currentProjectConfig: &cloudinfo.ProjectsConfig{
+				ProjectID: "test-project-id",
+				Location:  "u",
+			},
+		}
+		options.displayFailedMemberSchematicsLogs()
+		mockSvc.AssertNotCalled(t, "GetProjectConfigs")
+	})
+
+	t.Run("handles GetProjectConfigs error gracefully", func(t *testing.T) {
+		mockSvc := &cloudinfo.MockCloudInfoServiceForPermutation{}
+		mockSvc.On("GetProjectConfigs", "test-project-id").Return([]projectv1.ProjectConfigSummary{}, fmt.Errorf("network error"))
+		options := &TestAddonOptions{
+			Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+			CloudInfoService: mockSvc,
+			currentProjectConfig: &cloudinfo.ProjectsConfig{
+				ProjectID: "test-project-id",
+				Location:  "us-south",
+			},
+		}
+		options.displayFailedMemberSchematicsLogs()
+		mockSvc.AssertExpectations(t)
+		mockSvc.AssertNotCalled(t, "GetConfig")
+	})
+
+	t.Run("skips config with nil ID", func(t *testing.T) {
+		mockSvc := &cloudinfo.MockCloudInfoServiceForPermutation{}
+		failedState := projectv1.ProjectConfig_State_DeployingFailed
+		mockSvc.On("GetProjectConfigs", "test-project-id").Return([]projectv1.ProjectConfigSummary{
+			{
+				ID:    nil, // should be skipped immediately
+				State: &failedState,
+			},
+		}, nil)
+		options := &TestAddonOptions{
+			Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+			CloudInfoService: mockSvc,
+			currentProjectConfig: &cloudinfo.ProjectsConfig{
+				ProjectID: "test-project-id",
+				Location:  "us-south",
+			},
+		}
+		options.displayFailedMemberSchematicsLogs()
+		mockSvc.AssertExpectations(t)
+		mockSvc.AssertNotCalled(t, "GetConfig")
+	})
+
+	t.Run("skips healthy configurations early", func(t *testing.T) {
+		mockSvc := &cloudinfo.MockCloudInfoServiceForPermutation{}
+		deployedState := projectv1.ProjectConfig_State_Deployed
+		mockSvc.On("GetProjectConfigs", "test-project-id").Return([]projectv1.ProjectConfigSummary{
+			{
+				ID:    core.StringPtr("healthy-config-id"),
+				State: &deployedState,
+			},
+		}, nil)
+		options := &TestAddonOptions{
+			Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+			CloudInfoService: mockSvc,
+			currentProjectConfig: &cloudinfo.ProjectsConfig{
+				ProjectID: "test-project-id",
+				Location:  "us-south",
+			},
+		}
+		options.displayFailedMemberSchematicsLogs()
+		mockSvc.AssertExpectations(t)
+		mockSvc.AssertNotCalled(t, "GetConfig")
+	})
+
+	t.Run("calls GetConfig when state is nil", func(t *testing.T) {
+		configID := "nil-state-config-id"
+		nilStateConfig := &projectv1.ProjectConfig{
+			ID: &configID,
+			// State is nil - not skipped by the early guard, falls through to GetConfig
+		}
+		mockSvc := &cloudinfo.MockCloudInfoServiceForPermutation{}
+		mockSvc.On("GetProjectConfigs", "test-project-id").Return([]projectv1.ProjectConfigSummary{
+			{
+				ID:    &configID,
+				State: nil,
+			},
+		}, nil)
+		mockSvc.On("GetConfig", &cloudinfo.ConfigDetails{
+			ProjectID: "test-project-id",
+			ConfigID:  configID,
+		}).Return(nilStateConfig, &core.DetailedResponse{}, nil)
+		options := &TestAddonOptions{
+			Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+			CloudInfoService: mockSvc,
+			currentProjectConfig: &cloudinfo.ProjectsConfig{
+				ProjectID: "test-project-id",
+				Location:  "us-south",
+			},
+		}
+		options.displayFailedMemberSchematicsLogs()
+		mockSvc.AssertExpectations(t)
+		// ProjectsMemberIsDeployFailed returns false for nil State, so GetSchematicsJobLogsForMember is not called
+		mockSvc.AssertNotCalled(t, "GetSchematicsJobLogsForMember")
+	})
+
+	t.Run("handles GetConfig error gracefully", func(t *testing.T) {
+		configID := "failed-config-id"
+		failedState := projectv1.ProjectConfig_State_DeployingFailed
+		mockSvc := &cloudinfo.MockCloudInfoServiceForPermutation{}
+		mockSvc.On("GetProjectConfigs", "test-project-id").Return([]projectv1.ProjectConfigSummary{
+			{
+				ID:    &configID,
+				State: &failedState,
+				Definition: &projectv1.ProjectConfigSummaryDefinition{
+					Name: core.StringPtr("failed-member"),
+				},
+			},
+		}, nil)
+		mockSvc.On("GetConfig", &cloudinfo.ConfigDetails{
+			ProjectID: "test-project-id",
+			ConfigID:  configID,
+		}).Return((*projectv1.ProjectConfig)(nil), &core.DetailedResponse{}, fmt.Errorf("api error"))
+		options := &TestAddonOptions{
+			Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+			CloudInfoService: mockSvc,
+			currentProjectConfig: &cloudinfo.ProjectsConfig{
+				ProjectID: "test-project-id",
+				Location:  "us-south",
+			},
+		}
+		options.displayFailedMemberSchematicsLogs()
+		mockSvc.AssertExpectations(t)
+		mockSvc.AssertNotCalled(t, "GetSchematicsJobLogsForMember")
+	})
+
+	t.Run("does not log banner when terraform logs are empty", func(t *testing.T) {
+		// banner is only printed when terraLogs is non-empty
+		configID := "failed-config-id"
+		failedState := projectv1.ProjectConfig_State_ValidatingFailed
+		failedConfig := &projectv1.ProjectConfig{
+			ID:    &configID,
+			State: &failedState,
+		}
+		mockSvc := &cloudinfo.MockCloudInfoServiceForPermutation{}
+		mockSvc.On("GetProjectConfigs", "test-project-id").Return([]projectv1.ProjectConfigSummary{
+			{
+				ID:    &configID,
+				State: &failedState,
+				Definition: &projectv1.ProjectConfigSummaryDefinition{
+					Name: core.StringPtr("failed-member"),
+				},
+			},
+		}, nil)
+		mockSvc.On("GetConfig", &cloudinfo.ConfigDetails{
+			ProjectID: "test-project-id",
+			ConfigID:  configID,
+		}).Return(failedConfig, &core.DetailedResponse{}, nil)
+		mockSvc.On("GetSchematicsJobLogsForMember", failedConfig, "failed-member", "us-south", "test-project-id", configID).
+			Return("", "")
+		options := &TestAddonOptions{
+			Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+			CloudInfoService: mockSvc,
+			currentProjectConfig: &cloudinfo.ProjectsConfig{
+				ProjectID: "test-project-id",
+				Location:  "us-south",
+			},
+		}
+		options.displayFailedMemberSchematicsLogs()
+		mockSvc.AssertExpectations(t)
+	})
+
+	t.Run("fetches and logs schematics error logs for failed configurations", func(t *testing.T) {
+		configID := "failed-config-id"
+		failedState := projectv1.ProjectConfig_State_ValidatingFailed
+		failedConfig := &projectv1.ProjectConfig{
+			ID:    &configID,
+			State: &failedState,
+		}
+		mockSvc := &cloudinfo.MockCloudInfoServiceForPermutation{}
+		mockSvc.On("GetProjectConfigs", "test-project-id").Return([]projectv1.ProjectConfigSummary{
+			{
+				ID:    &configID,
+				State: &failedState,
+				Definition: &projectv1.ProjectConfigSummaryDefinition{
+					Name: core.StringPtr("failed-member"),
+				},
+			},
+		}, nil)
+		mockSvc.On("GetConfig", &cloudinfo.ConfigDetails{
+			ProjectID: "test-project-id",
+			ConfigID:  configID,
+		}).Return(failedConfig, &core.DetailedResponse{}, nil)
+		mockSvc.On("GetSchematicsJobLogsForMember", failedConfig, "failed-member", "us-south", "test-project-id", configID).
+			Return("details", "Terraform Plan Error: invalid variable value")
+		options := &TestAddonOptions{
+			Logger:           common.CreateSmartAutoBufferingLogger(t.Name(), false),
+			CloudInfoService: mockSvc,
+			currentProjectConfig: &cloudinfo.ProjectsConfig{
+				ProjectID: "test-project-id",
+				Location:  "us-south",
+			},
+		}
+		options.displayFailedMemberSchematicsLogs()
+		mockSvc.AssertExpectations(t)
+	})
 }
