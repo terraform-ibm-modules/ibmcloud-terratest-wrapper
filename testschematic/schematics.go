@@ -223,7 +223,7 @@ func (svc *SchematicsTestService) CreateUploadTarFile(projectPath string) (strin
 	svc.TestOptions.Testing.Log("[SCHEMATICS] Uploading TAR file")
 	uploadErr := svc.UploadTarToWorkspace(tarballName)
 	if uploadErr != nil {
-		return tarballName, fmt.Errorf("error uploading tar file to workspace: %s - %s", uploadErr.Error(), svc.WorkspaceNameForLog)
+		return tarballName, fmt.Errorf("error uploading tar file to workspace: %w - %s", uploadErr, svc.WorkspaceNameForLog)
 	}
 
 	// -------- UPLOAD TAR FILE ----------
@@ -303,9 +303,15 @@ func (svc *SchematicsTestService) UploadTarToWorkspace(tarPath string) error {
 		FileContentType: core.StringPtr("application/octet-stream"),
 	}
 
-	_, _, err := svc.SchematicsApiSvc.TemplateRepoUpload(uploadTarOptions)
+	_, resp, err := svc.SchematicsApiSvc.TemplateRepoUpload(uploadTarOptions)
 	if err != nil {
-		return err
+		if resp != nil {
+			if resp.Result != nil {
+				return fmt.Errorf("TemplateRepoUpload failed (HTTP %d): %v: %w", resp.StatusCode, resp.Result, err)
+			}
+			return fmt.Errorf("TemplateRepoUpload failed (HTTP %d): %s: %w", resp.StatusCode, resp.RawResult, err)
+		}
+		return fmt.Errorf("TemplateRepoUpload failed: %w", err)
 	}
 
 	svc.TestOptions.Testing.Logf("[SCHEMATICS] Uploaded TAR to workspace: %s", svc.WorkspaceID)
