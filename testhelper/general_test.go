@@ -812,22 +812,23 @@ func TestGetLatestVSIImageIDWithPatternO(t *testing.T) {
 	})
 }
 
-// TestGetLatestVSIImageID exercises the no-options public wrapper to confirm it
-// routes through GetLatestVSIImageIDWithPattern with the default pattern.
-func TestGetLatestVSIImageIDPublicWrapper(t *testing.T) {
-	t.Run("Success - delegates to GetLatestVSIImageIDWithPattern with default pattern", func(t *testing.T) {
-		infoSvc := cloudInfoServiceMock{}
-		infoSvc.On("GetLatestVSIImageIDWithPattern", "us-south", cloudinfo.DefaultVSIImagePattern).
-			Return("r006-wrapper-image-id", nil)
+// TestGetLatestVSIImageIDPublicWrappers calls the no-options public wrappers directly.
+// They build a real CloudInfoService, so only the error path can run without credentials:
+// an empty API key fails in NewCloudInfoServiceWithKey before any network call.
+func TestGetLatestVSIImageIDPublicWrappers(t *testing.T) {
+	t.Run("GetLatestVSIImageID - returns error for empty API key", func(t *testing.T) {
+		imageID, err := GetLatestVSIImageID("", "us-south")
 
-		options := TesthelperTerraformOptions{CloudInfoService: &infoSvc}
-		// Call through GetLatestVSIImageIDWithPatternO directly with the default pattern
-		// (GetLatestVSIImageID itself calls NewCloudInfoServiceWithKey which requires a real key,
-		// so we exercise the same code path via the O variant with a mock).
-		imageID, err := GetLatestVSIImageIDWithPatternO("FAKEKEY", "us-south", cloudinfo.DefaultVSIImagePattern, options)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "empty API Key")
+		assert.Empty(t, imageID)
+	})
 
-		assert.NoError(t, err)
-		assert.Equal(t, "r006-wrapper-image-id", imageID)
-		infoSvc.AssertExpectations(t)
+	t.Run("GetLatestVSIImageIDWithPattern - returns error for empty API key", func(t *testing.T) {
+		imageID, err := GetLatestVSIImageIDWithPattern("", "us-south", `^ibm-ubuntu-\d+-\d+-minimal-amd64-\d+$`)
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "empty API Key")
+		assert.Empty(t, imageID)
 	})
 }
