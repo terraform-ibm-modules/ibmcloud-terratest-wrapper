@@ -19,6 +19,10 @@ const (
 
 	// VSIImageStatusAvailable is the only image status safe to use in tests.
 	VSIImageStatusAvailable = "available"
+
+	// maxImageListPages caps pagination in listAllPublicImages so an unexpected Next link cannot loop forever.
+	// At 50 images per page this allows 5000 public images, far more than any region has.
+	maxImageListPages = 100
 )
 
 // imageNameChunkRegex splits an image name into alternating runs of digits and non-digits.
@@ -50,6 +54,7 @@ func compareImageNames(a string, b string) int {
 
 // listAllPublicImages fetches all pages of public images from the VPC API.
 // The API returns at most 50 images per page; this follows Next.Href until exhausted.
+// Returns an error after maxImageListPages pages rather than a partial list that could miss the latest image.
 func (infoSvc *CloudInfoService) listAllPublicImages() ([]vpcv1.Image, error) {
 	var allImages []vpcv1.Image
 
@@ -57,7 +62,11 @@ func (infoSvc *CloudInfoService) listAllPublicImages() ([]vpcv1.Image, error) {
 		Visibility: core.StringPtr("public"),
 	}
 
-	for {
+	for page := 1; ; page++ {
+		if page > maxImageListPages {
+			return nil, fmt.Errorf("failed to list images: exceeded maximum of %d pages", maxImageListPages)
+		}
+
 		collection, detailedResponse, err := infoSvc.vpcService.ListImages(opts)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list images: %w (response: %v)", err, detailedResponse)

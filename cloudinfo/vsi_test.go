@@ -14,12 +14,20 @@ import (
 // Each element of pages is one API page; pageIndex advances on each ListImages call.
 type mockVpcServiceForImages struct {
 	vpcServiceMock
-	pages     [][]vpcv1.Image // each element is one page of images
-	pageIndex int             // tracks the current page
+	pages       [][]vpcv1.Image // each element is one page of images
+	pageIndex   int             // tracks the current page
+	endlessNext bool            // always return a Next link, to simulate a misbehaving API
+	calls       int             // number of ListImages calls
 }
 
 // ListImages returns the next page and sets collection.Next if more pages remain.
 func (m *mockVpcServiceForImages) ListImages(options *vpcv1.ListImagesOptions) (*vpcv1.ImageCollection, *core.DetailedResponse, error) {
+	m.calls++
+	if m.endlessNext {
+		nextHref := fmt.Sprintf("https://mock-vpc/v1/images?start=page%d&limit=50", m.calls)
+		return &vpcv1.ImageCollection{Images: []vpcv1.Image{}, Next: &vpcv1.ImageCollectionNext{Href: &nextHref}}, nil, nil
+	}
+
 	if len(m.pages) == 0 {
 		return &vpcv1.ImageCollection{Images: []vpcv1.Image{}}, nil, nil
 	}
@@ -497,6 +505,17 @@ func TestListAllPublicImagesPagination(t *testing.T) {
 		images, err := infoSvc.GetVSIImagesByPattern("us-south", DefaultVSIImagePattern)
 		assert.NoError(t, err)
 		assert.Len(t, images, 2, "Should collect matching images from both pages")
+	})
+
+	t.Run("Error - Stops after max pages when Next never ends", func(t *testing.T) {
+		mockVpc := &mockVpcServiceForImages{endlessNext: true}
+		infoSvc := &CloudInfoService{vpcService: mockVpc}
+
+		images, err := infoSvc.listAllPublicImages()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "exceeded maximum of")
+		assert.Nil(t, images)
+		assert.Equal(t, maxImageListPages, mockVpc.calls, "Should call ListImages exactly maxImageListPages times")
 	})
 }
 
