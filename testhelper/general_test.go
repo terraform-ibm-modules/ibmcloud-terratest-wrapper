@@ -259,6 +259,9 @@ func (mock *cloudInfoServiceMock) GetLatestVSIImageIDWithPattern(region string, 
 
 func (mock *cloudInfoServiceMock) GetVSIImagesByPattern(region string, pattern string) ([]vpcv1.Image, error) {
 	args := mock.Called(region, pattern)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
 	return args.Get(0).([]vpcv1.Image), args.Error(1)
 }
 
