@@ -119,8 +119,6 @@ func (infoSvc *CloudInfoService) GetLatestVSIImageID(region string) (string, err
 // GetLatestVSIImageIDWithPattern returns the latest available image ID matching the given regex pattern.
 // Fetches all pages of public images, filters by pattern and "available" status, returns the newest name.
 func (infoSvc *CloudInfoService) GetLatestVSIImageIDWithPattern(region string, pattern string) (string, error) {
-	log.Printf("Retrieving VSI images for region %s with pattern: %s", region, pattern)
-
 	matchingImages, err := infoSvc.GetVSIImagesByPattern(region, pattern)
 	if err != nil {
 		return "", err
@@ -153,6 +151,8 @@ func (infoSvc *CloudInfoService) GetVSIImagesByPattern(region string, pattern st
 	if err != nil {
 		return nil, fmt.Errorf("invalid regex pattern '%s': %w", pattern, err)
 	}
+
+	log.Printf("Retrieving VSI images for region %s with pattern: %s", region, pattern)
 
 	restore, err := infoSvc.setRegionEndpoint(region)
 	if err != nil {
