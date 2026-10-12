@@ -153,7 +153,7 @@ func GetBestPowerSystemsRegionO(apiKey string, prefsFilePath string, defaultRegi
 }
 
 // GetLatestVSIImageID retrieves the latest available VSI image ID for a given region
-// using the default image pattern (latest Red Hat minimal, any major version).
+// using the default image pattern (Red Hat 8.x minimal).
 // Returns the image ID string and error.
 func GetLatestVSIImageID(apiKey string, region string) (string, error) {
 	return GetLatestVSIImageIDWithPattern(apiKey, region, cloudinfo.DefaultVSIImagePattern)

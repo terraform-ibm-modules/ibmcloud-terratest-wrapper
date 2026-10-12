@@ -14,11 +14,8 @@ import (
 )
 
 const (
-	// DefaultVSIImagePattern matches Red Hat minimal amd64 images of any major version, so the default
-	// lookup always returns the newest available RHEL (major, minor and build all float).
-	// To stay on a specific major version, pass a pattern such as `^ibm-redhat-9-\d+-minimal-amd64-\d+$`
-	// to GetLatestVSIImageIDWithPattern.
-	DefaultVSIImagePattern = `^ibm-redhat-\d+-\d+-minimal-amd64-\d+$`
+	// DefaultVSIImagePattern matches Red Hat 8.x minimal amd64 images.
+	DefaultVSIImagePattern = `^ibm-redhat-8-\d+-minimal-amd64-\d+$`
 
 	// VSIImageStatusAvailable is the only image status safe to use in tests.
 	VSIImageStatusAvailable = "available"
@@ -121,7 +118,7 @@ func (infoSvc *CloudInfoService) setRegionEndpoint(region string) (func(), error
 	return func() { _ = infoSvc.vpcService.SetServiceURL(originalURL) }, nil
 }
 
-// GetLatestVSIImageID returns the latest available Red Hat minimal image ID (any major version) for the region.
+// GetLatestVSIImageID returns the latest available Red Hat 8.x minimal image ID for the region.
 // Use this instead of hard-coding image IDs in tests to avoid region lock-in and deprecated images.
 func (infoSvc *CloudInfoService) GetLatestVSIImageID(region string) (string, error) {
 	return infoSvc.GetLatestVSIImageIDWithPattern(region, DefaultVSIImagePattern)
