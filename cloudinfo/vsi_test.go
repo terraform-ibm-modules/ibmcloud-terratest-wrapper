@@ -83,6 +83,30 @@ func TestGetLatestVSIImageID(t *testing.T) {
 		assert.Equal(t, image2ID, imageID, "Should return the latest image (8-10)")
 	})
 
+	t.Run("Success - Returns newest major version across RHEL 8, 9 and 10", func(t *testing.T) {
+		// Image names available in us-south as of 2026-10-12
+		names := []string{
+			"ibm-redhat-8-10-minimal-amd64-18",
+			"ibm-redhat-9-6-minimal-amd64-13",
+			"ibm-redhat-9-8-minimal-amd64-3",
+			"ibm-redhat-10-0-minimal-amd64-4",
+			"ibm-redhat-10-2-minimal-amd64-1",
+		}
+		status := "available"
+		var page []vpcv1.Image
+		for i := range names {
+			id := "r006-" + names[i]
+			page = append(page, vpcv1.Image{Name: &names[i], ID: &id, Status: &status})
+		}
+
+		infoSvc := &CloudInfoService{vpcService: &mockVpcServiceForImages{pages: [][]vpcv1.Image{page}}}
+
+		imageID, err := infoSvc.GetLatestVSIImageID("us-south")
+
+		assert.NoError(t, err)
+		assert.Equal(t, "r006-ibm-redhat-10-2-minimal-amd64-1", imageID, "Should return RHEL 10.2, the newest major and minor")
+	})
+
 	t.Run("Error - Empty region", func(t *testing.T) {
 		infoSvc := &CloudInfoService{}
 		_, err := infoSvc.GetLatestVSIImageID("")
@@ -454,10 +478,11 @@ func TestDefaultVSIImagePattern(t *testing.T) {
 			"ibm-redhat-8-10-minimal-amd64-5",
 			"ibm-redhat-8-9-minimal-amd64-4",
 			"ibm-redhat-8-12-minimal-amd64-1",
+			"ibm-redhat-9-6-minimal-amd64-13",
+			"ibm-redhat-10-2-minimal-amd64-1",
 		}
 
 		invalidNames := []string{
-			"ibm-redhat-7-8-minimal-amd64-3",   // Wrong major version
 			"ibm-ubuntu-20-04-minimal-amd64-1", // Wrong OS
 			"ibm-redhat-8-8-full-amd64-3",      // Not minimal
 			"ibm-redhat-8-8-minimal-s390x-3",   // Wrong architecture
@@ -565,6 +590,7 @@ func TestCompareImageNames(t *testing.T) {
 	}{
 		{"Minor version 10 newer than 9", "ibm-redhat-8-10-minimal-amd64-1", "ibm-redhat-8-9-minimal-amd64-5", 1},
 		{"Minor version 8 older than 10", "ibm-redhat-8-8-minimal-amd64-3", "ibm-redhat-8-10-minimal-amd64-5", -1},
+		{"Major version 10 newer than 9", "ibm-redhat-10-2-minimal-amd64-1", "ibm-redhat-9-8-minimal-amd64-3", 1},
 		{"Build 10 newer than build 9", "ibm-redhat-8-10-minimal-amd64-10", "ibm-redhat-8-10-minimal-amd64-9", 1},
 		{"Identical names", "ibm-redhat-8-10-minimal-amd64-5", "ibm-redhat-8-10-minimal-amd64-5", 0},
 		{"Non-numeric segments compare as strings", "ibm-ubuntu-24-04-minimal-amd64-1", "ibm-redhat-8-10-minimal-amd64-1", 1},
