@@ -188,6 +188,33 @@ func TestGetLatestVSIImageIDErrors(t *testing.T) {
 		assert.Contains(t, err.Error(), "is not available")
 	})
 
+	t.Run("Error - Missing region details return error instead of panic", func(t *testing.T) {
+		available := regionStatusAvailable
+		endpoint := "https://us-south.iaas.cloud.ibm.com"
+		cases := []struct {
+			name        string
+			region      *vpcv1.Region
+			errContains string
+		}{
+			{"nil region", nil, "missing status"},
+			{"nil status", &vpcv1.Region{Endpoint: &endpoint}, "missing status"},
+			{"nil endpoint", &vpcv1.Region{Status: &available}, "missing endpoint"},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				infoSvc := &CloudInfoService{vpcService: &regionDetailMock{region: tc.region}}
+
+				var err error
+				assert.NotPanics(t, func() {
+					_, err = infoSvc.GetLatestVSIImageID("us-south")
+				})
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errContains)
+			})
+		}
+	})
+
 	t.Run("Error - SetServiceURL failure propagates", func(t *testing.T) {
 		mockVpc := &mockVpcServiceForImages{}
 		mockVpc.shouldFailSetServiceURL = true
@@ -247,6 +274,16 @@ func (m *unavailableRegionMock) GetRegion(options *vpcv1.GetRegionOptions) (*vpc
 		Status:   &status,
 	}
 	return &region, nil, nil
+}
+
+// regionDetailMock returns the configured region (which may be nil or have nil fields) from GetRegion.
+type regionDetailMock struct {
+	vpcServiceMock
+	region *vpcv1.Region
+}
+
+func (m *regionDetailMock) GetRegion(options *vpcv1.GetRegionOptions) (*vpcv1.Region, *core.DetailedResponse, error) {
+	return m.region, nil, nil
 }
 
 // listImagesErrorMock returns an error from ListImages so we can test that path.

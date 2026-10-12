@@ -97,8 +97,16 @@ func (infoSvc *CloudInfoService) setRegionEndpoint(region string) (func(), error
 		return nil, fmt.Errorf("failed to get region details: %w", err)
 	}
 
+	if regionDetail == nil || regionDetail.Status == nil {
+		return nil, fmt.Errorf("region details for %s are missing status", region)
+	}
+
 	if *regionDetail.Status != regionStatusAvailable {
 		return nil, fmt.Errorf("region %s is not available (status: %s)", region, *regionDetail.Status)
+	}
+
+	if regionDetail.Endpoint == nil {
+		return nil, fmt.Errorf("region details for %s are missing endpoint", region)
 	}
 
 	originalURL := infoSvc.vpcService.GetServiceURL()
